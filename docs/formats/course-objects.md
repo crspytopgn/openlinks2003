@@ -2,7 +2,8 @@
 
 Status: partial. Billboards (`MasterObj`, `2DPlant`) and 3D objects
 (`MasterObj3D`, `3DPlant`, `texture3dobj.t3l`, `.maq`) are decoded and drawn
-by the course viewer. `TrnyPlant` is only surveyed.
+by the course viewer, and so are the tournament people (`TrnyPlant`), drawn
+with the `CROWDS.LIB` sprites.
 Seen in: entries of every course archive ([crz.md](crz.md)); checked on
 Gleneagles (399,306 billboards) and Kauri (643,211)
 
@@ -174,13 +175,30 @@ u32 sizes (the texture's used area, perhaps), two zero u32, `u32 palette`
 and `u32 pixels` (offsets). The palette is 256 colours of blue, green, red,
 alpha; the pixels are one byte each, rows top to bottom.
 
-## `TrnyPlant`: tournament extras (surveyed)
+## `TrnyPlant`: tournament people
 
-`u32 2`, `u32 count`, zero up to 0x40, then a stream like `2DPlant` with
-narrower records: cells start with a 0xFF byte and three f32, and
-placements are 11 bytes (`u8`, `u32`, `u16 x`, `u16 y`, `i16 z` in the same
-units). These are presumably the crowds and tents shown in tournament mode.
-Not decoded further.
+| Offset | Type | Name | Notes |
+|--------|------|------|-------|
+| 0x00 | u32 | version | 2 |
+| 0x04 | u32 | count | Number of placements (6,668 at Gleneagles, 22,231 at Kauri) |
+| 0x08 | | | Zero up to 0x40 |
+| 0x40 | | stream | As in `2DPlant`, with narrower records |
+
+A cell starts with a single 0xFF byte and `f32 x, y, z` (corner and base
+height, as in `2DPlant`). A placement is `u8 kind`, then `u32 instance` with
+the same two flag bits as `2DPlant` (an extra byte, an extra word; both are
+rare here), then `u16 x`, `u16 y`, `i16 z` in 1/16 ft. There is no type index
+or height.
+
+`kind` is 0 for almost every placement, and 1, 2 or 3 for a few dozen. Half
+of the kind 0 placements are within about 110 ft of a green or tee, so these
+are the spectators. Which sprites the game draws for each kind is not known.
+`olcourse export --crowds CROWDS.LIB` assumes kind 0 = `fan`, 1 = `Sit`, 2 =
+`media` and 3 = `Official` (the sprite groups in `CROWDS.LIB`), picks the
+person as `instance` modulo the size of the group, and uses the front view.
+`CROWDS.LIB` holds `<group><NNN><view>A.btc` sprites, 128 x 128, with views
+`a` to `e` running from the front round to the back; a sprite is about six
+feet tall.
 
 ## Implementation
 
@@ -197,6 +215,10 @@ Not decoded further.
   `olcourse export` writes `models.bin` (meshes and placements) and the
   textures under `textures/models/`; `CourseModels`
   (`game/scripts/course/course_models.gd`) draws them.
+- `olcore::parse_crowd_placements` reads `TrnyPlant`. With `--crowds`,
+  `olcourse export` writes `crowds.bin` (the `objects.bin` format) and a
+  `crowds` list in `course.json`; the viewer draws them as billboards and T
+  shows or hides them.
 
 ## Open questions
 
@@ -206,4 +228,6 @@ Not decoded further.
   `MasterObj` entry of a library `.BTX`) and the remaining header tables.
 - The exact transform order for 3D placements, and the meaning of `flag`
   and of the point-only `3DPlant` records.
-- `TrnyPlant` and `ObjectCull.dat`.
+- Which sprites each `TrnyPlant` kind uses, and how the game chooses a
+  person and a view.
+- `ObjectCull.dat`.

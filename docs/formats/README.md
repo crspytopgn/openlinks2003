@@ -30,7 +30,7 @@ What the file holds and when the game loads it.
   encryption, terrain mesh, holes, textures and materials.
 - [course-objects.md](course-objects.md): the objects placed on a course:
   billboards (`MasterObj`, `2DPlant`) and 3D objects (`MasterObj3D`,
-  `3DPlant`, `.t3l`, `.maq`); tournament placements surveyed.
+  `3DPlant`, `.t3l`, `.maq`) and tournament spectators (`TrnyPlant`).
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.
