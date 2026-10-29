@@ -115,7 +115,7 @@ struct Fixture {
   Bytes archive;
 };
 
-Fixture make_fixture() {
+Fixture make_fixture(bool plain_header = false) {
   Fixture f;
   f.keys.tables = test_tables();
   const std::uint8_t archive_key[8] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00};
@@ -178,7 +178,7 @@ Fixture make_fixture() {
   put_u32(head, std::uint32_t(body.size()));
   put_u32(head, 3);
   put_u32(head, dir_offset);
-  dir_cipher.encrypt(head.data(), head.size());
+  if (!plain_header) dir_cipher.encrypt(head.data(), head.size());
   std::copy(head.begin(), head.end(), body.begin());
   f.archive = body;
   return f;
@@ -213,6 +213,49 @@ void test_reads_locked_archive() {
     threw = true;
   }
   CHECK(threw);
+}
+
+void test_reads_plain_header_with_locked_directory() {
+  Fixture f = make_fixture(true);
+  auto keys = find_game_keys(f.exe, f.archive);
+  CHECK(keys.has_value() && keys->archive_key == f.keys.archive_key);
+  CrzArchive a(f.archive, &f.keys);
+  CHECK(a.entries().size() == 3);
+  auto v = a.read("vertex");
+  CHECK(std::string(v.begin(), v.end()) == "terrain data");
+
+  bool threw = false;
+  try {
+    CrzArchive no_keys(f.archive, nullptr);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+void test_terrain_wide_indices() {
+  const std::uint32_t nv = 70000;
+  Bytes b;
+  put_u32(b, 6);
+  put_u32(b, nv);
+  for (std::uint32_t i = 0; i < nv; ++i) {
+    for (int c = 0; c < 5; ++c) put_f32(b, float(i));
+    put_u16(b, 0);
+    put_u16(b, 0);
+  }
+  put_u32(b, 1);
+  for (int k = 0; k < 3; ++k) put_u32(b, (1u << 30) | 0xfffff);
+  put_u16(b, 3);  // material
+  put_u32(b, 0);  // mapping
+  put_u16(b, 0);
+  put_u32(b, 0);
+  put_u32(b, 66000);
+  put_u32(b, nv - 1);
+  Terrain t = parse_terrain(b);
+  CHECK(t.triangles.size() == 1);
+  CHECK(t.triangles[0].material == 3);
+  CHECK(t.triangles[0].v[1] == 66000);
+  CHECK(t.triangles[0].v[2] == nv - 1);
 }
 
 void test_course_text() {
@@ -307,8 +350,10 @@ int main() {
       {"bunky_round_trips_every_length", test_bunky_round_trips_every_length},
       {"finds_keys_in_executable", test_finds_keys_in_executable},
       {"reads_locked_archive", test_reads_locked_archive},
+      {"plain_header_with_locked_directory", test_reads_plain_header_with_locked_directory},
       {"course_text", test_course_text},
       {"terrain", test_terrain},
+      {"terrain_wide_indices", test_terrain_wide_indices},
       {"holes", test_holes},
   };
   for (auto& [name, fn] : tests) {

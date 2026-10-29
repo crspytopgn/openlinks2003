@@ -29,6 +29,11 @@ std::optional<BunkyTables> find_bunky_tables(const std::vector<std::uint8_t>& ex
 // turns those bytes into a valid ARC0 header.
 std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, const std::uint8_t* header);
 
+// Same, given a whole archive. This also works for archives with a plain
+// header and a locked directory (some converted .CVT courses): a candidate
+// is then accepted when it turns the first directory record into a valid one.
+std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, const std::vector<std::uint8_t>& archive);
+
 // One entry of a course archive. See docs/formats/crz.md.
 struct CrzEntry {
   std::string name;
@@ -60,6 +65,7 @@ public:
   std::vector<std::uint8_t> read(const std::string& name) const;
 
 private:
+  std::vector<CrzEntry> parse_directory(const std::vector<std::uint8_t>& d, std::uint32_t count) const;
   std::vector<std::uint8_t> data_;
   std::vector<CrzEntry> entries_;
   std::optional<BunkyTables> tables_;

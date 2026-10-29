@@ -62,7 +62,10 @@ std::optional<BunkyTables> find_bunky_tables(const std::vector<std::uint8_t>& ex
   return std::nullopt;
 }
 
-std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, const std::uint8_t* header) {
+// Tries every candidate key in the executable and returns the first that
+// `accept` likes.
+template <typename Accept>
+std::optional<GameKeys> search_keys(const std::vector<std::uint8_t>& exe, Accept accept) {
   auto tables = find_bunky_tables(exe);
   if (!tables) return std::nullopt;
   // The game passes the 64-bit key to its archive reader as two pushed
@@ -73,15 +76,67 @@ std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, con
     k.tables = *tables;
     std::memcpy(&k.archive_key[0], &exe[i + 6], 4);
     std::memcpy(&k.archive_key[4], &exe[i + 1], 4);
-    std::uint8_t h[kHeaderSize];
-    std::memcpy(h, header, kHeaderSize);
-    BunkyCipher(k.tables, k.archive_key.data(), k.archive_key.size(), kDirectoryRounds).decrypt(h, kHeaderSize);
-    if (valid_header(h, 0)) return k;
+    if (accept(k)) return k;
   }
   return std::nullopt;
 }
 
+std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, const std::uint8_t* header) {
+  return search_keys(exe, [&](const GameKeys& k) {
+    std::uint8_t h[kHeaderSize];
+    std::memcpy(h, header, kHeaderSize);
+    BunkyCipher(k.tables, k.archive_key.data(), k.archive_key.size(), kDirectoryRounds).decrypt(h, kHeaderSize);
+    return valid_header(h, 0);
+  });
+}
+
+std::optional<GameKeys> find_game_keys(const std::vector<std::uint8_t>& exe, const std::vector<std::uint8_t>& archive) {
+  if (archive.size() < kHeaderSize) return std::nullopt;
+  if (!CrzArchive::is_plain(archive.data())) return find_game_keys(exe, archive.data());
+  if (!valid_header(archive.data(), archive.size())) return std::nullopt;
+  const std::size_t dir = ld32(archive.data() + 12);
+  if (ld32(archive.data() + 8) == 0) return std::nullopt;
+  return search_keys(exe, [&](const GameKeys& k) {
+    std::uint8_t rec[kRecordSize];
+    std::memcpy(rec, &archive[dir], kRecordSize);
+    BunkyCipher(k.tables, k.archive_key.data(), k.archive_key.size(), kDirectoryRounds).decrypt(rec, kRecordSize);
+    if (ld32(rec) != 0 || rec[4] == 0) return false;
+    // A printable, NUL-terminated name that points inside the file.
+    std::size_t len = 0;
+    while (len < 32 && rec[4 + len] != 0) {
+      if (rec[4 + len] < 0x20 || rec[4 + len] > 0x7e) return false;
+      ++len;
+    }
+    if (len == 32) return false;
+    const std::uint32_t offset = ld32(rec + 36), packed = ld32(rec + 40);
+    return offset <= archive.size() && packed <= archive.size() - offset;
+  });
+}
+
 bool CrzArchive::is_plain(const std::uint8_t* header) { return std::memcmp(header, "ARC0", 4) == 0; }
+
+std::vector<CrzEntry> CrzArchive::parse_directory(const std::vector<std::uint8_t>& d, std::uint32_t count) const {
+  BinaryReader r(d);
+  std::vector<CrzEntry> out;
+  out.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    CrzEntry e;
+    if (r.u32() != 0) throw ReadError("course directory is unreadable");
+    e.name = r.fixed_string(32);
+    e.offset = r.u32();
+    e.packed_size = r.u32();
+    e.size = r.u32();
+    e.method = r.u32();
+    e.checksum = r.u32();
+    e.locked = (r.u32() & 1) != 0;
+    r.u32();  // always 0
+    if (e.offset > data_.size() || e.packed_size > data_.size() - e.offset) {
+      throw ReadError("course entry '" + e.name + "' runs past end of file");
+    }
+    out.push_back(std::move(e));
+  }
+  return out;
+}
 
 CrzArchive::CrzArchive(std::vector<std::uint8_t> data, const GameKeys* keys) : data_(std::move(data)) {
   if (data_.size() < kHeaderSize) throw ReadError("course archive is too short");
@@ -102,24 +157,16 @@ CrzArchive::CrzArchive(std::vector<std::uint8_t> data, const GameKeys* keys) : d
   std::vector<std::uint8_t> d(data_.begin() + dir, data_.begin() + dir + std::size_t(count) * kRecordSize);
   if (locked) {
     BunkyCipher(*tables_, archive_key_.data(), archive_key_.size(), kDirectoryRounds).decrypt(d.data(), d.size());
-  }
-  BinaryReader r(std::move(d));
-  entries_.reserve(count);
-  for (std::uint32_t i = 0; i < count; ++i) {
-    CrzEntry e;
-    r.u32();  // always 0
-    e.name = r.fixed_string(32);
-    e.offset = r.u32();
-    e.packed_size = r.u32();
-    e.size = r.u32();
-    e.method = r.u32();
-    e.checksum = r.u32();
-    e.locked = (r.u32() & 1) != 0;
-    r.u32();  // always 0
-    if (e.offset > data_.size() || e.packed_size > data_.size() - e.offset) {
-      throw ReadError("course entry '" + e.name + "' runs past end of file");
+    entries_ = parse_directory(d, count);
+  } else {
+    // Some converted courses have a plain header but a locked directory.
+    try {
+      entries_ = parse_directory(d, count);
+    } catch (const ReadError&) {
+      if (!keys) throw;
+      BunkyCipher(*tables_, archive_key_.data(), archive_key_.size(), kDirectoryRounds).decrypt(d.data(), d.size());
+      entries_ = parse_directory(d, count);
     }
-    entries_.push_back(std::move(e));
   }
 
   if (auto c = find(kCopyrightEntry)) {
