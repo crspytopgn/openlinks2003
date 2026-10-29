@@ -258,6 +258,25 @@ void test_terrain_wide_indices() {
   CHECK(t.triangles[0].v[2] == nv - 1);
 }
 
+void test_ground_classes() {
+  Bytes b;
+  put_u32(b, 4);
+  put_u32(b, 2);
+  b.resize(8 + 2 * 243, 0xcd);
+  b[8 + 0x54] = 3;
+  b[8 + 243 + 0x54] = 1;
+  auto classes = parse_ground_classes(b);
+  CHECK(classes.size() == 2 && classes[0] == 3 && classes[1] == 1);
+  b.pop_back();
+  bool threw = false;
+  try {
+    parse_ground_classes(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
 void test_course_text() {
   const std::u16string text = u"\xfeff" u"CourseName = Test Links\r\nHoleName1 = Caf\u00e9\r\n";
   Bytes b;
@@ -351,6 +370,7 @@ int main() {
       {"finds_keys_in_executable", test_finds_keys_in_executable},
       {"reads_locked_archive", test_reads_locked_archive},
       {"plain_header_with_locked_directory", test_reads_plain_header_with_locked_directory},
+      {"ground_classes", test_ground_classes},
       {"course_text", test_course_text},
       {"terrain", test_terrain},
       {"terrain_wide_indices", test_terrain_wide_indices},

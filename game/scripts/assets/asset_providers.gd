@@ -21,6 +21,12 @@ static func register_course_loader(loader: CourseLoader) -> void:
 static func ensure_defaults() -> void:
 	if course_loaders.is_empty():
 		course_loaders.append(PlaceholderCourseLoader.new())
+	var has_crz := false
+	for loader in course_loaders:
+		has_crz = has_crz or loader is CrzCourseLoader
+	if not has_crz:
+		# Real courses (.CRZ / .RNG) from the player's own files.
+		course_loaders.push_front(CrzCourseLoader.new())
 	if object_library == null:
 		object_library = PlaceholderObjectLibrary.new()
 	if golfer_assets == null:
