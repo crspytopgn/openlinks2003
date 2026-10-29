@@ -29,7 +29,7 @@ uniform float texture_metres = 2.5; // one tile of the near texture
 uniform float texture_strength = 0.85;
 // How much of the photo's own colour shows through (at the vertex colour's
 // brightness), which tames the flat, saturated surface colours.
-uniform vec3 photo_mix = vec3(0.45, 0.15, 0.6); // grass, rough, sand
+uniform vec3 photo_mix = vec3(0.45, 0.3, 0.6); // grass, rough, sand
 
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
