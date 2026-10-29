@@ -1,0 +1,29 @@
+# Build output
+build/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Godot
+game/.godot/
+game/export/
+*.import
+
+# Original game data - NEVER commit (see docs/clean-room.md)
+game_data/
+original/
+*.lnx
+*.lks
+*.crs
+*.xcr
+*.mpk
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
