@@ -31,7 +31,9 @@ var triangles := PackedInt32Array()
 var triangle_material := PackedInt32Array()
 ## Ground class per material.
 var ground_classes := PackedByteArray()
-## Per material: {"texture": Texture2D or null, "colour": Color}
+## Per material: {"texture": Texture2D or null, "colour": Color}, and for a
+## free stand-in texture also "normal" (Texture2D or null), "tint" (Color)
+## and "tile" (metres per repeat)
 var materials: Array[Dictionary] = []
 
 var _origin := Vector2.ZERO
@@ -212,9 +214,13 @@ func _material(m: int) -> StandardMaterial3D:
 	var tex: Texture2D = info.get("texture")
 	if tex != null:
 		mat.albedo_texture = tex
-		mat.albedo_color = Color.WHITE
+		mat.albedo_color = info.get("tint", Color.WHITE)
+		var normal: Texture2D = info.get("normal")
+		if normal != null:
+			mat.normal_enabled = true
+			mat.normal_texture = normal
 		mat.uv1_triplanar = true
 		mat.uv1_world_triplanar = true
-		mat.uv1_scale = Vector3.ONE / TILE_METRES
+		mat.uv1_scale = Vector3.ONE / float(info.get("tile", TILE_METRES))
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return mat

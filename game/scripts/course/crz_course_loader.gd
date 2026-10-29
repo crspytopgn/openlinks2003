@@ -15,6 +15,8 @@ const CACHE_DIR := "user://course_cache"
 const CACHE_VERSION := 1
 const EXE_NAMES := ["LINKSM_1.EXE", "LinksMMIII.exe", "LinksM~1.exe"]
 const TEXTURE_LIBRARIES := ["STDTER_1.LIB", "StdTerrain.lib", "StdTer~1.lib"]
+## How far one repeat of a free ground texture spans.
+const FREE_TILE_METRES := 2.5
 
 const HEADER_VERSION := 15
 const TERRAIN_VERSION := 6
@@ -28,6 +30,7 @@ const AIM_POINTS_PER_HOLE := 5
 const MATERIAL_SLOTS := 12
 
 static var _keys := {}
+static var _free_means := {}  ## free ground slot -> its average colour
 
 
 func can_load(path: String) -> bool:
@@ -381,6 +384,8 @@ static func _vertex_normals(positions: PackedVector3Array, triangles: PackedInt3
 
 ## A texture and a flat colour for each material. Textures come from the
 ## course archive or from the standard terrain library on the game disc.
+## A stock texture that isn't there (add-on courses played without the
+## standard library) falls back to the free ground texture for its surface.
 func _materials(path: String, names: PackedStringArray, classes: PackedByteArray, archive: CrzArchive) -> Array[Dictionary]:
 	if archive == null:
 		archive = _open(path)
@@ -399,6 +404,8 @@ func _materials(path: String, names: PackedStringArray, classes: PackedByteArray
 			if not loaded.has(key):
 				loaded[key] = _load_texture(tex_name, archive, library)
 			info.texture = loaded[key]
+			if info.texture == null:
+				info.merge(_free_ground(ground, info.colour), true)
 		out.append(info)
 	return out
 
@@ -416,6 +423,25 @@ static func _load_texture(tex_name: String, archive: CrzArchive, library: Arc0) 
 		return null
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
+
+
+## The free ground texture for a ground class, tinted towards the class
+## colour so greens, fairways and rough still look apart. Empty when the free
+## textures aren't there, or for water, which keeps its flat colour.
+static func _free_ground(ground: int, colour: Color) -> Dictionary:
+	var surface: Surface.Type = CrzTerrain.CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
+	if surface == Surface.Type.WATER:
+		return {}
+	var slot := FreeAssets.slot_for(surface)
+	var tex := FreeAssets.ground(slot, "albedo")
+	if tex == null:
+		return {}
+	if not _free_means.has(slot):
+		_free_means[slot] = FreeAssets.mean_color(tex)
+	var mean: Color = _free_means[slot]
+	var tint := Color(colour.r / maxf(mean.r, 0.05), colour.g / maxf(mean.g, 0.05), colour.b / maxf(mean.b, 0.05))
+	return {"texture": tex, "normal": FreeAssets.ground(slot, "normal"), "tint": tint,
+		"tile": FREE_TILE_METRES}
 
 
 static func _class_colour(ground: int) -> Color:

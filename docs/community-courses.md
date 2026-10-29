@@ -17,8 +17,11 @@ Corner and add them to the game:
 
 Course files are locked with the same key as the disc courses, which the
 course loader reads from the player's own `LINKSM_1.EXE`, so they play only
-with your own copy of Links 2003. Stock ground textures a course refers to
-come from your game's `STDTER_1.LIB`.
+with your own copy of Links 2003. Textures packed inside a course load as
+they are. Stock ground textures a course refers to come from your game's
+`STDTER_1.LIB`; any that aren't found (for example a texture from an add-on
+pack you don't have) fall back to the free CC0 ground texture for that
+surface (grass, rough or sand), tinted to the surface's colour.
 
 ## Suggested courses
 
