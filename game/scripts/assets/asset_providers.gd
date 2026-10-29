@@ -24,6 +24,8 @@ static func ensure_defaults() -> void:
 	if object_library == null:
 		object_library = PlaceholderObjectLibrary.new()
 	if golfer_assets == null:
+		golfer_assets = LinksGolferAssets.from_game_folder()
+	if golfer_assets == null:
 		golfer_assets = PlaceholderGolferAssets.new()
 	if shot_model == null:
 		shot_model = StandardShotModel.new()

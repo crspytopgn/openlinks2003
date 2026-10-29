@@ -2,6 +2,7 @@ add_library(olcore STATIC
   src/ball_physics.cpp
   src/binary_reader.cpp
   src/carrera_store.cpp
+  src/golfer_anim.cpp
   src/ls_archive.cpp
   src/lzw.cpp
   src/scoring.cpp
