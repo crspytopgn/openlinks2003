@@ -14,7 +14,7 @@ const MAX_STROKES := 10  ## pick up after this many on a hole
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects"
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_WAIT := "Space or click: continue    Tab: scorecard"
 
@@ -164,6 +164,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
 			match key.keycode:
+				KEY_O:
+					get_tree().change_scene_to_file("res://scenes/object_viewer.tscn")
+					return
 				KEY_TAB:
 					if hud.scorecard.visible:
 						hud.scorecard.visible = false
@@ -175,6 +178,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					return
 				KEY_DOWN:
 					_change_club(1)
+					return
+				KEY_C:
+					get_tree().change_scene_to_file("res://scenes/course_viewer.tscn")
 					return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:

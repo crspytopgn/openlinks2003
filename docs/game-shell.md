@@ -14,6 +14,7 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
+| C | Open the course viewer (courses made by `olcourse export`) |
 
 The swing meter is the classic three-click Links arc. Click once to start the
 backswing; the marker climbs the left side of the arc towards 100% at the
@@ -70,7 +71,12 @@ Nothing in the round needs to change.
   `GolfRound.course_path` to the course file.
 - **Objects:** subclass `ObjectLibrary` (`instantiate(id) -> Node3D`) and
   set `AssetProviders.object_library`. `PlacedObject.id` is whatever key the
-  library understands.
+  library understands. `DecodedObjectLibrary.open(game_folder)` (in
+  `assets/decoded_object_library.gd`) already does this for the real
+  Course Designer objects; it accepts an OBJECT.LIB id as a decimal string or
+  a catalog file name. It is not registered by default yet, because the
+  placeholder course uses its own ids; the course decoder should register it
+  together with real placements.
 - **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`) and
   set `AssetProviders.golfer_assets`. `GolferRig.play()` receives
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
