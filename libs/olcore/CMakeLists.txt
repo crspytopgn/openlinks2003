@@ -2,7 +2,10 @@ add_library(olcore STATIC
   src/ball_physics.cpp
   src/arc0.cpp
   src/binary_reader.cpp
+  src/btcv.cpp
   src/inflate.cpp
+  src/model.cpp
+  src/object_library.cpp
   src/strings.cpp
 )
 target_include_directories(olcore PUBLIC include)

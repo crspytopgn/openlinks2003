@@ -15,4 +15,5 @@ enable_testing()
 
 add_subdirectory(libs/olcore)
 add_subdirectory(tools/olarc)
+add_subdirectory(tools/olobj)
 add_subdirectory(tools/oldump)
