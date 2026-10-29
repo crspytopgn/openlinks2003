@@ -1,6 +1,9 @@
 add_library(olcore STATIC
   src/ball_physics.cpp
+  src/arc0.cpp
   src/binary_reader.cpp
+  src/inflate.cpp
+  src/strings.cpp
 )
 target_include_directories(olcore PUBLIC include)
 

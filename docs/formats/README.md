@@ -24,6 +24,8 @@ What the file holds and when the game loads it.
 
 - [inventory.md](inventory.md): what is on each disc, how to read the disc
   images, and a first-pass survey of every file type and container.
+- [arc0.md](arc0.md): `ARC0` compressed archives (`.LIB`, `.BTX`, `.TOP`,
+  `.CMF`, `.sky`).
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with
