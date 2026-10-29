@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("object_library_chain", _test_object_library_chain)
+	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
 	# Nodes added here only get _ready() once the main loop runs, so the
@@ -223,6 +224,16 @@ func _test_object_library_chain() -> void:
 	for n in [aliased, direct]:
 		if n:
 			n.free()
+
+
+func _test_web_game_files() -> void:
+	_check(WebGameFiles.is_startup_file("OBJECT.LIB", 143877), "catalog copied at startup")
+	_check(WebGameFiles.is_startup_file("Object/Tall Trees/Tall Trees100.btx", 50000), "objects copied at startup")
+	_check(not WebGameFiles.is_startup_file("Courses/Cabo.crz", 103656595), "courses wait")
+	_check(not WebGameFiles.is_startup_file("Sounds/Ambient/Birds.wav", 10000), "ambient sounds wait")
+	_check(not WebGameFiles.is_startup_file("TOURNA_1.SSF", 83703038), "big files wait")
+	_check(not WebGameFiles.is_supported(), "not the web build")
+	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
 
 
 func _test_full_round() -> void:

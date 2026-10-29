@@ -3,17 +3,26 @@ extends RefCounted
 ## Finds the player's own Links 2003 files. Nothing from the original game
 ## ships with this project (docs/clean-room.md).
 ##
-## Until the folder picker exists, the folder comes from, in order:
+## The folder comes from, in order:
+##   0. override_path (the browser build's in-memory copy)
 ##   1. the command line: --links-dir=/path/to/links2003
 ##   2. the LINKS2003_DIR environment variable
-##   3. user://settings.cfg, key "folder" in section [game]
+##   3. user://settings.cfg, key "folder" in section [game], which the boot
+##      screen's folder picker writes
 ## It can be the install folder, the GAME folder on the CD, or a folder of
 ## extracted files; file names are matched without regard to case.
 
 const SETTINGS_PATH := "user://settings.cfg"
 
 
+## Set by the boot screen: a folder the player picked this session, or the
+## in-memory copy of their files in the browser build. Wins over the rest.
+static var override_path := ""
+
+
 static func configured_path() -> String:
+	if not override_path.is_empty():
+		return override_path
 	for arg in OS.get_cmdline_user_args() + OS.get_cmdline_args():
 		if arg.begins_with("--links-dir="):
 			return arg.trim_prefix("--links-dir=")
