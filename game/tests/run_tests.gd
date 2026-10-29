@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("object_library_chain", _test_object_library_chain)
+	_run("free_assets", _test_free_assets)
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
@@ -231,6 +232,15 @@ func _test_object_library_chain() -> void:
 	for n in [aliased, direct]:
 		if n:
 			n.free()
+
+
+func _test_free_assets() -> void:
+	_check(Materials.terrain_weights(Surface.Type.SAND) == Vector2(0, 1), "sand uses the sand texture")
+	_check(Materials.terrain_weights(Surface.Type.DEEP_ROUGH) == Vector2(1, 0), "deep rough uses the rough texture")
+	_check(Materials.terrain_weights(Surface.Type.GREEN) == Vector2.ZERO, "greens use the grass texture")
+	var textured: bool = Materials.terrain().get_shader_parameter("textured") == true
+	_check(textured == FreeAssets.has_grounds(), "terrain textured exactly when the free textures are there")
+	print("free assets: ground textures %s, sky %s" % [FreeAssets.has_grounds(), FreeAssets.sky() != null])
 
 
 func _test_web_game_files() -> void:

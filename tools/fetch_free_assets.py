@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Downloads the free (CC0) textures and sky that the public build uses in
+place of the original game's art, from Poly Haven (https://polyhaven.com).
+
+    python3 tools/fetch_free_assets.py [--out game/free_assets] [--strict]
+
+Nothing here comes from Links 2003. The files are not committed (see
+.gitignore); CI runs this before importing the project, and the game falls
+back to plain shading when they are missing. Each slot below lists the
+Poly Haven assets to try in order; if none of them exists any more, the most
+downloaded asset whose name or tags match the slot's keywords is used. The
+files are saved under fixed names, so the game doesn't care which asset was
+picked, and CREDITS.md in the output folder records what was.
+
+Without --strict a failed download is reported and skipped, so a Poly Haven
+outage leaves the build working, just untextured.
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.request
+
+API = "https://api.polyhaven.com"
+USER_AGENT = "OpenLinks2003-asset-fetch (https://github.com/crspytopgn/openlinks2003)"
+
+
+
+def texture_maps(res):
+    return {"albedo.jpg": ("Diffuse", res, "jpg"), "normal.jpg": ("nor_gl", res, "jpg")}
+
+
+# slot: (asset type, preferred ids, fallback keywords, {out name: (map, resolution, format)})
+SLOTS = {
+    "grass": ("textures", ["leafy_grass", "sparse_grass", "aerial_grass_rock"], ["grass"], texture_maps("1k")),
+    "rough": ("textures", ["forrest_ground_01", "forest_ground_04", "brown_mud_leaves_01"], ["forest ground", "grass"], texture_maps("1k")),
+    "sand": ("textures", ["coast_sand_01", "coast_sand_02", "aerial_beach_01"], ["sand"], texture_maps("1k")),
+    "sky": ("hdris", ["kloofendal_48d_partly_cloudy_puresky", "kloofendal_43d_clear_puresky"], ["pure sky", "clear"], {"panorama.hdr": ("hdri", "2k", "hdr")}),
+}
+
+# Import settings Godot would otherwise guess: compressed with mipmaps, as
+# 3D textures need. Written next to each file before the project is imported.
+TEXTURE_IMPORT = """[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+
+[params]
+
+compress/mode={mode}
+compress/lossy_quality=0.85
+mipmaps/generate=true
+"""
+
+
+def get(url, retries=4):
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read()
+        except Exception as e:  # noqa: BLE001 - network errors of every kind are retried
+            if attempt == retries - 1:
+                raise
+            print(f"  retrying {url}: {e}")
+            time.sleep(2 ** (attempt + 1))
+    return b""
+
+
+def get_json(url):
+    return json.loads(get(url))
+
+
+def choose(kind, preferred, keywords):
+    assets = get_json(f"{API}/assets?t={kind}")
+    for asset_id in preferred:
+        if asset_id in assets:
+            return asset_id, assets[asset_id]
+    matches = []
+    for asset_id, info in assets.items():
+        text = " ".join([asset_id, info.get("name", "")] + info.get("tags", []) + info.get("categories", [])).lower()
+        if any(k in text for k in keywords):
+            matches.append((info.get("download_count", 0), asset_id))
+    if not matches:
+        raise RuntimeError(f"no {kind} asset matches {keywords}")
+    asset_id = max(matches)[1]
+    return asset_id, assets[asset_id]
+
+
+def fetch_slot(out_dir, slot, spec):
+    kind, preferred, keywords, maps = spec
+    asset_id, info = choose(kind, preferred, keywords)
+    files = get_json(f"{API}/files/{asset_id}")
+    for out_name, (map_name, res, fmt) in maps.items():
+        entry = files[map_name][res][fmt]
+        path = os.path.join(out_dir, f"{slot}_{out_name}")
+        if not (os.path.exists(path) and os.path.getsize(path) == entry.get("size", -1)):
+            print(f"  {slot}: {asset_id} {map_name} {res} -> {path}")
+            data = get(entry["url"])
+            with open(path, "wb") as f:
+                f.write(data)
+        # Lossless for the HDR sky (lossy would clip it), lossy for the rest.
+        with open(path + ".import", "w") as f:
+            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1))
+    authors = ", ".join(info.get("authors", {}).keys())
+    return f"- **{slot}**: [{info.get('name', asset_id)}](https://polyhaven.com/a/{asset_id}) by {authors or 'Poly Haven'}, CC0"
+
+
+def main():
+    here = os.path.dirname(os.path.abspath(__file__))
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--out", default=os.path.join(here, "..", "game", "free_assets"))
+    ap.add_argument("--strict", action="store_true", help="fail if any asset can't be fetched")
+    args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
+
+    credits, failed = [], []
+    for slot, spec in SLOTS.items():
+        try:
+            credits.append(fetch_slot(args.out, slot, spec))
+        except Exception as e:  # noqa: BLE001
+            print(f"WARNING: couldn't fetch {slot}: {e}")
+            failed.append(slot)
+    with open(os.path.join(args.out, "CREDITS.md"), "w") as f:
+        f.write("# Free assets\n\nDownloaded by tools/fetch_free_assets.py from Poly Haven (CC0).\n\n")
+        f.write("\n".join(credits) + "\n")
+    print(f"fetched {len(credits)} of {len(SLOTS)} slots")
+    if failed and args.strict:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

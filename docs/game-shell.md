@@ -87,6 +87,16 @@ atlas size, softness), glow, SSAO and SSIL follow the quality level. The
 screen-space effects only run on Forward+; the web build (Compatibility)
 starts at Medium with FXAA.
 
+The public build looks better with free photographic art: CI runs
+`tools/fetch_free_assets.py`, which downloads CC0 ground textures (grass,
+rough, sand; 1K albedo and normal maps) and a 2K HDR sky from
+[Poly Haven](https://polyhaven.com) into `game/free_assets/`. They aren't
+committed. `FreeAssets` loads them, `Materials.terrain()` blends them by the
+rough and sand weights in the mesh's UV2 (`Materials.terrain_weights()`), and
+`Scenery` uses the sky as a panorama. Without them the game falls back to the
+procedural sky and shading. `game/free_assets/CREDITS.md` names the assets
+used. Run the script once locally to see the same look on desktop.
+
 Course meshes should use `Materials.terrain()` (vertex colour for the surface,
 plus noise variation and close-up detail) and `Materials.water_disc()` for
 ponds, so decoded courses match the placeholder. CI renders real frames with
