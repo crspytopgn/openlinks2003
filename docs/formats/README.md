@@ -22,5 +22,9 @@ What the file holds and when the game loads it.
 
 ## Formats
 
-None documented yet. Start by running `oldump --strings` against files from
-your own install and noting what each file type appears to contain.
+- [inventory.md](inventory.md): what is on each disc, how to read the disc
+  images, and a first-pass survey of every file type and container.
+
+Full file listings are in [../install-listing/](../install-listing/). To dig
+into a file type, extract samples from your own discs with
+`tools/cdimage/cdimage.py` and run `oldump --strings` against them.
