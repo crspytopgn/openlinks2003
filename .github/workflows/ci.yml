@@ -25,6 +25,14 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Upload olcourse
+        uses: actions/upload-artifact@v4
+        with:
+          name: olcourse-${{ matrix.os }}
+          path: |
+            build/tools/olcourse/olcourse
+            build/tools/olcourse/Release/olcourse.exe
+          if-no-files-found: ignore
 
   export:
     name: Godot export

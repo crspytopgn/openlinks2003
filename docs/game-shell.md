@@ -16,6 +16,7 @@ the browser and on desktop today.
 | Tab | Show or hide the scorecard |
 | Esc | Settings: quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view |
 | F11 | Toggle fullscreen |
+| C | Open the course viewer (courses made by `olcourse export`) |
 
 The swing meter is the classic three-click Links arc. Click once to start the
 backswing; the marker climbs the left side of the arc towards 100% at the
