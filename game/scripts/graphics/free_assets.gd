@@ -15,6 +15,17 @@ static func ground(slot: String, map: String) -> Texture2D:
 	return _load("%s_%s.jpg" % [slot, map])
 
 
+## The ground slot that stands in for a surface: "sand", "rough" (rough,
+## deep rough, out of bounds, water banks) or "grass" (the mown surfaces).
+static func slot_for(surface: Surface.Type) -> String:
+	match surface:
+		Surface.Type.SAND:
+			return "sand"
+		Surface.Type.ROUGH, Surface.Type.DEEP_ROUGH, Surface.Type.OUT_OF_BOUNDS, Surface.Type.WATER:
+			return "rough"
+	return "grass"
+
+
 static func has_grounds() -> bool:
 	for slot in GROUNDS:
 		if ground(slot, "albedo") == null:

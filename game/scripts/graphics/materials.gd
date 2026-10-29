@@ -31,10 +31,10 @@ static func terrain() -> ShaderMaterial:
 ## The UV2 value terrain() reads for a surface: x is the rough weight, y the
 ## sand weight, and anything else is grass.
 static func terrain_weights(surface: Surface.Type) -> Vector2:
-	match surface:
-		Surface.Type.SAND:
+	match FreeAssets.slot_for(surface):
+		"sand":
 			return Vector2(0.0, 1.0)
-		Surface.Type.ROUGH, Surface.Type.DEEP_ROUGH, Surface.Type.OUT_OF_BOUNDS, Surface.Type.WATER:
+		"rough":
 			return Vector2(1.0, 0.0)
 	return Vector2.ZERO
 
