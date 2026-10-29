@@ -59,10 +59,11 @@ std::unique_ptr<CrzArchive> open_course(const std::string& course, const std::st
   auto data = BinaryReader::from_file(course).data();
   if (data.size() < 16) throw std::runtime_error(course + ": too short");
   std::optional<GameKeys> keys;
-  if (!CrzArchive::is_plain(data.data())) {
-    if (exe.empty()) throw std::runtime_error(course + " is locked: pass --exe <game executable>");
-    keys = find_game_keys(BinaryReader::from_file(exe).data(), data.data());
-    if (!keys) throw std::runtime_error("could not find the course key in " + exe);
+  if (!exe.empty()) {
+    keys = find_game_keys(BinaryReader::from_file(exe).data(), data);
+    if (!keys && !CrzArchive::is_plain(data.data())) throw std::runtime_error("could not find the course key in " + exe);
+  } else if (!CrzArchive::is_plain(data.data())) {
+    throw std::runtime_error(course + " is locked: pass --exe <game executable>");
   }
   return std::make_unique<CrzArchive>(std::move(data), keys ? &*keys : nullptr);
 }

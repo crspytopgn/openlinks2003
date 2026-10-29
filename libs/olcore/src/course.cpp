@@ -135,15 +135,19 @@ Terrain parse_terrain(const std::vector<std::uint8_t>& data) {
       n = (raw >> 30) & 1 ? kNoNeighbour : (raw & 0xfffff);
     }
   }
+  // Vertex indices are u16, or u32 once there are too many vertices for that.
+  const bool wide = nv > 0xffff;
+  if (nt > r.remaining() / (wide ? 20 : 14)) throw ReadError("terrain triangles run past end of entry");
   for (TerrainTriangle& tri : t.triangles) {
     tri.material = r.u16();
     tri.mapping = r.u32();
     tri.unknown = r.u16();
     for (auto& v : tri.v) {
-      v = r.u16();
+      v = wide ? r.u32() : r.u16();
       if (v >= nv) throw ReadError("terrain triangle refers to a missing vertex");
     }
   }
+  if (r.remaining() != 0) throw ReadError("terrain entry has unexpected trailing data");
   return t;
 }
 
