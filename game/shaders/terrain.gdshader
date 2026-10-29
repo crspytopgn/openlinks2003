@@ -27,6 +27,9 @@ uniform vec3 rough_mean = vec3(0.5);
 uniform vec3 sand_mean = vec3(0.5);
 uniform float texture_metres = 2.5; // one tile of the near texture
 uniform float texture_strength = 0.85;
+// How much of the photo's own colour shows through (at the vertex colour's
+// brightness), which tames the flat, saturated surface colours.
+uniform float photo_mix = 0.5;
 
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
@@ -87,12 +90,18 @@ void fragment() {
 		float w_sand = clamp(weights.y, 0.0, 1.0);
 		float w_rough = clamp(weights.x, 0.0, 1.0) * (1.0 - w_sand);
 		float w_grass = 1.0 - w_sand - w_rough;
-		vec3 detail = w_grass * two_scale(grass_albedo, uv).rgb / max(grass_mean, vec3(0.02))
-			+ w_rough * two_scale(rough_albedo, uv).rgb / max(rough_mean, vec3(0.02))
-			+ w_sand * two_scale(sand_albedo, uv).rgb / max(sand_mean, vec3(0.02));
+		vec3 g = two_scale(grass_albedo, uv).rgb;
+		vec3 r = two_scale(rough_albedo, uv).rgb;
+		vec3 s = two_scale(sand_albedo, uv).rgb;
+		vec3 detail = w_grass * g / max(grass_mean, vec3(0.02)) + w_rough * r / max(rough_mean, vec3(0.02))
+			+ w_sand * s / max(sand_mean, vec3(0.02));
+		vec3 photo = w_grass * g + w_rough * r + w_sand * s;
+		vec3 photo_mean = w_grass * grass_mean + w_rough * rough_mean + w_sand * sand_mean;
+		const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+		vec3 photo_toned = photo * dot(col, LUMA) / max(dot(photo_mean, LUMA), 0.02);
 		// Far away the texture only adds noise and shows its repeat.
 		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX)));
-		col *= mix(vec3(1.0), detail, strength);
+		col = mix(col * mix(vec3(1.0), detail, strength), photo_toned, photo_mix * strength);
 		vec3 n = w_grass * two_scale(grass_normal, uv).rgb + w_rough * two_scale(rough_normal, uv).rgb
 			+ w_sand * two_scale(sand_normal, uv).rgb;
 		n = n * 2.0 - 1.0;
