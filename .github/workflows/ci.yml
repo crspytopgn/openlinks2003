@@ -58,6 +58,12 @@ jobs:
       - name: Import project
         run: ~/godot/godot --headless --path game --import
 
+      - name: GDScript tests
+        run: |
+          ~/godot/godot --headless --path game --script res://tests/run_tests.gd 2>&1 | tee gdscript-tests.log
+          grep -q "all GDScript tests passed" gdscript-tests.log
+          ! grep -E "SCRIPT ERROR|Parse Error|Compile Error" gdscript-tests.log
+
       - name: Export Linux, Windows, macOS and Web
         run: |
           cd game
