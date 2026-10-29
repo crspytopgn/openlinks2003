@@ -1,27 +1,38 @@
-// Reads the player's own Links 2003 files in the browser and keeps them in
-// IndexedDB, so the web build can use them without anything being uploaded.
-// The player picks their disc images (BlindWrite .b6i/.b5i/.bwi, .iso, raw
-// .bin, Nero .nrg, Alcohol .mdf) or a folder, on any drive,
-// holding an installed or extracted copy. From disc images, the GAME folder is
-// stored under the long names Setup would give it, as tools/cdimage/cdimage.py
-// does. Godot loads this file with JavaScriptBridge.eval and talks to it
-// through window.olFiles (see game/scripts/web/web_game_files.gd).
+// Reads the player's own Links 2003 files in the browser, so the web build
+// can use them without anything being uploaded. The player picks their disc
+// images (BlindWrite .b6i/.b5i/.bwi, .iso, raw .bin, Nero .nrg, Alcohol .mdf)
+// or a folder, on any drive, holding an installed or extracted copy.
+//
+// Nothing is copied: picking only walks the discs' directories and builds an
+// index of where each GAME file sits (under the long names Setup would give
+// it, as tools/cdimage/cdimage.py does). Files are read straight from the
+// picked images when the game asks for them. Where the browser has the File
+// System Access API (Chrome, Edge), the picked files are remembered for next
+// time and the browser only asks to allow access again; elsewhere the player
+// picks them again on each visit, which takes seconds.
+//
+// Godot loads this file with JavaScriptBridge.eval and talks to it through
+// window.olFiles (see game/scripts/web/web_game_files.gd).
 (() => {
   if (window.olFiles) return;
 
-  const DB_NAME = "openlinks2003-game-files";
-  const STORE = "files";
-  const INDEX_KEY = "index";
+  const DB_NAME = "openlinks2003-files-v2";
+  const OLD_DB_NAME = "openlinks2003-game-files"; // held whole copies; deleted on start
+  const STORE = "state";
   // Videos, programs and the help/lesson archives aren't used by the game.
-  const SKIP = /\.(wmv|exe|dll|hlp|cnt|ini|inf|isu|ico)$/i;
+  const SKIP = /\.(wmv|exe|dll|hlp|cnt|ini|inf|isu|ico|idb|pdb|sbr)$/i;
   const SKIP_NAMES = new Set(["lessons.ls", "help.ls"]);
+  // The course decoder reads its keys from the game executable.
+  const KEEP = new Set(["linksm_1.exe", "linksmmiii.exe"]);
 
-  // ---- IndexedDB -----------------------------------------------------------
+  // ---- IndexedDB (only the index and file handles, never file contents) ----
 
   let dbPromise = null;
   function db() {
     if (!dbPromise) {
       dbPromise = new Promise((resolve, reject) => {
+        if (typeof indexedDB === "undefined") return reject(new Error("no IndexedDB"));
+        indexedDB.deleteDatabase(OLD_DB_NAME);
         const req = indexedDB.open(DB_NAME, 1);
         req.onupgradeneeded = () => req.result.createObjectStore(STORE);
         req.onsuccess = () => resolve(req.result);
@@ -35,8 +46,7 @@
     const d = await db();
     return new Promise((resolve, reject) => {
       const t = d.transaction(STORE, mode);
-      const store = t.objectStore(STORE);
-      const req = fn(store);
+      const req = fn(t.objectStore(STORE));
       t.oncomplete = () => resolve(req ? req.result : undefined);
       t.onerror = () => reject(t.error);
       t.onabort = () => reject(t.error);
@@ -61,14 +71,20 @@
   const SCAN_BYTES = 64 * 1024 * 1024;
 
   class Disc {
-    constructor(file) {
+    constructor(file, layout) {
       this.file = file;
+      this.base = 0;
+      if (layout) Object.assign(this, layout);
+    }
+
+    get layout() {
+      return { size: this.size, header: this.header, pregap: this.pregap, base: this.base };
     }
 
     async open() {
       for (const [size, header] of LAYOUTS) {
         for (const pregap of PREGAPS) {
-          Object.assign(this, { size, header, pregap });
+          Object.assign(this, { size, header, pregap, base: 0 });
           const s = await this.sector(16);
           if (s.length >= 6 && String.fromCharCode(...s.subarray(1, 6)) === "CD001") return true;
         }
@@ -90,8 +106,7 @@
             const base = at - header - 16 * size;
             if (base < 0) continue;
             // Accept a layout if the next descriptor is where it says.
-            Object.assign(this, { size, header, pregap: 0 });
-            this.base = base;
+            Object.assign(this, { size, header, pregap: 0, base });
             const next = await this.sector(17);
             if (String.fromCharCode(...next.subarray(1, 6)) === "CD001") return true;
           }
@@ -102,7 +117,7 @@
     }
 
     offset(lba) {
-      return (this.base || 0) + (lba + this.pregap) * this.size + this.header;
+      return this.base + (lba + this.pregap) * this.size + this.header;
     }
 
     async sector(lba) {
@@ -110,23 +125,29 @@
       return new Uint8Array(await this.file.slice(off, off + 2048).arrayBuffer());
     }
 
-    // A Blob of `length` bytes starting at `lba`. Nothing is read: a raw image
-    // becomes a list of 2048-byte slices that skip the sector headers.
-    blob(lba, length) {
+    // `length` bytes of data starting `start` bytes into the extent at `lba`.
+    // A raw image is read in one contiguous slice, and the sector headers and
+    // error-correction bytes are skipped in memory.
+    async read(lba, length, start = 0) {
+      if (length <= 0) return new Uint8Array(0);
+      const first = lba + Math.floor(start / 2048);
+      const skip = start % 2048;
       if (this.size === 2048) {
-        const off = this.offset(lba);
-        return this.file.slice(off, off + length);
+        const off = this.offset(first) + skip;
+        return new Uint8Array(await this.file.slice(off, off + length).arrayBuffer());
       }
-      const parts = [];
-      for (let rest = length; rest > 0; rest -= 2048, lba++) {
-        const off = this.offset(lba);
-        parts.push(this.file.slice(off, off + Math.min(2048, rest)));
+      const count = Math.ceil((skip + length) / 2048);
+      const from = this.offset(first);
+      const raw = new Uint8Array(await this.file.slice(from, from + count * this.size).arrayBuffer());
+      const out = new Uint8Array(length);
+      let pos = 0;
+      for (let s = 0; s < count && pos < length; s++) {
+        const a = s * this.size + (s === 0 ? skip : 0);
+        const n = Math.min(length - pos, s * this.size + 2048 - a);
+        out.set(raw.subarray(a, a + n), pos);
+        pos += n;
       }
-      return new Blob(parts);
-    }
-
-    async read(lba, length) {
-      return new Uint8Array(await this.blob(lba, length).arrayBuffer());
+      return out;
     }
 
     // Root directory record, preferring the Joliet (long name) tree.
@@ -196,36 +217,51 @@
     return names;
   }
 
-  // The course decoder reads its keys from the game executable.
-  const KEEP = new Set(["linksm_1.exe", "linksmmiii.exe"]);
-
   function wanted(rel) {
     const base = rel.split("/").pop().toLowerCase();
     return KEEP.has(base) || (!SKIP.test(base) && !SKIP_NAMES.has(base));
   }
 
-  // ---- Import ----------------------------------------------------------------
+  // "links2003/GAME/Courses/x.crz" or "Links 2003/Courses/x.crz" -> "Courses/x.crz"
+  function folderRel(path) {
+    const rel = path.replace(/\\/g, "/");
+    const game = rel.toUpperCase().indexOf("/GAME/");
+    if (game >= 0) return rel.slice(game + 6);
+    return rel.includes("/") ? rel.slice(rel.indexOf("/") + 1) : rel;
+  }
 
-  // Collects {rel, blob} entries from the picked files: disc images are
-  // opened and walked, anything else is taken as part of a game folder.
-  async function collect(fileList, progress) {
-    const discs = [];
+  // ---- Sources and the index -----------------------------------------------
+  //
+  // A source is something the player picked: a disc image or a loose file,
+  // with its File System Access handle when the browser has one. The index
+  // maps each game file's relative path to [source id, lba, size] for a file
+  // on a disc, or [source id, -1, size] for a loose file.
+
+  let index = new Map();
+  const opened = new Map(); // source id -> Disc for an image, File otherwise
+
+  // Indexes picked files, given as [{file, handle?, path}] where path is the
+  // file's path inside a picked folder ("" for single files). Returns
+  // {sources, entries} and opens the sources.
+  async function collect(picked, progress) {
+    const found = [];
     const loose = [];
     const unreadable = [];
     let descriptors = 0;
-    for (const f of fileList) {
-      if (IMAGE.test(f.name)) {
-        const d = new Disc(f);
-        progress("Reading " + f.name, 0, 0);
-        if (await d.open()) discs.push({ disc: d, files: await d.files() });
-        else unreadable.push(f.name);
-      } else if (DESCRIPTOR.test(f.name)) {
+    for (const p of picked) {
+      const name = p.file.name;
+      if (IMAGE.test(name)) {
+        const d = new Disc(p.file);
+        progress("Reading " + name, 0, 0);
+        if (await d.open()) found.push({ p, disc: d, files: await d.files() });
+        else unreadable.push(name);
+      } else if (DESCRIPTOR.test(name)) {
         descriptors++;
       } else {
-        loose.push(f);
+        loose.push(p);
       }
     }
-    if (discs.length === 0 && loose.length === 0) {
+    if (found.length === 0 && loose.length === 0) {
       if (unreadable.length) throw new Error("Couldn't find the game's files inside " + unreadable.join(", "));
       if (descriptors) {
         throw new Error("Those are the small descriptor files (.b6t). Pick the big image files next to them " +
@@ -235,7 +271,7 @@
 
     // CD2 has no SETUP.EXE, so take the long names from whichever disc has it.
     let names = new Map();
-    for (const { disc, files } of discs) {
+    for (const { disc, files } of found) {
       const setup = files.find((e) => e.path.toUpperCase() === "/SETUP.EXE");
       if (setup) {
         names = longNames(await disc.read(setup.lba, setup.size));
@@ -243,64 +279,138 @@
       }
     }
 
-    const out = [];
-    for (const { disc, files } of discs) {
+    opened.clear();
+    const sources = [];
+    const entries = [];
+    for (const { p, disc, files } of found) {
+      const id = sources.length;
+      sources.push({ id, kind: "disc", layout: disc.layout, handle: p.handle || null });
+      opened.set(id, disc);
       for (const e of files) {
         if (!e.path.toUpperCase().startsWith("/GAME/")) continue;
         const short = e.path.slice(6);
         const rel = names.get(short.toUpperCase()) || short;
-        if (wanted(rel)) out.push({ rel, blob: disc.blob(e.lba, e.size), size: e.size });
+        if (wanted(rel)) entries.push([rel, [id, e.lba, e.size]]);
       }
     }
-    for (const f of loose) {
-      // "links2003/GAME/Courses/x.crz" or "Links 2003/Courses/x.crz" -> "Courses/x.crz"
-      let rel = (f.webkitRelativePath || f.name).replace(/\\/g, "/");
-      const game = rel.toUpperCase().indexOf("/GAME/");
-      if (game >= 0) rel = rel.slice(game + 6);
-      else if (rel.includes("/")) rel = rel.slice(rel.indexOf("/") + 1);
-      if (wanted(rel)) out.push({ rel, blob: f, size: f.size });
+    for (const p of loose) {
+      const rel = folderRel(p.path || p.file.name);
+      if (!wanted(rel)) continue;
+      const id = sources.length;
+      sources.push({ id, kind: "file", handle: p.handle || null });
+      opened.set(id, p.file);
+      entries.push([rel, [id, -1, p.file.size]]);
     }
-    return out;
+    return { sources, entries };
   }
 
-  async function importFiles(fileList, progress) {
-    const entries = await collect(fileList, progress);
+  // Makes the picked files the current game files, and remembers them when
+  // the browser gave a handle for each.
+  async function importPicked(picked, progress) {
+    const { sources, entries } = await collect(picked, progress);
     if (entries.length === 0) throw new Error("No Links 2003 files found in the selection");
-    const index = new Map((await get(INDEX_KEY)) || []);
-    const total = entries.reduce((n, e) => n + e.size, 0);
-    let done = 0;
-    for (const e of entries) {
-      progress(e.rel, done, total);
-      await put("f:" + e.rel.toLowerCase(), e.blob);
-      index.set(e.rel, e.size);
-      done += e.size;
+    index = new Map(entries);
+    if (sources.every((src) => src.handle)) {
+      try {
+        await put("sources", sources);
+        await put("index", entries);
+      } catch (e) {
+        // Remembering is a convenience; the files still work this visit.
+      }
     }
-    await put(INDEX_KEY, [...index.entries()]);
-    blobs.clear();
-    progress("", total, total);
+    progress("", 1, 1);
     return index.size;
   }
 
-  // ---- Reading -------------------------------------------------------------
-
-  const blobs = new Map();
-  async function blobFor(rel) {
-    const key = "f:" + rel.toLowerCase();
-    if (!blobs.has(key)) {
-      const b = await get(key);
-      if (!b) throw new Error("not imported: " + rel);
-      blobs.set(key, b);
+  // Reopens remembered files. Returns "ready", "reconnect" (the browser
+  // needs the player's OK to read them again), "denied" or "empty".
+  async function restore(ask) {
+    if (index.size && opened.size) return "ready";
+    let sources, entries;
+    try {
+      sources = await get("sources");
+      entries = await get("index");
+    } catch (e) {
+      return "empty";
     }
-    return blobs.get(key);
+    if (!sources || !entries || !sources.length) return "empty";
+    for (const src of sources) {
+      const perm = ask
+        ? await src.handle.requestPermission({ mode: "read" })
+        : await src.handle.queryPermission({ mode: "read" });
+      if (perm !== "granted") return ask ? "denied" : "reconnect";
+    }
+    opened.clear();
+    try {
+      for (const src of sources) {
+        const file = await src.handle.getFile();
+        opened.set(src.id, src.kind === "disc" ? new Disc(file, src.layout) : file);
+      }
+    } catch (e) {
+      // Moved, renamed or on a drive that isn't plugged in.
+      opened.clear();
+      throw new Error("Couldn't open your game files where they were last time (" + e.message + ")");
+    }
+    index = new Map(entries);
+    return "ready";
   }
 
-  function pickFiles(directory) {
+  async function readFile(rel, offset, length) {
+    const entry = index.get(rel);
+    if (!entry) throw new Error("not loaded: " + rel);
+    const [id, lba, size] = entry;
+    const src = opened.get(id);
+    if (!src) throw new Error("the game files need to be picked again");
+    const n = Math.max(0, Math.min(length, size - offset));
+    if (lba < 0) return new Uint8Array(await src.slice(offset, offset + n).arrayBuffer());
+    return src.read(lba, n, offset);
+  }
+
+  // ---- Picking -------------------------------------------------------------
+
+  const ACCEPT = [".b6i", ".b6t", ".b5i", ".b5t", ".bwi", ".bwt", ".iso", ".bin", ".img", ".nrg", ".mdf"];
+
+  async function walkDirectory(dir, prefix, out) {
+    for await (const [name, handle] of dir.entries()) {
+      const path = prefix + "/" + name;
+      if (handle.kind === "directory") await walkDirectory(handle, path, out);
+      else out.push({ file: await handle.getFile(), handle, path });
+    }
+  }
+
+  // [{file, handle?, path}] from the File System Access pickers when the
+  // browser has them, otherwise from an <input type=file>.
+  async function pickFiles(directory) {
+    try {
+      if (directory && window.showDirectoryPicker) {
+        const dir = await window.showDirectoryPicker({ id: "links2003", mode: "read" });
+        const out = [];
+        await walkDirectory(dir, dir.name, out);
+        return out;
+      }
+      if (!directory && window.showOpenFilePicker) {
+        const handles = await window.showOpenFilePicker({
+          id: "links2003",
+          multiple: true,
+          types: [{ description: "Links 2003 disc images", accept: { "application/octet-stream": ACCEPT } }],
+        });
+        return Promise.all(handles.map(async (handle) => ({ file: await handle.getFile(), handle, path: "" })));
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return [];
+      throw e;
+    }
+    const files = await pickWithInput(directory);
+    return files.map((file) => ({ file, path: file.webkitRelativePath || "" }));
+  }
+
+  function pickWithInput(directory) {
     return new Promise((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
       if (directory) input.webkitdirectory = true;
-      else input.accept = ".b6i,.b6t,.b5i,.b5t,.bwi,.bwt,.iso,.bin,.img,.nrg,.mdf";
+      else input.accept = ACCEPT.join(",");
       input.style.display = "none";
       input.addEventListener("change", () => {
         resolve(Array.from(input.files || []));
@@ -335,33 +445,48 @@
     Disc,
     longNames,
     collect,
-    importFiles,
+    importPicked,
+    readFile,
+
+    // True when picked files are remembered between visits.
+    remembers: !!(window.showOpenFilePicker && window.showDirectoryPicker),
 
     // pick(directory, progressCb, doneCb): doneCb(ok, countOrError).
-    // progressCb(name, bytesDone, bytesTotal) is called as files are stored.
     pick(directory, progressCb, doneCb) {
       report(
-        pickFiles(directory).then((files) =>
-          files.length === 0 ? 0 : importFiles(files, (n, d, t) => progressCb(n, d, t))
+        pickFiles(directory).then((picked) =>
+          picked.length === 0 ? 0 : importPicked(picked, (n, d, t) => progressCb(n, d, t))
         ),
         doneCb
       );
     },
 
-    // list(cb): cb(ok, JSON of [[path, size], ...]).
+    // state(cb): cb(ok, "ready" | "reconnect" | "empty").
+    state(cb) {
+      report(restore(false), cb);
+    },
+
+    // reconnect(cb): asks the browser for permission to read the remembered
+    // files again (call it from a click). cb(ok, "ready" | "denied" | "empty").
+    reconnect(cb) {
+      report(restore(true), cb);
+    },
+
+    // list(cb): cb(ok, JSON of [[path, size], ...]) for the current files.
     list(cb) {
-      report(get(INDEX_KEY).then((idx) => JSON.stringify(idx || [])), cb);
+      report(Promise.resolve(JSON.stringify([...index].map(([rel, e]) => [rel, e[2]]))), cb);
     },
 
     // read(path, offset, length, cb): cb(ok, ArrayBuffer).
     read(path, offset, length, cb) {
-      report(blobFor(path).then((b) => b.slice(offset, offset + length).arrayBuffer()), cb);
+      report(readFile(path, offset, length).then((bytes) => bytes.buffer), cb);
     },
 
-    // forget(cb): removes everything imported.
+    // forget(cb): forgets the picked files.
     forget(cb) {
-      blobs.clear();
-      report(clearAll(), cb);
+      opened.clear();
+      index = new Map();
+      report(clearAll().catch(() => undefined), cb);
     },
   };
 })();

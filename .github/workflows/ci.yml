@@ -66,6 +66,11 @@ jobs:
           mkdir -p "$dest"
           mv /tmp/templates/templates/* "$dest/"
 
+      # Free CC0 textures and sky from Poly Haven (not in the repo). A failed
+      # download leaves the build untextured rather than failing it.
+      - name: Fetch free assets
+        run: python3 tools/fetch_free_assets.py
+
       - name: Import project
         run: ~/godot/godot --headless --path game --import
 

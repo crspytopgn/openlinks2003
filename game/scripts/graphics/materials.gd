@@ -10,12 +10,33 @@ static var _terrain: ShaderMaterial
 static var _water: ShaderMaterial
 
 
-## For meshes whose vertex colours hold the surface colour.
+## For meshes whose vertex colours hold the surface colour, and whose UV2
+## holds the rough and sand weights (see terrain_weights()). Uses the free
+## photo textures when they have been fetched.
 static func terrain() -> ShaderMaterial:
 	if _terrain == null:
 		_terrain = ShaderMaterial.new()
 		_terrain.shader = TERRAIN_SHADER
+		if FreeAssets.has_grounds():
+			_terrain.set_shader_parameter("textured", true)
+			for slot in FreeAssets.GROUNDS:
+				var albedo := FreeAssets.ground(slot, "albedo")
+				_terrain.set_shader_parameter(slot + "_albedo", albedo)
+				_terrain.set_shader_parameter(slot + "_normal", FreeAssets.ground(slot, "normal"))
+				var mean := FreeAssets.mean_color(albedo).srgb_to_linear()
+				_terrain.set_shader_parameter(slot + "_mean", Vector3(mean.r, mean.g, mean.b))
 	return _terrain
+
+
+## The UV2 value terrain() reads for a surface: x is the rough weight, y the
+## sand weight, and anything else is grass.
+static func terrain_weights(surface: Surface.Type) -> Vector2:
+	match FreeAssets.slot_for(surface):
+		"sand":
+			return Vector2(0.0, 1.0)
+		"rough":
+			return Vector2(1.0, 0.0)
+	return Vector2.ZERO
 
 
 static func water() -> ShaderMaterial:

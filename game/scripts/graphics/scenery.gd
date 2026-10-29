@@ -22,6 +22,12 @@ func _init() -> void:
 	sky_mat.sun_angle_max = 25.0
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	# The free photographic sky (FreeAssets), when it has been fetched.
+	var panorama := FreeAssets.sky()
+	if panorama:
+		var pano_mat := PanoramaSkyMaterial.new()
+		pano_mat.panorama = panorama
+		sky.sky_material = pano_mat
 
 	environment = Environment.new()
 	environment.background_mode = Environment.BG_SKY

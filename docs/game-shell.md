@@ -67,11 +67,16 @@ and offers the courses found in it. In the browser, `WebGameFiles`
 images or a folder, the script walks the ISO 9660 tracks itself (cooked,
 raw or raw-plus-subchannel sectors, as `tools/cdimage/cdimage.py` does, and
 scans for the volume when the pregap is unusual, so BlindWrite .b6t and
-other descriptor files aren't needed), stores the GAME files in
-IndexedDB under Setup's long names, and on later visits copies them into the
-in-memory filesystem at `/tmp/links2003`, which becomes
-`GameFolder.override_path`. Courses (about 100 MB each) are copied only when
-chosen. `node game/web/tests/test_game_files.mjs` tests the script against
+other descriptor files aren't needed) and indexes the GAME files under
+Setup's long names without copying anything. Reads come straight from the
+picked images. Where the File System Access API exists (Chrome, Edge), the
+file handles and index are kept in IndexedDB so the next visit only needs the
+player's OK. `WebGameFiles.copy_startup_files()` copies the few files read
+before a round (`startup_files()`: object catalog, sound effects, course key,
+standard ground textures, one golfer, plus the objects standing in for the
+placeholder trees) into the in-memory filesystem at `/tmp/links2003`, which
+becomes `GameFolder.override_path`. Courses (about 100 MB each) are copied
+only when chosen. `node game/web/tests/test_game_files.mjs` tests the script against
 synthetic disc images made by `game/web/tests/make_test_iso.py`.
 
 The chosen course path is passed to the round through
@@ -86,6 +91,16 @@ to `user://settings.cfg` under `[graphics]`. Shadows (cascade count, distance,
 atlas size, softness), glow, SSAO and SSIL follow the quality level. The
 screen-space effects only run on Forward+; the web build (Compatibility)
 starts at Medium with FXAA.
+
+The public build looks better with free photographic art: CI runs
+`tools/fetch_free_assets.py`, which downloads CC0 ground textures (grass,
+rough, sand; 1K albedo and normal maps) and a 2K HDR sky from
+[Poly Haven](https://polyhaven.com) into `game/free_assets/`. They aren't
+committed. `FreeAssets` loads them, `Materials.terrain()` blends them by the
+rough and sand weights in the mesh's UV2 (`Materials.terrain_weights()`), and
+`Scenery` uses the sky as a panorama. Without them the game falls back to the
+procedural sky and shading. `game/free_assets/CREDITS.md` names the assets
+used. Run the script once locally to see the same look on desktop.
 
 Course meshes should use `Materials.terrain()` (vertex colour for the surface,
 plus noise variation and close-up detail) and `Materials.water_disc()` for

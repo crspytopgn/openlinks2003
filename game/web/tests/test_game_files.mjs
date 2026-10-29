@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 const here = dirname(fileURLToPath(import.meta.url));
 globalThis.window = globalThis;
 new Function(readFileSync(join(here, "..", "game_files.js"), "utf8"))();
-const { collect, Disc, longNames } = window.olFiles;
+const { collect, importPicked, readFile, Disc, longNames } = window.olFiles;
+const pick = (files) => files.map((file) => ({ file, path: file.webkitRelativePath || "" }));
+const rels = async (files) => (await collect(pick(files), () => {})).entries.map((e) => e[0]).sort();
 
 const dir = mkdtempSync(join(tmpdir(), "olfiles-"));
 const bytes = (s) => new Uint8Array([...s].map((c) => c.charCodeAt(0)));
@@ -33,16 +35,19 @@ for (const [name, flags, size] of layouts) {
   assert.ok(await disc.open(), `finds the ISO volume in ${name}`);
   assert.equal(disc.size, size);
 
-  const entries = await collect([file], () => {});
-  const byRel = Object.fromEntries(entries.map((e) => [e.rel, e]));
-  assert.deepEqual(Object.keys(byRel).sort(), [
+  // Nothing is stored (no IndexedDB here): the files are read from the image.
+  assert.equal(await importPicked(pick([file]), () => {}), 3);
+  assert.deepEqual(await rels([file]), [
     "COURSES/TEST.CRZ",
     "OBJECT.LIB",
     "Object/Tall Trees/Tall Trees100.btx",
   ], "GAME files under their long names, videos skipped");
-  const got = new Uint8Array(await byRel["COURSES/TEST.CRZ"].blob.arrayBuffer());
-  assert.deepEqual(got, crz, "multi-sector file reads back intact");
-  const btx = new Uint8Array(await byRel["Object/Tall Trees/Tall Trees100.btx"].blob.arrayBuffer());
+  assert.deepEqual(await readFile("COURSES/TEST.CRZ", 0, 1 << 20), crz, "multi-sector file reads back intact");
+  for (const [start, len] of [[0, 1], [2047, 2], [2000, 3000], [4095, 905], [4999, 10]]) {
+    assert.deepEqual(await readFile("COURSES/TEST.CRZ", start, len), crz.subarray(start, start + len),
+      `range ${start}+${len} across sector boundaries in ${name}`);
+  }
+  const btx = await readFile("Object/Tall Trees/Tall Trees100.btx", 0, 4096);
   assert.equal(btx.length, 768);
   assert.equal(btx[255], 255);
 }
@@ -53,13 +58,14 @@ const loose = [
   Object.assign(new File([bytes("crz")], "Cabo.crz"), { webkitRelativePath: "Links 2003/Courses/Cabo.crz" }),
   Object.assign(new File([bytes("x")], "Links.exe"), { webkitRelativePath: "Links 2003/Links.exe" }),
 ];
-const fromFolder = (await collect(loose, () => {})).map((e) => e.rel).sort();
-assert.deepEqual(fromFolder, ["Courses/Cabo.crz", "OBJECT.LIB"]);
+assert.deepEqual(await rels(loose), ["Courses/Cabo.crz", "OBJECT.LIB"]);
+await importPicked(pick(loose), () => {});
+assert.deepEqual(await readFile("Courses/Cabo.crz", 1, 10), bytes("rz"), "loose files read directly");
 
 // Picking only the BlindWrite descriptors says which files to pick instead.
-await assert.rejects(collect([new File([bytes("BWT5")], "Links CD1.b6t")], () => {}), /\.b6i/);
+await assert.rejects(collect(pick([new File([bytes("BWT5")], "Links CD1.b6t")]), () => {}), /\.b6i/);
 // An image the reader can't make sense of is named.
-await assert.rejects(collect([new File([new Uint8Array(100000)], "blank.iso")], () => {}), /blank\.iso/);
+await assert.rejects(collect(pick([new File([new Uint8Array(100000)], "blank.iso")]), () => {}), /blank\.iso/);
 
 assert.equal(longNames(bytes("P\0\0\0\x40\0game\\A\\B.X\0Long\\Name.x\0")).get("A/B.X"), "Long/Name.x");
 console.log("game_files.js tests passed");
