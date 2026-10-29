@@ -24,6 +24,12 @@ What the file holds and when the game loads it.
 
 - [inventory.md](inventory.md): what is on each disc, how to read the disc
   images, and a first-pass survey of every file type and container.
+- [arc0.md](arc0.md): `ARC0` compressed archives (`.LIB`, `.BTX`, `.TOP`,
+  `.CMF`, `.sky`).
+- [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
+- [object-library.md](object-library.md): the Course Designer catalog
+  (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.
+- [model.md](model.md): 3D objects (`.XYZ` meshes, `.CMF` textures).
 - [ls-archive.md](ls-archive.md): `LSls` archives (`.LS`, `.L3`, `.TIP`) and
   their LZW compression. Complete.
 - [ssf.md](ssf.md): `.SSF` sound banks. Partial (voice conditions open).

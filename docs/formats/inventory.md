@@ -80,11 +80,11 @@ size of the first entry. Each entry is a zlib stream. Contents seen:
 | `CROWDS.LIB` (also `TRNYCRWD.LIB`) | 981 | `BTCV` sprite: spectators |
 | `OBJECT/**/*.BTX` | 6 | `BTCV` sprite: a 2D billboard object (tree, bush) |
 | `OBJECT/TOPVIEWS/*.TOP` | 6 | `BTCV` sprite: top-down view of an object for the course map |
-| `OBJECT/3D2K3*/*.CMF` | 1 | Unknown binary: a 3D object model |
+| `OBJECT/3D2K3*/*.CMF` | 1 | `Textures`: the texture set of a 3D object (see [model.md](model.md)) |
 | patch `skies/*.sky` | 95 | Custom sky |
 
-`BTCV` looks like the game's own texture format: width and height as u16 at
-offsets 4 and 6 (`80 00 80 00` = 128 x 128), then format fields.
+`BTCV` is the game's own texture format: tiled DXT5 blocks stored as runs.
+See [arc0.md](arc0.md) and [btcv.md](btcv.md); both are now fully decoded.
 
 ### Chained zlib streams (`.CRZ`, `.CVT`, `.RNG`)
 
@@ -113,8 +113,8 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 | `.SEA` | `SHR\0` | Career season | |
 | `.MOP` | none, high entropy | Mode-of-play script | 8 KB each, probably encrypted |
 | `.PST` | count, then names | Course Designer object palette sets | |
-| `OBJECT.LIB` (CD3) | count, then names | Object catalog: category, `.btx` path, `TopViews\*.top` path, floats (size?) | Ties CD3 objects together |
-| `OBJECT/**/*.XYZ`, `.MAP`, `.PRV` | | Per-object data for 3D objects. Guess: geometry (`XYZ`), texture (`MAP`), 128 x 128 preview (`PRV`) | 47 of each |
+| `OBJECT.LIB` (CD3) | count, then names | Object catalog: category, `.btx` path, `TopViews\*.top` path, sizes, object id | See [object-library.md](object-library.md) |
+| `OBJECT/**/*.XYZ`, `.MAP`, `.PRV` | | 3D objects: mesh (`XYZ`), paletted copy of the textures (`MAP`), 128 x 128 preview (`PRV`) | 47 of each; see [model.md](model.md) |
 | `.D3F` | `D3F4` + font name | Bitmap font | |
 | `.TGA`, `.JPG`, `.WAV`, `.WMV`, `.BMP` | standard | | TGAs are mostly 32-bit, RLE in places |
 | `LINKS.DAT`, `.MPD`, `.ICD`, `GOLFANI.DLL` | `MZ` | Windows DLLs | Code, not data |
@@ -122,7 +122,6 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 
 ## Open questions
 
-- `ARC0` entry table: where the per-entry names and sizes live.
 - Course data inside `.CRZ` after the media streams: terrain, surface
   types, holes, pins, object placement. This is the next big job.
 - The 16-byte `.CRZ` header: checksum or key.

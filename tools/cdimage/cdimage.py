@@ -7,6 +7,11 @@ installing the game. Only the standard library is used.
 
     cdimage.py list    DISC.b6i                 # path<TAB>bytes for every file
     cdimage.py extract DISC.b6i OUTDIR [GLOB]   # copy files out (all by default)
+    cdimage.py install DISC.b6i OUTDIR [SETUP.EXE]
+        # copy the GAME folder out under the long names setup would give it.
+        # The names come from the file table in SETUP.EXE, read from the same
+        # disc by default; pass CD1's SETUP.EXE for CD2, which has none.
+        # Run it once per disc with the same OUTDIR to build a full install.
 
 Sector size and the offset of the data track are detected automatically:
 2048-byte (.iso) and 2352-byte raw Mode 1 sectors are both supported, with or
@@ -15,6 +20,7 @@ without the 150-sector pregap BlindWrite keeps at the start of the image.
 
 import fnmatch
 import os
+import re
 import struct
 import sys
 
@@ -98,7 +104,56 @@ def files(img):
     return walk(img, record, joliet)
 
 
+def long_names(setup_exe):
+    """Map disc paths under GAME/ (upper case, '/' separated) to install paths.
+
+    Setup keeps a table of records: u32 0x50, u16 length, the disc path
+    ("game\\OBJECT\\TALLTR_1\\TA406A_1.BTX") and the install path
+    ("Object\\Tall Trees\\Tall Trees100.btx"), both NUL-terminated.
+    See docs/formats/object-library.md.
+    """
+    names = {}
+    for short, long in re.findall(rb"P\x00\x00\x00..(game\\[^\x00]+)\x00([^\x00]+)\x00", setup_exe, re.S):
+        if long[0] < 32:
+            continue
+        key = short.decode("latin-1")[5:].replace("\\", "/").upper()
+        names[key] = long.decode("latin-1").replace("\\", "/")
+    return names
+
+
+def install(img, outdir, setup_exe):
+    names = long_names(setup_exe)
+    print(f"{len(names)} long names from setup", file=sys.stderr)
+    for path, lba, size in files(img):
+        if not path.upper().startswith("/GAME/"):
+            continue
+        rel = names.get(path[6:].upper(), path[6:])
+        dest = os.path.join(outdir, *rel.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as out:
+            for chunk in img.chunks(lba, size):
+                out.write(chunk)
+        print(f"{path}\t{rel}")
+
+
+def read_file(img, wanted):
+    for path, lba, size in files(img):
+        if path.upper() == wanted.upper():
+            return b"".join(img.chunks(lba, size))
+    return None
+
+
 def main(argv):
+    if len(argv) >= 4 and argv[1] == "install":
+        img = Image(argv[2])
+        if len(argv) > 4:
+            setup = open(argv[4], "rb").read()
+        else:
+            setup = read_file(img, "/SETUP.EXE")
+            if setup is None:
+                sys.exit("this disc has no SETUP.EXE; pass the one from disc 1")
+        install(img, argv[3], setup)
+        return
     if len(argv) < 3 or argv[1] not in ("list", "extract"):
         sys.exit(__doc__)
     img = Image(argv[2])
