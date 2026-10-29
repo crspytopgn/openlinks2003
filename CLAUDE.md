@@ -21,6 +21,8 @@ and don't start a "(needs data)" item on guesses.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
   (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
   `ShotModel`), registered with `AssetProviders`.
+- `game/scripts/audio/ssf_bank.gd` is a GDScript port of `ssf.cpp` and `wav.cpp`;
+  change both sides together.
 
 ## Checks before pushing
 

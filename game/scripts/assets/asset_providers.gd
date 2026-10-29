@@ -46,4 +46,7 @@ static func load_course(path: String) -> CourseData:
 static func create_sound_bank() -> SoundBank:
 	if sound_bank_factory.is_valid():
 		return sound_bank_factory.call()
+	var links := LinksSoundBank.from_game_folder()
+	if links != null:
+		return links
 	return PlaceholderSoundBank.new()

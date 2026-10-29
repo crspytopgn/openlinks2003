@@ -77,6 +77,9 @@ Nothing in the round needs to change.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.
+  `LinksSoundBank` (`scripts/audio/`) is used automatically when a game
+  folder is configured (see `scripts/game_folder.gd`); it plays the
+  original effects from `predefined.ssf`.
 - **Physics:** subclass `ShotModel` (`launch(...)`, `simulate(...)`) and set
   `AssetProviders.shot_model`. This is where a model tuned against the
   original game, or the C++ core through GDExtension, replaces the stand-in.
