@@ -14,6 +14,9 @@
 #include "olcore/inflate.hpp"
 #include "olcore/model.hpp"
 #include "olcore/object_library.hpp"
+#include "olcore/scoring.hpp"
+#include "olcore/shot.hpp"
+#include "olcore/swing.hpp"
 
 namespace {
 
@@ -88,7 +91,7 @@ void test_positive_sidespin_curves_left() {
 
 void test_driver_carry_is_plausible() {
   // ~157 mph ball speed, 11 deg launch, 2700 rpm. The placeholder constants
-  // carry this ~210 m; the bounds only guard against sign and unit errors
+  // carry this ~205 m; the bounds only guard against sign and unit errors
   // until the model is tuned to match the original game.
   BallParams p;
   FlightResult r = simulate_flight(make_launch(70, 11, 0, 2700, 0), p);
@@ -376,6 +379,154 @@ void test_object_library_parses() {
   CHECK(lib.find("ROCKS000.BTX") == o);
 }
 
+// A plane rising by `grade` metres per metre towards +z.
+class SlopeTerrain : public Terrain {
+ public:
+  SlopeTerrain(double grade, Surface s) : grade_(grade), surface_(s) {}
+  double height(double, double z) const override { return grade_ * z; }
+  Surface surface(double, double) const override { return surface_; }
+
+ private:
+  double grade_;
+  Surface surface_;
+};
+
+const Club& club(const char* short_name) {
+  for (const Club& c : standard_clubs()) {
+    if (std::string(c.short_name) == short_name) {
+      return c;
+    }
+  }
+  std::printf("  no club %s\n", short_name);
+  return standard_clubs().front();
+}
+
+void test_drive_bounces_and_rolls() {
+  BallParams p;
+  FlatTerrain ground(Surface::Fairway);
+  ShotResult r = simulate_shot(launch_from_swing(club("Dr"), {}, Surface::Tee), p, ground);
+  std::printf("  drive: carry %.2f m, total %.2f m, %d bounces, %.2f s\n", r.carry_m, r.total_m, r.bounces,
+              r.time_s);
+  CHECK(r.outcome == ShotOutcome::Rest);
+  CHECK(r.bounces >= 2);
+  CHECK(r.total_m > r.carry_m + 10);
+  CHECK(r.total_m < r.carry_m + 80);
+  CHECK_NEAR(r.rest.y, 0.0, 1e-9);
+}
+
+void test_club_distances_decrease() {
+  BallParams p;
+  FlatTerrain ground(Surface::Fairway);
+  double previous = 1e9;
+  for (const Club& c : standard_clubs()) {
+    if (c.putter) {
+      continue;
+    }
+    ShotResult r = simulate_shot(launch_from_swing(c, {}, Surface::Fairway), p, ground);
+    CHECK(r.carry_m < previous);
+    previous = r.carry_m;
+  }
+}
+
+void test_wedge_checks_on_green() {
+  BallParams p;
+  FlatTerrain green(Surface::Green);
+  ShotResult r = simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, green);
+  std::printf("  wedge: carry %.2f m, total %.2f m\n", r.carry_m, r.total_m);
+  CHECK(std::fabs(r.total_m - r.carry_m) < 6.0);
+}
+
+void test_rough_and_sand_cost_distance() {
+  BallParams p;
+  FlatTerrain ground(Surface::Fairway);
+  const Club& c = club("7i");
+  double fairway = simulate_shot(launch_from_swing(c, {}, Surface::Fairway), p, ground).carry_m;
+  double rough = simulate_shot(launch_from_swing(c, {}, Surface::Rough), p, ground).carry_m;
+  double sand = simulate_shot(launch_from_swing(c, {}, Surface::Sand), p, ground).carry_m;
+  CHECK(rough < fairway);
+  CHECK(sand < rough);
+}
+
+void test_swing_accuracy_curves_ball() {
+  BallParams p;
+  FlatTerrain ground(Surface::Fairway);
+  ShotResult hook = simulate_shot(launch_from_swing(club("7i"), {1.0, -0.5, 0.0}, Surface::Fairway), p, ground);
+  ShotResult slice = simulate_shot(launch_from_swing(club("7i"), {1.0, 0.5, 0.0}, Surface::Fairway), p, ground);
+  CHECK(hook.rest.x > 5);    // early = left
+  CHECK(slice.rest.x < -5);  // late = right
+  CHECK_NEAR(hook.rest.x, -slice.rest.x, 1e-6);
+}
+
+void test_putt_drops_at_holing_speed() {
+  BallParams p;
+  FlatTerrain green(Surface::Green);
+  ShotOptions opt;
+  opt.has_cup = true;
+  opt.cup = {0, 0, 3};
+  ShotResult in = simulate_shot(make_launch(2.0, 0, 0, 0, 0), p, green, opt);
+  CHECK(in.outcome == ShotOutcome::Holed);
+  CHECK_NEAR(in.rest.z, 3.0, 1e-9);
+
+  ShotResult lip = simulate_shot(make_launch(5.0, 0, 0, 0, 0), p, green, opt);
+  CHECK(lip.outcome == ShotOutcome::Rest);  // too fast, runs over the hole
+  CHECK(lip.rest.z > 3.0);
+
+  ShotResult wide = simulate_shot(make_launch(2.0, 0, 5, 0, 0), p, green, opt);
+  CHECK(wide.outcome == ShotOutcome::Rest);
+}
+
+void test_putt_distance_follows_green_speed() {
+  // Rolling resistance alone: d = v^2 / (2 c g).
+  BallParams p;
+  FlatTerrain green(Surface::Green);
+  ShotResult r = simulate_shot(make_launch(3.0, 0, 0, 0, 0), p, green);
+  double expected = 9.0 / (2 * surface_params(Surface::Green).rolling_resistance * p.gravity);
+  CHECK_NEAR(r.total_m, expected, 0.05);
+}
+
+void test_ball_rolls_downhill() {
+  BallParams p;
+  SlopeTerrain hill(0.1, Surface::Green);
+  ShotResult r = simulate_shot(BallState{{0, 1.0, 10.0}, {0, 0, 0}, {0, 0, 0}}, p, hill);
+  CHECK(r.rest.z < 10.0);  // ran back down the slope
+  CHECK(r.outcome == ShotOutcome::TimedOut || r.outcome == ShotOutcome::Rest);
+
+  SlopeTerrain gentle(0.02, Surface::Green);
+  ShotResult held = simulate_shot(BallState{{0, 0.2, 10.0}, {0, 0, 0}, {0, 0, 0}}, p, gentle);
+  CHECK(held.outcome == ShotOutcome::Rest);
+  CHECK_NEAR(held.rest.z, 10.0, 1e-9);
+}
+
+void test_water_and_out_of_bounds_stop_the_ball() {
+  BallParams p;
+  FlatTerrain pond(Surface::Water);
+  ShotResult wet = simulate_shot(launch_from_swing(club("7i"), {}, Surface::Fairway), p, pond);
+  CHECK(wet.outcome == ShotOutcome::Water);
+  CHECK(wet.bounces == 0);
+  FlatTerrain ob(Surface::OutOfBounds);
+  CHECK(simulate_shot(launch_from_swing(club("7i"), {}, Surface::Fairway), p, ob).outcome ==
+        ShotOutcome::OutOfBounds);
+}
+
+void test_scorecard() {
+  CHECK(score_name(1, 3) == "Hole in one");
+  CHECK(score_name(3, 4) == "Birdie");
+  CHECK(score_name(4, 4) == "Par");
+  CHECK(score_name(2, 5) == "Albatross");
+  CHECK(score_name(6, 4) == "Double bogey");
+  CHECK(score_name(9, 4) == "+5");
+  Scorecard card({4, 3, 5});
+  card.record(0, 5);
+  card.record(1, 2);
+  CHECK(card.total_strokes() == 7);
+  CHECK(card.holes_played() == 2);
+  CHECK(card.to_par() == 0);
+  CHECK(format_to_par(card.to_par()) == "E");
+  card.record(2, 7);
+  CHECK(format_to_par(card.to_par()) == "+2");
+  CHECK(format_to_par(-3) == "-3");
+}
+
 }  // namespace
 
 int main() {
@@ -394,6 +545,16 @@ int main() {
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"model_reads_tables", test_model_reads_tables},
       {"object_library_parses", test_object_library_parses},
+      {"drive_bounces_and_rolls", test_drive_bounces_and_rolls},
+      {"club_distances_decrease", test_club_distances_decrease},
+      {"wedge_checks_on_green", test_wedge_checks_on_green},
+      {"rough_and_sand_cost_distance", test_rough_and_sand_cost_distance},
+      {"swing_accuracy_curves_ball", test_swing_accuracy_curves_ball},
+      {"putt_drops_at_holing_speed", test_putt_drops_at_holing_speed},
+      {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
+      {"ball_rolls_downhill", test_ball_rolls_downhill},
+      {"water_and_out_of_bounds_stop_the_ball", test_water_and_out_of_bounds_stop_the_ball},
+      {"scorecard", test_scorecard},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

@@ -6,7 +6,10 @@ add_library(olcore STATIC
   src/inflate.cpp
   src/model.cpp
   src/object_library.cpp
+  src/scoring.cpp
+  src/shot.cpp
   src/strings.cpp
+  src/swing.cpp
 )
 target_include_directories(olcore PUBLIC include)
 

@@ -14,8 +14,13 @@ and don't start a "(needs data)" item on guesses.
   in a session, use them only for analysis and write findings into
   `docs/formats/` in your own words.
 - Keep `libs/olcore` engine-independent: no Godot headers there.
-- Until GDExtension lands, `game/scripts/main.gd` holds a GDScript port of
-  `libs/olcore/src/ball_physics.cpp`. Change both together.
+- Until GDExtension lands, `game/scripts/physics/` holds a GDScript port of
+  `libs/olcore` (`ball_physics.cpp`, `shot.cpp`, `swing.cpp`, `scoring.cpp`).
+  Change both together; `game/tests/run_tests.gd` checks the port against
+  numbers printed by the C++ tests.
+- Decoders plug into the game through the interfaces in `docs/game-shell.md`
+  (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
+  `ShotModel`), registered with `AssetProviders`.
 
 ## Checks before pushing
 
@@ -24,8 +29,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel
 ```
 
 Godot is not installed in the cloud container. Godot changes are validated by
-the `export` job in `.github/workflows/ci.yml`, so check that job after
-pushing.
+the `export` job in `.github/workflows/ci.yml` (headless GDScript tests, then
+the exports), so check that job after pushing. Locally:
+`godot --headless --path game --import` then
+`godot --headless --path game -s res://tests/run_tests.gd`.
 
 ## Web build
 

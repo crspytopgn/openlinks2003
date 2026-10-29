@@ -8,8 +8,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 const SCATTER_COUNT := 40
 const SCATTER_RADIUS := 40.0
 
-var folder: GameFolder
-var library: ObjectLibrary
+var library: DecodedObjectLibrary
 var path_edit: LineEdit
 var status: Label
 var tree: Tree
@@ -20,8 +19,6 @@ var orbit_yaw := 0.6
 var orbit_pitch := 0.25
 var orbit_distance := 25.0
 var orbit_target := Vector3(0, 4, 0)
-var textures := {}
-var meshes := {}
 
 
 func _ready() -> void:
@@ -140,22 +137,15 @@ func _save_folder(path: String) -> void:
 
 
 func _load_folder(path: String) -> void:
-	folder = GameFolder.new(path)
-	var bytes := folder.read("object.lib")
-	if bytes.is_empty():
-		_set_status("No object.lib in %s. Pick the folder that holds object.lib and the Object folder." % path)
-		return
-	library = ObjectLibrary.from_bytes(bytes)
+	library = DecodedObjectLibrary.open(path)
 	if library == null:
-		_set_status("Could not read object.lib.")
+		_set_status("No readable object.lib in %s. Pick the folder that holds object.lib and the Object folder." % path)
 		return
 	_save_folder(path)
-	textures.clear()
-	meshes.clear()
 	tree.clear()
 	var root := tree.create_item()
 	var total := 0
-	for cat in library.categories:
+	for cat in library.catalog.categories:
 		if (cat.objects as Array).is_empty():
 			continue
 		var item := tree.create_item(root)
@@ -167,7 +157,7 @@ func _load_folder(path: String) -> void:
 			child.set_text(0, (o.name as String).get_basename())
 			child.set_metadata(0, o)
 			total += 1
-	_set_status("%d objects in %d categories." % [total, library.categories.size()])
+	_set_status("%d objects in %d categories." % [total, library.catalog.categories.size()])
 
 
 func _on_item_selected() -> void:
@@ -198,7 +188,7 @@ func _show_objects(objects: Array, scatter: bool) -> void:
 	var tallest := 1.0
 	for i in count:
 		var o: Dictionary = objects[rng.randi() % objects.size()] if scatter else objects[0]
-		var node := _make_object(o)
+		var node := library.instantiate(str(o.id))
 		if node == null:
 			failed += 1
 			continue
@@ -206,10 +196,10 @@ func _show_objects(objects: Array, scatter: bool) -> void:
 			var r := SCATTER_RADIUS * sqrt(rng.randf())
 			var a := rng.randf() * TAU
 			node.position = Vector3(cos(a) * r, 0, sin(a) * r)
-			if o.kind == ObjectLibrary.KIND_MODEL:
+			if o.kind == ObjectCatalog.KIND_MODEL:
 				node.rotation.y = rng.randf() * TAU
 		shown.add_child(node)
-		tallest = maxf(tallest, float(node.get_meta("height", 1.0)))
+		tallest = maxf(tallest, library.height_m(str(o.id)))
 	if scatter:
 		orbit_target = Vector3(0, 2, 0)
 		orbit_distance = SCATTER_RADIUS * 2.2
@@ -221,69 +211,7 @@ func _show_objects(objects: Array, scatter: bool) -> void:
 		_set_status("%d of %d objects could not be loaded (missing or unreadable files)." % [failed, count])
 	elif not scatter:
 		var o: Dictionary = objects[0]
-		_set_status("%s, id %d. %s" % [o.path, o.id, "3D model" if o.kind == ObjectLibrary.KIND_MODEL else "billboard"])
-
-
-func _object_path(o: Dictionary) -> String:
-	return "Object/" + (o.path as String)
-
-
-func _make_object(o: Dictionary) -> Node3D:
-	if o.kind == ObjectLibrary.KIND_MODEL:
-		return _make_model(o)
-	return _make_billboard(o)
-
-
-func _billboard_texture(o: Dictionary) -> ImageTexture:
-	var key: String = o.path
-	if textures.has(key):
-		return textures[key]
-	var tex: ImageTexture = null
-	var arc := Arc0.from_bytes(folder.read(_object_path(o)))
-	if arc and not arc.entries.is_empty():
-		var img := Btcv.decode(arc.read(0))
-		if img:
-			img.generate_mipmaps()
-			tex = ImageTexture.create_from_image(img)
-	textures[key] = tex
-	return tex
-
-
-func _make_billboard(o: Dictionary) -> Node3D:
-	var tex := _billboard_texture(o)
-	if tex == null:
-		return null
-	var h := ObjectLibrary.default_height_m(o)
-	var w := h * tex.get_width() / float(tex.get_height())
-	var quad := QuadMesh.new()
-	quad.size = Vector2(w, h)
-	quad.center_offset = Vector3(0, h * 0.5, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = tex
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	mat.alpha_scissor_threshold = 0.5
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var mi := MeshInstance3D.new()
-	mi.mesh = quad
-	mi.material_override = mat
-	mi.set_meta("height", h)
-	return mi
-
-
-func _make_model(o: Dictionary) -> Node3D:
-	var key: String = o.path
-	if not meshes.has(key):
-		var base := _object_path(o).get_basename()
-		var mesh := XyzModel.build_mesh(folder.read(base + ".XYZ"), XyzModel.read_textures(folder.read(base + ".cmf")))
-		meshes[key] = mesh
-	if meshes[key] == null:
-		return null
-	var mi := MeshInstance3D.new()
-	mi.mesh = meshes[key]
-	var size: PackedFloat32Array = o.size
-	mi.set_meta("height", size[0] * XyzModel.INCH)
-	return mi
+		_set_status("%s, id %d. %s" % [o.path, o.id, "3D model" if o.kind == ObjectCatalog.KIND_MODEL else "billboard"])
 
 
 func _unhandled_input(event: InputEvent) -> void:

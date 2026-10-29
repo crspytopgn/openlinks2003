@@ -1,196 +1,204 @@
 extends SceneTree
-## Headless checks for the GDScript format readers, run by CI:
-##   godot --headless --path game --script res://tests/run_tests.gd
-## Uses only synthetic data; nothing from the original game.
+## Headless checks for the GDScript side of the game. Run after importing:
+##   godot --headless --path game --import
+##   godot --headless --path game -s res://tests/run_tests.gd
+## Prints "GODOT TESTS PASSED" and exits 0 when everything passes.
+##
+## The expected numbers in the physics tests come from the C++ core
+## (libs/olcore/tests/test_main.cpp prints them), so a drift between the two
+## implementations fails here.
 
-var failures := 0
+var _failures := 0
+var _current := ""
+var _game: GolfRound
+var _frames := 0
+var _done := false
 
 
-func _init() -> void:
-	_test_scripts_compile()
-	_test_arc0_and_btcv()
-	_test_object_library()
-	_test_model()
-	if failures == 0:
-		print("all GDScript tests passed")
+func _initialize() -> void:
+	_run("physics_matches_olcore", _test_physics_matches_olcore)
+	_run("club_table_matches_physics", _test_club_table_matches_physics)
+	_run("putting", _test_putting)
+	_run("hazards", _test_hazards)
+	_run("swing_accuracy", _test_swing_accuracy)
+	_run("swing_meter", _test_swing_meter)
+	_run("scorecard", _test_scorecard)
+	_run("placeholder_course", _test_placeholder_course)
+	_run("format_readers", _test_format_readers)
+	# Nodes added here only get _ready() once the main loop runs, so the
+	# full round is played from _process().
+	var scene: PackedScene = load("res://scenes/main.tscn")
+	_game = scene.instantiate() as GolfRound
+	root.add_child(_game)
+
+
+func _process(_delta: float) -> bool:
+	_frames += 1
+	if _done or (not _game.is_node_ready() and _frames < 30):
+		return false
+	_done = true
+	_run("full_round", _test_full_round)
+	if _failures > 0:
+		print("%d check(s) failed" % _failures)
+		quit(1)
 	else:
-		print("%d GDScript check(s) failed" % failures)
-	quit(1 if failures else 0)
+		print("GODOT TESTS PASSED")
+		quit(0)
+	return true
 
 
-func check(cond: bool, what: String) -> void:
+func _run(test_name: String, fn: Callable) -> void:
+	_current = test_name
+	print(test_name)
+	fn.call()
+
+
+func _check(cond: bool, what: String) -> void:
 	if not cond:
-		failures += 1
-		print("  FAIL ", what)
+		_failures += 1
+		print("  FAIL %s: %s" % [_current, what])
 
 
-func _test_scripts_compile() -> void:
-	for path in ["res://scripts/main.gd", "res://scripts/object_viewer.gd"]:
-		var script: GDScript = load(path)
-		check(script != null and script.can_instantiate(), "%s compiles" % path)
+func _check_near(actual: float, expected: float, tol: float, what: String) -> void:
+	_check(absf(actual - expected) <= tol, "%s = %f, expected %f +/- %f" % [what, actual, expected, tol])
 
 
-func put_u16(b: PackedByteArray, v: int) -> void:
-	b.append(v & 0xff)
-	b.append((v >> 8) & 0xff)
+func _club(short_name: String) -> Club:
+	for c in Club.standard_set():
+		if c.short_name == short_name:
+			return c
+	_check(false, "no club " + short_name)
+	return null
 
 
-func put_u32(b: PackedByteArray, v: int) -> void:
-	for i in 4:
-		b.append((v >> (8 * i)) & 0xff)
+func _test_format_readers() -> void:
+	var tests: RefCounted = load("res://tests/format_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
 
 
-func put_f32(b: PackedByteArray, v: float) -> void:
-	var tmp := PackedByteArray()
-	tmp.resize(4)
-	tmp.encode_float(0, v)
-	b.append_array(tmp)
+func _test_physics_matches_olcore() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var drive := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("Dr"), 1.0, 0.0, 0.0, Surface.Type.TEE), fairway)
+	print("  drive: carry %.2f m, total %.2f m, %d bounces" % [drive.carry_m, drive.total_m, drive.bounces])
+	_check_near(drive.carry_m, 223.61, 1.0, "drive carry")
+	_check_near(drive.total_m, 264.33, 1.5, "drive total")
+	_check(drive.outcome == ShotResult.Outcome.REST, "drive comes to rest")
+
+	var green := FlatTerrain.new(Surface.Type.GREEN)
+	var wedge := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("PW"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), green)
+	print("  wedge: carry %.2f m, total %.2f m" % [wedge.carry_m, wedge.total_m])
+	_check_near(wedge.carry_m, 126.30, 1.0, "wedge carry")
+	_check_near(wedge.total_m, 126.28, 1.0, "wedge total")
 
 
-func put_counted(b: PackedByteArray, s: String) -> void:
-	put_u32(b, s.length() + 1)
-	b.append_array(s.to_ascii_buffer())
-	b.append(0)
+func _test_club_table_matches_physics() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	for c in Club.standard_set():
+		if c.is_putter:
+			continue
+		var r := BallPhysics.simulate_shot(Swing.launch_from_swing(c, 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), fairway)
+		_check_near(r.carry_m, c.carry_m, c.carry_m * 0.015, c.short_name + " carry")
+		_check_near(r.total_m, c.total_m, c.total_m * 0.015, c.short_name + " total")
 
 
-## One-entry ARC0 archive around `payload`.
-func make_arc0(entry_name: String, payload: PackedByteArray) -> PackedByteArray:
-	var packed := payload.compress(FileAccess.COMPRESSION_DEFLATE)
-	var b := PackedByteArray()
-	b.append_array("ARC0".to_ascii_buffer())
-	put_u32(b, 16 + packed.size() + 64)
-	put_u32(b, 1)
-	put_u32(b, 16 + packed.size())
-	b.append_array(packed)
-	put_u32(b, 0)
-	var n := entry_name.to_ascii_buffer()
-	n.resize(32)
-	b.append_array(n)
-	put_u32(b, 16)
-	put_u32(b, packed.size())
-	put_u32(b, payload.size())
-	put_u32(b, 2)
-	put_u32(b, 0)
-	put_u32(b, 0)
-	put_u32(b, 0)
-	return b
+func _test_putting() -> void:
+	var green := FlatTerrain.new(Surface.Type.GREEN)
+	var cup := Vector3(0, 0, 3)
+	var made := BallPhysics.simulate_shot(BallPhysics.make_launch(2.0, 0, 0, 0, 0), green, true, cup)
+	_check(made.outcome == ShotResult.Outcome.HOLED, "2 m/s putt drops")
+	var fast := BallPhysics.simulate_shot(BallPhysics.make_launch(5.0, 0, 0, 0, 0), green, true, cup)
+	_check(fast.outcome == ShotResult.Outcome.REST and fast.rest.z > 3.0, "5 m/s putt runs past")
+	var roll := BallPhysics.simulate_shot(BallPhysics.make_launch(3.0, 0, 0, 0, 0), green)
+	_check_near(roll.total_m, 9.0 / (2.0 * Surface.rolling_resistance(Surface.Type.GREEN) * BallPhysics.GRAVITY), 0.05, "putt length")
+	var putter := _club("Pt")
+	var full := BallPhysics.simulate_shot(Swing.launch_from_swing(putter, 1.0, 0.0, 0.0, Surface.Type.GREEN), green)
+	_check_near(full.total_m, putter.total_m, 0.5, "full putt")
 
 
-## Block runs filling `blocks` blocks with one flat colour (B, G, R, A).
-func flat_runs(blocks: int, bgra: Array) -> PackedByteArray:
-	var b := PackedByteArray()
-	put_u16(b, 0x4000 | blocks)
-	for i in blocks:
-		b.append_array(PackedByteArray(bgra))
-	return b
+func _test_hazards() -> void:
+	var water := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), FlatTerrain.new(Surface.Type.WATER))
+	_check(water.outcome == ShotResult.Outcome.WATER, "lands in water")
+	var ob := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), FlatTerrain.new(Surface.Type.OUT_OF_BOUNDS))
+	_check(ob.outcome == ShotResult.Outcome.OUT_OF_BOUNDS, "lands out of bounds")
 
 
-func _test_arc0_and_btcv() -> void:
-	# 70 x 6 image with one 64-pixel tile at the bottom left: red in tile rows
-	# 0-59, blue in rows 60-63, so the image shows red on top and blue below.
-	var btcv := PackedByteArray()
-	btcv.append_array("BTCV".to_ascii_buffer())
-	put_u16(btcv, 70)
-	put_u16(btcv, 6)
-	put_u16(btcv, 1)
-	put_u16(btcv, 11)
-	put_u32(btcv, 0)
-	put_u32(btcv, 1)
-	var runs := flat_runs(240, [0, 0, 255, 255])
-	runs.append_array(flat_runs(16, [255, 0, 0, 255]))
-	put_u16(btcv, 0)
-	put_u16(btcv, 64)
-	put_u16(btcv, 0)
-	put_u16(btcv, 0)
-	put_u32(btcv, 36)
-	put_u32(btcv, runs.size())
-	btcv.append_array(runs)
+func _test_swing_accuracy() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var hook := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, -0.5, 0.0, Surface.Type.FAIRWAY), fairway)
+	var slice := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.5, 0.0, Surface.Type.FAIRWAY), fairway)
+	_check(hook.rest.x > 5.0, "early swing goes left")
+	_check(slice.rest.x < -5.0, "late swing goes right")
+	var rough := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.ROUGH), fairway)
+	var clean := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), fairway)
+	_check(rough.carry_m < clean.carry_m, "rough costs distance")
 
-	var arc := Arc0.from_bytes(make_arc0("Sample A.btc", btcv))
-	check(arc != null and arc.entries.size() == 1, "ARC0 header")
-	if arc == null:
+
+func _test_swing_meter() -> void:
+	var meter := SwingMeter.new()
+	var results := []
+	meter.swing_finished.connect(func(p: float, a: float) -> void: results.append([p, a]))
+	meter.click()
+	_check(meter.phase == SwingMeter.Phase.BACKSWING, "first click starts the backswing")
+	meter.value = 0.8
+	meter.click()
+	_check_near(meter.power, 0.8, 1e-6, "second click sets power")
+	meter.value = 0.005
+	meter.click()
+	_check(results.size() == 1, "third click finishes the swing")
+	if results.size() == 1:
+		_check_near(results[0][1], 0.0, 1e-6, "on the line is perfect")
+	meter.click()
+	meter.value = 1.0
+	meter.click()
+	meter.value = -SwingMeter.ACCURACY_ZONE * 0.5
+	meter.click()
+	_check(results.size() == 2 and results[1][1] > 0.4, "late click slices")
+	meter.free()
+
+
+func _test_scorecard() -> void:
+	_check(Scorecard.score_name(1, 3) == "Hole in one", "ace")
+	_check(Scorecard.score_name(3, 4) == "Birdie", "birdie")
+	_check(Scorecard.score_name(2, 5) == "Albatross", "albatross")
+	_check(Scorecard.score_name(9, 4) == "+5", "+5")
+	var pars: Array[int] = [4, 3, 5]
+	var card := Scorecard.new(pars)
+	card.record(0, 5)
+	card.record(1, 2)
+	_check(card.total_strokes() == 7, "total")
+	_check(Scorecard.format_to_par(card.to_par()) == "E", "even")
+	card.record(2, 7)
+	_check(Scorecard.format_to_par(card.to_par()) == "+2", "+2")
+
+
+func _test_placeholder_course() -> void:
+	var course := AssetProviders.load_course("")
+	_check(course.holes.size() == 9, "nine holes")
+	var par := 0
+	for h in course.holes:
+		par += h.par
+		_check(h.terrain.surface_at(h.tee.x, h.tee.z) == Surface.Type.TEE, "hole %d tee is on the tee box" % h.number)
+		_check(h.terrain.surface_at(h.pin.x, h.pin.z) == Surface.Type.GREEN, "hole %d pin is on the green" % h.number)
+		var tee_ground := h.terrain.height_at(h.tee.x, h.tee.z)
+		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
+		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
+	_check(par == 36, "par 36")
+
+
+func _test_full_round() -> void:
+	var game := _game
+	_check(game.is_node_ready(), "game scene is ready")
+	if not game.is_node_ready():
 		return
-	check(arc.find("sample a.BTC") == 0, "ARC0 find ignores case")
-	var img := Btcv.decode(arc.read(0))
-	check(img != null, "BTCV decodes")
-	if img == null:
-		return
-	check(img.get_width() == 70 and img.get_height() == 6, "BTCV size")
-	check(img.get_pixel(0, 1).r > 0.9 and img.get_pixel(0, 1).b < 0.1, "BTCV tile row 59 is red")
-	check(img.get_pixel(3, 5).b > 0.9 and img.get_pixel(3, 5).r < 0.1, "BTCV tile row 63 is blue")
-	check(img.get_pixel(67, 2).a < 0.01, "BTCV uncovered area is transparent")
-
-
-func _test_object_library() -> void:
-	var b := PackedByteArray()
-	put_u32(b, 5)
-	put_u32(b, 1)
-	put_counted(b, "Rocks")
-	put_u32(b, 1)
-	put_counted(b, "Rocks000.btx")
-	put_counted(b, "Rocks\\Rocks000.btx")
-	put_u32(b, 1)
-	for f in [25.0, 2.0, 6.0, 0.0, 150.0, 241.0, 0.0, 0.5, 0.0]:
-		put_f32(b, f)
-	put_u32(b, 0x84247be0)
-	put_u32(b, 0)
-	put_u32(b, 1)
-	for i in 6:
-		put_f32(b, 1.0)
-	var lib := ObjectLibrary.from_bytes(b)
-	check(lib != null and lib.categories.size() == 1, "OBJECT.LIB parses")
-	if lib == null:
-		return
-	var o := lib.find_id(0x84247be0)
-	check(o.get("path", "") == "Rocks\\Rocks000.btx", "OBJECT.LIB object path")
-	check(is_equal_approx(ObjectLibrary.default_height_m(o), 4.0 * 0.3048), "billboard default height")
-
-
-func _test_model() -> void:
-	# A 10 x 5 inch quad with one 4 x 4 texture (four levels).
-	var tex := PackedByteArray()
-	put_u32(tex, 0)
-	for level in 4:
-		put_u32(tex, 4)
-		put_u32(tex, 4)
-		tex.append_array(flat_runs(1, [0, 255, 0, 255]))
-	var textures := XyzModel.read_textures(make_arc0("Textures", tex))
-	check(textures.size() == 1, "CMF has one texture")
-
-	var x := PackedByteArray()
-	x.resize(0xa4)
-	for p in [Vector3(0, 0, 0), Vector3(10, 0, 0), Vector3(10, 5, 0), Vector3(0, 5, 0)]:
-		put_f32(x, p.x)
-		put_f32(x, p.y)
-		put_f32(x, p.z)
-	var uv_at := x.size()
-	for uv in [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]:
-		put_f32(x, uv.x)
-		put_f32(x, uv.y)
-	var face_at := x.size()
-	put_u16(x, 4)
-	put_u16(x, 0)
-	put_u16(x, 0)
-	put_u16(x, 0)
-	put_u32(x, 0)
-	var corner_at := x.size()
-	for i in 4:
-		put_u16(x, i)
-	var mat_at := x.size()
-	x.resize(x.size() + 16)
-	x.encode_u32(0, x.size())
-	var tables := [[4, 0xa4], [4, uv_at], [1, face_at], [4, corner_at], [1, mat_at]]
-	for i in 5:
-		x.encode_u32(0x18 + 8 * i, tables[i][0])
-		x.encode_u32(0x1c + 8 * i, tables[i][1])
-	x.encode_u32(0x40, 1)
-	var mesh := XyzModel.build_mesh(x, textures)
-	check(mesh != null and mesh.get_surface_count() == 1, "XYZ builds a mesh")
-	if mesh == null:
-		return
-	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-	check(verts.size() == 6, "quad becomes two triangles")
-	var top := 0.0
-	for v in verts:
-		top = maxf(top, v.y)
-	check(is_equal_approx(top, 5.0 * XyzModel.INCH), "XYZ units are inches")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "round finishes")
+	var line := "  card:"
+	for i in game.card.strokes.size():
+		var s := game.card.strokes[i]
+		line += " %d" % s
+		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
+	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])

@@ -1,4 +1,4 @@
-class_name ObjectLibrary
+class_name ObjectCatalog
 extends RefCounted
 ## The Course Designer catalog, OBJECT.LIB. See
 ## docs/formats/object-library.md; mirrors libs/olcore/src/object_library.cpp.
@@ -15,8 +15,8 @@ var _pos := 0
 var _ok := true
 
 
-static func from_bytes(bytes: PackedByteArray) -> ObjectLibrary:
-	var lib := ObjectLibrary.new()
+static func from_bytes(bytes: PackedByteArray) -> ObjectCatalog:
+	var lib := ObjectCatalog.new()
 	lib._bytes = bytes
 	lib._parse()
 	lib._bytes = PackedByteArray()
