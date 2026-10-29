@@ -4,25 +4,29 @@ Ordered by dependency. Items marked **(needs data)** need sample files or
 measurements from an installed copy of the original game; don't start them
 on guesses, because the details come from the data.
 
-## Current blocker
+## Data available
 
-The owner's copy is a set of BlindWrite CD images (`.b6i`/`.b6t`). The plan
-is to install the game on a Windows machine (or VM) and work from the install
-folder, not the CD images. Waiting on a file listing of that folder.
+The owner's English discs (three BlindWrite `.b6i` images) and the v1.07
+patch have been surveyed. No install is needed: `tools/cdimage/cdimage.py`
+reads files straight from the images. See
+[docs/formats/inventory.md](docs/formats/inventory.md) for what each file
+type holds. Items below that only need files from the discs are now
+unblocked; items that need measurements from the running game (tuning,
+feel) still need a working install.
 
 ## Phase 1: formats (see `docs/formats/`)
 
-- [ ] Inventory the install folder: file types, counts, sizes **(needs data)**
-- [ ] Archive/container format, if the game packs its files **(needs data)**
-- [ ] Course format: terrain, surface types, holes, tees, pins, hazards, OB **(needs data)**
-- [ ] Object format: trees, buildings, crowds and their placement **(needs data)**
+- [x] Inventory the install folder: file types, counts, sizes (`docs/install-listing/`, `docs/formats/inventory.md`)
+- [ ] Container formats: `LSls` archives, `ARC0` zlib archives, chained-zlib `.CRZ` courses **(unblocked: samples on CD1 to CD3)**
+- [ ] Course format: terrain, surface types, holes, tees, pins, hazards, OB **(unblocked: six `.CRZ` courses on CD2, 39 `.CVT`)**
+- [ ] Object format: trees, buildings, crowds and their placement **(unblocked: CD3 `OBJECT/`, `OBJECT.LIB`, `CROWDS.LIB`; placement comes with the course format)**
 - [ ] Course loader in `olcore` plus a fly-around course viewer in Godot
 
 ## Phase 2: a playable round
 
 - [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**
 - [ ] Wind
-- [ ] Clubs and club selection **(needs data: club distances)**
+- [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [ ] Swing controls: classic three-click power meter, then the real-time mouse swing
 - [ ] Rules and scoring: penalties, drops, putting, scorecard
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
@@ -30,9 +34,9 @@ folder, not the CD images. Waiting on a file listing of that folder.
 
 ## Phase 3: look and sound
 
-- [ ] Textures and skies **(needs data)**
-- [ ] Golfer models or animation frames **(needs data; probably the hardest format)**
-- [ ] Audio: effects, ambient, commentary **(needs data)**
+- [ ] Textures and skies **(unblocked: `STDTER_1.LIB`, `PANSKY.LIB`, `BTCV` sprites, patch `.sky` files)**
+- [ ] Golfer models and animation **(unblocked: `POLYANI/*.L3` with `.CLP` clips; probably the hardest format)**
+- [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
 
 ## Phase 4: the full game
 

@@ -21,6 +21,21 @@ original/
 *.crs
 *.xcr
 *.mpk
+*.b6i
+*.b6t
+*.iso
+*.bin
+*.crz
+*.cvt
+*.rng
+*.sha
+*.tip
+*.ls
+*.l3
+*.ssf
+*.sky
+*.btx
+*.cmf
 
 # OS / editor
 .DS_Store
