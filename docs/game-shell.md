@@ -67,11 +67,16 @@ and offers the courses found in it. In the browser, `WebGameFiles`
 images or a folder, the script walks the ISO 9660 tracks itself (cooked,
 raw or raw-plus-subchannel sectors, as `tools/cdimage/cdimage.py` does, and
 scans for the volume when the pregap is unusual, so BlindWrite .b6t and
-other descriptor files aren't needed), stores the GAME files in
-IndexedDB under Setup's long names, and on later visits copies them into the
-in-memory filesystem at `/tmp/links2003`, which becomes
-`GameFolder.override_path`. Courses (about 100 MB each) are copied only when
-chosen. `node game/web/tests/test_game_files.mjs` tests the script against
+other descriptor files aren't needed) and indexes the GAME files under
+Setup's long names without copying anything. Reads come straight from the
+picked images. Where the File System Access API exists (Chrome, Edge), the
+file handles and index are kept in IndexedDB so the next visit only needs the
+player's OK. `WebGameFiles.copy_startup_files()` copies the few files read
+before a round (`startup_files()`: object catalog, sound effects, course key,
+standard ground textures, one golfer, plus the objects standing in for the
+placeholder trees) into the in-memory filesystem at `/tmp/links2003`, which
+becomes `GameFolder.override_path`. Courses (about 100 MB each) are copied
+only when chosen. `node game/web/tests/test_game_files.mjs` tests the script against
 synthetic disc images made by `game/web/tests/make_test_iso.py`.
 
 The chosen course path is passed to the round through
