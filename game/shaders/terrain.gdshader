@@ -51,7 +51,10 @@ void fragment() {
 	float close_up = 1.0 - smoothstep(grain_fade_start, grain_fade_end, length(VERTEX));
 	float fine = (value_noise(p * 2.7) - 0.5) + 0.5 * (value_noise(p * 7.3) - 0.5);
 
-	vec3 col = COLOR.rgb * (1.0 + patches * variation * 2.0 + fine * grain * close_up);
+	// The mesh colours are authored in sRGB; lighting works in linear.
+	vec3 c = COLOR.rgb;
+	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
+	vec3 col = base * (1.0 + patches * variation * 2.0 + fine * grain * close_up);
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0));
 	ROUGHNESS = 0.92;
 	SPECULAR = 0.25;

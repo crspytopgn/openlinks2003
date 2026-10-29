@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("object_library_chain", _test_object_library_chain)
+	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
@@ -240,3 +241,26 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
+
+
+## The readers behind LinksGolfer, on synthetic data (no original files).
+func _test_golfer_file_readers() -> void:
+	_check(GolferAnimData.name_hash("123456789") == 0xcbf43926, "name_hash is CRC-32")
+	_check(GolferAnimData.name_hash("Root") == 0xb6c65665, "name_hash of Root")
+	# Clear, 'R', 'I', code 258 ("RI"), end: 9-bit codes, LSB first.
+	var acc := 0
+	var bits := 0
+	for code in [256, 82, 73, 258, 257]:
+		acc |= code << bits
+		bits += 9
+	var packed := PackedByteArray()
+	for i in (bits + 7) / 8:
+		packed.append((acc >> (8 * i)) & 0xff)
+	_check(LsArchiveFile.lzw_decompress(packed, 100).get_string_from_ascii() == "RIRI", "LZW known stream")
+	var clips := LinksGolfer.parse_clip_list("DriverSwing( 0@29 1@32 2@46),IronHalfSwing")
+	_check(clips.size() == 2, "clip list length")
+	_check(clips[0]["clip"] == "DriverSwing" and clips[0]["events"].get(2, -1) == 46, "clip events")
+	_check(clips[1]["clip"] == "IronHalfSwing" and clips[1]["events"].is_empty(), "clip without events")
+	var parsed := LinksGolfer.parse_script("[Driver]\nAddress=DriverAddress ; comment\n[file_locations]\ngolfer.skl=a_bound.skl")
+	_check(parsed.get("Driver", {}).get("Address", "") == "DriverAddress", "script value")
+	_check(parsed.get("file_locations", {}).get("golfer.skl", "") == "a_bound.skl", "script file location")
