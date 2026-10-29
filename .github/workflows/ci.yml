@@ -58,17 +58,20 @@ jobs:
       - name: Import project
         run: ~/godot/godot --headless --path game --import
 
-      - name: Export Linux, Windows and macOS
+      - name: Export Linux, Windows, macOS and Web
         run: |
           cd game
-          mkdir -p export/linux export/windows export/macos
+          mkdir -p export/linux export/windows export/macos export/web
           ~/godot/godot --headless --export-release "Linux" export/linux/OpenLinks2003.x86_64
           ~/godot/godot --headless --export-release "Windows" export/windows/OpenLinks2003.exe
           ~/godot/godot --headless --export-release "macOS" export/macos/OpenLinks2003.zip
+          ~/godot/godot --headless --export-release "Web" export/web/index.html
           ls -lR export
           test -s export/linux/OpenLinks2003.x86_64
           test -s export/windows/OpenLinks2003.exe
           test -s export/macos/OpenLinks2003.zip
+          test -s export/web/index.html
+          test -s export/web/index.wasm
 
       - uses: actions/upload-artifact@v4
         with:
@@ -82,3 +85,30 @@ jobs:
         with:
           name: OpenLinks2003-macos
           path: game/export/macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLinks2003-web
+          path: game/export/web
+      - name: Upload web build for GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: game/export/web
+
+  # Publishes the web build to https://<owner>.github.io/<repo>/.
+  # Requires Settings > Pages > Source set to "GitHub Actions".
+  deploy-web:
+    name: Deploy web build
+    needs: export
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

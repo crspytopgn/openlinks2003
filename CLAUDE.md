@@ -24,6 +24,13 @@ Godot is not installed in the cloud container. Godot changes are validated by
 the `export` job in `.github/workflows/ci.yml`, so check that job after
 pushing.
 
+## Web build
+
+The Web export runs single-threaded (no SharedArrayBuffer, so it works on
+GitHub Pages) with the Compatibility renderer. Anything used in `game/` must
+work in both Forward+ and Compatibility. GDExtension is off for Web until
+olcore is also built for wasm.
+
 ## Conventions
 
 - Coordinates: +y up, +z downrange, +x to the golfer's left. SI units.

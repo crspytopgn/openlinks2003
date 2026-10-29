@@ -20,6 +20,12 @@ Very early. What exists so far:
 - `game/`: a Godot 4.4 project with a prototype driving range. Press Space to
   hit a drive.
 
+## Play in the browser
+
+The latest `main` build is published to
+**https://crspytopgn.github.io/openlinks2003/** (desktop Chrome, Firefox,
+Edge or Safari; needs WebGL 2).
+
 ## Download a build
 
 Every push to `main` builds the game for all three platforms. Open the
