@@ -90,7 +90,7 @@ jobs:
           name: OpenLinks2003-web
           path: game/export/web
       - name: Upload web build for GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
         uses: actions/upload-pages-artifact@v3
         with:
           path: game/export/web
@@ -98,10 +98,11 @@ jobs:
   # Publishes the web build to https://<owner>.github.io/<repo>/.
   # Requires a public repo (Pages on private repos needs a paid plan) and
   # Settings > Pages > Source set to "GitHub Actions". Skipped while private.
+  # Re-deploy without a code change via Actions > CI > Run workflow.
   deploy-web:
     name: Deploy web build
     needs: export
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.private
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
     runs-on: ubuntu-latest
     permissions:
       pages: write
