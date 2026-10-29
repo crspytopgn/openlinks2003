@@ -140,6 +140,8 @@ func _build_ground_mesh() -> MeshInstance3D:
 	verts.resize(nx * nz)
 	var colors := PackedColorArray()
 	colors.resize(nx * nz)
+	var weights := PackedVector2Array()
+	weights.resize(nx * nz)
 	for j in nz:
 		for i in nx:
 			var x := area.position.x + i * GRID_STEP
@@ -149,6 +151,7 @@ func _build_ground_mesh() -> MeshInstance3D:
 			heights[k] = h
 			verts[k] = Vector3(x, h, z)
 			colors[k] = _color_at(x, z)
+			weights[k] = Materials.terrain_weights(surface_at(x, z))
 
 	var normals := PackedVector3Array()
 	normals.resize(nx * nz)
@@ -183,6 +186,7 @@ func _build_ground_mesh() -> MeshInstance3D:
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV2] = weights
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

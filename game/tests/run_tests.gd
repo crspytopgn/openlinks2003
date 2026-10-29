@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("object_library_chain", _test_object_library_chain)
+	_run("free_assets", _test_free_assets)
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
@@ -233,13 +234,27 @@ func _test_object_library_chain() -> void:
 			n.free()
 
 
+func _test_free_assets() -> void:
+	_check(Materials.terrain_weights(Surface.Type.SAND) == Vector2(0, 1), "sand uses the sand texture")
+	_check(Materials.terrain_weights(Surface.Type.DEEP_ROUGH) == Vector2(1, 0), "deep rough uses the rough texture")
+	_check(Materials.terrain_weights(Surface.Type.GREEN) == Vector2.ZERO, "greens use the grass texture")
+	var textured: bool = Materials.terrain().get_shader_parameter("textured") == true
+	_check(textured == FreeAssets.has_grounds(), "terrain textured exactly when the free textures are there")
+	print("free assets: ground textures %s, sky %s" % [FreeAssets.has_grounds(), FreeAssets.sky() != null])
+
+
 func _test_web_game_files() -> void:
-	_check(WebGameFiles.is_startup_file("OBJECT.LIB", 143877), "catalog copied at startup")
-	_check(WebGameFiles.is_startup_file("Object/Tall Trees/Tall Trees100.btx", 50000), "objects copied at startup")
-	_check(not WebGameFiles.is_startup_file("Courses/Cabo.crz", 103656595), "courses wait")
-	_check(not WebGameFiles.is_startup_file("Sounds/Ambient/Birds.wav", 10000), "ambient sounds wait")
-	_check(not WebGameFiles.is_startup_file("TOURNA_1.SSF", 83703038), "big files wait")
-	_check(WebGameFiles.is_startup_file("StdTerrain.lib", 60000000), "course textures copied at startup")
+	var files := {
+		"OBJECT.LIB": 143877, "PREDEF_1.SSF": 741000, "LinksMMIII.exe": 5000000, "StdTerrain.lib": 26651491,
+		"TOURNA_1.SSF": 83703038, "Courses/Cabo.crz": 103656595, "Sounds/Ambient/Birds.wav": 10000,
+		"POLYANI/CLUBS.L3": 583012, "POLYANI/ERIC.L3": 10959576, "POLYANI/ANNIKA_1.L3": 8994096,
+		"Object/Tall Trees/Tall Trees100.btx": 50000,
+	}
+	var startup := WebGameFiles.startup_files(files, "")
+	startup.sort()
+	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, PREDEF_1.SSF, StdTerrain.lib",
+		"startup set: catalog, sounds, course key, ground textures, first golfer; got %s" % [startup])
+	_check(WebGameFiles.startup_files(files, "eric.l3").has("POLYANI/ERIC.L3"), "the chosen golfer is copied")
 	_check(not WebGameFiles.is_supported(), "not the web build")
 	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
 

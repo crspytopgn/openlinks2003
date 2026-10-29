@@ -42,6 +42,19 @@ constexpr float kPlacementUnit = 1.0f / 16.0f;  // feet per stored step
 // `2DPlant` entry (magic "2JBO").
 std::vector<BillboardPlacement> parse_billboard_placements(const std::vector<std::uint8_t>& data);
 
+// `TrnyPlant` entry: spectators and other people shown in tournaments. The
+// same cells as `2DPlant`, but a cell starts with one 0xFF byte and a
+// placement has no type table index or height.
+struct CrowdPlacement {
+  std::uint8_t kind = 0;  // 0 almost always; 1 to 3 rarely
+  std::uint32_t instance = 0;
+  CourseVec3 position;
+  std::int32_t extra_byte = -1;
+  std::int32_t extra_word = -1;
+};
+
+std::vector<CrowdPlacement> parse_crowd_placements(const std::vector<std::uint8_t>& data);
+
 // --- 3D objects ------------------------------------------------------------
 
 // One mesh of `MasterObj3D`. The mesh uses the .XYZ layout (see model.md),

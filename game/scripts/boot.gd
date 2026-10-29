@@ -18,7 +18,7 @@ var _course: OptionButton
 var _community: VBoxContainer
 var _community_hint: Label
 var _course_paths: PackedStringArray = []
-var _stored := {}  ## browser build: stored relative path -> size
+var _stored := {}  ## browser build: picked relative path -> size
 var _busy := false
 
 
@@ -129,38 +129,68 @@ func _set_buttons(items: Array) -> void:
 # --- Browser ----------------------------------------------------------------
 
 func _check_stored() -> void:
-	_status.text = "Looking for your game files in this browser..."
+	_status.text = "Looking for your game files..."
 	_community.visible = false
 	_set_buttons([])
-	var files: Dictionary = await _web.stored_files()
-	if files.is_empty():
-		_status.text = ("To play the real Links 2003 courses, load your own copy of the game from any drive, including "
-			+ "an external one: pick your three disc images (BlindWrite .b6i, .iso, .bin, .nrg or .mdf), or the "
-			+ "folder that holds them or an installed game. This browser keeps them for next time.")
-		_set_buttons([
-			["Load disc images...", _pick.bind(false)],
-			["Load a game folder...", _pick.bind(true)],
-			["Play with placeholders", _start],
-		])
+	var state: String = await _web.state()
+	match state:
+		"ready":
+			_prepare()
+		"reconnect":
+			_status.text = "Your browser needs your OK to read your game files again."
+			_set_buttons([
+				["Use my game files", _reconnect],
+				["Load different files...", _pick.bind(false)],
+				["Play with placeholders", _start],
+			])
+		_:
+			_ask_for_files()
+
+
+func _ask_for_files(problem := "") -> void:
+	var text := ("To play the real Links 2003 courses, load your own copy of the game from any drive, including "
+		+ "an external one: pick your three disc images (BlindWrite .b6i, .iso, .bin, .nrg or .mdf), or the "
+		+ "folder that holds them or an installed game. Nothing is copied or uploaded.")
+	if not _web.remembers():
+		text += " This browser can't remember them, so you'll pick them again next time (it only takes a moment)."
+	_status.text = text if problem.is_empty() else problem + "\n\n" + text
+	_set_buttons([
+		["Load disc images...", _pick.bind(false)],
+		["Load a game folder...", _pick.bind(true)],
+		["Play with placeholders", _start],
+	])
+
+
+func _reconnect() -> void:
+	if _busy:
 		return
-	_status.text = "Preparing %d of your game files..." % files.size()
+	_busy = true
+	var result: String = await _web.reconnect()
+	_busy = false
+	if result == "ready":
+		_prepare()
+	else:
+		_ask_for_files("Couldn't open your game files again%s." % (
+			"" if result != "error" else " (%s)" % _web.last_error))
+
+
+## Copies the few files the game reads before a round into memory, then shows
+## the course picker.
+func _prepare() -> void:
+	var files: Dictionary = await _web.stored_files()
+	_status.text = "Preparing your game files..."
 	_bar.visible = true
 	var ok: bool = await _web.copy_startup_files(files)
 	_bar.visible = false
 	if not ok:
-		_status.text = "Couldn't read your stored files (%s). You can load them again." % _web.last_error
-		_set_buttons([
-			["Load disc images...", _pick.bind(false)],
-			["Forget stored files", _forget],
-			["Play with placeholders", _start],
-		])
+		_ask_for_files("Couldn't read your game files (%s)." % _web.last_error)
 		return
 	GameFolder.override_path = WebGameFiles.ROOT
 	_stored = files
 	_show_ready(CourseFiles.in_list(files.keys()), [
 		["Add a course...", _pick_courses],
-		["Load more files...", _pick.bind(false)],
-		["Forget stored files", _forget],
+		["Load different files...", _pick.bind(false)],
+		["Forget my files", _forget],
 	])
 
 
@@ -168,7 +198,7 @@ func _pick(folder: bool) -> void:
 	if _busy:
 		return
 	_busy = true
-	_status.text = "Choose your files in the dialog. Reading big disc images can take a minute."
+	_status.text = "Choose your files in the dialog."
 	_bar.visible = true
 	_bar.value = 0
 	var n: int = await _web.pick_and_import(folder)
@@ -177,7 +207,10 @@ func _pick(folder: bool) -> void:
 	if n < 0:
 		_status.text = "That didn't work: %s" % _web.last_error
 		return
-	_check_stored()
+	if n == 0:
+		_check_stored()
+		return
+	_prepare()
 
 
 func _pick_courses() -> void:
@@ -253,7 +286,7 @@ func _play_chosen() -> void:
 	_start()
 
 
-## The stored files that belong to a course: the course itself and any
+## The picked files that belong to a course: the course itself and any
 ## companions with the same base name.
 func _course_files(rel: String) -> Array[String]:
 	var out: Array[String] = [rel]

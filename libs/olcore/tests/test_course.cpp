@@ -600,6 +600,28 @@ void test_object_textures_and_maq() {
   CHECK(img.pixels[7] == 0);
 }
 
+void test_crowd_placements() {
+  Bytes b;
+  put_u32(b, 2);
+  put_u32(b, 2);
+  b.resize(0x40, 0);
+  b.push_back(0xff);
+  for (float c : {704.0f, -2752.0f, 274.0f}) put_f32(b, c);
+  b.push_back(0);
+  put_u32(b, 184);
+  for (std::uint16_t v : {std::uint16_t(961), std::uint16_t(204), std::uint16_t(16)}) put_u16(b, v);
+  b.push_back(2);
+  put_u32(b, 0x400017feu);
+  put_u16(b, 199);
+  for (std::uint16_t v : {std::uint16_t(0), std::uint16_t(32), std::uint16_t(0xfff0)}) put_u16(b, v);
+  auto p = parse_crowd_placements(b);
+  CHECK(p.size() == 2);
+  CHECK(p[0].kind == 0 && p[0].instance == 184 && p[0].extra_word == -1);
+  CHECK(std::fabs(p[0].position.x - (704 + 961 / 16.0f)) < 1e-3f && p[0].position.z == 275);
+  CHECK(p[1].kind == 2 && p[1].instance == 0x17fe && p[1].extra_word == 199 && p[1].extra_byte == -1);
+  CHECK(p[1].position.y == -2750 && p[1].position.z == 273);
+}
+
 }  // namespace
 
 int main() {
@@ -616,6 +638,7 @@ int main() {
       {"holes", test_holes},
       {"billboard_types", test_billboard_types},
       {"billboard_placements", test_billboard_placements},
+      {"crowd_placements", test_crowd_placements},
       {"course_models", test_course_models},
       {"model_placements", test_model_placements},
       {"object_textures_and_maq", test_object_textures_and_maq},

@@ -11,7 +11,7 @@ Corner and add them to the game:
 
 - **Browser:** after loading your own game files, press **Add a course...**
   and pick the course's `.zip` download (or its `.crz`). The course files are
-  unpacked in the browser and kept with your other game files.
+  unpacked in the browser and kept there for your next visit.
 - **Desktop:** put the `.crz` (and any `.sha`/`.tip` next to it) in the
   `Courses` folder of your game folder.
 
