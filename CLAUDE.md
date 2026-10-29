@@ -15,7 +15,8 @@ and don't start a "(needs data)" item on guesses.
   `docs/formats/` in your own words.
 - Keep `libs/olcore` engine-independent: no Godot headers there.
 - Until GDExtension lands, `game/scripts/main.gd` holds a GDScript port of
-  `libs/olcore/src/ball_physics.cpp`. Change both together.
+  `libs/olcore/src/ball_physics.cpp`, and `game/scripts/audio/ssf_bank.gd`
+  ports `ssf.cpp` and `wav.cpp`. Change both sides together.
 
 ## Checks before pushing
 

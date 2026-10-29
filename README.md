@@ -14,11 +14,25 @@ Very early. What exists so far:
 
 - `libs/olcore`: a C++17 core library with no dependencies.
   - `BinaryReader`: a little-endian reader for the original file formats.
+  - Readers for `LSls` archives (`.LS`, `.L3`) with their LZW compression,
+    `.SSF` sound banks, WAV (PCM and MS ADPCM), and the object store behind
+    golfer models and animation clips.
   - Ball flight physics (gravity, drag, Magnus lift, spin decay) with tests.
-- `tools/oldump`: a command-line inspector for unknown game files (hex dump,
-  entropy, header fields, strings).
+- `tools/oldump`: a command-line inspector for game files (hex dump,
+  entropy, strings) that also lists and extracts archives and sound banks.
+- `tools/cdimage`, `tools/lsarchive`: Python scripts that read files straight
+  from your disc images and unpack archives and sound banks.
 - `game/`: a Godot 4.4 project with a prototype driving range. Press Space to
   hit a drive.
+
+## Using your game files
+
+Point the game at your Links 2003 files (the install folder, the `GAME`
+folder from CD 1, or a folder you extracted with `tools/cdimage`) with
+`--links-dir=/path/to/folder` on the command line, the `LINKS2003_DIR`
+environment variable, or `folder=` under `[game]` in `user://settings.cfg`.
+The driving range then plays the original swing and landing sounds. The
+browser build can't read local folders yet.
 
 ## Play in the browser
 
@@ -52,6 +66,8 @@ The game: open `game/project.godot` in Godot 4.4 and press F5.
 ```
 libs/olcore/    Portable C++ core: file formats, physics (engine-independent)
 tools/oldump/   File inspection tool for format reverse engineering
+tools/cdimage/  Reads files from raw CD images (.b6i, .iso)
+tools/lsarchive/ Lists and extracts LSls archives and .SSF sound banks
 game/           Godot 4 project (scenes, scripts, export presets)
 docs/           Clean-room rules and file-format notes
 ```

@@ -1,6 +1,9 @@
 extends Node3D
 ## Prototype driving range. Press Space to hit a drive.
 ##
+## If your Links 2003 folder is configured (see game_folder.gd), the swing
+## and landing sounds come from its predefined.ssf.
+##
 ## The flight model here is a temporary GDScript port of
 ## libs/olcore/src/ball_physics.cpp so the project runs without a compiled
 ## extension. It will be replaced by the C++ library via GDExtension; keep the
@@ -21,6 +24,10 @@ var label: Label
 var trail: MeshInstance3D
 var trail_points: PackedVector3Array = PackedVector3Array()
 
+var sounds: SsfBank
+var swing_player: AudioStreamPlayer
+var ball_player: AudioStreamPlayer
+
 var flying := false
 var ball_pos := Vector3.ZERO
 var ball_vel := Vector3.ZERO
@@ -30,7 +37,30 @@ var apex := 0.0
 
 func _ready() -> void:
 	_build_world()
+	_load_sounds()
 	_update_label("Press Space to hit a drive")
+
+
+func _load_sounds() -> void:
+	swing_player = AudioStreamPlayer.new()
+	ball_player = AudioStreamPlayer.new()
+	add_child(swing_player)
+	add_child(ball_player)
+	var path := GameFolder.find_file(PackedStringArray(["predefined.ssf", "PREDEF_1.SSF"]))
+	if path.is_empty():
+		return
+	sounds = SsfBank.load_file(path)
+	if sounds == null:
+		push_warning("Could not read sound bank %s" % path)
+
+
+func _play(player: AudioStreamPlayer, event_name: String) -> void:
+	if sounds == null:
+		return
+	var stream := sounds.random_stream(event_name)
+	if stream != null:
+		player.stream = stream
+		player.play()
 
 
 func _build_world() -> void:
@@ -113,6 +143,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if flying:
 			return
 		_reset_ball()
+		_play(swing_player, "Full Swing")
 		# Small random variation so repeated shots differ.
 		_launch(70.0, 11.0, randf_range(-2.0, 2.0), 2700.0, randf_range(-600.0, 600.0))
 
@@ -160,6 +191,7 @@ func _physics_process(delta: float) -> void:
 		if ball_pos.y <= 0.0 and ball_vel.y < 0.0:
 			ball_pos.y = 0.0
 			flying = false
+			_play(ball_player, "Ball Bounce Fairway")
 			break
 
 	ball.position = ball_pos + Vector3(0, RADIUS * 10.0, 0)
