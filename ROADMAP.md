@@ -28,8 +28,12 @@ feel) still need a working install.
 - [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**
 - [ ] Wind
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
-- [ ] Swing controls: classic three-click power meter, then the real-time mouse swing
-- [ ] Rules and scoring: penalties, drops, putting, scorecard
+- [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
+- [x] Stand-in ball physics: published flight, bounce and roll model behind a `ShotModel` interface
+- [x] Swing controls: classic three-click power meter
+- [ ] Swing controls: real-time mouse swing
+- [x] Scoring basics: stroke play, putting and holing out, water drop, out of bounds, scorecard
+- [ ] Rules: unplayable lies, lateral hazards, provisional balls, drop options
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
@@ -40,7 +44,7 @@ feel) still need a working install.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [ ] Clip sample encoding, skeleton and mesh layouts, then playback in Godot
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
-  - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing and landing sounds play on the range
+  - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [ ] Voice event conditions, commentary, ambient and menu sounds wired into the game
 
 ## Phase 4: the full game

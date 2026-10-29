@@ -17,13 +17,19 @@ Very early. What exists so far:
   - Readers for `LSls` archives (`.LS`, `.L3`) with their LZW compression,
     `.SSF` sound banks, WAV (PCM and MS ADPCM), and the object store behind
     golfer models and animation clips.
-  - Ball flight physics (gravity, drag, Magnus lift, spin decay) with tests.
+  - Ball physics: flight (drag, Magnus lift, spin), bounce and roll per
+    surface, holing out; the club table, swing-to-launch mapping and
+    scoring. All with tests.
 - `tools/oldump`: a command-line inspector for game files (hex dump,
   entropy, strings) that also lists and extracts archives and sound banks.
 - `tools/cdimage`, `tools/lsarchive`: Python scripts that read files straight
   from your disc images and unpack archives and sound banks.
-- `game/`: a Godot 4.4 project with a prototype driving range. Press Space to
-  hit a drive.
+- `game/`: a Godot 4.4 project with a playable nine-hole round on a
+  placeholder course: the classic three-click Links swing meter, auto club
+  selection, putting, water and out-of-bounds penalties, and a scorecard.
+  Real courses, objects, golfers and sounds plug in as the formats are
+  decoded. See [docs/game-shell.md](docs/game-shell.md) for controls and
+  how it fits together.
 
 ## Using your game files
 
@@ -31,7 +37,7 @@ Point the game at your Links 2003 files (the install folder, the `GAME`
 folder from CD 1, or a folder you extracted with `tools/cdimage`) with
 `--links-dir=/path/to/folder` on the command line, the `LINKS2003_DIR`
 environment variable, or `folder=` under `[game]` in `user://settings.cfg`.
-The driving range then plays the original swing and landing sounds. The
+The round then plays the original swing, landing, cup and splash sounds. The
 browser build can't read local folders yet.
 
 ## Play in the browser
