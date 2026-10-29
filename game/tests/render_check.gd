@@ -28,6 +28,7 @@ func _process(_delta: float) -> bool:
 	if _frames == 2:
 		_game.start_hole(1)
 	elif _frames == SHOT_FRAME:
+		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()
 	elif _frames == CAPTURE_FRAME:
 		_capture()
@@ -42,6 +43,7 @@ func _capture() -> void:
 		quit(1)
 		return
 	img.save_png(_out)
+	_save_jpg(img, "")
 	print("saved %s (%dx%d)" % [_out, img.get_width(), img.get_height()])
 	var top := _mean(img, Rect2i(img.get_width() / 3, 0, img.get_width() / 3, img.get_height() / 8))
 	var bottom := _mean(img, Rect2i(img.get_width() / 4, img.get_height() * 3 / 4, img.get_width() / 2, img.get_height() / 8))
@@ -53,6 +55,16 @@ func _capture() -> void:
 	else:
 		print("RENDER CHECK FAILED: unexpected colours")
 		quit(1)
+
+
+## A smaller JPEG copy next to the PNG (out-tee.jpg for the view from the
+## tee), which CI can print when asked for screenshots.
+func _save_jpg(img: Image, suffix: String) -> void:
+	if img == null or img.is_empty():
+		return
+	var small := img.duplicate() as Image
+	small.resize(1280, 1280 * small.get_height() / small.get_width(), Image.INTERPOLATE_LANCZOS)
+	small.save_jpg(_out.get_basename() + suffix + ".jpg", 0.85)
 
 
 func _mean(img: Image, r: Rect2i) -> Color:

@@ -95,11 +95,22 @@ jobs:
             grep -q "RENDER CHECK DONE" render-$method.log
           done
 
+      # Run the workflow by hand to get the screenshots in the log as base64,
+      # for tools that can read logs but not download artifacts.
+      - name: Print screenshots
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          for f in render-*.jpg; do
+            echo "BEGIN-SCREENSHOT $f"
+            base64 -w 2000 "$f"
+            echo "END-SCREENSHOT $f"
+          done
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: render-check
-          path: render-*.png
+          path: render-*.*
 
       - name: Export Linux, Windows, macOS and Web
         run: |
