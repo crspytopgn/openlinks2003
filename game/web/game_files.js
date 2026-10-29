@@ -263,8 +263,75 @@
     return out;
   }
 
-  async function importFiles(fileList, progress) {
-    const entries = await collect(fileList, progress);
+  // ---- Add-on courses ---------------------------------------------------------
+
+  // Course files and the companions that travel with them (shadows, preview).
+  const COURSE_FILE = /\.(crz|rng|sha|tip)$/i;
+
+  // Reads a .zip's directory and returns its course files as {rel, blob}.
+  // Stored entries are sliced from the zip; deflated ones are inflated with
+  // the browser's DecompressionStream. Zip64 isn't needed: course zips are
+  // well under 4 GB.
+  async function unzipCourses(file) {
+    const tailSize = Math.min(file.size, 65557);
+    const tail = new DataView(await file.slice(file.size - tailSize).arrayBuffer());
+    let eocd = -1;
+    for (let i = tailSize - 22; i >= 0; i--) {
+      if (tail.getUint32(i, true) === 0x06054b50) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw new Error(file.name + " isn't a zip file");
+    const count = tail.getUint16(eocd + 10, true);
+    const dirSize = tail.getUint32(eocd + 12, true);
+    const dirOffset = tail.getUint32(eocd + 16, true);
+    if (dirOffset === 0xffffffff) throw new Error(file.name + " is a Zip64 file, which isn't supported");
+    const dir = new DataView(await file.slice(dirOffset, dirOffset + dirSize).arrayBuffer());
+    const out = [];
+    let p = 0;
+    for (let n = 0; n < count && dir.getUint32(p, true) === 0x02014b50; n++) {
+      const method = dir.getUint16(p + 10, true);
+      const packed = dir.getUint32(p + 20, true);
+      const size = dir.getUint32(p + 24, true);
+      const nameLen = dir.getUint16(p + 28, true);
+      const skip = nameLen + dir.getUint16(p + 30, true) + dir.getUint16(p + 32, true);
+      const local = dir.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(new Uint8Array(dir.buffer, p + 46, nameLen));
+      p += 46 + skip;
+      const base = name.split(/[\\/]/).pop();
+      if (!COURSE_FILE.test(base) || base.startsWith("._")) continue;
+      const head = new DataView(await file.slice(local, local + 30).arrayBuffer());
+      const start = local + 30 + head.getUint16(26, true) + head.getUint16(28, true);
+      const raw = file.slice(start, start + packed);
+      let blob;
+      if (method === 0) blob = raw;
+      else if (method === 8) blob = await new Response(raw.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+      else throw new Error(name + " in " + file.name + " uses an unsupported compression method");
+      if (blob.size !== size) throw new Error("Couldn't unpack " + name + " from " + file.name);
+      out.push({ rel: "Courses/" + base, blob, size });
+    }
+    return out;
+  }
+
+  // Collects course files from picked .crz/.rng (and companion) files and
+  // course .zip downloads, all stored under Courses/.
+  async function collectCourses(fileList, progress) {
+    const out = [];
+    for (const f of fileList) {
+      if (/\.zip$/i.test(f.name)) {
+        progress("Unpacking " + f.name, 0, 0);
+        out.push(...(await unzipCourses(f)));
+      } else if (COURSE_FILE.test(f.name)) {
+        out.push({ rel: "Courses/" + f.name, blob: f, size: f.size });
+      }
+    }
+    if (!out.some((e) => /\.(crz|rng)$/i.test(e.rel))) throw new Error("No course (.crz) found in the selection");
+    return out;
+  }
+
+  async function importFiles(fileList, progress, courses) {
+    const entries = courses ? await collectCourses(fileList, progress) : await collect(fileList, progress);
     if (entries.length === 0) throw new Error("No Links 2003 files found in the selection");
     const index = new Map((await get(INDEX_KEY)) || []);
     const total = entries.reduce((n, e) => n + e.size, 0);
@@ -294,12 +361,13 @@
     return blobs.get(key);
   }
 
-  function pickFiles(directory) {
+  function pickFiles(directory, courses) {
     return new Promise((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
       if (directory) input.webkitdirectory = true;
+      else if (courses) input.accept = ".zip,.crz,.rng,.sha,.tip";
       else input.accept = ".b6i,.b6t,.b5i,.b5t,.bwi,.bwt,.iso,.bin,.img,.nrg,.mdf";
       input.style.display = "none";
       input.addEventListener("change", () => {
@@ -335,14 +403,26 @@
     Disc,
     longNames,
     collect,
+    collectCourses,
     importFiles,
 
     // pick(directory, progressCb, doneCb): doneCb(ok, countOrError).
     // progressCb(name, bytesDone, bytesTotal) is called as files are stored.
     pick(directory, progressCb, doneCb) {
       report(
-        pickFiles(directory).then((files) =>
-          files.length === 0 ? 0 : importFiles(files, (n, d, t) => progressCb(n, d, t))
+        pickFiles(directory, false).then((files) =>
+          files.length === 0 ? 0 : importFiles(files, (n, d, t) => progressCb(n, d, t), false)
+        ),
+        doneCb
+      );
+    },
+
+    // pickCourses(progressCb, doneCb): like pick, for add-on courses (.zip
+    // downloads or .crz files), stored under Courses/.
+    pickCourses(progressCb, doneCb) {
+      report(
+        pickFiles(false, true).then((files) =>
+          files.length === 0 ? 0 : importFiles(files, (n, d, t) => progressCb(n, d, t), true)
         ),
         doneCb
       );

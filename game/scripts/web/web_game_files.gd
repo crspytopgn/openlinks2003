@@ -49,6 +49,18 @@ func pick_and_import(folder: bool) -> int:
 	return int(r[1])
 
 
+## Opens the browser's file picker for add-on courses (a course's .zip
+## download, or .crz and companion files) and stores them under Courses/.
+## Returns how many game files are now stored, 0 if cancelled, -1 on error.
+func pick_courses() -> int:
+	_api.pickCourses(_progress_cb, _reply_cb)
+	var r: Array = await _replied
+	if not r[0]:
+		last_error = str(r[1])
+		return -1
+	return int(r[1])
+
+
 ## Stored files as {relative path: size}. Empty when nothing is imported.
 func stored_files() -> Dictionary:
 	_api.list(_reply_cb)

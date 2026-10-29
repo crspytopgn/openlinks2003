@@ -15,6 +15,8 @@ var _bar: ProgressBar
 var _buttons: HBoxContainer
 var _play: Button
 var _course: OptionButton
+var _community: VBoxContainer
+var _community_hint: Label
 var _course_paths: PackedStringArray = []
 var _stored := {}  ## browser build: stored relative path -> size
 var _busy := false
@@ -70,6 +72,7 @@ func _build_ui() -> void:
 	_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	_buttons.add_theme_constant_override("separation", 12)
 	box.add_child(_buttons)
+	_build_community(box)
 	var note := Label.new()
 	note.text = "OpenLinks2003 contains nothing from the original game. Your files are read on your own computer."
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -77,6 +80,34 @@ func _build_ui() -> void:
 	note.add_theme_font_size_override("font_size", 14)
 	note.modulate = Color(1, 1, 1, 0.6)
 	box.add_child(note)
+
+
+## Links to free fan-made courses on Links Corner (CommunityCourses), shown
+## with the course picker.
+func _build_community(box: VBoxContainer) -> void:
+	_community = VBoxContainer.new()
+	_community.visible = false
+	_community.add_theme_constant_override("separation", 2)
+	box.add_child(_community)
+	var heading := Label.new()
+	heading.text = "Free community courses on Links Corner:"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_size_override("font_size", 16)
+	_community.add_child(heading)
+	for course: Dictionary in CommunityCourses.COURSES:
+		var link := LinkButton.new()
+		link.text = CommunityCourses.label(course)
+		link.uri = CommunityCourses.page_url(course)
+		link.add_theme_font_size_override("font_size", 15)
+		var row := CenterContainer.new()
+		row.add_child(link)
+		_community.add_child(row)
+	_community_hint = Label.new()
+	_community_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_community_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_community_hint.add_theme_font_size_override("font_size", 14)
+	_community_hint.modulate = Color(1, 1, 1, 0.7)
+	_community.add_child(_community_hint)
 
 
 func _set_buttons(items: Array) -> void:
@@ -99,6 +130,7 @@ func _set_buttons(items: Array) -> void:
 
 func _check_stored() -> void:
 	_status.text = "Looking for your game files in this browser..."
+	_community.visible = false
 	_set_buttons([])
 	var files: Dictionary = await _web.stored_files()
 	if files.is_empty():
@@ -126,6 +158,7 @@ func _check_stored() -> void:
 	GameFolder.override_path = WebGameFiles.ROOT
 	_stored = files
 	_show_ready(CourseFiles.in_list(files.keys()), [
+		["Add a course...", _pick_courses],
 		["Load more files...", _pick.bind(false)],
 		["Forget stored files", _forget],
 	])
@@ -139,6 +172,22 @@ func _pick(folder: bool) -> void:
 	_bar.visible = true
 	_bar.value = 0
 	var n: int = await _web.pick_and_import(folder)
+	_bar.visible = false
+	_busy = false
+	if n < 0:
+		_status.text = "That didn't work: %s" % _web.last_error
+		return
+	_check_stored()
+
+
+func _pick_courses() -> void:
+	if _busy:
+		return
+	_busy = true
+	_status.text = "Choose a course's .zip download or its .crz file."
+	_bar.visible = true
+	_bar.value = 0
+	var n: int = await _web.pick_courses()
 	_bar.visible = false
 	_busy = false
 	if n < 0:
@@ -172,6 +221,11 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 	else:
 		_status.text = "Your game files are ready. Choose a course."
 	_set_buttons([["Play", _play_chosen]] + extra)
+	if _web != null:
+		_community_hint.text = "Download a course, then press Add a course and pick the .zip. It's played with your own copy of the game."
+	else:
+		_community_hint.text = "Download a course and put its .crz in your game folder's Courses folder."
+	_community.visible = true
 
 
 func _play_chosen() -> void:
