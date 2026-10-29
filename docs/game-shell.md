@@ -80,6 +80,9 @@ Nothing in the round needs to change.
 - **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`) and
   set `AssetProviders.golfer_assets`. `GolferRig.play()` receives
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
+  `LinksGolferAssets` (`scripts/golfer/`) is used automatically when a game
+  folder is configured: the original skinned, textured golfer and clubs as a
+  `Skeleton3D`, driven by the original clips.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.

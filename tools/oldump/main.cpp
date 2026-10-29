@@ -5,6 +5,7 @@
 //   oldump ssf <bank.ssf> [--extract DIR]
 //   oldump store <file.skl|.clp>
 //   oldump anim <file.skl|.clp> [--skeleton file.skl]
+//   oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]
 //
 // The first form prints size, a hex/ASCII dump of a window, byte entropy
 // (high entropy hints at compression), candidate header fields, and
@@ -22,6 +23,7 @@
 #include "olcore/binary_reader.hpp"
 #include "olcore/carrera_store.hpp"
 #include "olcore/golfer_anim.hpp"
+#include "olcore/golfer_mesh.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
@@ -206,6 +208,50 @@ int cmd_anim(const char* path, const char* skeleton_path) {
   return 0;
 }
 
+// Lists the meshes of a model; --obj writes them (posed by --clip at
+// --frame, else in the bind pose) as a Wavefront OBJ for a model viewer.
+int cmd_mesh(const char* path, const char* obj_path, const char* clip_path, std::size_t frame) {
+  auto r = olcore::BinaryReader::from_file(path);
+  olcore::StoreFile store(std::vector<std::uint8_t>(r.data()));
+  olcore::Skeleton skeleton = olcore::read_skeleton(store);
+  std::vector<olcore::AnimClip> clips;
+  if (clip_path) {
+    auto c = olcore::BinaryReader::from_file(clip_path);
+    clips = olcore::read_anim_clips(olcore::StoreFile(std::vector<std::uint8_t>(c.data())));
+  }
+  auto world = skeleton.pose(clips.empty() ? nullptr : &clips[0], frame);
+  auto meshes = olcore::read_meshes(store);
+  std::ofstream obj;
+  if (obj_path) obj.open(obj_path);
+  std::size_t base = 1;
+  for (const auto& m : meshes) {
+    std::printf("mesh %s (on %s): %zu vertices, %zu parts, %s\n", m.name.c_str(), m.transform.c_str(),
+                m.positions.size(), m.parts.size(),
+                m.skinned() ? ("skinned to " + std::to_string(m.skin_joints.size()) + " joints").c_str() : "rigid");
+    for (const auto& p : m.parts) {
+      std::printf("  part: vertices %zu-%zu, %zu triangles, material %s, texture %s\n", p.first_vertex,
+                  p.last_vertex, p.triangle_count, p.material.name.c_str(),
+                  p.material.texture.empty() ? "-" : p.material.texture.c_str());
+    }
+    if (!obj) continue;
+    auto pos = olcore::skin_positions(m, skeleton, world);
+    obj << "o " << m.name << "\n";
+    for (const auto& v : pos) obj << "v " << v[0] << ' ' << v[1] << ' ' << v[2] << "\n";
+    for (const auto& t : m.uvs) obj << "vt " << t[0] << ' ' << t[1] << "\n";
+    for (const auto& p : m.parts) {
+      obj << "g " << p.material.name << "\n";
+      auto tri = p.triangles();
+      for (std::size_t i = 0; i + 2 < tri.size(); i += 3) {
+        obj << 'f';
+        for (std::size_t k = 0; k < 3; ++k) obj << ' ' << base + tri[i + k] << '/' << base + tri[i + k];
+        obj << "\n";
+      }
+    }
+    base += pos.size();
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -215,11 +261,12 @@ int main(int argc, char** argv) {
                  "       oldump ls <archive> [--extract DIR]\n"
                  "       oldump ssf <bank.ssf> [--extract DIR]\n"
                  "       oldump store <file.skl|file.clp>\n"
-                 "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n");
+                 "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n"
+                 "       oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]\n");
     return 2;
   }
   if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store") ||
-                    !std::strcmp(argv[1], "anim"))) {
+                    !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh"))) {
     try {
       if (!std::strcmp(argv[1], "ls")) return cmd_ls(argv[2], extract_dir(argc, argv));
       if (!std::strcmp(argv[1], "ssf")) return cmd_ssf(argv[2], extract_dir(argc, argv));
@@ -229,6 +276,16 @@ int main(int argc, char** argv) {
           if (!std::strcmp(argv[i], "--skeleton")) skeleton = argv[i + 1];
         }
         return cmd_anim(argv[2], skeleton);
+      }
+      if (!std::strcmp(argv[1], "mesh")) {
+        const char *obj = nullptr, *clip = nullptr;
+        std::size_t frame = 0;
+        for (int i = 3; i + 1 < argc; ++i) {
+          if (!std::strcmp(argv[i], "--obj")) obj = argv[i + 1];
+          if (!std::strcmp(argv[i], "--clip")) clip = argv[i + 1];
+          if (!std::strcmp(argv[i], "--frame")) frame = std::strtoull(argv[i + 1], nullptr, 0);
+        }
+        return cmd_mesh(argv[2], obj, clip, frame);
       }
       return cmd_store(argv[2]);
     } catch (const std::exception& e) {

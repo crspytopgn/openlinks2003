@@ -1,8 +1,9 @@
 class_name LinksGolfer
 extends GolferRig
-## A golfer from the player's own POLYANI/<golfer>.L3: the real skeleton
-## driven by the original animation clips, drawn as a stick figure until
-## the mesh and skinning are decoded.
+## A golfer from the player's own POLYANI/<golfer>.L3: the textured, skinned
+## model driven by the original animation clips, holding the driver (or the
+## putter on the green) from CLUBS.L3. Falls back to a stick figure of the
+## skeleton if the model has no skinned mesh.
 ##
 ## Clip names and timings come from the archive's SCRIPT.TXT
 ## (docs/formats/golfer-script.md).
@@ -22,6 +23,10 @@ var _bones: Array[MeshInstance3D] = []
 var _bone_nodes := PackedInt32Array()  ## child node per bone
 var _head: MeshInstance3D
 var _head_node := -1
+var _meshes: Array[Dictionary] = []
+var _skeleton: Skeleton3D
+var _clubs := {}  ## "driver"/"putter" -> Node3D
+var _textures := {}  ## file name (upper case) -> Texture2D or null
 
 var _clip: Dictionary = {}
 var _frame := 0.0
@@ -41,10 +46,13 @@ static func load_from(archive_path: String) -> LinksGolfer:
 	var skl: String = golfer._script.get("file_locations", {}).get("golfer.skl", "")
 	if skl.is_empty() or not archive.has(skl):
 		return null
-	golfer._nodes = GolferAnimData.read_skeleton(archive.read(skl))
+	var skl_bytes := archive.read(skl)
+	golfer._nodes = GolferAnimData.read_skeleton(skl_bytes)
 	if golfer._nodes.is_empty():
 		return null
+	golfer._meshes = GolferAnimData.read_meshes(skl_bytes)
 	golfer._build()
+	golfer._build_clubs(archive_path.get_base_dir())
 	return golfer
 
 
@@ -80,6 +88,7 @@ static func parse_clip_list(value: String) -> Array[Dictionary]:
 
 func play(animation: StringName) -> void:
 	var shot := "Putter" if animation == &"putt" else "Driver"
+	_show_club("putter" if animation == &"putt" else "driver")
 	var section: Dictionary = _script.get(shot, {})
 	var swing := parse_clip_list(section.get("Swing", ""))
 	match animation:
@@ -163,7 +172,160 @@ func _build() -> void:
 	_body.transform = Transform3D(Basis(Vector3(0, 0, -1), Vector3(0, 1, 0), Vector3(1, 0, 0)).scaled(Vector3.ONE * FEET),
 			Vector3(0, 0, -BALL_DISTANCE))
 	add_child(_body)
+	if _has_skinned_mesh():
+		_build_model()
+	else:
+		_build_stick_figure()
+	_apply_pose()
 
+
+func _has_skinned_mesh() -> bool:
+	for m in _meshes:
+		var bones: PackedInt32Array = m["bones"]
+		if not bones.is_empty():
+			return true
+	return false
+
+
+## The skeleton as a Skeleton3D with the skinned meshes under it.
+func _build_model() -> void:
+	_skeleton = Skeleton3D.new()
+	_body.add_child(_skeleton)
+	var first_bone := {}  ## node name -> bone index
+	for i in _nodes.size():
+		var n := _nodes[i]
+		var bone_name := "%s#%d" % [n["name"], i] if first_bone.has(n["name"]) else str(n["name"])
+		_skeleton.add_bone(bone_name)
+		if not first_bone.has(n["name"]):
+			first_bone[n["name"]] = i
+		if int(n["parent"]) >= 0:
+			_skeleton.set_bone_parent(i, n["parent"])
+		_skeleton.set_bone_rest(i, GolferAnimData.local_transform(n, n["rotate"], n["translate"]))
+	for m in _meshes:
+		var bones: PackedInt32Array = m["bones"]
+		var instance := MeshInstance3D.new()
+		instance.mesh = _array_mesh(m, _archive)
+		if bones.is_empty():
+			# A rigid part rides on the transform named by the mesh.
+			var attach := BoneAttachment3D.new()
+			_skeleton.add_child(attach)
+			attach.bone_idx = first_bone.get(m["transform"], 0)
+			attach.add_child(instance)
+			continue
+		var skin := Skin.new()
+		var names: PackedStringArray = m["skin_joints"]
+		var binds: Array[Transform3D] = m["inverse_bind"]
+		for j in names.size():
+			skin.add_bind(first_bone.get(names[j], 0), binds[j] if first_bone.has(names[j]) else Transform3D.IDENTITY)
+		instance.skin = skin
+		_skeleton.add_child(instance)
+		instance.skeleton = NodePath("..")
+
+
+## One surface per mesh part, holding just that part's vertex range.
+func _array_mesh(m: Dictionary, archive: LsArchiveFile) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	var positions: PackedVector3Array = m["positions"]
+	var normals: PackedVector3Array = m["normals"]
+	var uvs: PackedVector2Array = m["uvs"]
+	var bones: PackedInt32Array = m["bones"]
+	var weights: PackedFloat32Array = m["weights"]
+	for part in m["parts"]:
+		var first: int = part["first_vertex"]
+		var last: int = mini(part["last_vertex"], positions.size() - 1)
+		var indices := GolferAnimData.strip_to_triangles(part["strip"], 0)
+		if indices.is_empty() or last < first:
+			continue
+		var flipped_uvs := PackedVector2Array()
+		for v in range(first, last + 1):
+			flipped_uvs.append(Vector2(uvs[v].x, 1.0 - uvs[v].y))
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = positions.slice(first, last + 1)
+		arrays[Mesh.ARRAY_NORMAL] = normals.slice(first, last + 1)
+		arrays[Mesh.ARRAY_TEX_UV] = flipped_uvs
+		if not bones.is_empty():
+			arrays[Mesh.ARRAY_BONES] = bones.slice(first * 4, (last + 1) * 4)
+			arrays[Mesh.ARRAY_WEIGHTS] = weights.slice(first * 4, (last + 1) * 4)
+		arrays[Mesh.ARRAY_INDEX] = indices
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(part, archive))
+	return mesh
+
+
+func _material(part: Dictionary, archive: LsArchiveFile) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var texture := _texture(str(part["texture"]), archive)
+	if texture:
+		mat.albedo_texture = texture
+		if texture.get_image().detect_alpha() != Image.ALPHA_NONE:
+			# Hair, lashes and visors are alpha-tested cards seen from both sides.
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			mat.alpha_scissor_threshold = 0.5
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	else:
+		mat.albedo_color = part["diffuse"]
+	return mat
+
+
+func _texture(file_name: String, archive: LsArchiveFile) -> Texture2D:
+	var key := file_name.to_upper()
+	if key.is_empty() or archive == null:
+		return null
+	if not _textures.has(key):
+		var image := Image.new()
+		var bytes := archive.read(key)
+		var texture: Texture2D = null
+		if not bytes.is_empty() and image.load_tga_from_buffer(bytes) == OK:
+			texture = ImageTexture.create_from_image(image)
+		_textures[key] = texture
+	return _textures[key]
+
+
+## The driver and putter from CLUBS.L3, held at clubJoint.
+func _build_clubs(folder: String) -> void:
+	if _skeleton == null:
+		return
+	var grip := -1
+	for i in _nodes.size():
+		if str(_nodes[i]["name"]) == "clubJoint":
+			grip = i
+	if grip < 0:
+		return
+	var locations: Dictionary = _script.get("file_locations", {})
+	for club in ["driver", "putter"]:
+		var where := str(locations.get(club + ".skl", "")).split("|")
+		if where.size() != 2:
+			continue
+		var archive := LsArchiveFile.open(_find_file(folder, where[0]))
+		if archive == null or not archive.has(where[1]):
+			continue
+		var attach := BoneAttachment3D.new()
+		_skeleton.add_child(attach)
+		attach.bone_idx = grip
+		for m in GolferAnimData.read_meshes(archive.read(where[1])):
+			var instance := MeshInstance3D.new()
+			instance.mesh = _array_mesh(m, archive)
+			attach.add_child(instance)
+		_clubs[club] = attach
+	_show_club("driver")
+
+
+func _show_club(club: String) -> void:
+	for c in _clubs:
+		var node: Node3D = _clubs[c]
+		node.visible = c == club
+
+
+## The file in `folder` whose name matches regardless of case.
+static func _find_file(folder: String, file_name: String) -> String:
+	for f in DirAccess.get_files_at(folder):
+		if f.to_lower() == file_name.to_lower():
+			return folder.path_join(f)
+	return folder.path_join(file_name)
+
+
+func _build_stick_figure() -> void:
 	var skin := StandardMaterial3D.new()
 	skin.albedo_color = Color(0.85, 0.66, 0.5)
 	var shirt := StandardMaterial3D.new()
@@ -211,7 +373,6 @@ func _build() -> void:
 	_head.mesh = sphere
 	_head.material_override = skin
 	_body.add_child(_head)
-	_apply_pose()
 
 
 func _is_skin(name_lower: String) -> bool:
@@ -247,6 +408,12 @@ func _apply_pose() -> void:
 				var r3 := rot[idx]
 				r3[attr - 3] = v
 				rot[idx] = r3
+	if _skeleton:
+		for i in _nodes.size():
+			var pose := GolferAnimData.local_transform(_nodes[i], rot[i], tr[i])
+			_skeleton.set_bone_pose_position(i, pose.origin)
+			_skeleton.set_bone_pose_rotation(i, pose.basis.get_rotation_quaternion())
+		return
 	var world: Array[Transform3D] = []
 	for i in _nodes.size():
 		var local := GolferAnimData.local_transform(_nodes[i], rot[i], tr[i])

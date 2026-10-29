@@ -1,13 +1,16 @@
 # Carrera object store (`.SKL` models, `.CLP` animation clips)
 
-Status: partial. The container (sections, allocation table, strings,
-classes) is complete (`olcore::StoreFile`). Animation clips and the
-skeleton (`Transform`/`Joint` hierarchy and rest pose) are complete
-(`olcore::read_anim_clips`, `olcore::read_skeleton`) and checked by posing
-Annika's driver swing: the feet stay on the ground for all 148 frames, the
-hands are highest at the "top of backswing" frame and back at address height
-on the "launch" frame named in `SCRIPT.TXT`. Meshes, shaders and skinning
-are not decoded yet.
+Status: complete enough to draw and animate a golfer. The container
+(sections, allocation table, strings, classes) is complete
+(`olcore::StoreFile`). Animation clips and the skeleton (`Transform`/`Joint`
+hierarchy and rest pose) are complete (`olcore::read_anim_clips`,
+`olcore::read_skeleton`) and checked by posing Annika's driver swing: the
+feet stay on the ground for all 148 frames, the hands are highest at the
+"top of backswing" frame and back at address height on the "launch" frame
+named in `SCRIPT.TXT`. Meshes, materials and skinning are complete
+(`olcore::read_meshes`, `olcore::skin_positions`) and checked by rendering
+Annika, textured, in her rest pose and at the top of her backswing. Lights
+and locators are not decoded.
 Seen in: `POLYANI/*.L3` (golfers and clubs)
 
 ## Overview
@@ -197,18 +200,113 @@ Units are feet with +y up. A posed clip puts the ball at the origin, the
 golfer about 2.5 ft back along -x facing +x, and the target towards -z.
 The club head is the locator `clubJoint|locator1` under `clubJoint`.
 
-### Other classes
+### Classes
 
 Classes in `ANNIKA_BOUND.SKL` (instance size in bytes): `Texture` 44,
 `Transform` 440, `TransformEx` 504, `Mesh` 280, `Shader` 108, `Joint` 504,
-`Locator` 212, `Light` 272, `SkinCluster` 220, `Shape` 52. The plain
-buffers carry tags such as `Mesh Position Buffer`, `Mesh TexCoord Buffer`,
-`Mesh Normal Buffer` and `SkinCluster Influence Pool`, and texture objects
-point at file names like `L_A01_face.tga` (found in the same archive).
+`Locator` 212, `Light` 272, `SkinCluster` 220, `Shape` 52.
+
+A golfer `.SKL` has one skinned mesh (Annika: 4,186 vertices in 14 parts,
+weighted to 61 joints). `golfer_low.skl` is a lower-detail version of the
+same model (1,709 vertices). Club models (`CLUBS.L3`: `DRIVER.SKL`,
+`IRON.SKL`, `PUTTER.SKL`) hold one rigid mesh each, in a frame with the grip
+at the origin and the shaft along +y; the golfer holds it in the frame of its
+`clubJoint` joint (its `clubJoint|locator1` sits 3.6 ft up that axis, near
+the club head).
+
+### `Carrera::Mesh` (280 bytes)
+
+| Offset | Type | Notes |
+|--------|------|-------|
+| 0x10 | ptr | Name (`annikaShape`) |
+| 0x1c | ptr | The transform that carries the mesh |
+| 0x30 | f32[16] | Identity in every file seen |
+| 0x70 | f32[16] | Identity in every file seen |
+| 0xb8 | f32[6] | Bounding box, min x/y/z then max x/y/z (feet) |
+| 0xd4 | ptr | `SkinCluster`, or -1 for a rigid mesh |
+| 0xdc | u32 | Number of parts (`Shape` records) |
+| 0xe0 | ptr | Array of `Shape` records |
+| 0xe4 | u32 | Number of vertices |
+| 0xe8 | ptr | `Mesh Position Buffer`: f32 x, y, z per vertex (feet) |
+| 0xec | ptr | `Mesh TexCoord Buffer`: f32 u, v per vertex; v runs upwards from the bottom of the image |
+| 0xf0 | ptr | `Mesh Normal Buffer`: f32 x, y, z per vertex |
+
+Positions are in the model's bind space. For a golfer that is the world
+space of its skeleton's rest pose (a T pose, facing +z), so the mesh
+lines up with the joints without any extra transform.
+
+### `Carrera::Shape` (52 bytes, stored as an array)
+
+One part of the mesh, drawn with one material as a single triangle strip.
+
+| Offset | Type | Notes |
+|--------|------|-------|
+| 0x14 | ptr | Strip: u16 vertex indices, relative to the first vertex |
+| 0x18 | u32 | Number of indices |
+| 0x1c | u32 | Number of triangles, not counting degenerate ones |
+| 0x20 | u32 | 6 |
+| 0x24 | u32 | First vertex of the part |
+| 0x28 | u32 | Last vertex of the part (inclusive) |
+| 0x2c | ptr | `Shader` |
+| 0x30 | ptr | The same `Shader` again |
+
+Separate strips are joined with repeated indices, which make degenerate
+triangles. Taking triangle k of the strip as indices (k, k+1, k+2) and
+swapping the first two on odd k, front faces wind clockwise, as in
+Direct3D; the triangle counts in the records match the non-degenerate
+triangles exactly. Vertex ranges of different parts can overlap.
+
+### `Carrera::Shader` (108 bytes) and `Carrera::Texture` (44 bytes)
+
+| Offset | Type | Notes |
+|--------|------|-------|
+| 0x10 | ptr | Name (the Maya material, `annika1_Annika1_phong4`) |
+| 0x14 | f32[4] | Diffuse colour, RGBA (0.8 grey on the textured parts) |
+| 0x24 | f32[4] | A second colour, also 0.8 grey |
+| 0x54 | f32 | 2.0 |
+| 0x58 | ptr | `Texture`, or -1 |
+| 0x5c | ptr | A second `Texture` (the same one), or -1 |
+| 0x60 | u32 | 0 or 1; 1 on the hair parts |
+
+A `Texture` holds its file name at 0x14 (a pointer to a string such as
+`L_A01_face.tga`). The file is in the same archive. The textures are
+uncompressed TGA files: 24-bit, or 32-bit with alpha for the hair and
+eyelashes.
+
+### `Carrera::SkinCluster` (220 bytes)
+
+| Offset | Type | Notes |
+|--------|------|-------|
+| 0x14 | ptr | The `Mesh` |
+| 0x18 | u32 | 3 |
+| 0x1c | ptr | Joint list: pointers to the influencing `Joint` objects; unused trailing slots hold -1 |
+| 0x20 | u32 | Number of joints in the list (61 for Annika) |
+| 0xa4 | ptr | Inverse bind matrices, one 4x4 per list slot (64 bytes each) |
+| 0xa8 | ptr | A copy of the same matrices |
+| 0xac | ptr | Room for the same number of matrices, all zero (filled in at run time) |
+| 0xb0 | u32 | Number of vertices |
+| 0xb4 | ptr | `SkinCluster Influence Pool`: 20 bytes per vertex (below) |
+| 0xb8 | ptr | Number of influences used by each vertex (u32, 1 to 4) |
+
+Each inverse bind matrix times the rest world matrix of its joint is the
+identity to within 4e-7. An influence record is four u8 joint numbers
+followed by four f32 weights; the weights of a vertex add up to 1 and
+unused slots have weight 0.
+
+Joint numbers in the influence records never use the value 19: a number
+above 19 refers to the joint list entry one lower. Read that way, every
+weight in Annika's and Eric's full and low-detail models lands on a joint
+next to the vertex, on the correct side of the body; read directly,
+everything from number 20 up lands on the wrong joint (left hand for right
+hand, toe for chest).
+
+A skinned vertex is then the sum over its influences of
+`weight * (position * inverse_bind[j] * world[j])`, with `world[j]` the
+posed world matrix of joint j, in the row-vector convention used above.
 
 ## Open questions
 
-- `Mesh`, `Shape`, `Shader` and `SkinCluster` layouts: vertex format,
-  index buffer, skin weights, texture binding.
+- `Light` and `Locator` objects, and what the shader flag at 0x60 does.
+- Why influence numbers skip 19.
 - The channel permutation table, and the `AnimClip` fields not listed.
 - Sections 2 and 3, and the padding rule between sections.
