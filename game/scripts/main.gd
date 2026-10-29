@@ -179,6 +179,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_DOWN:
 					_change_club(1)
 					return
+				KEY_C:
+					get_tree().change_scene_to_file("res://scenes/course_viewer.tscn")
+					return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton

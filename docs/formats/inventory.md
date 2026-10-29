@@ -86,17 +86,11 @@ size of the first entry. Each entry is a zlib stream. Contents seen:
 `BTCV` is the game's own texture format: tiled DXT5 blocks stored as runs.
 See [arc0.md](arc0.md) and [btcv.md](btcv.md); both are now fully decoded.
 
-### Chained zlib streams (`.CRZ`, `.CVT`, `.RNG`)
+### Locked ARC0 courses (`.CRZ`, `.CVT`, `.RNG`)
 
-A 16-byte header that looks random (a hash or key?), then zlib streams back
-to back with no index. The first stream always decompresses to the text
-`V.2.0`. In `CABO.CRZ` the next streams are TGA textures, two JPEGs (course
-artwork), 64 x 64 TGAs, and a WAV; later streams hold the actual course data
-(terrain, holes, objects), not yet examined. `DRIVING.RNG` is the driving
-range in the same container. `.CVT` files (older courses) put a terrain
-texture list (`Rough01.tga`, `Fring01.tga`, `Fairw01.tga`, `Green01.tga`,
-`Sand01.tga`) and float tables in their first streams, then switch to data
-that is not a zlib stream.
+These first looked like zlib streams chained back to back after a random
+16-byte header. They are really ARC0 archives with an encrypted header and
+directory, and some entries are encrypted too. See [crz.md](crz.md).
 
 ### `.SHA` course shadow map
 
@@ -122,7 +116,8 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 
 ## Open questions
 
-- Course data inside `.CRZ` after the media streams: terrain, surface
+- `ARC0` entry table: where the per-entry names and sizes live.
+- Course entries not yet decoded (see [crz.md](crz.md)): surface
   types, holes, pins, object placement. This is the next big job.
 - The 16-byte `.CRZ` header: checksum or key.
 - How `.CVT` differs from `.CRZ` past its first streams.

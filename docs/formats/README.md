@@ -26,6 +26,8 @@ What the file holds and when the game loads it.
   images, and a first-pass survey of every file type and container.
 - [arc0.md](arc0.md): `ARC0` compressed archives (`.LIB`, `.BTX`, `.TOP`,
   `.CMF`, `.sky`).
+- [crz.md](crz.md): locked course archives (`.CRZ`, `.RNG`, `.CVT`): the
+  encryption, terrain mesh, holes, textures and materials.
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.

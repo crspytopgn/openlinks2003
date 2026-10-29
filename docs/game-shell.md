@@ -14,6 +14,7 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
+| C | Open the course viewer (courses made by `olcourse export`) |
 
 The swing meter is the classic three-click Links arc. Click once to start the
 backswing; the marker climbs the left side of the arc towards 100% at the
