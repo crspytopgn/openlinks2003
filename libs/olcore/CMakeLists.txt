@@ -1,6 +1,9 @@
 add_library(olcore STATIC
   src/ball_physics.cpp
   src/binary_reader.cpp
+  src/scoring.cpp
+  src/shot.cpp
+  src/swing.cpp
 )
 target_include_directories(olcore PUBLIC include)
 
