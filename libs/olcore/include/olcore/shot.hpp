@@ -22,8 +22,8 @@ enum class ShotOutcome { Rest, Holed, Water, OutOfBounds, TimedOut };
 const char* outcome_name(ShotOutcome o);
 
 struct ShotOptions {
-  double dt = 0.002;                 // integration step, seconds
-  int sample_every = 5;              // keep every n-th step in the path
+  double dt = 0.004;                 // integration step, seconds
+  int sample_every = 4;              // keep every n-th step in the path
   double max_time = 60.0;            // give up after this long
   bool has_cup = false;
   Vec3 cup;                          // cup centre on the green surface

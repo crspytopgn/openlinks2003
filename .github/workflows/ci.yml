@@ -58,6 +58,13 @@ jobs:
       - name: Import project
         run: ~/godot/godot --headless --path game --import
 
+      # Script errors don't change Godot's exit code, so check the log too.
+      - name: GDScript tests
+        run: |
+          ~/godot/godot --headless --path game -s res://tests/run_tests.gd 2>&1 | tee godot-tests.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" godot-tests.log; then exit 1; fi
+          grep -q "GODOT TESTS PASSED" godot-tests.log
+
       - name: Export Linux, Windows, macOS and Web
         run: |
           cd game
