@@ -13,6 +13,7 @@ func run_all() -> Array[String]:
 	_test_object_library()
 	_test_model()
 	_test_course_billboards()
+	_test_course_models()
 	return failures
 
 
@@ -23,7 +24,7 @@ func check(cond: bool, what: String) -> void:
 
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/object_viewer.gd", "res://scripts/assets/decoded_object_library.gd",
-			"res://scripts/course_viewer.gd"]:
+			"res://scripts/course_viewer.gd", "res://scripts/course/course_models.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -234,4 +235,47 @@ func _test_course_billboards() -> void:
 	check(is_equal_approx(buffer[12 + 5], 0.4), "billboards: second instance height")
 	check(is_zero_approx(far.visibility_range_end), "billboards: tall chunk always drawn")
 	check(is_equal_approx(first.visibility_range_end, 150.0), "billboards: small chunk culled with distance")
+	root.free()
+
+
+func _test_course_models() -> void:
+	# models.bin as `olcourse export` writes it: one model with one
+	# triangle, placed twice.
+	var b := PackedByteArray()
+	b.append_array("OLMD".to_ascii_buffer())
+	put_u32(b, 1)
+	put_u32(b, 1)
+	put_u32(b, 1)
+	var tex := "textures/models/none.tga".to_ascii_buffer()
+	put_u32(b, tex.size())
+	b.append_array(tex)
+	put_u32(b, 3)
+	for v in [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]:
+		put_f32(b, v)
+	for v in [0.0, 0.0, 1.0, 0.0, 0.0, 1.0]:
+		put_f32(b, v)
+	put_u32(b, 3)
+	for i in [0, 1, 2]:
+		put_u32(b, i)
+	put_u32(b, 2)
+	for origin_x in [10.0, 20.0]:
+		put_u32(b, 0)
+		for v in [0.5, 0.0, 0.0, origin_x, 0.0, 0.5, 0.0, 3.0, 0.0, 0.0, 0.5, -4.0]:
+			put_f32(b, v)
+	var data := CourseModels.read(b)
+	check(not data.is_empty(), "models: reads")
+	if data.is_empty():
+		return
+	var meshes: Array = data["meshes"]
+	var placements: Array = data["placements"]
+	check(meshes.size() == 1 and (meshes[0] as Array).size() == 1, "models: one mesh, one surface")
+	check(placements.size() == 2, "models: two placements")
+	var t: Transform3D = placements[1]["transform"]
+	check(t.origin.distance_to(Vector3(20, 3, -4)) < 1e-4 and is_equal_approx(t.basis.get_scale().x, 0.5), "models: transform")
+	check(CourseModels.read(b.slice(0, b.size() - 8)).is_empty(), "models: truncated data rejected")
+	var root := CourseModels.build("res://does-not-exist", data)
+	check(root.get_child_count() == 2, "models: one node per placement")
+	var node := root.get_child(0) as MeshInstance3D
+	check(node.mesh.get_surface_count() == 1, "models: mesh built")
+	check(is_equal_approx(node.position.x, 10.0), "models: placed")
 	root.free()

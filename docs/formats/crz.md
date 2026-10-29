@@ -143,10 +143,10 @@ different textures and sounds.
 | `HoleIDShapes` | One outline per hole: the hole's boundary | Same format as `Shapes` |
 | `BugIDShapes` | A few outlines | Same format as `Shapes` |
 | `EnvSound` | Ambient sound emitters and their WAV names | Not decoded |
-| `MasterObj`, `MasterObj3D` | The course's billboard and 3D object types | `MasterObj` names decoded ([course-objects.md](course-objects.md)) |
-| `*.maq` (stored) | Paletted textures with mip levels for 3D objects | See the objects work |
-| `texture3dobj.t3l`, `ObjectCull.dat` | 3D object textures and visibility | Not decoded |
-| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | `2DPlant` decoded, the others surveyed ([course-objects.md](course-objects.md)) |
+| `MasterObj`, `MasterObj3D` | The course's billboard types and 3D object meshes | Decoded ([course-objects.md](course-objects.md)) |
+| `*.maq` (stored) | Paletted textures with mip levels for 3D objects | Decoded ([course-objects.md](course-objects.md)) |
+| `texture3dobj.t3l`, `ObjectCull.dat` | 3D object textures and visibility | `.t3l` decoded ([course-objects.md](course-objects.md)); `ObjectCull.dat` not |
+| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | `2DPlant` and `3DPlant` decoded, `TrnyPlant` surveyed ([course-objects.md](course-objects.md)) |
 | `english.txt` | UTF-16 text: `CourseName = ...`, `HoleName1 = ...` | Decoded |
 | `MergeInfo.DAT` | Text: designer build note | |
 | `header` (encrypted) | The holes (below) | Decoded |
