@@ -1,5 +1,6 @@
-// olcourse: open Links 2003 courses (.CRZ, also .RNG and .CVT) from your own
-// discs or install, and export them for the Godot course viewer.
+// olcourse: open Links 2003 courses (.CRZ, also .RNG) and the converted
+// Links LS courses (.CVT on CD2) from your own discs or install, and export
+// them for the Godot course viewer.
 //
 //   olcourse list    --exe <game exe> <course>
 //   olcourse info    --exe <game exe> <course>
@@ -10,6 +11,8 @@
 // LinksMMIII.exe in an install): the cipher tables and key are read from it.
 // `export` writes course.json, terrain.bin and the terrain textures; the
 // standard textures (Rough01.tga and so on) come from STDTER_1.LIB on CD1.
+// It also writes the course's billboard objects: objects.bin and one sprite
+// per object type under textures/objects/.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -24,8 +27,11 @@
 
 #include "olcore/arc0.hpp"
 #include "olcore/binary_reader.hpp"
+#include "olcore/btcv.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
+#include "olcore/cvt.hpp"
 #include "olcore/strings.hpp"
 
 namespace fs = std::filesystem;
@@ -66,6 +72,16 @@ std::unique_ptr<CrzArchive> open_course(const std::string& course, const std::st
     throw std::runtime_error(course + " is locked: pass --exe <game executable>");
   }
   return std::make_unique<CrzArchive>(std::move(data), keys ? &*keys : nullptr);
+}
+
+// Links 2003 courses and the converted Links LS courses (.CVT) share the
+// container but not the entry layouts.
+Course load_any_course(const CrzArchive& crz, const std::string& path) {
+  if (!is_converted_course(crz)) return load_course(crz);
+  Course c = load_converted_course(crz);
+  std::string title = converted_course_title(fs::path(path).stem().string());
+  if (!title.empty()) c.name = title;
+  return c;
 }
 
 // --- Minimal TGA reader, only to compute a texture's average colour ------
@@ -224,8 +240,65 @@ std::vector<std::uint8_t> build_terrain_bin(const Terrain& t) {
   return out;
 }
 
-int do_export(const CrzArchive& crz, const std::vector<std::string>& libs, const fs::path& outdir) {
-  Course course = load_course(crz);
+// objects.bin: "OLOB", u32 version (1), u32 type count, then per type (in
+// the order of course.json's "billboards"): u32 count, then count records of
+// f32 x, y, z (Godot metres, the base of the billboard) and f32 height.
+struct BillboardExport {
+  std::string json;  // ",\n  \"billboards\": [...]" for course.json, or empty
+  std::size_t placements = 0;
+};
+
+BillboardExport export_billboards(const CrzArchive& crz, const fs::path& outdir) {
+  BillboardExport result;
+  auto master = crz.find("MasterObj");
+  auto plants = crz.find("2DPlant");
+  if (!master || !plants) return result;
+  auto types = parse_billboard_types(crz.read(*master));
+  auto placements = parse_billboard_placements(crz.read(*plants));
+
+  std::vector<std::vector<const BillboardPlacement*>> by_type(types.size());
+  for (const auto& p : placements) {
+    if (p.type < types.size()) by_type[p.type].push_back(&p);
+  }
+  std::vector<std::uint8_t> bin = {'O', 'L', 'O', 'B'};
+  put<std::uint32_t>(bin, 1);
+  put<std::uint32_t>(bin, std::uint32_t(types.size()));
+  fs::create_directories(outdir / "textures" / "objects");
+  std::string j = ",\n  \"billboards\": [\n";
+  for (std::size_t t = 0; t < types.size(); ++t) {
+    std::string file;
+    if (auto e = crz.find(types[t].sprite)) {
+      try {
+        file = "textures/objects/" + safe_name(types[t].name) + ".tga";
+        write_file(outdir / file, encode_tga(decode_btcv(crz.read(*e))));
+      } catch (const std::exception& ex) {
+        std::fprintf(stderr, "warning: %s: %s\n", types[t].sprite.c_str(), ex.what());
+        file.clear();
+      }
+    } else {
+      std::fprintf(stderr, "warning: sprite %s not in the course\n", types[t].sprite.c_str());
+    }
+    put<std::uint32_t>(bin, std::uint32_t(by_type[t].size()));
+    for (const BillboardPlacement* p : by_type[t]) {
+      for (float f : to_godot(p->position)) put<float>(bin, f);
+      put<float>(bin, float(p->height * kFeetToMetres));
+    }
+    char aspect[32];
+    std::snprintf(aspect, sizeof aspect, "%.4f", types[t].aspect);
+    j += "    {\"name\": " + json_string(types[t].name) + ", \"texture\": " + json_string(file) +
+         ", \"aspect\": " + aspect + ", \"count\": " + std::to_string(by_type[t].size()) + "}";
+    j += t + 1 < types.size() ? ",\n" : "\n";
+  }
+  j += "  ]";
+  write_file(outdir / "objects.bin", bin);
+  result.json = j;
+  result.placements = placements.size();
+  return result;
+}
+
+int do_export(const CrzArchive& crz, const std::string& path, const std::vector<std::string>& libs,
+              const fs::path& outdir) {
+  Course course = load_any_course(crz, path);
   fs::create_directories(outdir / "textures");
 
   std::vector<std::unique_ptr<Arc0Archive>> lib_archives;
@@ -310,12 +383,14 @@ int do_export(const CrzArchive& crz, const std::vector<std::string>& libs, const
     j += "],\n     \"green\": " + json_vec(to_godot(hole.green)) + "}";
     j += h + 1 < course.holes.size() ? ",\n" : "\n";
   }
-  j += "  ]\n}\n";
+  j += "  ]";
+  BillboardExport billboards = export_billboards(crz, outdir);
+  j += billboards.json + "\n}\n";
   write_file(outdir / "course.json", std::vector<std::uint8_t>(j.begin(), j.end()));
   write_file(outdir / "terrain.bin", build_terrain_bin(course.terrain));
-  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures -> %s\n", course.name.c_str(),
-              course.holes.size(), course.terrain.vertices.size(), course.terrain.triangles.size(), exported.size(),
-              outdir.string().c_str());
+  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures, %zu billboards -> %s\n",
+              course.name.c_str(), course.holes.size(), course.terrain.vertices.size(),
+              course.terrain.triangles.size(), exported.size(), billboards.placements, outdir.string().c_str());
   return 0;
 }
 
@@ -344,7 +419,7 @@ int main(int argc, char** argv) {
         }
         return 0;
       }
-      Course c = load_course(*crz);
+      Course c = load_any_course(*crz, rest[0]);
       std::printf("%s\n%zu entries, terrain %zu vertices / %zu triangles, %zu materials, %zu textures\n",
                   c.name.c_str(), crz->entries().size(), c.terrain.vertices.size(), c.terrain.triangles.size(),
                   c.materials.size(), c.textures.size());
@@ -366,7 +441,7 @@ int main(int argc, char** argv) {
     }
     if (cmd == "export" && rest.size() == 2) {
       auto crz = open_course(rest[0], exe);
-      return do_export(*crz, libs, rest[1]);
+      return do_export(*crz, rest[0], libs, rest[1]);
     }
   } catch (const std::exception& ex) {
     std::fprintf(stderr, "error: %s\n", ex.what());

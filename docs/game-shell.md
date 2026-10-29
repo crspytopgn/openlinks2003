@@ -14,6 +14,8 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
+| Esc | Settings: quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view |
+| F11 | Toggle fullscreen |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
 The swing meter is the classic three-click Links arc. Click once to start the
@@ -55,6 +57,21 @@ game/scripts/
     swing_meter.gd, hud.gd, scorecard_panel.gd
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
+
+## Graphics
+
+`Scenery` (`game/scripts/graphics/scenery.gd`) owns the sky, sun, fog and
+post-processing; `GraphicsSettings` holds the quality options and saves them
+to `user://settings.cfg` under `[graphics]`. Shadows (cascade count, distance,
+atlas size, softness), glow, SSAO and SSIL follow the quality level. The
+screen-space effects only run on Forward+; the web build (Compatibility)
+starts at Medium with FXAA.
+
+Course meshes should use `Materials.terrain()` (vertex colour for the surface,
+plus noise variation and close-up detail) and `Materials.water_disc()` for
+ponds, so decoded courses match the placeholder. CI renders real frames with
+Mesa on both renderers (`game/tests/render_check.gd`) to catch shader errors,
+and uploads the screenshots as the `render-check` artifact.
 
 ## Plugging in decoded data
 

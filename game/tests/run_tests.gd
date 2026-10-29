@@ -24,6 +24,8 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
+	_run("graphics_settings", _test_graphics_settings)
+	_run("object_library_chain", _test_object_library_chain)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
@@ -192,6 +194,42 @@ func _test_placeholder_course() -> void:
 		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
 		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
 	_check(par == 36, "par 36")
+
+
+func _test_graphics_settings() -> void:
+	var path := "user://test_settings.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("game", "folder", "/somewhere")
+	cfg.save(path)
+	var s := GraphicsSettings.new()
+	s.quality = GraphicsSettings.Quality.ULTRA
+	s.msaa = 4
+	s.render_scale = 0.75
+	s.fov = 70.0
+	s.save(path)
+	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
+	_check(loaded.msaa == 4, "msaa saved")
+	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
+	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(Materials.terrain().shader != null, "terrain shader loads")
+	_check(Materials.water().shader != null, "water shader loads")
+
+
+func _test_object_library_chain() -> void:
+	var chain := ObjectLibraryChain.new(PlaceholderObjectLibrary.new(), PlaceholderObjectLibrary.new(), {"alias": "tree_pine"})
+	var aliased := chain.instantiate("alias")
+	_check(aliased != null and aliased.name == "tree_pine", "alias reaches the primary")
+	var direct := chain.instantiate("tree_broadleaf")
+	_check(direct != null, "plain id")
+	_check(chain.instantiate("no_such_object") == null, "unknown id gives null")
+	for n in [aliased, direct]:
+		if n:
+			n.free()
 
 
 func _test_full_round() -> void:

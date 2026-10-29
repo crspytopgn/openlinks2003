@@ -28,6 +28,9 @@ What the file holds and when the game loads it.
   `.CMF`, `.sky`).
 - [crz.md](crz.md): locked course archives (`.CRZ`, `.RNG`, `.CVT`): the
   encryption, terrain mesh, holes, textures and materials.
+- [course-objects.md](course-objects.md): the objects placed on a course:
+  billboard types (`MasterObj`) and placements (`2DPlant`); 3D and
+  tournament placements surveyed.
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.
@@ -39,6 +42,8 @@ What the file holds and when the game loads it.
   animation state script. Complete.
 - [carrera-store.md](carrera-store.md): the object store behind `.SKL`
   models and `.CLP` clips. Container, clips and skeleton complete; meshes open.
+- [cvt.md](cvt.md): the 39 converted Links LS courses (`.CVT`): older hole
+  and terrain versions and the terrain types.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with

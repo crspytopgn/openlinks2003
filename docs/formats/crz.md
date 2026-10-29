@@ -124,7 +124,7 @@ different textures and sounds.
 | Entry | What it holds | Status |
 |-------|---------------|--------|
 | `newformat` | Text `V.2.0` | |
-| `*.btc` (about 860) | `BTCV` billboard sprites for the course's objects, five sizes each | See the objects work |
+| `*.btc` (about 860) | `BTCV` billboard sprites for the course's objects, five sizes each | [btcv.md](btcv.md) |
 | `Panorama.prv`, `Panorama` | Panoramic sky (`pan` / `tpme` / `desu` tags) | Not decoded |
 | `Flag.tga`, `Logo.tga`, `Tee0..4.tga` | Flag, course logo and tee marker textures | Standard TGA |
 | `Splash0.jpg`, `Splash1.jpg`, `Holprv00..17.jpg` | Loading screens and the 298 x 500 hole preview cards | Standard JPEG |
@@ -143,10 +143,10 @@ different textures and sounds.
 | `HoleIDShapes` | One outline per hole: the hole's boundary | Same format as `Shapes` |
 | `BugIDShapes` | A few outlines | Same format as `Shapes` |
 | `EnvSound` | Ambient sound emitters and their WAV names | Not decoded |
-| `MasterObj`, `MasterObj3D` | The course's object catalogue | See the objects work |
+| `MasterObj`, `MasterObj3D` | The course's billboard and 3D object types | `MasterObj` names decoded ([course-objects.md](course-objects.md)) |
 | `*.maq` (stored) | Paletted textures with mip levels for 3D objects | See the objects work |
 | `texture3dobj.t3l`, `ObjectCull.dat` | 3D object textures and visibility | Not decoded |
-| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | Not decoded |
+| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | `2DPlant` decoded, the others surveyed ([course-objects.md](course-objects.md)) |
 | `english.txt` | UTF-16 text: `CourseName = ...`, `HoleName1 = ...` | Decoded |
 | `MergeInfo.DAT` | Text: designer build note | |
 | `header` (encrypted) | The holes (below) | Decoded |
