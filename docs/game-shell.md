@@ -87,13 +87,21 @@ Nothing in the round needs to change.
   `GolfRound.course_path` to the course file.
 - **Objects:** subclass `ObjectLibrary` (`instantiate(id) -> Node3D`) and
   set `AssetProviders.object_library`. `PlacedObject.id` is whatever key the
-  library understands.
+  library understands. `DecodedObjectLibrary.open(game_folder)` (in
+  `assets/decoded_object_library.gd`) already does this for the real
+  Course Designer objects; it accepts an OBJECT.LIB id as a decimal string or
+  a catalog file name. It is not registered by default yet, because the
+  placeholder course uses its own ids; the course decoder should register it
+  together with real placements.
 - **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`) and
   set `AssetProviders.golfer_assets`. `GolferRig.play()` receives
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.
+  `LinksSoundBank` (`scripts/audio/`) is used automatically when a game
+  folder is configured (see `scripts/game_folder.gd`); it plays the
+  original effects from `predefined.ssf`.
 - **Physics:** subclass `ShotModel` (`launch(...)`, `simulate(...)`) and set
   `AssetProviders.shot_model`. This is where a model tuned against the
   original game, or the C++ core through GDExtension, replaces the stand-in.

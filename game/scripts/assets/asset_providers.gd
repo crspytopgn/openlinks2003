@@ -22,7 +22,7 @@ static func ensure_defaults() -> void:
 	if course_loaders.is_empty():
 		course_loaders.append(PlaceholderCourseLoader.new())
 	if object_library == null:
-		object_library = PlaceholderObjectLibrary.new()
+		object_library = _default_object_library()
 	if golfer_assets == null:
 		golfer_assets = PlaceholderGolferAssets.new()
 	if shot_model == null:
@@ -46,4 +46,20 @@ static func load_course(path: String) -> CourseData:
 static func create_sound_bank() -> SoundBank:
 	if sound_bank_factory.is_valid():
 		return sound_bank_factory.call()
+	var links := LinksSoundBank.from_game_folder()
+	if links != null:
+		return links
 	return PlaceholderSoundBank.new()
+
+
+## The player's real objects when a game folder is set up, with the
+## placeholder trees standing in for anything the folder lacks.
+static func _default_object_library() -> ObjectLibrary:
+	var placeholder := PlaceholderObjectLibrary.new()
+	var folder := GameFolder.configured_path()
+	if folder.is_empty() or not DirAccess.dir_exists_absolute(folder):
+		return placeholder
+	var real := DecodedObjectLibrary.open(folder)
+	if real == null:
+		return placeholder
+	return ObjectLibraryChain.new(real, placeholder, ObjectLibraryChain.tree_aliases(real))

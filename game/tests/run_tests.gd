@@ -25,6 +25,8 @@ func _initialize() -> void:
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
+	_run("object_library_chain", _test_object_library_chain)
+	_run("format_readers", _test_format_readers)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	var scene: PackedScene = load("res://scenes/main.tscn")
@@ -69,6 +71,12 @@ func _club(short_name: String) -> Club:
 			return c
 	_check(false, "no club " + short_name)
 	return null
+
+
+func _test_format_readers() -> void:
+	var tests: RefCounted = load("res://tests/format_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
 
 
 func _test_physics_matches_olcore() -> void:
@@ -202,6 +210,18 @@ func _test_graphics_settings() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	_check(Materials.terrain().shader != null, "terrain shader loads")
 	_check(Materials.water().shader != null, "water shader loads")
+
+
+func _test_object_library_chain() -> void:
+	var chain := ObjectLibraryChain.new(PlaceholderObjectLibrary.new(), PlaceholderObjectLibrary.new(), {"alias": "tree_pine"})
+	var aliased := chain.instantiate("alias")
+	_check(aliased != null and aliased.name == "tree_pine", "alias reaches the primary")
+	var direct := chain.instantiate("tree_broadleaf")
+	_check(direct != null, "plain id")
+	_check(chain.instantiate("no_such_object") == null, "unknown id gives null")
+	for n in [aliased, direct]:
+		if n:
+			n.free()
 
 
 func _test_full_round() -> void:

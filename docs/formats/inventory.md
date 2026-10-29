@@ -51,11 +51,9 @@ everything else, so they are the next documents to write.
 
 ### `LSls` indexed archive (`.LS`, `.L3`, `.TIP`)
 
-Starts with `LSls`, then a version word (`0b 02` or `0c 02`, followed by
-`37 00`), an entry count at offset 0x0A, and further header fields. A
-`~INDEX~` table follows: a NUL-terminated file name, then a little-endian
-u32 that looks like the entry's offset. Names are 8.3 in `.LS` and up to 32
-bytes in `.L3`. Entries are mostly stored, not compressed (WAV, TGA visible).
+Decoded: see [ls-archive.md](ls-archive.md). A 55-byte header, an index
+of names and absolute offsets, then entries that each start with the same
+55-byte header. Most entries are LZW-compressed; WAVs are mostly stored.
 
 | File | Entries | Holds |
 |------|--------:|-------|
@@ -66,7 +64,7 @@ bytes in `.L3`. Entries are mostly stored, not compressed (WAV, TGA visible).
 | `HELP.LS`, `CREDITS.LS` | | Help pages, credits text |
 | `GAMEDATA.LS` | 3 | Default career rosters (`.ROS`) |
 | `MOPS.L3` | 47 | Mode-of-play scripts (`.MOP`) |
-| `POLYANI/*.L3` | ~200 each | One golfer model: animation clips (`DRIVERADDRESS.CLP`, `CHIPSWING.CLP`, ...) and presumably mesh and skin |
+| `POLYANI/*.L3` | ~200 each | One golfer: model (`.SKL`), ~160 animation clips (`.CLP`), textures, `SCRIPT.TXT`; see [carrera-store.md](carrera-store.md) |
 | `POLYANI/CLUBS.L3`, patch `PolyAni/clubs/*.l3` | ~10 | Club models (`DRIVER.SK...`) |
 | `COURSES/*.TIP` | 18 | Per-hole spoken previews (`HOLPRV01.WAV`...) |
 
@@ -82,11 +80,11 @@ size of the first entry. Each entry is a zlib stream. Contents seen:
 | `CROWDS.LIB` (also `TRNYCRWD.LIB`) | 981 | `BTCV` sprite: spectators |
 | `OBJECT/**/*.BTX` | 6 | `BTCV` sprite: a 2D billboard object (tree, bush) |
 | `OBJECT/TOPVIEWS/*.TOP` | 6 | `BTCV` sprite: top-down view of an object for the course map |
-| `OBJECT/3D2K3*/*.CMF` | 1 | Unknown binary: a 3D object model |
+| `OBJECT/3D2K3*/*.CMF` | 1 | `Textures`: the texture set of a 3D object (see [model.md](model.md)) |
 | patch `skies/*.sky` | 95 | Custom sky |
 
-`BTCV` looks like the game's own texture format: width and height as u16 at
-offsets 4 and 6 (`80 00 80 00` = 128 x 128), then format fields.
+`BTCV` is the game's own texture format: tiled DXT5 blocks stored as runs.
+See [arc0.md](arc0.md) and [btcv.md](btcv.md); both are now fully decoded.
 
 ### Chained zlib streams (`.CRZ`, `.CVT`, `.RNG`)
 
@@ -109,14 +107,14 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 
 | Extension | Signature | Holds | Notes |
 |-----------|-----------|-------|-------|
-| `.SSF` | `SSF\0`, chunks tagged `EVE` | Sound scripts: events (`Full Swing`, `Pin Hit`, `Ball-in-cup`, `Splash`) mapped to embedded WAVs | `TOURNA_1.SSF` is commentary (84 MB); `POLYANI/*.SSF` are golfer voices; `PREDEF_1.SSF` is `predefined.ssf` |
+| `.SSF` | `SSF\0`, chunks tagged `EVE` | Sound banks: events (`Full Swing`, `Pin Hit`, `Ball-in-cup`, `Splash`) mapped to embedded WAVs; see [ssf.md](ssf.md) | `TOURNA_1.SSF` is commentary (84 MB); `POLYANI/*.SSF` are golfer voices; `PREDEF_1.SSF` is `predefined.ssf` |
 | `.PLR`, `.PIN` | `KON\0` | Player profile; `.PIN` for the pro golfers | UTF-16 names |
 | `.ROS` | `SRD\0` (disc), `NRD\0` (patch) | Career roster | Version changed in the patch |
 | `.SEA` | `SHR\0` | Career season | |
 | `.MOP` | none, high entropy | Mode-of-play script | 8 KB each, probably encrypted |
 | `.PST` | count, then names | Course Designer object palette sets | |
-| `OBJECT.LIB` (CD3) | count, then names | Object catalog: category, `.btx` path, `TopViews\*.top` path, floats (size?) | Ties CD3 objects together |
-| `OBJECT/**/*.XYZ`, `.MAP`, `.PRV` | | Per-object data for 3D objects. Guess: geometry (`XYZ`), texture (`MAP`), 128 x 128 preview (`PRV`) | 47 of each |
+| `OBJECT.LIB` (CD3) | count, then names | Object catalog: category, `.btx` path, `TopViews\*.top` path, sizes, object id | See [object-library.md](object-library.md) |
+| `OBJECT/**/*.XYZ`, `.MAP`, `.PRV` | | 3D objects: mesh (`XYZ`), paletted copy of the textures (`MAP`), 128 x 128 preview (`PRV`) | 47 of each; see [model.md](model.md) |
 | `.D3F` | `D3F4` + font name | Bitmap font | |
 | `.TGA`, `.JPG`, `.WAV`, `.WMV`, `.BMP` | standard | | TGAs are mostly 32-bit, RLE in places |
 | `LINKS.DAT`, `.MPD`, `.ICD`, `GOLFANI.DLL` | `MZ` | Windows DLLs | Code, not data |
@@ -124,12 +122,9 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 
 ## Open questions
 
-- `LSls` header fields beyond the entry count, and whether index offsets
-  are absolute.
-- `ARC0` entry table: where the per-entry names and sizes live.
 - Course data inside `.CRZ` after the media streams: terrain, surface
   types, holes, pins, object placement. This is the next big job.
 - The 16-byte `.CRZ` header: checksum or key.
 - How `.CVT` differs from `.CRZ` past its first streams.
-- Golfer meshes inside the `POLYANI/*.L3` archives, and the `.CLP` clip
-  format.
+- Golfer mesh and skeleton layouts in `.SKL`, and the sample encoding in
+  `.CLP` (see [carrera-store.md](carrera-store.md)).
