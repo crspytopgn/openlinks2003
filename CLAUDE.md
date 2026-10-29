@@ -4,6 +4,9 @@ Open-source, cross-platform reimplementation of Links 2003 (Godot 4.4 plus a
 C++17 core). The owner works mostly through cloud sessions, so keep `main`
 buildable and CI green.
 
+Work items and their order live in `ROADMAP.md`. Tick items off as they land,
+and don't start a "(needs data)" item on guesses.
+
 ## Hard rules
 
 - Follow `docs/clean-room.md`. Never commit original game files, decompiled

@@ -58,12 +58,7 @@ docs/           Clean-room rules and file-format notes
 
 ## Roadmap
 
-1. Document the original archive and course formats in `docs/formats/`.
-2. Course loader in `olcore`, plus a heightmap and surface viewer in Godot.
-3. Wire `olcore` into Godot through GDExtension, replacing the GDScript
-   physics port.
-4. Bounce and roll per surface; tune the physics to match the original.
-5. Swing meter, scoring, game modes, golfer animations.
+See [ROADMAP.md](ROADMAP.md).
 
 ## Licence
 
