@@ -1,10 +1,13 @@
 # Carrera object store (`.SKL` models, `.CLP` animation clips)
 
 Status: partial. The container (sections, allocation table, strings,
-classes) is complete and implemented by `olcore::StoreFile`. Inside it, the
-animation clip header, channel table and swing curve are understood; the
-encoding of the per-frame samples and the layout of the model classes
-(`Transform`, `Joint`, `Mesh`, `SkinCluster`) are not yet.
+classes) is complete (`olcore::StoreFile`). Animation clips and the
+skeleton (`Transform`/`Joint` hierarchy and rest pose) are complete
+(`olcore::read_anim_clips`, `olcore::read_skeleton`) and checked by posing
+Annika's driver swing: the feet stay on the ground for all 148 frames, the
+hands are highest at the "top of backswing" frame and back at address height
+on the "launch" frame named in `SCRIPT.TXT`. Meshes, shaders and skinning
+are not decoded yet.
 Seen in: `POLYANI/*.L3` (golfers and clubs)
 
 ## Overview
@@ -93,20 +96,23 @@ clip, for example `DRIVERSWING.CLP`:
 | `clip samples` | varies | Animation data |
 | `Store::strdup string` | | The clip names |
 
-### `Carrera::AnimClip` (352 bytes, partial)
+### `Carrera::AnimClip` (352 bytes)
+
+The game's own debug print labels some of these fields (Start, Duration,
+Num Samples, Num Connections, Num Dynamic).
 
 | Offset | Type | Notes |
 |--------|------|-------|
 | 0x00 | u32 | Class identifier left by the exporter |
 | 0x04 | u32 | 7 |
-| 0x0c | u32 | Looks like a hash of the clip name |
+| 0x0c | u32 | Name hash of the clip (see "Name hash" below) |
 | 0x10 | ptr | Clip name |
-| 0x1c | f32 | 1.0 |
-| 0x20 | f32 | Last frame (147.0 for a 148-frame clip) |
+| 0x1c | f32 | Start (1.0) |
+| 0x20 | f32 | Duration in frames (147.0 for a 148-frame clip) |
 | 0x24, 0x28 | f32 | 1.0, 1.0 |
-| 0x2c | u32 | Frame count (148). Clips run at 30 frames per second. |
-| 0x30 | u32 | Channel count (408 in `DRIVERSWING.CLP`) |
-| 0x34 | u32 | 74 in the same clip; possibly the number of animated nodes |
+| 0x2c | u32 | Number of samples per channel, that is frames (148). Clips run at 30 frames per second. |
+| 0x30 | u32 | Number of connections: channels (408 in `DRIVERSWING.CLP`: 68 nodes, six channels each) |
+| 0x34 | u32 | Number of dynamic channels, the ones that change over time (74) |
 | 0x38 | ptr | Channel table |
 | 0x3c | ptr | `clip samples` |
 | 0x44 | u32 | 1 |
@@ -121,17 +127,31 @@ clip, for example `DRIVERSWING.CLP`:
 
 | Offset | Type | Notes |
 |--------|------|-------|
-| 0x00 | u32 | 0 or 1 |
-| 0x04 | u32 | Hash of the target node's name; consecutive channels of one node share it |
-| 0x08 | u32 | Byte offset of the animated value inside the target `Transform`: 280, 284, 288 for one vector (translation, most likely) and 292, 296, 300 for the next (rotation, most likely) |
-| 0x0c | u32 | Bit mask with the top bit set: `0x80000010`, `0x80000020`, `0x80000040`, `0x80000080` ... one bit per animated value, in step with the offset |
-| 0x10 | u32 | Varies per channel; probably where the channel's data starts in `clip samples` or how it is scaled |
+| 0x00 | u32 | 1 for rotation channels, 0 for translation |
+| 0x04 | u32 | Name hash of the target node (`Root`, `LeftKnee`) |
+| 0x08 | u32 | Byte offset of the animated value inside the target `Transform`: 280, 284, 288 for translate x, y, z and 292, 296, 300 for rotate x, y, z |
+| 0x0c | u32 | Attribute bit with the top bit set: `0x80000010`, `0x20`, `0x40` for rotate x, y, z and `0x80`, `0x100`, `0x200` for translate x, y, z |
+| 0x10 | u32 | Name hash of node name and attribute name run together (`RootrotateX`) |
+
+The dynamic channels come first in the table. The table after it (4 bytes
+per channel) is a permutation of the channel indices whose use is unknown;
+reading the clip doesn't need it.
 
 ### `clip samples`
 
-Mostly small signed 16-bit numbers with runs of zeros, so the curves are
-stored as quantized deltas or keys, not as plain floats. The decoding is the
-next thing to work out.
+Signed 16-bit values with 11 fractional bits: divide by 2048 to get feet
+(translation) or radians (rotation). The first `channels` values are frame 0
+of every channel, in channel order. Then come frames 1 to `frames - 1`, each
+holding one value per dynamic channel. So the buffer holds
+`channels + (frames - 1) * dynamic` values; that holds for all 337 clips of
+Annika and Eric. Channels that aren't dynamic keep their frame 0 value
+throughout.
+
+### Name hash
+
+Nodes and channels are matched by the standard CRC-32 (the zlib and PNG one,
+check value `0xCBF43926` for "123456789") of the name's bytes:
+CRC-32("Root") = `0xB6C65665`, CRC-32("DriverSwing") is the clip's hash.
 
 ### Swing timing (`swingmap` and `fullswing curve`)
 
@@ -145,6 +165,40 @@ and ends with a pointer back to the clip.
 
 ## Models (`.SKL`)
 
+### Transforms and joints
+
+`Carrera::Transform` (440 bytes) and `Carrera::Joint` (504 bytes, a
+Transform plus a joint orient) form the hierarchy. A golfer has 68 joints
+(`Root`, `LowerBack` ... `LeftPinkySecond`, `clubJoint`) under a transform
+called `Player`, plus locator transforms.
+
+| Offset | Type | Notes |
+|--------|------|-------|
+| 0x0c | u32 | Name hash |
+| 0x10 | ptr | Name |
+| 0x1c | ptr | Parent transform, 0 for the top |
+| 0x20 | u32 | Number of children |
+| 0x24 | ptr | Array of child pointers |
+| 0x30 | f32[16] | Rest world matrix |
+| 0x70 | f32[16] | Another 4x4 matrix (rotation part transposed); probably the inverse used for skinning |
+| 0xb8 | f32[6] | Bounding box, min x/y/z then max x/y/z |
+| 0xd8 | f32[16] | Rest local matrix |
+| 0x118 | f32[3] | Translate (feet) |
+| 0x124 | f32[3] | Rotate (radians) |
+| 0x1b8 | f32[4] | Joint only: joint orient quaternion (x, y, z, w) |
+
+Matrices are row-major for row vectors (`p' = p * M`), translation in the
+last row. A node's local matrix is the rotation about X, then Y, then Z
+(`rotate`), then the joint orient, then the translation; its world matrix is
+local times the parent's world. This reproduces the stored local and world
+matrices of all 68 joints in `ANNIKA_BOUND.SKL` to within 1e-6.
+
+Units are feet with +y up. A posed clip puts the ball at the origin, the
+golfer about 2.5 ft back along -x facing +x, and the target towards -z.
+The club head is the locator `clubJoint|locator1` under `clubJoint`.
+
+### Other classes
+
 Classes in `ANNIKA_BOUND.SKL` (instance size in bytes): `Texture` 44,
 `Transform` 440, `TransformEx` 504, `Mesh` 280, `Shader` 108, `Joint` 504,
 `Locator` 212, `Light` 272, `SkinCluster` 220, `Shape` 52. The plain
@@ -154,8 +208,7 @@ point at file names like `L_A01_face.tga` (found in the same archive).
 
 ## Open questions
 
-- The `clip samples` encoding and the meaning of the last channel field.
-- The name hash function, needed to bind channels to joints by name.
-- Field layouts of `Transform`/`Joint` (rest pose, parent links) and `Mesh`
-  (vertex format, index buffer, skin weights).
+- `Mesh`, `Shape`, `Shader` and `SkinCluster` layouts: vertex format,
+  index buffer, skin weights, texture binding.
+- The channel permutation table, and the `AnimClip` fields not listed.
 - Sections 2 and 3, and the padding rule between sections.

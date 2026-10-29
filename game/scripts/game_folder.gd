@@ -26,22 +26,51 @@ static func configured_path() -> String:
 	return ""
 
 
+## A value from [game] in user://settings.cfg, or `fallback` if unset.
+static func setting(key: String, fallback: String = "") -> String:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) == OK:
+		return str(cfg.get_value("game", key, fallback))
+	return fallback
+
+
 ## Full path of the first of `names` found in the folder or its GAME
 ## subfolder, or "" if none is there.
 static func find_file(names: PackedStringArray) -> String:
-	var root := configured_path()
-	if root.is_empty() or not DirAccess.dir_exists_absolute(root):
-		return ""
-	var dirs := [root]
-	var game := _find_entry(root, "game", true)
-	if not game.is_empty():
-		dirs.append(game)
-	for dir in dirs:
+	for dir in _search_dirs():
 		for file_name in names:
 			var found := _find_entry(dir, file_name, false)
 			if not found.is_empty():
 				return found
 	return ""
+
+
+## Full paths of the files in a subfolder (such as "POLYANI") of the folder
+## or of its GAME subfolder, sorted by name.
+static func list_files(subdir: String) -> PackedStringArray:
+	var result := PackedStringArray()
+	for dir in _search_dirs():
+		var sub := _find_entry(dir, subdir, true)
+		if sub.is_empty():
+			continue
+		var files := DirAccess.get_files_at(sub)
+		files.sort()
+		for f in files:
+			result.append(sub.path_join(f))
+		break
+	return result
+
+
+static func _search_dirs() -> Array[String]:
+	var dirs: Array[String] = []
+	var root := configured_path()
+	if root.is_empty() or not DirAccess.dir_exists_absolute(root):
+		return dirs
+	dirs.append(root)
+	var game := _find_entry(root, "game", true)
+	if not game.is_empty():
+		dirs.append(game)
+	return dirs
 
 
 static func _find_entry(dir_path: String, entry_name: String, want_dir: bool) -> String:

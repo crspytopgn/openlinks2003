@@ -1,6 +1,7 @@
 // Minimal self-contained test runner so the core library has no dependencies.
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -12,6 +13,7 @@
 #include "olcore/binary_reader.hpp"
 #include "olcore/btcv.hpp"
 #include "olcore/carrera_store.hpp"
+#include "olcore/golfer_anim.hpp"
 #include "olcore/inflate.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
@@ -830,6 +832,141 @@ void test_scorecard() {
   CHECK(format_to_par(-3) == "-3");
 }
 
+// Builds a store from named objects. Each object's bytes may hold pointers
+// to other objects as "index + 1 into objs" placeholders in the slots listed
+// in `pointers`; they are patched to file offsets.
+struct TestObject {
+  Bytes bytes;
+  int class_index = -1;
+  int name = -1;
+  std::vector<std::pair<std::size_t, std::size_t>> pointers;  // (field offset, target object)
+};
+
+Bytes build_store(const std::vector<std::string>& strings, const std::vector<std::string>& class_names,
+                  const std::vector<TestObject>& objs) {
+  Bytes pool, table, classes, header, allocs, ranges, flags = {0};
+  std::vector<std::uint32_t> string_index;
+  auto add_string = [&](const std::string& str) {
+    put32(table, static_cast<std::uint32_t>(str.size() + 1));
+    put32(table, static_cast<std::uint32_t>(pool.size()));
+    pool.insert(pool.end(), str.begin(), str.end());
+    pool.push_back(0);
+  };
+  for (const auto& str : strings) add_string(str);
+  for (std::size_t i = 0; i < class_names.size(); ++i) {
+    add_string(class_names[i]);
+    put32(classes, static_cast<std::uint32_t>(strings.size() + i));
+    for (std::uint32_t v : {0u, 0u, 0u, 0u}) put32(classes, v);
+  }
+  for (std::uint32_t v : {0x10001u, 0x10u, 4u, 0x10u, 0u, 0xffffffffu}) put32(header, v);
+  put32(ranges, 1);
+  put32(ranges, 0);
+  allocs.resize(objs.size() * 44, 0);
+  std::uint32_t string_count = static_cast<std::uint32_t>(strings.size() + class_names.size());
+
+  Bytes f;
+  store_section(f, 6, 4, header);
+  std::size_t alloc_body = f.size() + 16;
+  store_section(f, static_cast<std::uint32_t>(objs.size()), 44, allocs);
+  store_section(f, 1, 8, ranges);
+  store_section(f, 1, 1, flags);
+  store_section(f, string_count, 8, table);
+  store_section(f, static_cast<std::uint32_t>(pool.size()), 1, pool);
+  store_section(f, static_cast<std::uint32_t>(class_names.size()), 20, classes);
+
+  std::vector<std::size_t> offsets;
+  for (const auto& o : objs) {
+    offsets.push_back(f.size());
+    f.insert(f.end(), o.bytes.begin(), o.bytes.end());
+  }
+  for (std::size_t i = 0; i < objs.size(); ++i) {
+    std::size_t rec = alloc_body + i * 44;
+    set32(f, rec + 4, static_cast<std::uint32_t>(offsets[i]));
+    set32(f, rec + 8, static_cast<std::uint32_t>(objs[i].bytes.size()));
+    set32(f, rec + 12, static_cast<std::uint32_t>(objs[i].class_index));
+    set32(f, rec + 16, static_cast<std::uint32_t>(objs[i].name));
+    set32(f, rec + 36, 0xffffffffu);
+    for (const auto& [field, target] : objs[i].pointers) {
+      set32(f, offsets[i] + field, static_cast<std::uint32_t>(offsets[target]));
+    }
+  }
+  return f;
+}
+
+void set_f32(Bytes& b, std::size_t at, float v) {
+  std::uint32_t bits;
+  std::memcpy(&bits, &v, sizeof bits);
+  set32(b, at, bits);
+}
+
+void test_name_hash_is_crc32() {
+  CHECK(name_hash("") == 0);
+  CHECK(name_hash("123456789") == 0xcbf43926u);  // the standard CRC-32 check value
+}
+
+void test_skeleton_and_clip() {
+  // Root (joint, at y = 3 ft) with a child joint Arm one foot along +x and a
+  // joint orient of 90 degrees about z; a two-frame clip turns Root about y.
+  const float half = std::sqrt(0.5f);
+  auto joint = [](float tx, float ty, float tz) {
+    Bytes b(504, 0);
+    set_f32(b, 280, tx);
+    set_f32(b, 284, ty);
+    set_f32(b, 288, tz);
+    set_f32(b, 452, 1.0f);  // identity orient
+    return b;
+  };
+  TestObject root{joint(0, 3, 0), 0, 0, {}};
+  TestObject arm{joint(1, 0, 0), 0, 1, {{0x1c, 1}}};  // parent: object 1, Root
+  set_f32(arm.bytes, 448, half);  // orient z
+  set_f32(arm.bytes, 452, half);  // orient w
+
+  Bytes clip(352, 0);
+  set32(clip, 0x2c, 2);  // frames
+  set32(clip, 0x30, 2);  // channels
+  set32(clip, 0x34, 1);  // animated
+  TestObject clip_obj{clip, 1, 2, {{0x10, 3}, {0x38, 4}, {0x3c, 5}}};
+  TestObject clip_name{text("Turn"), -1, -1, {}};
+  clip_name.bytes.push_back(0);
+  Bytes channels;
+  for (std::uint32_t v : {1u, name_hash("Root"), 296u, 0x80000020u, name_hash("RootrotateY")}) put32(channels, v);
+  for (std::uint32_t v : {0u, name_hash("Root"), 284u, 0x80000100u, name_hash("ReplaceY")}) put32(channels, v);
+  Bytes samples;
+  // Frame 0: rotateY 0, translateY 3 ft (constant); frame 1: rotateY pi/2.
+  put16(samples, 0);
+  put16(samples, 3 * 2048);
+  put16(samples, static_cast<std::uint16_t>(std::lround(1.5707963 * 2048)));
+  TestObject ch_obj{channels, -1, -1, {}};
+  TestObject sm_obj{samples, -1, -1, {}};
+
+  Bytes f = build_store({"Root", "Arm", "Turn"}, {"class Carrera::Joint", "class Carrera::AnimClip"},
+                        {arm, root, clip_obj, clip_name, ch_obj, sm_obj});
+  StoreFile store(f);
+  Skeleton sk = read_skeleton(store);
+  CHECK(sk.nodes.size() == 2);
+  int r = sk.find("Root"), a = sk.find("Arm");
+  CHECK(r == 0 && a == 1);  // parent placed first
+  CHECK(a >= 0 && sk.nodes[static_cast<std::size_t>(a)].parent == r);
+
+  auto clips = read_anim_clips(store);
+  CHECK(clips.size() == 1);
+  if (clips.size() != 1 || r < 0 || a < 0) return;
+  CHECK(clips[0].name == "Turn");
+  CHECK(clips[0].frame_count == 2 && clips[0].dynamic_count == 1);
+  CHECK_NEAR(clips[0].value(1, 1), 3.0, 1e-6);  // constant channel reads frame 0
+
+  auto rest = sk.pose(nullptr, 0);
+  CHECK_NEAR(rest[1][12], 1.0, 1e-5);
+  CHECK_NEAR(rest[1][13], 3.0, 1e-5);
+  // The orient turns Arm's own x axis onto +y.
+  CHECK_NEAR(rest[1][1], 1.0, 1e-5);
+  auto turned = sk.pose(&clips[0], 1);
+  // Root turned 90 degrees about y carries Arm from +x to -z.
+  CHECK_NEAR(turned[1][12], 0.0, 1e-3);
+  CHECK_NEAR(turned[1][14], -1.0, 1e-3);
+  CHECK_NEAR(turned[1][13], 3.0, 1e-5);
+}
+
 }  // namespace
 
 int main() {
@@ -855,6 +992,8 @@ int main() {
       {"wav_ms_adpcm", test_wav_ms_adpcm},
       {"ssf", test_ssf},
       {"carrera_store", test_carrera_store},
+      {"name_hash_is_crc32", test_name_hash_is_crc32},
+      {"skeleton_and_clip", test_skeleton_and_clip},
       {"drive_bounces_and_rolls", test_drive_bounces_and_rolls},
       {"club_distances_decrease", test_club_distances_decrease},
       {"wedge_checks_on_green", test_wedge_checks_on_green},

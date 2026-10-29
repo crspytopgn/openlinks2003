@@ -120,6 +120,5 @@ Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
 - Course entries not yet decoded (see [crz.md](crz.md)): surface
   types, holes, pins, object placement. This is the next big job.
 - The 16-byte `.CRZ` header: checksum or key.
-- How `.CVT` differs from `.CRZ` past its first streams.
 - Golfer mesh and skeleton layouts in `.SKL`, and the sample encoding in
   `.CLP` (see [carrera-store.md](carrera-store.md)).

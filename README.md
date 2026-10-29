@@ -37,7 +37,10 @@ Point the game at your Links 2003 files (the install folder, the `GAME`
 folder from CD 1, or a folder you extracted with `tools/cdimage`) with
 `--links-dir=/path/to/folder` on the command line, the `LINKS2003_DIR`
 environment variable, or `folder=` under `[game]` in `user://settings.cfg`.
-The round then plays the original swing, landing, cup and splash sounds. The
+The round then plays the original swing, landing, cup and splash sounds,
+and your golfer (the first archive in `POLYANI`, or set `golfer=ERIC.L3`
+under `[game]`) swings with the original animations, drawn as a stick
+figure for now. The
 browser build can't read local folders yet.
 
 ## Play in the browser

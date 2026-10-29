@@ -124,18 +124,7 @@ func build_visual() -> Node3D:
 	root.add_child(_build_ground_mesh())
 	for i in ponds.size():
 		var w := ponds[i]
-		var water := MeshInstance3D.new()
-		var disc := CylinderMesh.new()
-		disc.top_radius = w.z + 2.5
-		disc.bottom_radius = w.z + 2.5
-		disc.height = 0.05
-		disc.radial_segments = 48
-		water.mesh = disc
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.16, 0.36, 0.55)
-		mat.roughness = 0.15
-		mat.metallic = 0.3
-		water.material_override = mat
+		var water := Materials.water_disc(w.z + 4.0)
 		water.position = Vector3(w.x, _pond_levels[i], w.y)
 		root.add_child(water)
 	return root
@@ -197,13 +186,10 @@ func _build_ground_mesh() -> MeshInstance3D:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 1.0
 	var inst := MeshInstance3D.new()
 	inst.name = "Ground"
 	inst.mesh = mesh
-	inst.material_override = mat
+	inst.material_override = Materials.terrain()
 	return inst
 
 

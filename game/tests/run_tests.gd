@@ -24,6 +24,9 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
+	_run("graphics_settings", _test_graphics_settings)
+	_run("object_library_chain", _test_object_library_chain)
+	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
@@ -186,6 +189,42 @@ func _test_placeholder_course() -> void:
 	_check(par == 36, "par 36")
 
 
+func _test_graphics_settings() -> void:
+	var path := "user://test_settings.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("game", "folder", "/somewhere")
+	cfg.save(path)
+	var s := GraphicsSettings.new()
+	s.quality = GraphicsSettings.Quality.ULTRA
+	s.msaa = 4
+	s.render_scale = 0.75
+	s.fov = 70.0
+	s.save(path)
+	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
+	_check(loaded.msaa == 4, "msaa saved")
+	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
+	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(Materials.terrain().shader != null, "terrain shader loads")
+	_check(Materials.water().shader != null, "water shader loads")
+
+
+func _test_object_library_chain() -> void:
+	var chain := ObjectLibraryChain.new(PlaceholderObjectLibrary.new(), PlaceholderObjectLibrary.new(), {"alias": "tree_pine"})
+	var aliased := chain.instantiate("alias")
+	_check(aliased != null and aliased.name == "tree_pine", "alias reaches the primary")
+	var direct := chain.instantiate("tree_broadleaf")
+	_check(direct != null, "plain id")
+	_check(chain.instantiate("no_such_object") == null, "unknown id gives null")
+	for n in [aliased, direct]:
+		if n:
+			n.free()
+
+
 func _test_full_round() -> void:
 	var game := _game
 	_check(game.is_node_ready(), "game scene is ready")
@@ -202,3 +241,26 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
+
+
+## The readers behind LinksGolfer, on synthetic data (no original files).
+func _test_golfer_file_readers() -> void:
+	_check(GolferAnimData.name_hash("123456789") == 0xcbf43926, "name_hash is CRC-32")
+	_check(GolferAnimData.name_hash("Root") == 0xb6c65665, "name_hash of Root")
+	# Clear, 'R', 'I', code 258 ("RI"), end: 9-bit codes, LSB first.
+	var acc := 0
+	var bits := 0
+	for code in [256, 82, 73, 258, 257]:
+		acc |= code << bits
+		bits += 9
+	var packed := PackedByteArray()
+	for i in (bits + 7) / 8:
+		packed.append((acc >> (8 * i)) & 0xff)
+	_check(LsArchiveFile.lzw_decompress(packed, 100).get_string_from_ascii() == "RIRI", "LZW known stream")
+	var clips := LinksGolfer.parse_clip_list("DriverSwing( 0@29 1@32 2@46),IronHalfSwing")
+	_check(clips.size() == 2, "clip list length")
+	_check(clips[0]["clip"] == "DriverSwing" and clips[0]["events"].get(2, -1) == 46, "clip events")
+	_check(clips[1]["clip"] == "IronHalfSwing" and clips[1]["events"].is_empty(), "clip without events")
+	var parsed := LinksGolfer.parse_script("[Driver]\nAddress=DriverAddress ; comment\n[file_locations]\ngolfer.skl=a_bound.skl")
+	_check(parsed.get("Driver", {}).get("Address", "") == "DriverAddress", "script value")
+	_check(parsed.get("file_locations", {}).get("golfer.skl", "") == "a_bound.skl", "script file location")

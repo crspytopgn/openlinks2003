@@ -95,6 +95,13 @@ offset. GEAGLES.CRZ has 1,013 entries.
 
 ### Directory record (64 bytes, encrypted)
 
+Some converted `.CVT` courses (Sea Island, for one) have a plain `ARC0`
+header but an encrypted directory. A reader tries the directory as plain
+text first, and decrypts it with the archive key if the first record does
+not parse. The key search then tests the first directory record instead of
+the header.
+
+
 The same as ARC0, plus a flags word:
 
 | Offset | Type | Name | Notes |
@@ -160,15 +167,17 @@ preview cards.
 | vertex[vertex_count] | vertices | 24 bytes each, below |
 | u32 | triangle_count | 129,123 at Gleneagles |
 | u32[3][triangle_count] | neighbours | Across each edge. The low 20 bits are the triangle index; bits 26-27 give the neighbour's edge; bit 30 set means a border edge (index 0xFFFFF) |
-| triangle[triangle_count] | triangles | 14 bytes each, below |
+| triangle[triangle_count] | triangles | 14 bytes each, or 20 with wide indices (below) |
 
 Vertex: `f32 x, y, z`, two f32 that are almost always 0, `u16` (unknown),
 `u16` flags (unknown).
 
 Triangle: `u16 material` (index into `Materials`), `u32` (probably a
-`Mappings` record), `u16` (unknown, usually 0), then three `u16` vertex
-indices. Vertex indices are 16-bit, so a course has at most 65,536 vertices.
-The six CD2 courses use between 31,769 and 68,497.
+`Mappings` record), `u16` (unknown, usually 0), then three vertex indices.
+The indices are `u16` when the course has at most 65,535 vertices and `u32`
+when it has more. The six CD2 courses use between 31,769 and 68,497
+vertices, and four of them (Cabo, Cambrian, Kauri, Tribute) need the wide
+form. The entry ends right after the last triangle, which confirms the size.
 
 ### `header`: holes
 
