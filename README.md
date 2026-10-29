@@ -39,9 +39,9 @@ folder from CD 1, or a folder you extracted with `tools/cdimage`) with
 environment variable, or `folder=` under `[game]` in `user://settings.cfg`.
 The round then plays the original swing, landing, cup and splash sounds,
 and your golfer (the first archive in `POLYANI`, or set `golfer=ERIC.L3`
-under `[game]`) swings with the original animations, drawn as a stick
-figure for now. The
-browser build can't read local folders yet.
+under `[game]`) appears as the original textured model, holding the
+driver or putter, and swings with the original animations. The browser
+build can't read local folders yet.
 
 ## Play in the browser
 

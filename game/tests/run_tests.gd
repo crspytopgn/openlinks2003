@@ -252,8 +252,8 @@ func _test_web_game_files() -> void:
 	}
 	var startup := WebGameFiles.startup_files(files, "")
 	startup.sort()
-	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, PREDEF_1.SSF, StdTerrain.lib",
-		"startup set: catalog, sounds, course key, ground textures, first golfer; got %s" % [startup])
+	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, POLYANI/CLUBS.L3, PREDEF_1.SSF, StdTerrain.lib",
+		"startup set: catalog, sounds, course key, ground textures, first golfer and clubs; got %s" % [startup])
 	_check(WebGameFiles.startup_files(files, "eric.l3").has("POLYANI/ERIC.L3"), "the chosen golfer is copied")
 	_check(not WebGameFiles.is_supported(), "not the web build")
 	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
@@ -281,6 +281,15 @@ func _test_full_round() -> void:
 func _test_golfer_file_readers() -> void:
 	_check(GolferAnimData.name_hash("123456789") == 0xcbf43926, "name_hash is CRC-32")
 	_check(GolferAnimData.name_hash("Root") == 0xb6c65665, "name_hash of Root")
+	# Same strip as the C++ skinned_mesh test: the degenerate (3, 2, 2) goes
+	# and the second triangle is flipped to keep the winding.
+	var tris := GolferAnimData.strip_to_triangles(PackedInt32Array([0, 1, 3, 2, 2]), 10)
+	_check(tris == PackedInt32Array([10, 11, 13, 13, 11, 12]), "strip_to_triangles: %s" % tris)
+	_check(GolferAnimData.influence_joint(18) == 18 and GolferAnimData.influence_joint(21) == 20,
+			"influence numbers skip 19")
+	var m := GolferAnimData.read_matrix(PackedFloat32Array([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 2, 3, 4, 1]).to_byte_array(), 0)
+	# Row-vector matrix: the x axis stays, y maps onto +z, and it translates by (2, 3, 4).
+	_check(m * Vector3(0, 1, 0) == Vector3(2, 3, 5), "read_matrix: %s" % (m * Vector3(0, 1, 0)))
 	# Clear, 'R', 'I', code 258 ("RI"), end: 9-bit codes, LSB first.
 	var acc := 0
 	var bits := 0

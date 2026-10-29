@@ -197,3 +197,161 @@ static func local_transform(node: Dictionary, rotate: Vector3, translate: Vector
 	var orient: Quaternion = node["orient"]
 	var b := Basis(orient) * r
 	return Transform3D(b, translate)
+
+
+## Influence numbers skip 19: numbers above it name the skin joint one lower.
+## Mirrors kSkippedInfluence in golfer_mesh.cpp.
+static func influence_joint(number: int) -> int:
+	return number - 1 if number > 19 else number
+
+
+## A triangle strip (indices relative to `first`) as a triangle list of
+## absolute indices: degenerate triangles dropped, every other one flipped
+## so that all keep the strip's winding. Mirrors MeshPart::triangles().
+static func strip_to_triangles(strip: PackedInt32Array, first: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for k in strip.size() - 2:
+		var a := strip[k]
+		var b := strip[k + 1]
+		var c := strip[k + 2]
+		if a == b or b == c or a == c:
+			continue
+		if k % 2:
+			var t := a
+			a = b
+			b = t
+		out.append_array([first + a, first + b, first + c])
+	return out
+
+
+## Row-major, row-vector 4x4 matrix (as stored) at an offset, as a Transform3D.
+static func read_matrix(d: PackedByteArray, o: int) -> Transform3D:
+	var m := PackedFloat32Array()
+	for k in 16:
+		m.append(d.decode_float(o + 4 * k))
+	return Transform3D(Basis(Vector3(m[0], m[1], m[2]), Vector3(m[4], m[5], m[6]), Vector3(m[8], m[9], m[10])),
+			Vector3(m[12], m[13], m[14]))
+
+
+## Meshes of a model (docs/formats/carrera-store.md). Each:
+## {name, transform, positions, normals, uvs, parts, skin_joints,
+##  inverse_bind, bones, weights}. parts: Array of {first_vertex,
+## last_vertex, strip, material, diffuse, texture}. bones and weights hold
+## four entries per vertex (bones index skin_joints); both are empty for a
+## rigid mesh. Mirrors olcore::read_meshes.
+static func read_meshes(d: PackedByteArray) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var allocs := read_allocations(d)
+	var by_offset := {}
+	for a in allocs:
+		by_offset[a["offset"]] = a
+	for a in allocs:
+		if a["class_name"] != "class Carrera::Mesh" or int(a["size"]) < 0xf4:
+			continue
+		var o: int = a["offset"]
+		var nv := d.decode_u32(o + 0xe4)
+		var pos := d.decode_u32(o + 0xe8)
+		var uv := d.decode_u32(o + 0xec)
+		var nrm := d.decode_u32(o + 0xf0)
+		if pos == 0 or uv == 0 or nrm == 0 or pos + nv * 12 > d.size() or uv + nv * 8 > d.size() \
+				or nrm + nv * 12 > d.size():
+			continue
+		var positions := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		for v in nv:
+			positions.append(Vector3(d.decode_float(pos + 12 * v), d.decode_float(pos + 12 * v + 4), d.decode_float(pos + 12 * v + 8)))
+			normals.append(Vector3(d.decode_float(nrm + 12 * v), d.decode_float(nrm + 12 * v + 4), d.decode_float(nrm + 12 * v + 8)))
+			uvs.append(Vector2(d.decode_float(uv + 8 * v), d.decode_float(uv + 8 * v + 4)))
+		var parts: Array[Dictionary] = []
+		var shapes := d.decode_u32(o + 0xe0)
+		var shape_count := d.decode_u32(o + 0xdc)
+		if shapes + shape_count * 52 > d.size():
+			continue
+		for s in shape_count:
+			var rec := shapes + s * 52
+			var count := d.decode_u32(rec + 0x18)
+			var idx := d.decode_u32(rec + 0x14)
+			var first := d.decode_u32(rec + 0x24)
+			if idx == 0 or idx + count * 2 > d.size():
+				continue
+			var strip := PackedInt32Array()
+			for i in count:
+				strip.append(d.decode_u16(idx + 2 * i))
+			var part := {
+				"first_vertex": first,
+				"last_vertex": d.decode_u32(rec + 0x28),
+				"strip": strip,
+				"material": "",
+				"diffuse": Color.WHITE,
+				"texture": "",
+			}
+			var shader := d.decode_u32(rec + 0x2c)
+			if by_offset.has(shader):
+				part["material"] = by_offset[shader]["name"]
+				part["diffuse"] = Color(d.decode_float(shader + 0x14), d.decode_float(shader + 0x18),
+						d.decode_float(shader + 0x1c), d.decode_float(shader + 0x20))
+				var tex := d.decode_u32(shader + 0x58)
+				if by_offset.has(tex):
+					part["texture"] = _string_at(d, d.decode_u32(tex + 0x14))
+			parts.append(part)
+		var no_binds: Array[Transform3D] = []
+		var mesh := {
+			"name": a["name"],
+			"transform": by_offset[d.decode_u32(o + 0x1c)]["name"] if by_offset.has(d.decode_u32(o + 0x1c)) else "",
+			"positions": positions,
+			"normals": normals,
+			"uvs": uvs,
+			"parts": parts,
+			"skin_joints": PackedStringArray(),
+			"inverse_bind": no_binds,
+			"bones": PackedInt32Array(),
+			"weights": PackedFloat32Array(),
+		}
+		var skin := d.decode_u32(o + 0xd4)
+		if by_offset.has(skin):
+			_read_skin(d, skin, by_offset, mesh)
+		result.append(mesh)
+	return result
+
+
+static func _read_skin(d: PackedByteArray, skin: int, by_offset: Dictionary, mesh: Dictionary) -> void:
+	var joint_count := d.decode_u32(skin + 0x20)
+	var vertex_count := d.decode_u32(skin + 0xb0)
+	var joints := d.decode_u32(skin + 0x1c)
+	var bind := d.decode_u32(skin + 0xa4)
+	var pool := d.decode_u32(skin + 0xb4)
+	if vertex_count != (mesh["positions"] as PackedVector3Array).size() or joints + joint_count * 4 > d.size() \
+			or bind + joint_count * 64 > d.size() or pool + vertex_count * 20 > d.size():
+		return
+	var names := PackedStringArray()
+	var inverse_bind: Array[Transform3D] = []
+	for j in joint_count:
+		var p := d.decode_u32(joints + 4 * j)
+		names.append(by_offset[p]["name"] if by_offset.has(p) else "")
+		inverse_bind.append(read_matrix(d, bind + 64 * j))
+	var bones := PackedInt32Array()
+	var weights := PackedFloat32Array()
+	for v in vertex_count:
+		var rec := pool + 20 * v
+		for k in 4:
+			var w := d.decode_float(rec + 4 + 4 * k)
+			var j := influence_joint(d[rec + k])
+			if w == 0.0 or j >= joint_count:
+				j = 0
+				w = 0.0
+			bones.append(j)
+			weights.append(w)
+	mesh["skin_joints"] = names
+	mesh["inverse_bind"] = inverse_bind
+	mesh["bones"] = bones
+	mesh["weights"] = weights
+
+
+static func _string_at(d: PackedByteArray, o: int) -> String:
+	if o <= 0 or o >= d.size():
+		return ""
+	var end := o
+	while end < d.size() and d[end] != 0:
+		end += 1
+	return d.slice(o, end).get_string_from_ascii()

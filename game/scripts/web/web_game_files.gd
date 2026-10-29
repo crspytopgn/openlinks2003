@@ -134,12 +134,15 @@ func copy_files(files: Dictionary, wanted: Array[String]) -> bool:
 static func startup_files(files: Dictionary, golfer: String) -> Array[String]:
 	var out: Array[String] = []
 	var golfers: Array[String] = []
+	var clubs := ""
 	for rel: String in files:
 		var lower := rel.to_lower()
 		if lower.get_file() in STARTUP and lower.count("/") == 0:
 			out.append(rel)
 		elif lower.begins_with("polyani/") and lower.get_extension() == "l3" and lower.get_file() != "clubs.l3":
 			golfers.append(rel)
+		elif lower == "polyani/clubs.l3":
+			clubs = rel
 	golfers.sort()
 	var chosen := "" if golfers.is_empty() else golfers[0]
 	for rel in golfers:
@@ -147,6 +150,8 @@ static func startup_files(files: Dictionary, golfer: String) -> Array[String]:
 			chosen = rel
 	if not chosen.is_empty():
 		out.append(chosen)
+		if not clubs.is_empty():
+			out.append(clubs)  # the golfer's driver and putter
 	return out
 
 

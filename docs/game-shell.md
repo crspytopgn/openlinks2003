@@ -52,7 +52,7 @@ game/scripts/
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends
     golfer_assets.gd, golfer_rig.gd   interfaces for the golfer model and animation
     sound_bank.gd               SoundBank: interface for game audio
-    placeholder_*.gd            Primitive trees, capsule golfer, synthesised sounds
+    placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
@@ -139,6 +139,9 @@ Nothing in the round needs to change.
 - **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`) and
   set `AssetProviders.golfer_assets`. `GolferRig.play()` receives
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
+  `LinksGolferAssets` (`scripts/golfer/`) is used automatically when a game
+  folder is configured: the original skinned, textured golfer and clubs as a
+  `Skeleton3D`, driven by the original clips.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.

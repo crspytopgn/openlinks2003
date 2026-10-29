@@ -14,6 +14,7 @@
 #include "olcore/btcv.hpp"
 #include "olcore/carrera_store.hpp"
 #include "olcore/golfer_anim.hpp"
+#include "olcore/golfer_mesh.hpp"
 #include "olcore/inflate.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
@@ -967,6 +968,112 @@ void test_skeleton_and_clip() {
   CHECK_NEAR(turned[1][13], 3.0, 1e-5);
 }
 
+void test_skinned_mesh() {
+  // A four-vertex quad skinned to Root (at y = 3 ft) and Arm (one foot along
+  // +x). The skin's joint list has 21 entries so that influence number 21
+  // (which stands for entry 20, Arm) exercises the skipped number 19.
+  auto joint = [](float tx, float ty) {
+    Bytes b(504, 0);
+    set_f32(b, 280, tx);
+    set_f32(b, 284, ty);
+    set_f32(b, 452, 1.0f);
+    return b;
+  };
+  TestObject root{joint(0, 3), 0, 0, {}};
+  TestObject arm{joint(1, 0), 0, 1, {{0x1c, 0}}};
+
+  TestObject mesh{Bytes(280, 0), 1, 2, {{0xd4, 3}, {0xe0, 4}, {0xe8, 5}, {0xec, 6}, {0xf0, 7}}};
+  set32(mesh.bytes, 0xdc, 1);
+  set32(mesh.bytes, 0xe4, 4);
+  TestObject skin{Bytes(220, 0), 2, -1, {{0x1c, 8}, {0xa4, 9}, {0xb4, 10}}};
+  set32(skin.bytes, 0x20, 21);
+  set32(skin.bytes, 0xb0, 4);
+  TestObject shape{Bytes(52, 0), 3, -1, {{0x14, 11}, {0x2c, 12}}};
+  set32(shape.bytes, 0x18, 5);
+  set32(shape.bytes, 0x1c, 2);
+  set32(shape.bytes, 0x28, 3);
+
+  Bytes pos, uv, nrm;
+  const float quad[4][2] = {{0, 3}, {1, 3}, {1, 4}, {0, 4}};
+  for (const auto& q : quad) {
+    for (float v : {q[0], q[1], 0.0f}) {
+      put32(pos, 0);
+      set_f32(pos, pos.size() - 4, v);
+    }
+    for (float v : {q[0], q[1] - 3}) {
+      put32(uv, 0);
+      set_f32(uv, uv.size() - 4, v);
+    }
+    for (float v : {0.0f, 0.0f, 1.0f}) {
+      put32(nrm, 0);
+      set_f32(nrm, nrm.size() - 4, v);
+    }
+  }
+  TestObject joints{Bytes(21 * 4, 0), -1, -1, {}};
+  for (std::size_t j = 0; j < 21; ++j) joints.pointers.push_back({4 * j, j == 20 ? 1 : 0});
+  Bytes bind(21 * 64, 0);
+  for (std::size_t j = 0; j < 21; ++j) {
+    for (std::size_t k : {0, 5, 10, 15}) set_f32(bind, 64 * j + 4 * k, 1.0f);
+    set_f32(bind, 64 * j + 48, j == 20 ? -1.0f : 0.0f);  // inverse of the rest translation
+    set_f32(bind, 64 * j + 52, -3.0f);
+  }
+  Bytes pool(4 * 20, 0);
+  auto influence = [&](std::size_t v, std::size_t slot, std::uint8_t j, float w) {
+    pool[20 * v + slot] = j;
+    set_f32(pool, 20 * v + 4 + 4 * slot, w);
+  };
+  influence(0, 0, 0, 1.0f);
+  influence(1, 0, 21, 1.0f);
+  influence(2, 0, 21, 0.5f);
+  influence(2, 1, 0, 0.5f);
+  influence(3, 0, 0, 1.0f);
+  Bytes strip;
+  for (std::uint32_t i : {0u, 1u, 3u, 2u, 2u}) put16(strip, i);
+  TestObject shader{Bytes(108, 0), 4, 3, {{0x58, 13}}};
+  set_f32(shader.bytes, 0x14, 0.5f);
+  TestObject texture{Bytes(44, 0), 5, -1, {{0x14, 14}}};
+  Bytes file = text("face.tga");
+  file.push_back(0);
+
+  Bytes f = build_store({"Root", "Arm", "body", "skin"},
+                        {"class Carrera::Joint", "class Carrera::Mesh", "class Carrera::SkinCluster",
+                         "class Carrera::Shape", "class Carrera::Shader", "class Carrera::Texture"},
+                        {root, arm, mesh, skin, shape, TestObject{pos, -1, -1, {}}, TestObject{uv, -1, -1, {}},
+                         TestObject{nrm, -1, -1, {}}, joints, TestObject{bind, -1, -1, {}},
+                         TestObject{pool, -1, -1, {}}, TestObject{strip, -1, -1, {}}, shader, texture,
+                         TestObject{file, -1, -1, {}}});
+  StoreFile store(f);
+  auto meshes = read_meshes(store);
+  CHECK(meshes.size() == 1);
+  if (meshes.size() != 1) return;
+  const GolferMesh& m = meshes[0];
+  CHECK(m.name == "body");
+  CHECK(m.positions.size() == 4 && m.uvs.size() == 4 && m.normals.size() == 4);
+  CHECK(m.parts.size() == 1);
+  CHECK(m.skinned() && m.skin_joints.size() == 21);
+  if (m.parts.size() != 1 || !m.skinned() || m.skin_joints.size() != 21) return;
+  CHECK(m.skin_joints[0] == "Root" && m.skin_joints[20] == "Arm");
+  CHECK(m.influences[1].joint[0] == 20);
+  CHECK(m.parts[0].material.texture == "face.tga");
+  CHECK(m.parts[0].material.name == "skin");
+  CHECK_NEAR(m.parts[0].material.diffuse[0], 0.5, 1e-6);
+  CHECK((m.parts[0].triangles() == std::vector<std::uint32_t>{0, 1, 3, 3, 1, 2}));
+
+  Skeleton sk = read_skeleton(store);
+  auto world = sk.pose(nullptr, 0);
+  auto rest = skin_positions(m, sk, world);
+  CHECK_NEAR(rest[2][1], 4.0, 1e-5);  // the bind pose reproduces the mesh
+  int a = sk.find("Arm");
+  CHECK(a >= 0);
+  if (a < 0) return;
+  world[static_cast<std::size_t>(a)][13] += 1.0f;  // lift Arm by a foot
+  auto lifted = skin_positions(m, sk, world);
+  CHECK_NEAR(lifted[0][1], 3.0, 1e-5);
+  CHECK_NEAR(lifted[1][1], 4.0, 1e-5);
+  CHECK_NEAR(lifted[2][1], 4.5, 1e-5);  // half on Arm, half on Root
+  CHECK_NEAR(lifted[2][0], 1.0, 1e-5);
+}
+
 }  // namespace
 
 int main() {
@@ -994,6 +1101,7 @@ int main() {
       {"carrera_store", test_carrera_store},
       {"name_hash_is_crc32", test_name_hash_is_crc32},
       {"skeleton_and_clip", test_skeleton_and_clip},
+      {"skinned_mesh", test_skinned_mesh},
       {"drive_bounces_and_rolls", test_drive_bounces_and_rolls},
       {"club_distances_decrease", test_club_distances_decrease},
       {"wedge_checks_on_green", test_wedge_checks_on_green},
