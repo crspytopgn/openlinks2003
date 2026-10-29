@@ -28,6 +28,9 @@ What the file holds and when the game loads it.
   `.CMF`, `.sky`).
 - [crz.md](crz.md): locked course archives (`.CRZ`, `.RNG`, `.CVT`): the
   encryption, terrain mesh, holes, textures and materials.
+- [course-objects.md](course-objects.md): the objects placed on a course:
+  billboard types (`MasterObj`) and placements (`2DPlant`); 3D and
+  tournament placements surveyed.
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.

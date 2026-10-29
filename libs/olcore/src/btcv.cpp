@@ -179,4 +179,18 @@ RgbaImage decode_btcv(const std::uint8_t* data, std::size_t size) {
   return img;
 }
 
+std::vector<std::uint8_t> encode_tga(const RgbaImage& img) {
+  std::vector<std::uint8_t> out(18, 0);
+  out[2] = 2;
+  out[12] = static_cast<std::uint8_t>(img.width & 0xff);
+  out[13] = static_cast<std::uint8_t>(img.width >> 8);
+  out[14] = static_cast<std::uint8_t>(img.height & 0xff);
+  out[15] = static_cast<std::uint8_t>(img.height >> 8);
+  out[16] = 32;
+  out[17] = 0x28;  // 8 alpha bits, top-left origin
+  out.insert(out.end(), img.pixels.begin(), img.pixels.end());
+  for (std::size_t i = 18; i + 3 < out.size(); i += 4) std::swap(out[i], out[i + 2]);  // RGBA -> BGRA
+  return out;
+}
+
 }  // namespace olcore

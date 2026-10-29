@@ -125,7 +125,11 @@ func _load_course(dir: String) -> void:
 	terrain.mesh = mesh
 	course_root.add_child(terrain)
 
+	var billboards := _load_billboards(dir, course.get("billboards", []))
+
 	course_name = str(course.get("name", "Course"))
+	if billboards > 0:
+		course_name += "  (%d trees and plants)" % billboards
 	holes = course.get("holes", [])
 	for hole in holes:
 		_add_hole_markers(hole)
@@ -160,6 +164,22 @@ func _load_terrain(path: String, dir: String, materials: Array) -> ArrayMesh:
 		var info: Dictionary = materials[material_index] if material_index < materials.size() else {}
 		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(info, dir, cache))
 	return mesh
+
+
+## Adds the course's trees, bushes and grass; returns how many were placed.
+func _load_billboards(dir: String, types: Array) -> int:
+	var path := dir.path_join("objects.bin")
+	if types.is_empty() or not FileAccess.file_exists(path):
+		return 0
+	var placements := CourseBillboards.read_placements(FileAccess.get_file_as_bytes(path))
+	if placements.is_empty():
+		return 0
+	course_root.add_child(CourseBillboards.build(dir, types, placements))
+	var total := 0
+	for p in placements:
+		@warning_ignore("integer_division")
+		total += p.size() / CourseBillboards.FLOATS_PER_PLACEMENT
+	return total
 
 
 func _read_vectors(f: FileAccess, count: int) -> PackedVector3Array:

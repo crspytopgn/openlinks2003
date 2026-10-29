@@ -11,6 +11,7 @@
 
 #include "olcore/bunky.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
 
 namespace {
@@ -342,6 +343,111 @@ void test_holes() {
   CHECK(holes[0].green.x == 100);
 }
 
+void set_u32(Bytes& b, std::size_t off, std::uint32_t v) {
+  for (int i = 0; i < 4; ++i) b[off + i] = std::uint8_t(v >> (8 * i));
+}
+
+// A MasterObj with two types laid out the way the game saves them: tile
+// records with the sprite name, a sprite descriptor pointing back at them,
+// a level list, the type record, and the table of type records.
+void test_billboard_types() {
+  Bytes b(0x80, 0);
+  std::vector<std::uint32_t> recs;
+  const char* names[] = {"Bushes156A.btc", "Tall Trees212A.btc"};
+  for (int k = 0; k < 2; ++k) {
+    std::size_t tiles = b.size();
+    b.resize(b.size() + 64, 0);
+    std::memcpy(b.data() + tiles, names[k], std::strlen(names[k]));
+    std::size_t desc = b.size();
+    put_u32(b, 200 + k);  // width
+    put_u32(b, 150);      // height
+    put_u32(b, 1);        // tiles
+    put_u32(b, std::uint32_t(tiles));
+    put_u32(b, std::uint32_t(tiles + 64));
+    std::size_t lods = b.size();
+    put_u32(b, 1);
+    put_u32(b, 4);
+    put_u32(b, std::uint32_t(desc));
+    put_u32(b, 0);
+    put_u32(b, 0);
+    std::size_t rec = b.size();
+    recs.push_back(std::uint32_t(rec));
+    b.resize(b.size() + 0x40, 0);
+    set_u32(b, rec, 200 + k);
+    set_u32(b, rec + 4, 150);
+    set_u32(b, rec + 8, 1);
+    set_u32(b, rec + 12, std::uint32_t(lods));
+    float aspect = (200 + k) / 150.0f;
+    std::uint32_t bits;
+    std::memcpy(&bits, &aspect, 4);
+    set_u32(b, rec + 0x18, bits);
+    set_u32(b, rec + 0x34, 0x8401e192u + k);
+  }
+  std::size_t table = b.size();
+  for (auto r : recs) put_u32(b, r);
+  set_u32(b, 0, std::uint32_t(b.size()));
+  set_u32(b, 4, 0x80);
+  set_u32(b, 8, 2);
+  set_u32(b, 12, std::uint32_t(table));
+
+  auto types = parse_billboard_types(b);
+  CHECK(types.size() == 2);
+  CHECK(types[0].name == "Bushes156");
+  CHECK(types[1].name == "Tall Trees212");
+  CHECK(types[1].sprite == "Tall Trees212A.btc");
+  CHECK(types[1].width == 201 && types[1].height == 150);
+  CHECK(std::fabs(types[0].aspect - 200 / 150.0f) < 1e-6f);
+  CHECK(types[1].id == 0x8401e193u);
+}
+
+void test_billboard_placements() {
+  Bytes b = {'2', 'J', 'B', 'O'};
+  put_u32(b, 2);
+  put_u32(b, 3);
+  b.resize(0x40, 0);
+  // Cell at (896, -3328), base height 270 ft.
+  put_u16(b, 0xffff);
+  for (float c : {896.0f, -3328.0f, 270.0f}) put_f32(b, c);
+  // Both optional fields.
+  put_u16(b, 25);
+  put_u32(b, 0x6000116cu);
+  b.push_back(2);
+  put_u16(b, 6);
+  for (std::uint16_t v : {std::uint16_t(343), std::uint16_t(616), std::uint16_t(0xffcc), std::uint16_t(768)}) put_u16(b, v);
+  // Only the word.
+  put_u16(b, 32);
+  put_u32(b, 0x40001172u);
+  put_u16(b, 6);
+  for (std::uint16_t v : {std::uint16_t(1023), std::uint16_t(0), std::uint16_t(2), std::uint16_t(48)}) put_u16(b, v);
+  // Next cell, no optional fields.
+  put_u16(b, 0xffff);
+  for (float c : {960.0f, -3328.0f, 271.0f}) put_f32(b, c);
+  put_u16(b, 64);
+  put_u32(b, 0x00002682u);
+  for (std::uint16_t v : {std::uint16_t(16), std::uint16_t(32), std::uint16_t(0), std::uint16_t(32)}) put_u16(b, v);
+
+  auto p = parse_billboard_placements(b);
+  CHECK(p.size() == 3);
+  CHECK(p[0].type == 25 && p[0].instance == 0x116c);
+  CHECK(p[0].extra_byte == 2 && p[0].extra_word == 6);
+  CHECK(std::fabs(p[0].position.x - (896 + 343 / 16.0f)) < 1e-3f);
+  CHECK(std::fabs(p[0].position.y - (-3328 + 616 / 16.0f)) < 1e-3f);
+  CHECK(std::fabs(p[0].position.z - (270 - 52 / 16.0f)) < 1e-3f);
+  CHECK(p[0].height == 48);
+  CHECK(p[1].extra_byte == -1 && p[1].extra_word == 6 && p[1].height == 3);
+  CHECK(p[2].type == 64 && p[2].extra_byte == -1 && p[2].extra_word == -1);
+  CHECK(p[2].position.x == 961 && p[2].position.y == -3326 && p[2].position.z == 271);
+
+  Bytes truncated(b.begin(), b.end() - 3);
+  bool threw = false;
+  try {
+    parse_billboard_placements(truncated);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
 }  // namespace
 
 int main() {
@@ -355,6 +461,8 @@ int main() {
       {"terrain", test_terrain},
       {"terrain_wide_indices", test_terrain_wide_indices},
       {"holes", test_holes},
+      {"billboard_types", test_billboard_types},
+      {"billboard_placements", test_billboard_placements},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());
