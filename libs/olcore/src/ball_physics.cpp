@@ -56,15 +56,18 @@ Vec3 acceleration(const BallState& s, const BallParams& p) {
   double area = kPi * p.radius * p.radius;
   double q = 0.5 * p.air_density * area * speed * speed;  // dynamic pressure x area
 
+  double spin_rate = length(s.spin);
+  double spin_ratio = p.radius * spin_rate / speed;
+
   // Drag opposes velocity.
-  a = a + s.velocity * (-q * p.drag_coefficient / (p.mass * speed));
+  double cd = p.drag_coefficient + p.drag_spin_factor * spin_ratio;
+  a = a + s.velocity * (-q * cd / (p.mass * speed));
 
   // Magnus lift acts along w x v.
   Vec3 wxv = cross(s.spin, s.velocity);
   double wxv_len = length(wxv);
-  double spin_rate = length(s.spin);
   if (wxv_len > 1e-9 && spin_rate > 1e-9) {
-    double cl = lift_coefficient(p.radius * spin_rate / speed);
+    double cl = lift_coefficient(spin_ratio);
     a = a + wxv * (q * cl / (p.mass * wxv_len));
   }
   return a;

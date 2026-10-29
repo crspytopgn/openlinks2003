@@ -14,11 +14,17 @@ Very early. What exists so far:
 
 - `libs/olcore`: a C++17 core library with no dependencies.
   - `BinaryReader`: a little-endian reader for the original file formats.
-  - Ball flight physics (gravity, drag, Magnus lift, spin decay) with tests.
+  - Ball physics: flight (drag, Magnus lift, spin), bounce and roll per
+    surface, holing out; the club table, swing-to-launch mapping and
+    scoring. All with tests.
 - `tools/oldump`: a command-line inspector for unknown game files (hex dump,
   entropy, header fields, strings).
-- `game/`: a Godot 4.4 project with a prototype driving range. Press Space to
-  hit a drive.
+- `game/`: a Godot 4.4 project with a playable nine-hole round on a
+  placeholder course: the classic three-click Links swing meter, auto club
+  selection, putting, water and out-of-bounds penalties, and a scorecard.
+  Real courses, objects, golfers and sounds plug in as the formats are
+  decoded. See [docs/game-shell.md](docs/game-shell.md) for controls and
+  how it fits together.
 
 ## Play in the browser
 

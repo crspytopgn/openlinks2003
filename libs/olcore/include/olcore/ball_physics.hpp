@@ -11,6 +11,7 @@ struct Vec3 {
 inline Vec3 operator+(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
 inline Vec3 operator-(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 inline Vec3 operator*(Vec3 a, double s) { return {a.x * s, a.y * s, a.z * s}; }
+inline double dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 double length(Vec3 v);
 Vec3 cross(Vec3 a, Vec3 b);
 
@@ -28,7 +29,11 @@ struct BallParams {
   double mass = 0.04593;           // kg (rules maximum)
   double radius = 0.021335;        // m (rules minimum diameter / 2)
   double air_density = 1.225;      // kg/m^3, sea level
-  double drag_coefficient = 0.25;  // dimpled ball, typical driver speeds
+  // Drag coefficient Cd = drag_coefficient + drag_spin_factor * S, where S is
+  // the spin ratio r|w|/|v| (Smits and Smith's fit for a dimpled ball), so
+  // high-spin irons and wedges lose more speed than a driver.
+  double drag_coefficient = 0.24;
+  double drag_spin_factor = 0.18;
   double gravity = 9.81;           // m/s^2
   double spin_decay_per_s = 0.04;  // fraction of spin lost per second
 };
