@@ -47,7 +47,7 @@ func _init() -> void:
 	if panorama:
 		# The photo sky is bright and blue: less of it as ambient light, so
 		# the shade on the grass stays green, and less haze towards it.
-		environment.ambient_light_sky_contribution = 0.55
+		environment.ambient_light_sky_contribution = 0.7
 		environment.ambient_light_color = Color(0.60, 0.64, 0.55)
 		environment.fog_aerial_perspective = 0.15
 		environment.tonemap_exposure = 0.95

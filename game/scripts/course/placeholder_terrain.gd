@@ -10,9 +10,9 @@ const MARGIN := 40.0  ## ground drawn beyond the out-of-bounds line
 var _colors := {
 	Surface.Type.TEE: Color(0.33, 0.62, 0.25),
 	Surface.Type.FAIRWAY: Color(0.30, 0.58, 0.20),
-	Surface.Type.FRINGE: Color(0.32, 0.64, 0.26),
-	Surface.Type.GREEN: Color(0.36, 0.72, 0.30),
-	Surface.Type.ROUGH: Color(0.20, 0.43, 0.14),
+	Surface.Type.FRINGE: Color(0.30, 0.58, 0.24),
+	Surface.Type.GREEN: Color(0.31, 0.62, 0.26),
+	Surface.Type.ROUGH: Color(0.24, 0.47, 0.16),
 	Surface.Type.DEEP_ROUGH: Color(0.15, 0.33, 0.11),
 	Surface.Type.SAND: Color(0.86, 0.80, 0.60),
 	Surface.Type.WATER: Color(0.12, 0.25, 0.35),
