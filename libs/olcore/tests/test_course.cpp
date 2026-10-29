@@ -216,7 +216,7 @@ void test_reads_locked_archive() {
 }
 
 void test_course_text() {
-  const std::u16string text = u"\xfeff" u"CourseName = Test Links\r\nHoleName1 = Café\r\n";
+  const std::u16string text = u"\xfeff" u"CourseName = Test Links\r\nHoleName1 = Caf\u00e9\r\n";
   Bytes b;
   for (char16_t c : text) put_u16(b, std::uint16_t(c));
   auto kv = parse_course_text(b);
