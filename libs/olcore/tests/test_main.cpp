@@ -19,6 +19,7 @@
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
+#include "olcore/obstacles.hpp"
 #include "olcore/object_library.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
@@ -814,6 +815,80 @@ void test_water_and_out_of_bounds_stop_the_ball() {
         ShotOutcome::OutOfBounds);
 }
 
+void test_obstacle_field_hits() {
+  ObstacleField f;
+  f.add_cylinder(0, 10, 0.5, 0, 5, ObstacleKind::Solid);
+  f.add_box({20, 1, 0}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {1, 1, 2}, ObstacleKind::Solid);
+  f.add_cylinder(-30, 0, 4, 2, 10, ObstacleKind::Canopy);
+  f.finalize();
+  CHECK(f.size() == 3);
+  ObstacleHit h;
+  // Into the trunk from the front: enters 0.5 m short of its centre.
+  CHECK(f.segment_hit({0, 1, 0}, {0, 1, 20}, h));
+  CHECK_NEAR(h.fraction, 9.5 / 20, 1e-9);
+  CHECK_NEAR(h.normal.z, -1, 1e-9);
+  CHECK(h.kind == ObstacleKind::Solid);
+  // Over it, and starting inside it.
+  CHECK(!f.segment_hit({0, 6, 0}, {0, 6, 20}, h));
+  CHECK(!f.segment_hit({0, 1, 10}, {0, 1, 20}, h));
+  // Into the box from the -x side, then down onto its top.
+  CHECK(f.segment_hit({15, 1, 0}, {25, 1, 0}, h));
+  CHECK_NEAR(h.fraction, 0.4, 1e-9);
+  CHECK_NEAR(h.normal.x, -1, 1e-9);
+  CHECK(f.segment_hit({20, 4, 0.5}, {20, 1, 0.5}, h));
+  CHECK_NEAR(h.fraction, 2.0 / 3.0, 1e-9);
+  CHECK_NEAR(h.normal.y, 1, 1e-9);
+  // Down through the canopy top; under it misses.
+  CHECK(f.segment_hit({-30, 12, 1}, {-30, 8, 1}, h));
+  CHECK(h.kind == ObstacleKind::Canopy);
+  CHECK_NEAR(h.fraction, 0.5, 1e-9);
+  CHECK(!f.segment_hit({-40, 1, 0}, {-20, 1, 0}, h));
+}
+
+void test_trees_stop_the_ball() {
+  BallParams p;
+  ObstacleField trunk;
+  trunk.add_cylinder(0, 40, 0.5, -1, 30, ObstacleKind::Solid);
+  trunk.finalize();
+  FlatTerrain ground(Surface::Fairway);
+  ground.obstacles = &trunk;
+  ShotResult r = simulate_shot(launch_from_swing(club("Dr"), {}, Surface::Tee), p, ground);
+  std::printf("  trunk: rest z %.2f m, total %.2f m, %d hits\n", r.rest.z, r.total_m, r.obstacle_hits);
+  CHECK(r.obstacle_hits >= 1);
+  CHECK(r.rest.z < 40);
+  CHECK(r.outcome == ShotOutcome::Rest);
+
+  ObstacleField canopy;
+  canopy.add_cylinder(0, 150, 6, 3, 40, ObstacleKind::Canopy);
+  canopy.finalize();
+  ground.obstacles = &canopy;
+  r = simulate_shot(launch_from_swing(club("Dr"), {}, Surface::Tee), p, ground);
+  std::printf("  canopy: carry %.2f m, total %.2f m, %d hits\n", r.carry_m, r.total_m, r.obstacle_hits);
+  CHECK(r.obstacle_hits >= 1);
+  CHECK(r.carry_m < 165);
+
+  // A putt rolled into a wall comes back.
+  ObstacleField wall;
+  wall.add_box({0, 0.5, 4}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {2, 1, 0.1}, ObstacleKind::Solid);
+  wall.finalize();
+  FlatTerrain green(Surface::Green);
+  green.obstacles = &wall;
+  r = simulate_shot(make_launch(3.0, 0, 0, 0, 0), p, green);
+  std::printf("  wall: rest z %.3f m, %d hits\n", r.rest.z, r.obstacle_hits);
+  CHECK(r.obstacle_hits == 1);
+  CHECK(r.rest.z < 3.9);
+
+  // A ball dropped onto a wide flat box settles on top of it.
+  ObstacleField deck;
+  deck.add_box({0, 1, 0}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {5, 0.5, 5}, ObstacleKind::Solid);
+  deck.finalize();
+  ground.obstacles = &deck;
+  r = simulate_shot({{0, 3, 0}, {0, 1, 0.5}, {}}, p, ground);
+  std::printf("  deck: rest y %.3f m, %d hits\n", r.rest.y, r.obstacle_hits);
+  CHECK(r.outcome == ShotOutcome::Rest);
+  CHECK_NEAR(r.rest.y, 1.5, 0.05);
+}
+
 void test_scorecard() {
   CHECK(score_name(1, 3) == "Hole in one");
   CHECK(score_name(3, 4) == "Birdie");
@@ -1111,6 +1186,8 @@ int main() {
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
       {"ball_rolls_downhill", test_ball_rolls_downhill},
       {"water_and_out_of_bounds_stop_the_ball", test_water_and_out_of_bounds_stop_the_ball},
+      {"obstacle_field_hits", test_obstacle_field_hits},
+      {"trees_stop_the_ball", test_trees_stop_the_ball},
       {"scorecard", test_scorecard},
   };
   for (auto& [name, fn] : tests) {

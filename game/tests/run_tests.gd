@@ -20,6 +20,7 @@ func _initialize() -> void:
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
 	_run("hazards", _test_hazards)
+	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
@@ -133,6 +134,65 @@ func _test_hazards() -> void:
 	_check(water.outcome == ShotResult.Outcome.WATER, "lands in water")
 	var ob := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), FlatTerrain.new(Surface.Type.OUT_OF_BOUNDS))
 	_check(ob.outcome == ShotResult.Outcome.OUT_OF_BOUNDS, "lands out of bounds")
+
+
+func _test_obstacles_match_olcore() -> void:
+	var f := ObstacleField.new()
+	f.add_cylinder(0, 10, 0.5, 0, 5, ObstacleField.Kind.SOLID)
+	f.add_box(Vector3(20, 1, 0), Basis.IDENTITY, Vector3(1, 1, 2), ObstacleField.Kind.SOLID)
+	f.add_cylinder(-30, 0, 4, 2, 10, ObstacleField.Kind.CANOPY)
+	f.finalize()
+	_check(f.size() == 3, "three obstacles")
+	var h := f.segment_hit(Vector3(0, 1, 0), Vector3(0, 1, 20))
+	_check(not h.is_empty(), "hits the trunk")
+	if not h.is_empty():
+		_check_near(h.fraction, 9.5 / 20.0, 1e-5, "trunk entry")
+		_check_near((h.normal as Vector3).z, -1.0, 1e-5, "trunk normal")
+	_check(f.segment_hit(Vector3(0, 6, 0), Vector3(0, 6, 20)).is_empty(), "passes over the trunk")
+	_check(f.segment_hit(Vector3(0, 1, 10), Vector3(0, 1, 20)).is_empty(), "starting inside misses")
+	h = f.segment_hit(Vector3(15, 1, 0), Vector3(25, 1, 0))
+	_check(not h.is_empty() and absf(float(h.fraction) - 0.4) < 1e-5 and (h.normal as Vector3).x < -0.99, "box side")
+	h = f.segment_hit(Vector3(20, 4, 0.5), Vector3(20, 1, 0.5))
+	_check(not h.is_empty() and absf(float(h.fraction) - 2.0 / 3.0) < 1e-5 and (h.normal as Vector3).y > 0.99, "box top")
+	h = f.segment_hit(Vector3(-30, 12, 1), Vector3(-30, 8, 1))
+	_check(not h.is_empty() and int(h.kind) == ObstacleField.Kind.CANOPY, "canopy top")
+	_check(f.segment_hit(Vector3(-40, 1, 0), Vector3(-20, 1, 0)).is_empty(), "under the canopy")
+
+	# The same shots as test_trees_stop_the_ball in test_main.cpp.
+	var ground := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var trunk := ObstacleField.new()
+	trunk.add_cylinder(0, 40, 0.5, -1, 30, ObstacleField.Kind.SOLID)
+	trunk.finalize()
+	ground.obstacles = trunk
+	var r := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("Dr"), 1.0, 0.0, 0.0, Surface.Type.TEE), ground)
+	print("  trunk: rest z %.2f m, total %.2f m, %d hits" % [r.rest.z, r.total_m, r.obstacle_hits])
+	_check_near(r.rest.z, -27.06, 1.0, "trunk rest z")
+	_check(r.obstacle_hits >= 1, "trunk hit")
+	var canopy := ObstacleField.new()
+	canopy.add_cylinder(0, 150, 6, 3, 40, ObstacleField.Kind.CANOPY)
+	canopy.finalize()
+	ground.obstacles = canopy
+	r = BallPhysics.simulate_shot(Swing.launch_from_swing(_club("Dr"), 1.0, 0.0, 0.0, Surface.Type.TEE), ground)
+	print("  canopy: carry %.2f m, total %.2f m, %d hits" % [r.carry_m, r.total_m, r.obstacle_hits])
+	_check_near(r.carry_m, 140.95, 1.0, "canopy carry")
+	_check_near(r.total_m, 155.83, 1.5, "canopy total")
+	var wall := ObstacleField.new()
+	wall.add_box(Vector3(0, 0.5, 4), Basis.IDENTITY, Vector3(2, 1, 0.1), ObstacleField.Kind.SOLID)
+	wall.finalize()
+	var green := FlatTerrain.new(Surface.Type.GREEN)
+	green.obstacles = wall
+	r = BallPhysics.simulate_shot(BallPhysics.make_launch(3.0, 0, 0, 0, 0), green)
+	print("  wall: rest z %.3f m, %d hits" % [r.rest.z, r.obstacle_hits])
+	_check_near(r.rest.z, 3.348, 0.02, "wall rest z")
+	_check(r.obstacle_hits == 1, "wall hit once")
+	var deck := ObstacleField.new()
+	deck.add_box(Vector3(0, 1, 0), Basis.IDENTITY, Vector3(5, 0.5, 5), ObstacleField.Kind.SOLID)
+	deck.finalize()
+	ground.obstacles = deck
+	r = BallPhysics.simulate_shot(BallState.new(Vector3(0, 3, 0), Vector3(0, 1, 0.5)), ground)
+	_check(r.outcome == ShotResult.Outcome.REST, "settles on the deck")
+	_check_near(r.rest.y, 1.510, 0.01, "deck rest y")
+	_check(r.obstacle_hits == 3, "deck hits")
 
 
 func _test_swing_accuracy() -> void:
