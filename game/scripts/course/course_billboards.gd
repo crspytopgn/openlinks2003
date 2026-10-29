@@ -79,25 +79,13 @@ static func build(dir: String, types: Array, placements: Array[PackedFloat32Arra
 
 		for key: Vector2i in chunks:
 			var list: Array = chunks[key]
-			var buffer := PackedFloat32Array()
-			buffer.resize(list.size() * 12)
-			# Origins relative to the chunk centre: visibility ranges are
-			# measured from the node.
 			var ground := 0.0
 			for k: int in list:
 				ground += data[k + 1]
+			# Origins relative to the chunk centre: visibility ranges are
+			# measured from the node.
 			var centre := Vector3((key.x + 0.5) * CHUNK_METRES, ground / list.size(), (key.y + 0.5) * CHUNK_METRES)
-			var b := 0
-			for k: int in list:
-				var h: float = data[k + 3]
-				# Row-major 3x4: uniform scale by the height, then the origin.
-				buffer[b] = h
-				buffer[b + 3] = data[k] - centre.x
-				buffer[b + 5] = h
-				buffer[b + 7] = data[k + 1] - centre.y
-				buffer[b + 10] = h
-				buffer[b + 11] = data[k + 2] - centre.z
-				b += 12
+			var buffer := instance_buffer(data, list, centre)
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
 			mm.mesh = quad
@@ -110,6 +98,25 @@ static func build(dir: String, types: Array, placements: Array[PackedFloat32Arra
 			node.visibility_range_end = visibility_end(float(tallest[key]))
 			root.add_child(node)
 	return root
+
+
+## MultiMesh buffer for the placements starting at `indices` in `data`: per
+## instance a row-major 3x4 transform, scaled by the height and placed
+## relative to `centre`.
+static func instance_buffer(data: PackedFloat32Array, indices: Array, centre: Vector3) -> PackedFloat32Array:
+	var buffer := PackedFloat32Array()
+	buffer.resize(indices.size() * 12)
+	var b := 0
+	for k: int in indices:
+		var h: float = data[k + 3]
+		buffer[b] = h
+		buffer[b + 3] = data[k] - centre.x
+		buffer[b + 5] = h
+		buffer[b + 7] = data[k + 1] - centre.y
+		buffer[b + 10] = h
+		buffer[b + 11] = data[k + 2] - centre.z
+		b += 12
+	return buffer
 
 
 static func _material(path: String) -> StandardMaterial3D:

@@ -216,18 +216,22 @@ func _test_course_billboards() -> void:
 	var types := [{"name": "Grass", "texture": "", "aspect": 1.5}, {"name": "Tree", "texture": "", "aspect": 0.5}]
 	var root := CourseBillboards.build("res://does-not-exist", types, placements)
 	check(root.get_child_count() == 2, "billboards: one MultiMesh per chunk")
+	# The headless test run has no real renderer, so check the buffer the
+	# MultiMesh is given rather than reading instances back.
 	var instances := 0
 	for child in root.get_children():
-		var node := child as MultiMeshInstance3D
-		instances += node.multimesh.instance_count
-		var t := node.multimesh.get_instance_transform(0)
-		check(is_equal_approx(t.basis.get_scale().y, 0.5) or is_equal_approx(t.basis.get_scale().y, 20.0) \
-				or is_equal_approx(t.basis.get_scale().y, 0.4), "billboards: scaled by height")
+		instances += (child as MultiMeshInstance3D).multimesh.instance_count
 	check(instances == 3, "billboards: every placement drawn")
 	var far := root.get_child(1) as MultiMeshInstance3D
 	var first := root.get_child(0) as MultiMeshInstance3D
-	var world := first.position + first.multimesh.get_instance_transform(0).origin
+	check(first.position.distance_to(Vector3(50, 1.5, -50)) < 0.01, "billboards: chunk centre")
+	var buffer := CourseBillboards.instance_buffer(placements[1], [0, 4], first.position)
+	check(buffer.size() == 24, "billboards: 12 floats per instance")
+	check(is_equal_approx(buffer[0], 0.5) and is_equal_approx(buffer[5], 0.5) and is_equal_approx(buffer[10], 0.5),
+			"billboards: scaled by height")
+	var world := first.position + Vector3(buffer[3], buffer[7], buffer[11])
 	check(world.distance_to(Vector3(10, 1, -20)) < 0.01, "billboards: chunk offset restored")
+	check(is_equal_approx(buffer[12 + 5], 0.4), "billboards: second instance height")
 	check(is_zero_approx(far.visibility_range_end), "billboards: tall chunk always drawn")
 	check(is_equal_approx(first.visibility_range_end, 150.0), "billboards: small chunk culled with distance")
 	root.free()
