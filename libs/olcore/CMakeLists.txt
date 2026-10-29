@@ -7,6 +7,7 @@ add_library(olcore STATIC
   src/course.cpp
   src/crz.cpp
   src/carrera_store.cpp
+  src/golfer_anim.cpp
   src/inflate.cpp
   src/ls_archive.cpp
   src/lzw.cpp

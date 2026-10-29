@@ -4,6 +4,7 @@
 //   oldump ls <archive.ls|.l3|.tip> [--extract DIR]
 //   oldump ssf <bank.ssf> [--extract DIR]
 //   oldump store <file.skl|.clp>
+//   oldump anim <file.skl|.clp> [--skeleton file.skl]
 //
 // The first form prints size, a hex/ASCII dump of a window, byte entropy
 // (high entropy hints at compression), candidate header fields, and
@@ -20,6 +21,7 @@
 
 #include "olcore/binary_reader.hpp"
 #include "olcore/carrera_store.hpp"
+#include "olcore/golfer_anim.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
@@ -173,6 +175,37 @@ int cmd_store(const char* path) {
   return 0;
 }
 
+int cmd_anim(const char* path, const char* skeleton_path) {
+  auto r = olcore::BinaryReader::from_file(path);
+  olcore::StoreFile store(std::vector<std::uint8_t>(r.data()));
+  olcore::Skeleton skeleton;
+  if (skeleton_path) {
+    auto s = olcore::BinaryReader::from_file(skeleton_path);
+    skeleton = olcore::read_skeleton(olcore::StoreFile(std::vector<std::uint8_t>(s.data())));
+  } else {
+    skeleton = olcore::read_skeleton(store);
+  }
+  if (!skeleton.nodes.empty()) {
+    std::printf("skeleton: %zu nodes\n", skeleton.nodes.size());
+    auto world = skeleton.pose(nullptr, 0);
+    for (std::size_t i = 0; i < skeleton.nodes.size(); ++i) {
+      const auto& n = skeleton.nodes[i];
+      std::printf("  %-28s parent %-28s %s rest at (%.3f, %.3f, %.3f) ft\n", n.name.c_str(),
+                  n.parent >= 0 ? skeleton.nodes[static_cast<std::size_t>(n.parent)].name.c_str() : "-",
+                  n.is_joint ? "joint" : "     ", world[i][12], world[i][13], world[i][14]);
+    }
+  }
+  for (const auto& clip : olcore::read_anim_clips(store)) {
+    std::size_t matched = 0;
+    for (const auto& ch : clip.channels) matched += skeleton.find(ch.node_hash) >= 0;
+    std::printf("clip %s: %u frames (%.2f s), %zu channels, %zu animated", clip.name.c_str(), clip.frame_count,
+                clip.frame_count / olcore::AnimClip::kFramesPerSecond, clip.channels.size(), clip.dynamic_count);
+    if (!skeleton.nodes.empty()) std::printf(", %zu bound to skeleton nodes", matched);
+    std::printf("\n");
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -181,13 +214,22 @@ int main(int argc, char** argv) {
                  "usage: oldump <file> [--offset N] [--length N] [--strings]\n"
                  "       oldump ls <archive> [--extract DIR]\n"
                  "       oldump ssf <bank.ssf> [--extract DIR]\n"
-                 "       oldump store <file.skl|file.clp>\n");
+                 "       oldump store <file.skl|file.clp>\n"
+                 "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n");
     return 2;
   }
-  if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store"))) {
+  if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store") ||
+                    !std::strcmp(argv[1], "anim"))) {
     try {
       if (!std::strcmp(argv[1], "ls")) return cmd_ls(argv[2], extract_dir(argc, argv));
       if (!std::strcmp(argv[1], "ssf")) return cmd_ssf(argv[2], extract_dir(argc, argv));
+      if (!std::strcmp(argv[1], "anim")) {
+        const char* skeleton = nullptr;
+        for (int i = 3; i + 1 < argc; ++i) {
+          if (!std::strcmp(argv[i], "--skeleton")) skeleton = argv[i + 1];
+        }
+        return cmd_anim(argv[2], skeleton);
+      }
       return cmd_store(argv[2]);
     } catch (const std::exception& e) {
       std::fprintf(stderr, "error: %s\n", e.what());

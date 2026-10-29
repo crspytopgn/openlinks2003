@@ -38,7 +38,7 @@ What the file holds and when the game loads it.
 - [golfer-script.md](golfer-script.md): `SCRIPT.TXT` in golfer archives, the
   animation state script. Complete.
 - [carrera-store.md](carrera-store.md): the object store behind `.SKL`
-  models and `.CLP` clips. Container complete, contents partial.
+  models and `.CLP` clips. Container, clips and skeleton complete; meshes open.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with
