@@ -26,6 +26,8 @@ What the file holds and when the game loads it.
   images, and a first-pass survey of every file type and container.
 - [arc0.md](arc0.md): `ARC0` compressed archives (`.LIB`, `.BTX`, `.TOP`,
   `.CMF`, `.sky`).
+- [crz.md](crz.md): locked course archives (`.CRZ`, `.RNG`, `.CVT`): the
+  encryption, terrain mesh, holes, textures and materials.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with

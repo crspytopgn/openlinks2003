@@ -1,5 +1,5 @@
 extends Node3D
-## Prototype driving range. Press Space to hit a drive.
+## Prototype driving range. Press Space to hit a drive, C to view a course.
 ##
 ## The flight model here is a temporary GDScript port of
 ## libs/olcore/src/ball_physics.cpp so the project runs without a compiled
@@ -30,7 +30,7 @@ var apex := 0.0
 
 func _ready() -> void:
 	_build_world()
-	_update_label("Press Space to hit a drive")
+	_update_label("Press Space to hit a drive, C to view a course")
 
 
 func _build_world() -> void:
@@ -109,6 +109,9 @@ func _reset_ball() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_C:
+		get_tree().change_scene_to_file("res://scenes/course_viewer.tscn")
+		return
 	if event.is_action_pressed("swing"):
 		if flying:
 			return
