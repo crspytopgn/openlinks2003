@@ -2,10 +2,11 @@
 """Writes a tiny ISO 9660 image laid out like a Links 2003 disc, for testing
 the disc readers without real game data.
 
-    make_test_iso.py OUT.iso [--raw]
+    make_test_iso.py OUT.iso [--raw] [--sub] [--pregap N]
 
 --raw writes 2352-byte Mode 1 sectors behind a 150-sector pregap, as
-BlindWrite .b6i images have. The files and their contents are listed in
+BlindWrite .b6i images have. --sub adds 96 bytes of subchannel data to each
+raw sector (2448 bytes), and --pregap N changes the pregap. The files and their contents are listed in
 FILES below; SETUP.EXE holds one long-name record.
 """
 
@@ -88,14 +89,16 @@ def build():
 
 
 def main():
-    out, raw = sys.argv[1], "--raw" in sys.argv
+    out, raw, sub = sys.argv[1], "--raw" in sys.argv, "--sub" in sys.argv
+    pregap = int(sys.argv[sys.argv.index("--pregap") + 1]) if "--pregap" in sys.argv else 150
+    tail = bytes(288 + (96 if sub else 0))
     sectors = build()
     with open(out, "wb") as f:
         if raw:
-            f.write(bytes(2352) * 150)
+            f.write(bytes(2352 + len(tail) - 288) * pregap)
             for lba, s in enumerate(sectors):
                 header = b"\x00" + b"\xff" * 10 + b"\x00" + struct.pack(">I", lba)[1:] + b"\x01"
-                f.write(header + s + bytes(288))
+                f.write(header + s + tail)
         else:
             for s in sectors:
                 f.write(s)

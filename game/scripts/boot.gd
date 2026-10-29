@@ -102,8 +102,9 @@ func _check_stored() -> void:
 	_set_buttons([])
 	var files: Dictionary = await _web.stored_files()
 	if files.is_empty():
-		_status.text = ("To play the real Links 2003 courses, load your own copy of the game: pick your three disc "
-			+ "images (.b6i or .iso), or a folder with the installed game. This browser keeps them for next time.")
+		_status.text = ("To play the real Links 2003 courses, load your own copy of the game from any drive, including "
+			+ "an external one: pick your three disc images (BlindWrite .b6i, .iso, .bin, .nrg or .mdf), or the "
+			+ "folder that holds them or an installed game. This browser keeps them for next time.")
 		_set_buttons([
 			["Load disc images...", _pick.bind(false)],
 			["Load a game folder...", _pick.bind(true)],

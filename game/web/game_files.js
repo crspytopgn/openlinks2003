@@ -1,6 +1,7 @@
 // Reads the player's own Links 2003 files in the browser and keeps them in
 // IndexedDB, so the web build can use them without anything being uploaded.
-// The player picks their disc images (.b6i, .iso, raw .bin) or a folder
+// The player picks their disc images (BlindWrite .b6i/.b5i/.bwi, .iso, raw
+// .bin, Nero .nrg, Alcohol .mdf) or a folder, on any drive,
 // holding an installed or extracted copy. From disc images, the GAME folder is
 // stored under the long names Setup would give it, as tools/cdimage/cdimage.py
 // does. Godot loads this file with JavaScriptBridge.eval and talks to it
@@ -47,8 +48,17 @@
 
   // ---- ISO 9660 in raw or cooked images ------------------------------------
 
-  const LAYOUTS = [[2048, 0], [2352, 16], [2352, 24]]; // sector size, header
+  // Sector size and data offset: cooked, raw Mode 1, raw Mode 2 Form 1, and
+  // raw with 96 bytes of subchannel data after each sector.
+  const LAYOUTS = [[2048, 0], [2352, 16], [2352, 24], [2448, 16], [2448, 24]];
   const PREGAPS = [0, 150];
+  // Disc images by extension, and the descriptor or subchannel files that sit
+  // next to them (BlindWrite .b6t, cue sheets and so on), which aren't needed.
+  const IMAGE = /\.(b6i|b5i|bwi|iso|bin|img|nrg|mdf)$/i;
+  const DESCRIPTOR = /\.(b6t|b5t|bwt|bws|bwa|b6s|cue|mds|ccd|sub|toc)$/i;
+  // How far into an image to look for the volume when the usual layouts
+  // don't fit (other pregaps, a leading audio track, an image header).
+  const SCAN_BYTES = 64 * 1024 * 1024;
 
   class Disc {
     constructor(file) {
@@ -63,11 +73,36 @@
           if (s.length >= 6 && String.fromCharCode(...s.subarray(1, 6)) === "CD001") return true;
         }
       }
+      return this.scan();
+    }
+
+    // Looks for the primary volume descriptor anywhere in the first
+    // SCAN_BYTES, then takes the layout and start that put it at sector 16.
+    async scan() {
+      const chunk = 4 * 1024 * 1024;
+      const end = Math.min(this.file.size, SCAN_BYTES);
+      for (let start = 0; start < end; start += chunk) {
+        const buf = new Uint8Array(await this.file.slice(start, start + chunk + 8).arrayBuffer());
+        for (let i = buf.indexOf(0x43); i >= 0 && i + 5 <= buf.length; i = buf.indexOf(0x43, i + 1)) {
+          if (buf[i - 1] !== 1 || String.fromCharCode(...buf.subarray(i, i + 5)) !== "CD001") continue;
+          const at = start + i - 1;
+          for (const [size, header] of LAYOUTS) {
+            const base = at - header - 16 * size;
+            if (base < 0) continue;
+            // Accept a layout if the next descriptor is where it says.
+            Object.assign(this, { size, header, pregap: 0 });
+            this.base = base;
+            const next = await this.sector(17);
+            if (String.fromCharCode(...next.subarray(1, 6)) === "CD001") return true;
+          }
+          this.base = 0;
+        }
+      }
       return false;
     }
 
     offset(lba) {
-      return (lba + this.pregap) * this.size + this.header;
+      return (this.base || 0) + (lba + this.pregap) * this.size + this.header;
     }
 
     async sector(lba) {
@@ -176,13 +211,25 @@
   async function collect(fileList, progress) {
     const discs = [];
     const loose = [];
+    const unreadable = [];
+    let descriptors = 0;
     for (const f of fileList) {
-      if (/\.(b6i|iso|bin|img)$/i.test(f.name)) {
+      if (IMAGE.test(f.name)) {
         const d = new Disc(f);
         progress("Reading " + f.name, 0, 0);
         if (await d.open()) discs.push({ disc: d, files: await d.files() });
-      } else if (!/\.(b6t|cue|mds|ccd|sub)$/i.test(f.name)) {
+        else unreadable.push(f.name);
+      } else if (DESCRIPTOR.test(f.name)) {
+        descriptors++;
+      } else {
         loose.push(f);
+      }
+    }
+    if (discs.length === 0 && loose.length === 0) {
+      if (unreadable.length) throw new Error("Couldn't find the game's files inside " + unreadable.join(", "));
+      if (descriptors) {
+        throw new Error("Those are the small descriptor files (.b6t). Pick the big image files next to them " +
+          "(.b6i), or pick the whole folder.");
       }
     }
 
@@ -253,7 +300,7 @@
       input.type = "file";
       input.multiple = true;
       if (directory) input.webkitdirectory = true;
-      else input.accept = ".b6i,.iso,.bin,.img";
+      else input.accept = ".b6i,.b6t,.b5i,.b5t,.bwi,.bwt,.iso,.bin,.img,.nrg,.mdf";
       input.style.display = "none";
       input.addEventListener("change", () => {
         resolve(Array.from(input.files || []));

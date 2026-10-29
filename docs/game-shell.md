@@ -64,8 +64,10 @@ game/tests/run_tests.gd         Headless tests, including an auto-played full ro
 player's Links 2003 folder (saved as `[game] folder` in `user://settings.cfg`)
 and offers the courses found in it. In the browser, `WebGameFiles`
 (`game/scripts/web/`) drives `game/web/game_files.js`: the player picks disc
-images or a folder, the script walks the ISO 9660 tracks itself (raw or
-cooked sectors, as `tools/cdimage/cdimage.py` does), stores the GAME files in
+images or a folder, the script walks the ISO 9660 tracks itself (cooked,
+raw or raw-plus-subchannel sectors, as `tools/cdimage/cdimage.py` does, and
+scans for the volume when the pregap is unusual, so BlindWrite .b6t and
+other descriptor files aren't needed), stores the GAME files in
 IndexedDB under Setup's long names, and on later visits copies them into the
 in-memory filesystem at `/tmp/links2003`, which becomes
 `GameFolder.override_path`. Courses (about 100 MB each) are copied only when
