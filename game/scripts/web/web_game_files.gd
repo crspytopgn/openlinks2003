@@ -14,6 +14,9 @@ const SCRIPT_PATH := "res://web/game_files.js"
 const CHUNK := 8 * 1024 * 1024
 ## Files bigger than this wait until something asks for them.
 const EAGER_LIMIT := 40 * 1024 * 1024
+## Read by the course loader for every course, so always copied at startup:
+## the executables hold the course key, the .lib the standard ground textures.
+const ALWAYS := ["linksm_1.exe", "linksmmiii.exe", "stdter_1.lib", "stdterrain.lib"]
 
 var last_error := ""
 var _api: JavaScriptObject
@@ -83,6 +86,8 @@ func copy_startup_files(files: Dictionary) -> bool:
 
 static func is_startup_file(rel: String, size: int) -> bool:
 	var lower := rel.to_lower()
+	if lower.get_file() in ALWAYS:
+		return true
 	for lazy in ["courses/", "sounds/", "polyani/"]:
 		if lower.begins_with(lazy):
 			return false

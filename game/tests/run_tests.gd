@@ -232,6 +232,7 @@ func _test_web_game_files() -> void:
 	_check(not WebGameFiles.is_startup_file("Courses/Cabo.crz", 103656595), "courses wait")
 	_check(not WebGameFiles.is_startup_file("Sounds/Ambient/Birds.wav", 10000), "ambient sounds wait")
 	_check(not WebGameFiles.is_startup_file("TOURNA_1.SSF", 83703038), "big files wait")
+	_check(WebGameFiles.is_startup_file("StdTerrain.lib", 60000000), "course textures copied at startup")
 	_check(not WebGameFiles.is_supported(), "not the web build")
 	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
 
