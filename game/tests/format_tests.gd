@@ -12,6 +12,7 @@ func run_all() -> Array[String]:
 	_test_arc0_and_btcv()
 	_test_object_library()
 	_test_model()
+	_test_course_billboards()
 	return failures
 
 
@@ -21,7 +22,8 @@ func check(cond: bool, what: String) -> void:
 
 
 func _test_scripts_compile() -> void:
-	for path in ["res://scripts/object_viewer.gd", "res://scripts/assets/decoded_object_library.gd"]:
+	for path in ["res://scripts/object_viewer.gd", "res://scripts/assets/decoded_object_library.gd",
+			"res://scripts/course_viewer.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -190,3 +192,42 @@ func _test_model() -> void:
 	for v in verts:
 		top = maxf(top, v.y)
 	check(is_equal_approx(top, 5.0 * XyzModel.INCH), "XYZ units are inches")
+
+
+func _test_course_billboards() -> void:
+	# objects.bin as `olcourse export` writes it: two types, the second
+	# with three placements in two chunks.
+	var b := PackedByteArray()
+	b.append_array("OLOB".to_ascii_buffer())
+	put_u32(b, 1)
+	put_u32(b, 2)
+	put_u32(b, 0)
+	put_u32(b, 3)
+	for v in [10.0, 1.0, -20.0, 0.5, 30.0, 2.0, -40.0, 0.4, 250.0, 3.0, 5.0, 20.0]:
+		put_f32(b, v)
+	var placements := CourseBillboards.read_placements(b)
+	check(placements.size() == 2, "billboards: two types")
+	if placements.size() != 2:
+		return
+	check(placements[0].is_empty() and placements[1].size() == 12, "billboards: placement counts")
+	check(is_equal_approx(placements[1][8], 250.0) and is_equal_approx(placements[1][11], 20.0), "billboards: values")
+	check(CourseBillboards.read_placements(b.slice(0, b.size() - 4)).is_empty(), "billboards: truncated data rejected")
+
+	var types := [{"name": "Grass", "texture": "", "aspect": 1.5}, {"name": "Tree", "texture": "", "aspect": 0.5}]
+	var root := CourseBillboards.build("res://does-not-exist", types, placements)
+	check(root.get_child_count() == 2, "billboards: one MultiMesh per chunk")
+	var instances := 0
+	for child in root.get_children():
+		var node := child as MultiMeshInstance3D
+		instances += node.multimesh.instance_count
+		var t := node.multimesh.get_instance_transform(0)
+		check(is_equal_approx(t.basis.get_scale().y, 0.5) or is_equal_approx(t.basis.get_scale().y, 20.0) \
+				or is_equal_approx(t.basis.get_scale().y, 0.4), "billboards: scaled by height")
+	check(instances == 3, "billboards: every placement drawn")
+	var far := root.get_child(1) as MultiMeshInstance3D
+	var first := root.get_child(0) as MultiMeshInstance3D
+	var world := first.position + first.multimesh.get_instance_transform(0).origin
+	check(world.distance_to(Vector3(10, 1, -20)) < 0.01, "billboards: chunk offset restored")
+	check(is_zero_approx(far.visibility_range_end), "billboards: tall chunk always drawn")
+	check(is_equal_approx(first.visibility_range_end, 150.0), "billboards: small chunk culled with distance")
+	root.free()
