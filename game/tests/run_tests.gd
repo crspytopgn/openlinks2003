@@ -252,8 +252,8 @@ func _test_web_game_files() -> void:
 	}
 	var startup := WebGameFiles.startup_files(files, "")
 	startup.sort()
-	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, PREDEF_1.SSF, StdTerrain.lib",
-		"startup set: catalog, sounds, course key, ground textures, first golfer; got %s" % [startup])
+	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, POLYANI/CLUBS.L3, PREDEF_1.SSF, StdTerrain.lib",
+		"startup set: catalog, sounds, course key, ground textures, first golfer and clubs; got %s" % [startup])
 	_check(WebGameFiles.startup_files(files, "eric.l3").has("POLYANI/ERIC.L3"), "the chosen golfer is copied")
 	_check(not WebGameFiles.is_supported(), "not the web build")
 	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
