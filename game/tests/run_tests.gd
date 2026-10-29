@@ -10,6 +10,9 @@ extends SceneTree
 
 var _failures := 0
 var _current := ""
+var _game: GolfRound
+var _frames := 0
+var _done := false
 
 
 func _initialize() -> void:
@@ -21,6 +24,18 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
+	# Nodes added here only get _ready() once the main loop runs, so the
+	# full round is played from _process().
+	var scene: PackedScene = load("res://scenes/main.tscn")
+	_game = scene.instantiate() as GolfRound
+	root.add_child(_game)
+
+
+func _process(_delta: float) -> bool:
+	_frames += 1
+	if _done or (not _game.is_node_ready() and _frames < 30):
+		return false
+	_done = true
 	_run("full_round", _test_full_round)
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
@@ -28,6 +43,7 @@ func _initialize() -> void:
 	else:
 		print("GODOT TESTS PASSED")
 		quit(0)
+	return true
 
 
 func _run(test_name: String, fn: Callable) -> void:
@@ -164,9 +180,10 @@ func _test_placeholder_course() -> void:
 
 
 func _test_full_round() -> void:
-	var scene: PackedScene = load("res://scenes/main.tscn")
-	var game := scene.instantiate() as GolfRound
-	root.add_child(game)
+	var game := _game
+	_check(game.is_node_ready(), "game scene is ready")
+	if not game.is_node_ready():
+		return
 	var steps := 0
 	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
 		game.auto_play_step()
@@ -178,4 +195,3 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
-	game.queue_free()
