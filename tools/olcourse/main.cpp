@@ -1,15 +1,20 @@
-// olcourse: open Links 2003 courses (.CRZ, also .RNG and .CVT) from your own
-// discs or install, and export them for the Godot course viewer.
+// olcourse: open Links 2003 courses (.CRZ, also .RNG) and the converted
+// Links LS courses (.CVT on CD2) from your own discs or install, and export
+// them for the Godot course viewer.
 //
 //   olcourse list    --exe <game exe> <course>
 //   olcourse info    --exe <game exe> <course>
 //   olcourse extract --exe <game exe> <course> <outdir>
-//   olcourse export  --exe <game exe> [--lib STDTER_1.LIB] <course> <outdir>
+//   olcourse export  --exe <game exe> [--lib STDTER_1.LIB] [--crowds CROWDS.LIB] <course> <outdir>
 //
 // Locked courses need the game executable (LINKSM_1.EXE on CD1, or
 // LinksMMIII.exe in an install): the cipher tables and key are read from it.
 // `export` writes course.json, terrain.bin and the terrain textures; the
 // standard textures (Rough01.tga and so on) come from STDTER_1.LIB on CD1.
+// It also writes the course's billboard objects (objects.bin, one sprite per
+// type under textures/objects/) and 3D objects (models.bin, textures under
+// textures/models/). With --crowds it adds the tournament spectators
+// (crowds.bin, textures/crowds/).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -24,8 +29,11 @@
 
 #include "olcore/arc0.hpp"
 #include "olcore/binary_reader.hpp"
+#include "olcore/btcv.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
+#include "olcore/cvt.hpp"
 #include "olcore/strings.hpp"
 
 namespace fs = std::filesystem;
@@ -38,7 +46,7 @@ int usage() {
                "usage: olcourse list    --exe <game exe> <course>\n"
                "       olcourse info    --exe <game exe> <course>\n"
                "       olcourse extract --exe <game exe> <course> <outdir>\n"
-               "       olcourse export  --exe <game exe> [--lib <STDTER_1.LIB>]... <course> <outdir>\n");
+               "       olcourse export  --exe <game exe> [--lib <STDTER_1.LIB>]... [--crowds <CROWDS.LIB>] <course> <outdir>\n");
   return 2;
 }
 
@@ -66,6 +74,16 @@ std::unique_ptr<CrzArchive> open_course(const std::string& course, const std::st
     throw std::runtime_error(course + " is locked: pass --exe <game executable>");
   }
   return std::make_unique<CrzArchive>(std::move(data), keys ? &*keys : nullptr);
+}
+
+// Links 2003 courses and the converted Links LS courses (.CVT) share the
+// container but not the entry layouts.
+Course load_any_course(const CrzArchive& crz, const std::string& path) {
+  if (!is_converted_course(crz)) return load_course(crz);
+  Course c = load_converted_course(crz);
+  std::string title = converted_course_title(fs::path(path).stem().string());
+  if (!title.empty()) c.name = title;
+  return c;
 }
 
 // --- Minimal TGA reader, only to compute a texture's average colour ------
@@ -224,8 +242,237 @@ std::vector<std::uint8_t> build_terrain_bin(const Terrain& t) {
   return out;
 }
 
-int do_export(const CrzArchive& crz, const std::vector<std::string>& libs, const fs::path& outdir) {
-  Course course = load_course(crz);
+// objects.bin and crowds.bin: "OLOB", u32 version (1), u32 type count, then
+// per type (in the order of course.json's "billboards" or "crowds"): u32
+// count, then count records of f32 x, y, z (Godot metres, the base of the
+// billboard) and f32 height in metres.
+struct BillboardSet {
+  std::string name, texture;
+  float aspect = 1;
+  std::vector<std::array<float, 4>> placements;  // Godot x, y, z, height
+};
+
+struct BillboardExport {
+  std::string json;  // ",\n  \"<key>\": [...]" for course.json, or empty
+  std::size_t placements = 0;
+};
+
+BillboardExport write_billboards(const std::vector<BillboardSet>& sets, const fs::path& outdir, const std::string& bin_name,
+                                 const std::string& key) {
+  BillboardExport result;
+  std::vector<std::uint8_t> bin = {'O', 'L', 'O', 'B'};
+  put<std::uint32_t>(bin, 1);
+  put<std::uint32_t>(bin, std::uint32_t(sets.size()));
+  std::string j = ",\n  \"" + key + "\": [\n";
+  for (std::size_t t = 0; t < sets.size(); ++t) {
+    put<std::uint32_t>(bin, std::uint32_t(sets[t].placements.size()));
+    for (const auto& p : sets[t].placements) {
+      for (float f : p) put<float>(bin, f);
+    }
+    char aspect[32];
+    std::snprintf(aspect, sizeof aspect, "%.4f", sets[t].aspect);
+    j += "    {\"name\": " + json_string(sets[t].name) + ", \"texture\": " + json_string(sets[t].texture) +
+         ", \"aspect\": " + aspect + ", \"count\": " + std::to_string(sets[t].placements.size()) + "}";
+    j += t + 1 < sets.size() ? ",\n" : "\n";
+    result.placements += sets[t].placements.size();
+  }
+  j += "  ]";
+  write_file(outdir / bin_name, bin);
+  result.json = j;
+  return result;
+}
+
+// Writes a sprite as a TGA; returns its path in the export, or "" on failure.
+std::string write_sprite(const std::vector<std::uint8_t>& btcv, const fs::path& outdir, const std::string& file,
+                         RgbaImage* decoded = nullptr) {
+  try {
+    RgbaImage img = decode_btcv(btcv);
+    write_file(outdir / file, encode_tga(img));
+    if (decoded) *decoded = std::move(img);
+    return file;
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: %s: %s\n", file.c_str(), ex.what());
+    return "";
+  }
+}
+
+BillboardExport export_billboards(const CrzArchive& crz, const fs::path& outdir) {
+  auto master = crz.find("MasterObj");
+  auto plants = crz.find("2DPlant");
+  if (!master || !plants) return {};
+  auto types = parse_billboard_types(crz.read(*master));
+  auto placements = parse_billboard_placements(crz.read(*plants));
+
+  fs::create_directories(outdir / "textures" / "objects");
+  std::vector<BillboardSet> sets(types.size());
+  for (std::size_t t = 0; t < types.size(); ++t) {
+    sets[t].name = types[t].name;
+    sets[t].aspect = types[t].aspect;
+    if (auto e = crz.find(types[t].sprite)) {
+      sets[t].texture = write_sprite(crz.read(*e), outdir, "textures/objects/" + safe_name(types[t].name) + ".tga");
+    } else {
+      std::fprintf(stderr, "warning: sprite %s not in the course\n", types[t].sprite.c_str());
+    }
+  }
+  for (const auto& p : placements) {
+    if (p.type >= sets.size()) continue;
+    auto g = to_godot(p.position);
+    sets[p.type].placements.push_back({g[0], g[1], g[2], float(p.height * kFeetToMetres)});
+  }
+  return write_billboards(sets, outdir, "objects.bin", "billboards");
+}
+
+// Tournament people (TrnyPlant) drawn with the sprites of CROWDS.LIB:
+// "<group><NNN><view>A.btc", views a to e from front to back. Which group
+// each placement kind uses is a guess (see docs/formats/course-objects.md).
+BillboardExport export_crowds(const CrzArchive& crz, const std::string& crowds_lib, const fs::path& outdir) {
+  auto entry = crz.find("TrnyPlant");
+  if (!entry || crowds_lib.empty()) return {};
+  auto placements = parse_crowd_placements(crz.read(*entry));
+  Arc0Archive lib = Arc0Archive::from_file(crowds_lib);
+
+  static const char* const kGroups[] = {"fan", "Sit", "media", "Official"};
+  constexpr float kSpriteFeet = 6.0f;  // a 128-pixel sprite is about a person tall
+  std::map<std::string, std::vector<std::string>> people;  // group -> front-view sprites, sorted
+  for (const auto& e : lib.entries()) {
+    const std::string& n = e.name;
+    for (const char* g : kGroups) {
+      std::string prefix = g;
+      if (n.size() == prefix.size() + 9 && iequals(n.substr(0, prefix.size()), prefix) &&
+          to_lower(n.substr(n.size() - 6)) == "aa.btc") {
+        people[prefix].push_back(n);
+      }
+    }
+  }
+  for (auto& [g, list] : people) std::sort(list.begin(), list.end());
+
+  fs::create_directories(outdir / "textures" / "crowds");
+  std::vector<BillboardSet> sets;
+  std::map<std::string, std::size_t> set_of;  // sprite -> index in sets
+  std::vector<int> heights_px;                 // per set
+  for (const auto& p : placements) {
+    if (p.kind >= std::size(kGroups)) continue;
+    const auto& list = people[kGroups[p.kind]];
+    if (list.empty()) continue;
+    const std::string& sprite = list[p.instance % list.size()];
+    auto it = set_of.find(sprite);
+    if (it == set_of.end()) {
+      BillboardSet s;
+      s.name = sprite.substr(0, sprite.size() - 6);
+      RgbaImage img;
+      if (auto e = lib.find(sprite)) {
+        s.texture = write_sprite(lib.read(*e), outdir, "textures/crowds/" + safe_name(s.name) + ".tga", &img);
+      }
+      if (img.height > 0) s.aspect = float(img.width) / float(img.height);
+      sets.push_back(std::move(s));
+      heights_px.push_back(img.height > 0 ? img.height : 128);
+      it = set_of.emplace(sprite, sets.size() - 1).first;
+    }
+    auto g = to_godot(p.position);
+    float h = float(heights_px[it->second]) / 128.0f * kSpriteFeet * float(kFeetToMetres);
+    sets[it->second].placements.push_back({g[0], g[1], g[2], h});
+  }
+  return write_billboards(sets, outdir, "crowds.bin", "crowds");
+}
+
+// models.bin: "OLMD", u32 version (1), u32 model count, then per model:
+// u32 surface count, and per surface: u32 length + texture path (relative to
+// the export), u32 vertex count, f32 x, y, z per vertex (model units, Godot
+// axes), f32 u, v per vertex, u32 index count, u32 indices. Then u32
+// placement count and per placement: u32 model, f32[12] transform (row-major
+// 3x4 basis and origin, model units to Godot metres).
+std::size_t export_models(const CrzArchive& crz, const fs::path& outdir) {
+  auto master = crz.find("MasterObj3D");
+  auto plants = crz.find("3DPlant");
+  auto refs_entry = crz.find("texture3dobj.t3l");
+  if (!master || !plants || !refs_entry) return 0;
+  auto models = parse_course_models(crz.read(*master));
+  auto placements = parse_model_placements(crz.read(*plants));
+  auto refs = parse_object_textures(crz.read(*refs_entry));
+
+  fs::create_directories(outdir / "textures" / "models");
+  std::map<std::string, std::string> written;  // "<maq>#<level>" -> file
+  std::map<std::string, std::vector<std::uint8_t>> maqs;
+  auto texture_file = [&](const std::string& maq, std::uint32_t level) -> std::string {
+    std::string key = to_lower(maq) + "#" + std::to_string(level);
+    auto it = written.find(key);
+    if (it != written.end()) return it->second;
+    std::string file;
+    try {
+      auto m = maqs.find(maq);
+      if (m == maqs.end()) {
+        auto e = crz.find(maq);
+        if (!e) throw std::runtime_error("not in the course");
+        m = maqs.emplace(maq, crz.read(*e)).first;
+      }
+      std::string stem = maq.size() > 4 ? maq.substr(0, maq.size() - 4) : maq;
+      file = "textures/models/" + safe_name(stem) + "_" + std::to_string(level) + ".tga";
+      write_file(outdir / file, encode_tga(decode_maq(m->second, level)));
+    } catch (const std::exception& ex) {
+      std::fprintf(stderr, "warning: %s level %u: %s\n", maq.c_str(), level, ex.what());
+      file.clear();
+    }
+    written[key] = file;
+    return file;
+  };
+
+  std::vector<std::uint8_t> bin = {'O', 'L', 'M', 'D'};
+  put<std::uint32_t>(bin, 1);
+  put<std::uint32_t>(bin, std::uint32_t(models.size()));
+  for (std::size_t k = 0; k < models.size(); ++k) {
+    auto surfaces = triangulate(models[k].model);
+    put<std::uint32_t>(bin, std::uint32_t(surfaces.size()));
+    for (const auto& surf : surfaces) {
+      std::string file;
+      if (k < refs.size() && surf.texture < refs[k].maq.size()) {
+        file = texture_file(refs[k].maq[surf.texture], refs[k].level[surf.texture]);
+      }
+      put<std::uint32_t>(bin, std::uint32_t(file.size()));
+      bin.insert(bin.end(), file.begin(), file.end());
+      const std::size_t n = surf.positions.size() / 3;
+      put<std::uint32_t>(bin, std::uint32_t(n));
+      for (std::size_t i = 0; i < n; ++i) {
+        // Course axes (z up) to Godot axes (y up): (x, y, z) -> (x, z, -y).
+        put<float>(bin, surf.positions[3 * i]);
+        put<float>(bin, surf.positions[3 * i + 2]);
+        put<float>(bin, -surf.positions[3 * i + 1]);
+      }
+      for (float f : surf.uvs) put<float>(bin, f);
+      put<std::uint32_t>(bin, std::uint32_t(surf.indices.size()));
+      for (std::uint32_t i : surf.indices) put<std::uint32_t>(bin, i);
+    }
+  }
+
+  std::vector<const ModelPlacement*> drawn;
+  for (const auto& p : placements) {
+    if (p.drawn() && p.model < models.size()) drawn.push_back(&p);
+  }
+  put<std::uint32_t>(bin, std::uint32_t(drawn.size()));
+  for (const ModelPlacement* p : drawn) {
+    // The placement is affine: find its origin and axes by placing points,
+    // then convert both sides to Godot axes. Model-space Godot axes are
+    // (x, z, -y) of the stored ones, so stored = (gx, -gz, gy).
+    auto o = place_point(*p, {0, 0, 0});
+    std::array<std::array<float, 3>, 3> columns;
+    const std::array<std::array<float, 3>, 3> unit_godot = {{{1, 0, 0}, {0, 0, 1}, {0, -1, 0}}};  // stored x, y, z of Godot x, y, z
+    for (int c = 0; c < 3; ++c) {
+      auto q = place_point(*p, unit_godot[c]);
+      columns[c] = to_godot({q.x - o.x, q.y - o.y, q.z - o.z});
+    }
+    auto origin = to_godot(o);
+    put<std::uint32_t>(bin, p->model);
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) put<float>(bin, columns[c][r]);
+      put<float>(bin, origin[r]);
+    }
+  }
+  write_file(outdir / "models.bin", bin);
+  return drawn.size();
+}
+
+int do_export(const CrzArchive& crz, const std::string& path, const std::vector<std::string>& libs,
+              const std::string& crowds_lib, const fs::path& outdir) {
+  Course course = load_any_course(crz, path);
   fs::create_directories(outdir / "textures");
 
   std::vector<std::unique_ptr<Arc0Archive>> lib_archives;
@@ -310,12 +557,33 @@ int do_export(const CrzArchive& crz, const std::vector<std::string>& libs, const
     j += "],\n     \"green\": " + json_vec(to_godot(hole.green)) + "}";
     j += h + 1 < course.holes.size() ? ",\n" : "\n";
   }
-  j += "  ]\n}\n";
+  j += "  ]";
+  // Objects are optional: a course whose objects can't be read still exports.
+  BillboardExport billboards, crowds;
+  std::size_t model_count = 0;
+  try {
+    billboards = export_billboards(crz, outdir);
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: billboards skipped: %s\n", ex.what());
+  }
+  try {
+    crowds = export_crowds(crz, crowds_lib, outdir);
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: crowds skipped: %s\n", ex.what());
+  }
+  try {
+    model_count = export_models(crz, outdir);
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: 3D objects skipped: %s\n", ex.what());
+  }
+  j += billboards.json + crowds.json + "\n}\n";
   write_file(outdir / "course.json", std::vector<std::uint8_t>(j.begin(), j.end()));
   write_file(outdir / "terrain.bin", build_terrain_bin(course.terrain));
-  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures -> %s\n", course.name.c_str(),
-              course.holes.size(), course.terrain.vertices.size(), course.terrain.triangles.size(), exported.size(),
-              outdir.string().c_str());
+  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures, %zu billboards, %zu 3D objects, "
+              "%zu spectators -> %s\n",
+              course.name.c_str(), course.holes.size(), course.terrain.vertices.size(),
+              course.terrain.triangles.size(), exported.size(), billboards.placements, model_count,
+              crowds.placements, outdir.string().c_str());
   return 0;
 }
 
@@ -325,12 +593,15 @@ int main(int argc, char** argv) {
   if (argc < 3) return usage();
   std::string cmd = argv[1], exe;
   std::vector<std::string> libs, rest;
+  std::string crowds_lib;
   for (int i = 2; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--exe" && i + 1 < argc) {
       exe = argv[++i];
     } else if (a == "--lib" && i + 1 < argc) {
       libs.push_back(argv[++i]);
+    } else if (a == "--crowds" && i + 1 < argc) {
+      crowds_lib = argv[++i];
     } else {
       rest.push_back(a);
     }
@@ -344,7 +615,7 @@ int main(int argc, char** argv) {
         }
         return 0;
       }
-      Course c = load_course(*crz);
+      Course c = load_any_course(*crz, rest[0]);
       std::printf("%s\n%zu entries, terrain %zu vertices / %zu triangles, %zu materials, %zu textures\n",
                   c.name.c_str(), crz->entries().size(), c.terrain.vertices.size(), c.terrain.triangles.size(),
                   c.materials.size(), c.textures.size());
@@ -366,7 +637,7 @@ int main(int argc, char** argv) {
     }
     if (cmd == "export" && rest.size() == 2) {
       auto crz = open_course(rest[0], exe);
-      return do_export(*crz, libs, rest[1]);
+      return do_export(*crz, rest[0], libs, crowds_lib, rest[1]);
     }
   } catch (const std::exception& ex) {
     std::fprintf(stderr, "error: %s\n", ex.what());

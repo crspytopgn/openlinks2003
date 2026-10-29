@@ -21,8 +21,14 @@ static func register_course_loader(loader: CourseLoader) -> void:
 static func ensure_defaults() -> void:
 	if course_loaders.is_empty():
 		course_loaders.append(PlaceholderCourseLoader.new())
+	var has_crz := false
+	for loader in course_loaders:
+		has_crz = has_crz or loader is CrzCourseLoader
+	if not has_crz:
+		# Real courses (.CRZ / .RNG) from the player's own files.
+		course_loaders.push_front(CrzCourseLoader.new())
 	if object_library == null:
-		object_library = PlaceholderObjectLibrary.new()
+		object_library = _default_object_library()
 	if golfer_assets == null:
 		golfer_assets = LinksGolferAssets.from_game_folder()
 	if golfer_assets == null:
@@ -52,3 +58,16 @@ static func create_sound_bank() -> SoundBank:
 	if links != null:
 		return links
 	return PlaceholderSoundBank.new()
+
+
+## The player's real objects when a game folder is set up, with the
+## placeholder trees standing in for anything the folder lacks.
+static func _default_object_library() -> ObjectLibrary:
+	var placeholder := PlaceholderObjectLibrary.new()
+	var folder := GameFolder.configured_path()
+	if folder.is_empty() or not DirAccess.dir_exists_absolute(folder):
+		return placeholder
+	var real := DecodedObjectLibrary.open(folder)
+	if real == null:
+		return placeholder
+	return ObjectLibraryChain.new(real, placeholder, ObjectLibraryChain.tree_aliases(real))

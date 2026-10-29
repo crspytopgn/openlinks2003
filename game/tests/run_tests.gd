@@ -24,8 +24,13 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
+	_run("graphics_settings", _test_graphics_settings)
+	_run("object_library_chain", _test_object_library_chain)
+	_run("free_assets", _test_free_assets)
+	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
+	_run("course_reader", _test_course_reader)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	var scene: PackedScene = load("res://scenes/main.tscn")
@@ -70,6 +75,12 @@ func _club(short_name: String) -> Club:
 			return c
 	_check(false, "no club " + short_name)
 	return null
+
+
+func _test_course_reader() -> void:
+	var tests: RefCounted = load("res://tests/course_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
 
 
 func _test_format_readers() -> void:
@@ -185,6 +196,67 @@ func _test_placeholder_course() -> void:
 		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
 		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
 	_check(par == 36, "par 36")
+
+
+func _test_graphics_settings() -> void:
+	var path := "user://test_settings.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("game", "folder", "/somewhere")
+	cfg.save(path)
+	var s := GraphicsSettings.new()
+	s.quality = GraphicsSettings.Quality.ULTRA
+	s.msaa = 4
+	s.render_scale = 0.75
+	s.fov = 70.0
+	s.save(path)
+	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
+	_check(loaded.msaa == 4, "msaa saved")
+	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
+	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(Materials.terrain().shader != null, "terrain shader loads")
+	_check(Materials.water().shader != null, "water shader loads")
+
+
+func _test_object_library_chain() -> void:
+	var chain := ObjectLibraryChain.new(PlaceholderObjectLibrary.new(), PlaceholderObjectLibrary.new(), {"alias": "tree_pine"})
+	var aliased := chain.instantiate("alias")
+	_check(aliased != null and aliased.name == "tree_pine", "alias reaches the primary")
+	var direct := chain.instantiate("tree_broadleaf")
+	_check(direct != null, "plain id")
+	_check(chain.instantiate("no_such_object") == null, "unknown id gives null")
+	for n in [aliased, direct]:
+		if n:
+			n.free()
+
+
+func _test_free_assets() -> void:
+	_check(Materials.terrain_weights(Surface.Type.SAND) == Vector2(0, 1), "sand uses the sand texture")
+	_check(Materials.terrain_weights(Surface.Type.DEEP_ROUGH) == Vector2(1, 0), "deep rough uses the rough texture")
+	_check(Materials.terrain_weights(Surface.Type.GREEN) == Vector2.ZERO, "greens use the grass texture")
+	var textured: bool = Materials.terrain().get_shader_parameter("textured") == true
+	_check(textured == FreeAssets.has_grounds(), "terrain textured exactly when the free textures are there")
+	print("free assets: ground textures %s, sky %s" % [FreeAssets.has_grounds(), FreeAssets.sky() != null])
+
+
+func _test_web_game_files() -> void:
+	var files := {
+		"OBJECT.LIB": 143877, "PREDEF_1.SSF": 741000, "LinksMMIII.exe": 5000000, "StdTerrain.lib": 26651491,
+		"TOURNA_1.SSF": 83703038, "Courses/Cabo.crz": 103656595, "Sounds/Ambient/Birds.wav": 10000,
+		"POLYANI/CLUBS.L3": 583012, "POLYANI/ERIC.L3": 10959576, "POLYANI/ANNIKA_1.L3": 8994096,
+		"Object/Tall Trees/Tall Trees100.btx": 50000,
+	}
+	var startup := WebGameFiles.startup_files(files, "")
+	startup.sort()
+	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, PREDEF_1.SSF, StdTerrain.lib",
+		"startup set: catalog, sounds, course key, ground textures, first golfer; got %s" % [startup])
+	_check(WebGameFiles.startup_files(files, "eric.l3").has("POLYANI/ERIC.L3"), "the chosen golfer is copied")
+	_check(not WebGameFiles.is_supported(), "not the web build")
+	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
 
 
 func _test_full_round() -> void:

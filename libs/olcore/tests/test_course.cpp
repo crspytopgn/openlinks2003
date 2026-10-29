@@ -11,6 +11,7 @@
 
 #include "olcore/bunky.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
 
 namespace {
@@ -258,6 +259,25 @@ void test_terrain_wide_indices() {
   CHECK(t.triangles[0].v[2] == nv - 1);
 }
 
+void test_ground_classes() {
+  Bytes b;
+  put_u32(b, 4);
+  put_u32(b, 2);
+  b.resize(8 + 2 * 243, 0xcd);
+  b[8 + 0x54] = 3;
+  b[8 + 243 + 0x54] = 1;
+  auto classes = parse_ground_classes(b);
+  CHECK(classes.size() == 2 && classes[0] == 3 && classes[1] == 1);
+  b.pop_back();
+  bool threw = false;
+  try {
+    parse_ground_classes(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
 void test_course_text() {
   const std::u16string text = u"\xfeff" u"CourseName = Test Links\r\nHoleName1 = Caf\u00e9\r\n";
   Bytes b;
@@ -342,6 +362,266 @@ void test_holes() {
   CHECK(holes[0].green.x == 100);
 }
 
+void set_u32(Bytes& b, std::size_t off, std::uint32_t v) {
+  for (int i = 0; i < 4; ++i) b[off + i] = std::uint8_t(v >> (8 * i));
+}
+
+// A MasterObj with two types laid out the way the game saves them: tile
+// records with the sprite name, a sprite descriptor pointing back at them,
+// a level list, the type record, and the table of type records.
+void test_billboard_types() {
+  Bytes b(0x80, 0);
+  std::vector<std::uint32_t> recs;
+  const char* names[] = {"Bushes156A.btc", "Tall Trees212A.btc"};
+  for (int k = 0; k < 2; ++k) {
+    std::size_t tiles = b.size();
+    b.resize(b.size() + 64, 0);
+    std::memcpy(b.data() + tiles, names[k], std::strlen(names[k]));
+    std::size_t desc = b.size();
+    put_u32(b, 200 + k);  // width
+    put_u32(b, 150);      // height
+    put_u32(b, 1);        // tiles
+    put_u32(b, std::uint32_t(tiles));
+    put_u32(b, std::uint32_t(tiles + 64));
+    std::size_t lods = b.size();
+    put_u32(b, 1);
+    put_u32(b, 4);
+    put_u32(b, std::uint32_t(desc));
+    put_u32(b, 0);
+    put_u32(b, 0);
+    std::size_t rec = b.size();
+    recs.push_back(std::uint32_t(rec));
+    b.resize(b.size() + 0x40, 0);
+    set_u32(b, rec, 200 + k);
+    set_u32(b, rec + 4, 150);
+    set_u32(b, rec + 8, 1);
+    set_u32(b, rec + 12, std::uint32_t(lods));
+    float aspect = (200 + k) / 150.0f;
+    std::uint32_t bits;
+    std::memcpy(&bits, &aspect, 4);
+    set_u32(b, rec + 0x18, bits);
+    set_u32(b, rec + 0x34, 0x8401e192u + k);
+  }
+  std::size_t table = b.size();
+  for (auto r : recs) put_u32(b, r);
+  set_u32(b, 0, std::uint32_t(b.size()));
+  set_u32(b, 4, 0x80);
+  set_u32(b, 8, 2);
+  set_u32(b, 12, std::uint32_t(table));
+
+  auto types = parse_billboard_types(b);
+  CHECK(types.size() == 2);
+  CHECK(types[0].name == "Bushes156");
+  CHECK(types[1].name == "Tall Trees212");
+  CHECK(types[1].sprite == "Tall Trees212A.btc");
+  CHECK(types[1].width == 201 && types[1].height == 150);
+  CHECK(std::fabs(types[0].aspect - 200 / 150.0f) < 1e-6f);
+  CHECK(types[1].id == 0x8401e193u);
+}
+
+void test_billboard_placements() {
+  Bytes b = {'2', 'J', 'B', 'O'};
+  put_u32(b, 2);
+  put_u32(b, 3);
+  b.resize(0x40, 0);
+  // Cell at (896, -3328), base height 270 ft.
+  put_u16(b, 0xffff);
+  for (float c : {896.0f, -3328.0f, 270.0f}) put_f32(b, c);
+  // Both optional fields.
+  put_u16(b, 25);
+  put_u32(b, 0x6000116cu);
+  b.push_back(2);
+  put_u16(b, 6);
+  for (std::uint16_t v : {std::uint16_t(343), std::uint16_t(616), std::uint16_t(0xffcc), std::uint16_t(768)}) put_u16(b, v);
+  // Only the word.
+  put_u16(b, 32);
+  put_u32(b, 0x40001172u);
+  put_u16(b, 6);
+  for (std::uint16_t v : {std::uint16_t(1023), std::uint16_t(0), std::uint16_t(2), std::uint16_t(48)}) put_u16(b, v);
+  // Next cell, no optional fields.
+  put_u16(b, 0xffff);
+  for (float c : {960.0f, -3328.0f, 271.0f}) put_f32(b, c);
+  put_u16(b, 64);
+  put_u32(b, 0x00002682u);
+  for (std::uint16_t v : {std::uint16_t(16), std::uint16_t(32), std::uint16_t(0), std::uint16_t(32)}) put_u16(b, v);
+
+  auto p = parse_billboard_placements(b);
+  CHECK(p.size() == 3);
+  CHECK(p[0].type == 25 && p[0].instance == 0x116c);
+  CHECK(p[0].extra_byte == 2 && p[0].extra_word == 6);
+  CHECK(std::fabs(p[0].position.x - (896 + 343 / 16.0f)) < 1e-3f);
+  CHECK(std::fabs(p[0].position.y - (-3328 + 616 / 16.0f)) < 1e-3f);
+  CHECK(std::fabs(p[0].position.z - (270 - 52 / 16.0f)) < 1e-3f);
+  CHECK(p[0].height == 48);
+  CHECK(p[1].extra_byte == -1 && p[1].extra_word == 6 && p[1].height == 3);
+  CHECK(p[2].type == 64 && p[2].extra_byte == -1 && p[2].extra_word == -1);
+  CHECK(p[2].position.x == 961 && p[2].position.y == -3326 && p[2].position.z == 271);
+
+  Bytes truncated(b.begin(), b.end() - 3);
+  bool threw = false;
+  try {
+    parse_billboard_placements(truncated);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+// A one-triangle mesh in the .XYZ layout.
+Bytes tiny_xyz() {
+  Bytes d(0xa4, 0);
+  for (float f : {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f, 0.0f, 0.0f, 5.0f}) put_f32(d, f);
+  std::size_t uv_at = d.size();
+  for (float f : {0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f}) put_f32(d, f);
+  std::size_t face_at = d.size();
+  for (std::uint16_t v : {std::uint16_t(3), std::uint16_t(0), std::uint16_t(0), std::uint16_t(0)}) put_u16(d, v);
+  put_u32(d, 0);
+  std::size_t idx_at = d.size();
+  for (std::uint16_t i = 0; i < 3; ++i) put_u16(d, i);
+  std::size_t mat_at = d.size();
+  d.resize(d.size() + 16, 0xcd);
+  set_u32(d, 0, std::uint32_t(d.size()));
+  const std::uint32_t tables[5][2] = {{3, 0xa4},
+                                      {3, std::uint32_t(uv_at)},
+                                      {1, std::uint32_t(face_at)},
+                                      {3, std::uint32_t(idx_at)},
+                                      {1, std::uint32_t(mat_at)}};
+  for (int i = 0; i < 5; ++i) {
+    set_u32(d, 0x18 + 8 * i, tables[i][0]);
+    set_u32(d, 0x1c + 8 * i, tables[i][1]);
+  }
+  set_u32(d, 0x40, 1);
+  return d;
+}
+
+void test_course_models() {
+  Bytes b(0x70, 0);
+  for (std::uint32_t k = 0; k < 2; ++k) {
+    Bytes m = tiny_xyz();
+    b.insert(b.end(), m.begin(), m.end());
+    put_u32(b, k);
+    put_u32(b, 0x8401e363u + k);
+    put_u32(b, 2 + 4 * k);
+  }
+  set_u32(b, 0, std::uint32_t(b.size()));
+  set_u32(b, 4, 0x70);
+  set_u32(b, 8, 2);
+  auto models = parse_course_models(b);
+  CHECK(models.size() == 2);
+  CHECK(models[1].id == 0x8401e364u && models[1].kind == 6);
+  CHECK(models[0].model.positions.size() == 3 && models[0].model.faces.size() == 1);
+  set_u32(b, 8, 3);
+  bool threw = false;
+  try {
+    parse_course_models(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+void test_model_placements() {
+  Bytes b;
+  put_u32(b, 7);
+  put_u32(b, 1);
+  for (float f : {100.0f, 200.0f, 50.0f,  // position
+                  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,  // box
+                  0.5f, -10.0f, 0.0f, 0.0f, 1.0f,  // z offset, flag
+                  0.5f, 0.5f, 0.25f,  // scale
+                  1.5707963f, 0.0f, 0.0f}) {
+    put_f32(b, f);
+  }
+  CHECK(b.size() == 88);
+  auto p = parse_model_placements(b);
+  CHECK(p.size() == 1);
+  CHECK(p[0].instance == 7 && p[0].model == 1 && p[0].drawn());
+  CHECK(p[0].z_offset == -10 && p[0].scale[2] == 0.25f);
+  // (10, 0, 10): scaled to (5, 0, 0), turned a quarter about z to (0, 5, 0).
+  auto q = place_point(p[0], {10, 0, 10});
+  CHECK(std::fabs(q.x - 100) < 1e-3f && std::fabs(q.y - 205) < 1e-3f && std::fabs(q.z - 50) < 1e-3f);
+  b.push_back(0);
+  bool threw = false;
+  try {
+    parse_model_placements(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+void test_object_textures_and_maq() {
+  // t3l with one model of two textures, two levels each.
+  Bytes t;
+  put_u32(t, 0);
+  put_u32(t, 1);
+  put_u32(t, 12);
+  std::size_t rec = t.size();
+  t.resize(t.size() + 20, 0);
+  std::size_t lists = t.size();
+  for (std::uint32_t tex = 0; tex < 2; ++tex) {
+    put_u32(t, 2);
+    put_u32(t, 0);
+    put_u32(t, 2 * tex);
+    put_u32(t, 2 * tex + 1);
+  }
+  std::size_t levels = t.size();
+  t.resize(t.size() + 4 * 64, 0);
+  std::memcpy(t.data() + levels, "Course 3D001.maq", 16);
+  std::memcpy(t.data() + levels + 128, "junk", 4);  // later records hold leftovers
+  set_u32(t, 0, std::uint32_t(t.size()));
+  set_u32(t, rec, 8);
+  set_u32(t, rec + 4, 2);
+  set_u32(t, rec + 8, std::uint32_t(levels));
+  set_u32(t, rec + 12, std::uint32_t(lists));
+  auto refs = parse_object_textures(t);
+  CHECK(refs.size() == 1);
+  CHECK(refs[0].maq.size() == 2 && refs[0].maq[1] == "Course 3D001.maq");
+  CHECK(refs[0].level[0] == 0 && refs[0].level[1] == 2);
+
+  // maq with one 2 x 1 level.
+  Bytes m;
+  put_u32(m, 0);
+  put_u32(m, 1);
+  put_u32(m, 1);
+  put_u32(m, 16);
+  for (std::uint32_t v : {2u, 1u, 8u, 2u, 1u, 0u, 0u, 52u, 52u + 1024u}) put_u32(m, v);
+  Bytes palette(1024, 0);
+  palette[4 * 1] = 10;      // blue
+  palette[4 * 1 + 1] = 20;  // green
+  palette[4 * 1 + 2] = 30;  // red
+  palette[4 * 1 + 3] = 255;
+  m.insert(m.end(), palette.begin(), palette.end());
+  m.push_back(1);
+  m.push_back(0);
+  set_u32(m, 0, std::uint32_t(m.size()));
+  auto img = decode_maq(m, 0);
+  CHECK(img.width == 2 && img.height == 1);
+  CHECK(img.pixels[0] == 30 && img.pixels[1] == 20 && img.pixels[2] == 10 && img.pixels[3] == 255);
+  CHECK(img.pixels[7] == 0);
+}
+
+void test_crowd_placements() {
+  Bytes b;
+  put_u32(b, 2);
+  put_u32(b, 2);
+  b.resize(0x40, 0);
+  b.push_back(0xff);
+  for (float c : {704.0f, -2752.0f, 274.0f}) put_f32(b, c);
+  b.push_back(0);
+  put_u32(b, 184);
+  for (std::uint16_t v : {std::uint16_t(961), std::uint16_t(204), std::uint16_t(16)}) put_u16(b, v);
+  b.push_back(2);
+  put_u32(b, 0x400017feu);
+  put_u16(b, 199);
+  for (std::uint16_t v : {std::uint16_t(0), std::uint16_t(32), std::uint16_t(0xfff0)}) put_u16(b, v);
+  auto p = parse_crowd_placements(b);
+  CHECK(p.size() == 2);
+  CHECK(p[0].kind == 0 && p[0].instance == 184 && p[0].extra_word == -1);
+  CHECK(std::fabs(p[0].position.x - (704 + 961 / 16.0f)) < 1e-3f && p[0].position.z == 275);
+  CHECK(p[1].kind == 2 && p[1].instance == 0x17fe && p[1].extra_word == 199 && p[1].extra_byte == -1);
+  CHECK(p[1].position.y == -2750 && p[1].position.z == 273);
+}
+
 }  // namespace
 
 int main() {
@@ -351,10 +631,17 @@ int main() {
       {"finds_keys_in_executable", test_finds_keys_in_executable},
       {"reads_locked_archive", test_reads_locked_archive},
       {"plain_header_with_locked_directory", test_reads_plain_header_with_locked_directory},
+      {"ground_classes", test_ground_classes},
       {"course_text", test_course_text},
       {"terrain", test_terrain},
       {"terrain_wide_indices", test_terrain_wide_indices},
       {"holes", test_holes},
+      {"billboard_types", test_billboard_types},
+      {"billboard_placements", test_billboard_placements},
+      {"crowd_placements", test_crowd_placements},
+      {"course_models", test_course_models},
+      {"model_placements", test_model_placements},
+      {"object_textures_and_maq", test_object_textures_and_maq},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

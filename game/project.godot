@@ -7,7 +7,7 @@ config_version=5
 
 config/name="OpenLinks2003"
 config/description="Open-source reimplementation of Links 2003. Requires your own copy of the original game."
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/boot.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 
 [display]
@@ -15,6 +15,8 @@ config/features=PackedStringArray("4.4", "Forward Plus")
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+window/size/window_width_override=1600
+window/size/window_height_override=900
 window/stretch/aspect="expand"
 
 [input]

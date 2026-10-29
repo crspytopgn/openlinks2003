@@ -32,21 +32,10 @@ int usage() {
   return 2;
 }
 
-// Uncompressed 32-bit TGA with a top-left origin.
 void write_tga(const fs::path& path, const RgbaImage& img) {
-  std::uint8_t h[18] = {};
-  h[2] = 2;
-  h[12] = static_cast<std::uint8_t>(img.width & 0xff);
-  h[13] = static_cast<std::uint8_t>(img.width >> 8);
-  h[14] = static_cast<std::uint8_t>(img.height & 0xff);
-  h[15] = static_cast<std::uint8_t>(img.height >> 8);
-  h[16] = 32;
-  h[17] = 0x28;  // 8 alpha bits, top-left origin
+  auto data = encode_tga(img);
   std::ofstream out(path, std::ios::binary);
-  out.write(reinterpret_cast<const char*>(h), sizeof h);
-  std::vector<std::uint8_t> bgra(img.pixels);
-  for (std::size_t i = 0; i + 3 < bgra.size(); i += 4) std::swap(bgra[i], bgra[i + 2]);
-  out.write(reinterpret_cast<const char*>(bgra.data()), static_cast<std::streamsize>(bgra.size()));
+  out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
 }
 
 std::string stem(std::string name) {

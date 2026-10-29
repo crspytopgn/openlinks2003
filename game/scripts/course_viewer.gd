@@ -4,8 +4,8 @@ extends Node3D
 ## on the command line:  godot --path game -- --course=/path/to/export
 ##
 ## Right mouse drag: look.  WASD: move.  Q/E: down/up.  Shift: faster.
-## N / P: next / previous hole tee.  O: overview.  L: load another course.
-## Esc: back to the driving range.
+## N / P: next / previous hole tee.  O: overview.  T: tournament crowds.
+## L: load another course.  Esc: back to the driving range.
 
 const TILE_METRES := 6.0
 const MOVE_SPEED := 40.0
@@ -15,6 +15,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 var camera: Camera3D
 var label: Label
 var course_root: Node3D
+var crowds: Node3D
 var holes: Array = []
 var course_name := ""
 var hole_index := -1
@@ -125,7 +126,18 @@ func _load_course(dir: String) -> void:
 	terrain.mesh = mesh
 	course_root.add_child(terrain)
 
+	var billboards := _load_billboards(dir, course.get("billboards", []))
+	crowds = null
+	_load_billboards(dir, course.get("crowds", []), "crowds.bin")
+	var models_path := dir.path_join("models.bin")
+	if FileAccess.file_exists(models_path):
+		var models := CourseModels.read(FileAccess.get_file_as_bytes(models_path))
+		if not models.is_empty():
+			course_root.add_child(CourseModels.build(dir, models))
+
 	course_name = str(course.get("name", "Course"))
+	if billboards > 0:
+		course_name += "  (%d trees and plants)" % billboards
 	holes = course.get("holes", [])
 	for hole in holes:
 		_add_hole_markers(hole)
@@ -160,6 +172,26 @@ func _load_terrain(path: String, dir: String, materials: Array) -> ArrayMesh:
 		var info: Dictionary = materials[material_index] if material_index < materials.size() else {}
 		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(info, dir, cache))
 	return mesh
+
+
+## Adds the course's trees, bushes and grass; returns how many were placed.
+func _load_billboards(dir: String, types: Array, file := "objects.bin") -> int:
+	var path := dir.path_join(file)
+	if types.is_empty() or not FileAccess.file_exists(path):
+		return 0
+	var placements := CourseBillboards.read_placements(FileAccess.get_file_as_bytes(path))
+	if placements.is_empty():
+		return 0
+	var node := CourseBillboards.build(dir, types, placements)
+	course_root.add_child(node)
+	if file == "crowds.bin":
+		node.name = "Crowds"
+		crowds = node
+	var total := 0
+	for p in placements:
+		@warning_ignore("integer_division")
+		total += p.size() / CourseBillboards.FLOATS_PER_PLACEMENT
+	return total
 
 
 func _read_vectors(f: FileAccess, count: int) -> PackedVector3Array:
@@ -242,7 +274,7 @@ func _show_overview() -> void:
 	hole_index = -1
 	camera.position = overview_position
 	_look_at(overview_target)
-	_set_text("%s\nOverview. N / P: hole tees, O: overview, right drag: look, WASD QE: fly, L: load course, Esc: back" % course_name)
+	_set_text("%s\nOverview. N / P: hole tees, O: overview, T: crowds, right drag: look, WASD QE: fly, L: load course, Esc: back" % course_name)
 
 
 func _show_hole(i: int) -> void:
@@ -297,6 +329,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_O:
 				if course_root != null:
 					_show_overview()
+			KEY_T:
+				if crowds != null:
+					crowds.visible = not crowds.visible
 			KEY_L:
 				_ask_for_folder()
 			KEY_ESCAPE:

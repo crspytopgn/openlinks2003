@@ -1,6 +1,8 @@
 #include "olcore/crz.hpp"
 
+#include <algorithm>
 #include <cstring>
+#include <map>
 
 #include "olcore/binary_reader.hpp"
 #include "olcore/inflate.hpp"
@@ -69,13 +71,23 @@ std::optional<GameKeys> search_keys(const std::vector<std::uint8_t>& exe, Accept
   auto tables = find_bunky_tables(exe);
   if (!tables) return std::nullopt;
   // The game passes the 64-bit key to its archive reader as two pushed
-  // 32-bit immediates (high word first), so try every such pair.
+  // 32-bit immediates (high word first), so every such pair is a candidate.
+  // The game opens archives from many places, so the real key is pushed far
+  // more often than any other pair; trying the most frequent pairs first
+  // usually finds it at once.
+  std::map<std::uint64_t, std::size_t> counts;
+  std::vector<std::uint64_t> order;
   for (std::size_t i = 0; i + 10 <= exe.size(); ++i) {
     if (exe[i] != 0x68 || exe[i + 5] != 0x68) continue;
+    std::uint64_t pair = std::uint64_t(ld32(&exe[i + 6])) | std::uint64_t(ld32(&exe[i + 1])) << 32;
+    if (counts[pair]++ == 0) order.push_back(pair);
+  }
+  std::stable_sort(order.begin(), order.end(),
+                   [&](std::uint64_t a, std::uint64_t b) { return counts[a] > counts[b]; });
+  for (std::uint64_t pair : order) {
     GameKeys k;
     k.tables = *tables;
-    std::memcpy(&k.archive_key[0], &exe[i + 6], 4);
-    std::memcpy(&k.archive_key[4], &exe[i + 1], 4);
+    for (int b = 0; b < 8; ++b) k.archive_key[b] = std::uint8_t(pair >> (8 * b));
     if (accept(k)) return k;
   }
   return std::nullopt;

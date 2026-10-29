@@ -54,4 +54,7 @@ std::vector<std::uint8_t> btcv_to_dxt5(const std::uint8_t* data, std::size_t siz
 RgbaImage decode_btcv(const std::uint8_t* data, std::size_t size);
 inline RgbaImage decode_btcv(const std::vector<std::uint8_t>& data) { return decode_btcv(data.data(), data.size()); }
 
+// Uncompressed 32-bit TGA file with a top-left origin, for tools.
+std::vector<std::uint8_t> encode_tga(const RgbaImage& img);
+
 }  // namespace olcore

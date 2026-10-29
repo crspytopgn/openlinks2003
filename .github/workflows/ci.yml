@@ -25,6 +25,9 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Browser file import tests
+        if: runner.os == 'Linux'
+        run: node game/web/tests/test_game_files.mjs
       - name: Upload olcourse
         uses: actions/upload-artifact@v4
         with:
@@ -63,6 +66,11 @@ jobs:
           mkdir -p "$dest"
           mv /tmp/templates/templates/* "$dest/"
 
+      # Free CC0 textures and sky from Poly Haven (not in the repo). A failed
+      # download leaves the build untextured rather than failing it.
+      - name: Fetch free assets
+        run: python3 tools/fetch_free_assets.py
+
       - name: Import project
         run: ~/godot/godot --headless --path game --import
 
@@ -72,6 +80,26 @@ jobs:
           ~/godot/godot --headless --path game -s res://tests/run_tests.gd 2>&1 | tee godot-tests.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" godot-tests.log; then exit 1; fi
           grep -q "GODOT TESTS PASSED" godot-tests.log
+
+      # Headless runs never compile shaders, so render real frames with Mesa's
+      # software drivers: Compatibility (what the web build uses) on llvmpipe
+      # and Forward+ on lavapipe. Script and shader errors fail the step.
+      - name: Render check
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri mesa-vulkan-drivers > /dev/null
+          for method in gl_compatibility forward_plus; do
+            xvfb-run -a -s "-screen 0 1280x720x24" ~/godot/godot --path game --rendering-method $method \
+              -s res://tests/render_check.gd -- "$PWD/render-$method.png" 2>&1 | tee render-$method.log
+            if grep -E "SHADER ERROR|SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" render-$method.log; then exit 1; fi
+            grep -q "RENDER CHECK DONE" render-$method.log
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-check
+          path: render-*.png
 
       - name: Export Linux, Windows, macOS and Web
         run: |

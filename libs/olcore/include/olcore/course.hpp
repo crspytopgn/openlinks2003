@@ -88,6 +88,13 @@ struct TerrainMaterial {
 // `Materials` entry: which textures each terrain material blends.
 std::vector<TerrainMaterial> parse_materials(const std::vector<std::uint8_t>& data);
 
+// `TerrainTypes` entry: one 243-byte record per material, mostly physics
+// tuning not decoded yet. Returns each record's ground class, the byte that
+// says how the ball plays off it: 1 green; 2 fairway, fringe or tee; 3 rough;
+// 4 sand; 5 water; 6 path, concrete or asphalt; 7 dirt; 8 bushes; 9 rocks;
+// 10 deep or dry grass; 0 seen on a few unnamed records.
+std::vector<std::uint8_t> parse_ground_classes(const std::vector<std::uint8_t>& data);
+
 // The parts of a course the viewer needs, read from an open archive.
 struct Course {
   std::string name;
