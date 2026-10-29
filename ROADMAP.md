@@ -61,6 +61,7 @@ feel) still need a working install.
 - [ ] AI opponents
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
 - [ ] Community add-on courses
+  - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker
 
 ## Phase 5: later

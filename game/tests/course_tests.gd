@@ -17,6 +17,7 @@ func run_all() -> Array[String]:
 	_test_locked_archive()
 	_test_terrain()
 	_test_holes_and_ground()
+	_test_community_courses()
 	return failures
 
 
@@ -27,7 +28,7 @@ func check(cond: bool, what: String) -> void:
 
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/course/crz_course_loader.gd", "res://scripts/course/crz_terrain.gd",
-			"res://scripts/course_viewer.gd"]:
+			"res://scripts/course_viewer.gd", "res://scripts/course/community_courses.gd", "res://scripts/boot.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -291,3 +292,12 @@ func _test_holes_and_ground() -> void:
 	text.append_array("CourseName = Test Links\r\nHoleName1 = Café\r\n".to_utf16_buffer())
 	var kv := CrzCourseLoader.parse_course_text(text)
 	check(kv.get("CourseName") == "Test Links" and kv.get("HoleName1") == "Café", "course text")
+
+
+func _test_community_courses() -> void:
+	check(not CommunityCourses.COURSES.is_empty(), "community course list is not empty")
+	for course: Dictionary in CommunityCourses.COURSES:
+		check(CommunityCourses.page_url(course).begins_with("https://linkscorner.org/courses/course.php?crz="),
+			"%s has a Links Corner page" % course.name)
+	check(CommunityCourses.label({"name": "Duine Mara", "designer": "Paul Seaman", "id": 2022}) == "Duine Mara by Paul Seaman",
+		"community course label")

@@ -11,6 +11,10 @@
 // time and the browser only asks to allow access again; elsewhere the player
 // picks them again on each visit, which takes seconds.
 //
+// Add-on courses (fan-made courses downloaded as a .zip or .crz) are the one
+// exception: they are small, so they are kept in IndexedDB, unpacked, and
+// read from there on every visit.
+//
 // Godot loads this file with JavaScriptBridge.eval and talks to it through
 // window.olFiles (see game/scripts/web/web_game_files.gd).
 (() => {
@@ -25,7 +29,7 @@
   // The course decoder reads its keys from the game executable.
   const KEEP = new Set(["linksm_1.exe", "linksmmiii.exe"]);
 
-  // ---- IndexedDB (only the index and file handles, never file contents) ----
+  // ---- IndexedDB (the index, file handles and add-on courses) -------------
 
   let dbPromise = null;
   function db() {
@@ -356,6 +360,8 @@
   }
 
   async function readFile(rel, offset, length) {
+    const added = (await addedCourses()).get(rel);
+    if (added) return new Uint8Array(await added.slice(offset, offset + length).arrayBuffer());
     const entry = index.get(rel);
     if (!entry) throw new Error("not loaded: " + rel);
     const [id, lba, size] = entry;
@@ -364,6 +370,103 @@
     const n = Math.max(0, Math.min(length, size - offset));
     if (lba < 0) return new Uint8Array(await src.slice(offset, offset + n).arrayBuffer());
     return src.read(lba, n, offset);
+  }
+
+  // ---- Add-on courses ---------------------------------------------------------
+
+  // Course files and the companions that travel with them (shadows, preview).
+  const COURSE_FILE = /\.(crz|rng|sha|tip)$/i;
+  const COURSE_ACCEPT = [".zip", ".crz", ".rng", ".sha", ".tip"];
+
+  // "Courses/<name>" -> Blob, loaded from IndexedDB on first use.
+  let courses = null;
+  async function addedCourses() {
+    if (!courses) {
+      let stored = null;
+      try {
+        stored = await get("courses");
+      } catch (e) {
+        // No IndexedDB: added courses last for this visit only.
+      }
+      courses = new Map(stored || []);
+    }
+    return courses;
+  }
+
+  // Reads a .zip's directory and returns its course files as [rel, Blob].
+  // Stored entries are sliced from the zip; deflated ones are inflated with
+  // the browser's DecompressionStream. Zip64 isn't needed: course zips are
+  // well under 4 GB.
+  async function unzipCourses(file) {
+    const tailSize = Math.min(file.size, 65557);
+    const tail = new DataView(await file.slice(file.size - tailSize).arrayBuffer());
+    let eocd = -1;
+    for (let i = tailSize - 22; i >= 0; i--) {
+      if (tail.getUint32(i, true) === 0x06054b50) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw new Error(file.name + " isn't a zip file");
+    const count = tail.getUint16(eocd + 10, true);
+    const dirSize = tail.getUint32(eocd + 12, true);
+    const dirOffset = tail.getUint32(eocd + 16, true);
+    if (dirOffset === 0xffffffff) throw new Error(file.name + " is a Zip64 file, which isn't supported");
+    const dir = new DataView(await file.slice(dirOffset, dirOffset + dirSize).arrayBuffer());
+    const out = [];
+    let p = 0;
+    for (let n = 0; n < count && dir.getUint32(p, true) === 0x02014b50; n++) {
+      const method = dir.getUint16(p + 10, true);
+      const packed = dir.getUint32(p + 20, true);
+      const size = dir.getUint32(p + 24, true);
+      const nameLen = dir.getUint16(p + 28, true);
+      const skip = nameLen + dir.getUint16(p + 30, true) + dir.getUint16(p + 32, true);
+      const local = dir.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(new Uint8Array(dir.buffer, p + 46, nameLen));
+      p += 46 + skip;
+      const base = name.split(/[\\/]/).pop();
+      if (!COURSE_FILE.test(base) || base.startsWith("._")) continue;
+      const head = new DataView(await file.slice(local, local + 30).arrayBuffer());
+      const start = local + 30 + head.getUint16(26, true) + head.getUint16(28, true);
+      const raw = file.slice(start, start + packed);
+      let blob;
+      if (method === 0) blob = raw;
+      else if (method === 8) blob = await new Response(raw.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+      else throw new Error(name + " in " + file.name + " uses an unsupported compression method");
+      if (blob.size !== size) throw new Error("Couldn't unpack " + name + " from " + file.name);
+      out.push(["Courses/" + base, blob]);
+    }
+    return out;
+  }
+
+  // Course files as [rel, Blob] from picked .crz/.rng (and companion) files
+  // and course .zip downloads, all placed under Courses/.
+  async function collectCourses(files, progress) {
+    const out = [];
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name)) {
+        progress("Unpacking " + f.name, 0, 0);
+        out.push(...(await unzipCourses(f)));
+      } else if (COURSE_FILE.test(f.name)) {
+        out.push(["Courses/" + f.name, f]);
+      }
+    }
+    if (!out.some(([rel]) => /\.(crz|rng)$/i.test(rel))) throw new Error("No course (.crz) found in the selection");
+    return out;
+  }
+
+  // Adds picked courses to the game files and keeps them for next time.
+  // Returns how many course files are now added.
+  async function importCourses(files, progress) {
+    const added = await addedCourses();
+    for (const [rel, blob] of await collectCourses(files, progress)) added.set(rel, blob);
+    try {
+      await put("courses", [...added]);
+    } catch (e) {
+      // Keeping them is a convenience; they still work this visit.
+    }
+    progress("", 1, 1);
+    return added.size;
   }
 
   // ---- Picking -------------------------------------------------------------
@@ -404,13 +507,13 @@
     return files.map((file) => ({ file, path: file.webkitRelativePath || "" }));
   }
 
-  function pickWithInput(directory) {
+  function pickWithInput(directory, accept = ACCEPT) {
     return new Promise((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
       if (directory) input.webkitdirectory = true;
-      else input.accept = ACCEPT.join(",");
+      else input.accept = accept.join(",");
       input.style.display = "none";
       input.addEventListener("change", () => {
         resolve(Array.from(input.files || []));
@@ -445,6 +548,7 @@
     Disc,
     longNames,
     collect,
+    collectCourses,
     importPicked,
     readFile,
 
@@ -456,6 +560,17 @@
       report(
         pickFiles(directory).then((picked) =>
           picked.length === 0 ? 0 : importPicked(picked, (n, d, t) => progressCb(n, d, t))
+        ),
+        doneCb
+      );
+    },
+
+    // pickCourses(progressCb, doneCb): like pick, for add-on courses (.zip
+    // downloads or .crz files), which are added under Courses/.
+    pickCourses(progressCb, doneCb) {
+      report(
+        pickWithInput(false, COURSE_ACCEPT).then((files) =>
+          files.length === 0 ? 0 : importCourses(files, (n, d, t) => progressCb(n, d, t))
         ),
         doneCb
       );
@@ -474,7 +589,12 @@
 
     // list(cb): cb(ok, JSON of [[path, size], ...]) for the current files.
     list(cb) {
-      report(Promise.resolve(JSON.stringify([...index].map(([rel, e]) => [rel, e[2]]))), cb);
+      report(
+        addedCourses().then((added) =>
+          JSON.stringify([...index].map(([rel, e]) => [rel, e[2]]).concat([...added].map(([rel, b]) => [rel, b.size])))
+        ),
+        cb
+      );
     },
 
     // read(path, offset, length, cb): cb(ok, ArrayBuffer).
@@ -486,6 +606,7 @@
     forget(cb) {
       opened.clear();
       index = new Map();
+      courses = new Map();
       report(clearAll().catch(() => undefined), cb);
     },
   };
