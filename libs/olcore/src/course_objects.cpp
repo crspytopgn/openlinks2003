@@ -92,6 +92,42 @@ std::vector<BillboardPlacement> parse_billboard_placements(const std::vector<std
   return out;
 }
 
+std::vector<CrowdPlacement> parse_crowd_placements(const std::vector<std::uint8_t>& data) {
+  BinaryReader r(data);
+  if (r.size() < 0x40) throw ReadError("TrnyPlant: too short");
+  r.seek(4);
+  const std::uint32_t count = r.u32();
+  r.seek(0x40);
+  std::vector<CrowdPlacement> out;
+  out.reserve(count);
+  float cx = 0, cy = 0, cz = 0;
+  bool have_cell = false;
+  while (r.remaining() > 0) {
+    const std::uint8_t kind = r.u8();
+    if (kind == 0xff) {
+      cx = r.f32();
+      cy = r.f32();
+      cz = r.f32();
+      have_cell = true;
+      continue;
+    }
+    if (!have_cell) throw ReadError("TrnyPlant: placement before the first cell");
+    CrowdPlacement p;
+    p.kind = kind;
+    const std::uint32_t word = r.u32();
+    p.instance = word & 0x1fffffff;
+    if (word & 0x20000000) p.extra_byte = r.u8();
+    if (word & 0x40000000) p.extra_word = r.u16();
+    const std::uint16_t x = r.u16();
+    const std::uint16_t y = r.u16();
+    const std::int16_t z = r.i16();
+    p.position = {cx + x * kPlacementUnit, cy + y * kPlacementUnit, cz + z * kPlacementUnit};
+    out.push_back(p);
+  }
+  if (out.size() != count) throw ReadError("TrnyPlant: placement count does not match the header");
+  return out;
+}
+
 std::vector<CourseModel> parse_course_models(const std::vector<std::uint8_t>& data) {
   // Header: u32 size, u32 0x70 (where the meshes start), u32 count. Each
   // mesh is followed by u32 index, u32 id and u32 kind.

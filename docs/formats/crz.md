@@ -146,7 +146,7 @@ different textures and sounds.
 | `MasterObj`, `MasterObj3D` | The course's billboard types and 3D object meshes | Decoded ([course-objects.md](course-objects.md)) |
 | `*.maq` (stored) | Paletted textures with mip levels for 3D objects | Decoded ([course-objects.md](course-objects.md)) |
 | `texture3dobj.t3l`, `ObjectCull.dat` | 3D object textures and visibility | `.t3l` decoded ([course-objects.md](course-objects.md)); `ObjectCull.dat` not |
-| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | `2DPlant` and `3DPlant` decoded, `TrnyPlant` surveyed ([course-objects.md](course-objects.md)) |
+| `2DPlant` (magic `2JBO`), `3DPlant`, `TrnyPlant` | Object placements: billboards, 3D objects, tournament extras | Decoded ([course-objects.md](course-objects.md)) |
 | `english.txt` | UTF-16 text: `CourseName = ...`, `HoleName1 = ...` | Decoded |
 | `MergeInfo.DAT` | Text: designer build note | |
 | `header` (encrypted) | The holes (below) | Decoded |
