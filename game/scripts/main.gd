@@ -14,7 +14,7 @@ const MAX_STROKES := 10  ## pick up after this many on a hole
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    Esc: settings"
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_WAIT := "Space or click: continue    Tab: scorecard"
 
@@ -46,6 +46,9 @@ var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
 var golfer: GolferRig
 var hole_root: Node3D
+var graphics: GraphicsSettings
+var scenery: Scenery
+var settings_panel: SettingsPanel
 
 var _trail_mesh := ImmediateMesh.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
@@ -58,7 +61,9 @@ func _ready() -> void:
 	AssetProviders.ensure_defaults()
 	shot_model = AssetProviders.shot_model
 	clubs = Club.standard_set()
+	graphics = GraphicsSettings.load_saved()
 	_build_world()
+	_apply_graphics()
 	sounds = AssetProviders.create_sound_bank()
 	add_child(sounds)
 	hud.meter.backswing_started.connect(_on_backswing_started)
@@ -160,6 +165,24 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo:
+			match key.keycode:
+				KEY_ESCAPE:
+					if settings_panel.visible:
+						settings_panel.close()
+					else:
+						settings_panel.open(graphics)
+					get_viewport().set_input_as_handled()
+					return
+				KEY_F11:
+					graphics.fullscreen = not graphics.fullscreen
+					graphics.save()
+					_apply_graphics()
+					return
+	if settings_panel.visible:
+		return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
@@ -402,25 +425,8 @@ func _flat_distance(a: Vector3, b: Vector3) -> float:
 # --- World and presentation --------------------------------------------------
 
 func _build_world() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.32, 0.52, 0.82)
-	sky_mat.sky_horizon_color = Color(0.72, 0.8, 0.88)
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	add_child(world_env)
-
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, 30, 0)
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 250.0
-	add_child(sun)
+	scenery = Scenery.new()
+	add_child(scenery)
 
 	ball = MeshInstance3D.new()
 	var sphere := SphereMesh.new()
@@ -455,13 +461,21 @@ func _build_world() -> void:
 
 	camera = Camera3D.new()
 	camera.far = 3000.0
-	camera.fov = 60.0
 	add_child(camera)
 
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	hud = Hud.new()
 	canvas.add_child(hud)
+	settings_panel = SettingsPanel.new()
+	canvas.add_child(settings_panel)
+	settings_panel.changed.connect(_apply_graphics)
+
+
+func _apply_graphics() -> void:
+	graphics.apply_display(get_viewport())
+	scenery.apply(graphics)
+	camera.fov = graphics.fov
 
 
 func _add_flag() -> void:

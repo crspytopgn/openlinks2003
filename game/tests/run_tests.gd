@@ -24,6 +24,7 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("placeholder_course", _test_placeholder_course)
+	_run("graphics_settings", _test_graphics_settings)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	var scene: PackedScene = load("res://scenes/main.tscn")
@@ -177,6 +178,30 @@ func _test_placeholder_course() -> void:
 		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
 		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
 	_check(par == 36, "par 36")
+
+
+func _test_graphics_settings() -> void:
+	var path := "user://test_settings.cfg"
+	var cfg := ConfigFile.new()
+	cfg.set_value("game", "folder", "/somewhere")
+	cfg.save(path)
+	var s := GraphicsSettings.new()
+	s.quality = GraphicsSettings.Quality.ULTRA
+	s.msaa = 4
+	s.render_scale = 0.75
+	s.fov = 70.0
+	s.save(path)
+	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
+	_check(loaded.msaa == 4, "msaa saved")
+	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
+	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(Materials.terrain().shader != null, "terrain shader loads")
+	_check(Materials.water().shader != null, "water shader loads")
 
 
 func _test_full_round() -> void:
