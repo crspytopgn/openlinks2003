@@ -129,7 +129,7 @@ different textures and sounds.
 | `Flag.tga`, `Logo.tga`, `Tee0..4.tga` | Flag, course logo and tee marker textures | Standard TGA |
 | `Splash0.jpg`, `Splash1.jpg`, `Holprv00..17.jpg` | Loading screens and the 298 x 500 hole preview cards | Standard JPEG |
 | `*.wav` | Ambient sound loops (ADPCM WAV) | Standard |
-| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Names found; record layout not decoded |
+| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Ground class decoded, below |
 | `LieIcons` | 4 bytes | |
 | `Materials` | Terrain materials (below) | Decoded |
 | `txtrdesc` | Terrain texture list (below) | Decoded |
@@ -234,10 +234,39 @@ another u32 before them. Then outlines run to the end of the entry:
 points and an end point per cubic segment, z = 0). The low bits of
 `attributes` look like a surface type, and 0x800000 is a flag.
 
+### `TerrainTypes`: ground classes
+
+A u32 version (4 in `.CRZ`; `.CVT` files use 13, not decoded) and a u32
+count, which equals the number of `Materials`. Then one 243-byte record per
+material, in the same order. Records are not aligned: they hold a run of
+f32 physics values, UTF-16 display and type names (for example "GE_Fairway"
+and "Fairway") and unused bytes filled with 0xCD.
+
+The byte at offset 0x54 of a record is its ground class, which says how the
+ball plays off it:
+
+| Class | Ground |
+|-------|--------|
+| 1 | Green |
+| 2 | Fairway, fringe, tee area |
+| 3 | Rough |
+| 4 | Sand |
+| 5 | Water, ocean, running water |
+| 6 | Cart path, concrete, asphalt |
+| 7 | Dirt |
+| 8 | Bushes |
+| 9 | Rocks, lava |
+| 10 | Deep grass, dry grass, tall grass |
+| 0 | A few records with no type name |
+
+These were matched against the type names in all six CD2 courses. The
+physics values are not decoded yet; the game maps the classes onto its own
+surface table for now.
+
 ## Open questions
 
-- `RayEngine`, `Mappings`, `TerrainTypes`, `ttypetrans`, `textrans` and
-  `Water` layouts.
+- `RayEngine`, `Mappings`, `ttypetrans`, `textrans` and `Water` layouts,
+  and the physics values in `TerrainTypes`.
 - What the per-vertex and per-triangle unknown fields mean (likely lighting
   or shadow data and texture mapping).
 - The 136-byte trailer of `header` and the 6 flag bytes of each hole.

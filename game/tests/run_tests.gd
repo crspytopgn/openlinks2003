@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_run("object_library_chain", _test_object_library_chain)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("format_readers", _test_format_readers)
+	_run("course_reader", _test_course_reader)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	var scene: PackedScene = load("res://scenes/main.tscn")
@@ -72,6 +73,12 @@ func _club(short_name: String) -> Club:
 			return c
 	_check(false, "no club " + short_name)
 	return null
+
+
+func _test_course_reader() -> void:
+	var tests: RefCounted = load("res://tests/course_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
 
 
 func _test_format_readers() -> void:

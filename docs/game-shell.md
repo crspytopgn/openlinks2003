@@ -85,7 +85,14 @@ Nothing in the round needs to change.
   `HoleData` (par, tee, pin, route, placed objects) whose `terrain` is a
   `CourseTerrain`: `height_at(x, z)`, `surface_at(x, z)` returning a
   `Surface.Type`, and `build_visual()` for the mesh. Set
-  `GolfRound.course_path` to the course file.
+  `GolfRound.course_path` to the course file. `CrzCourseLoader`
+  (`course/crz_course_loader.gd`, registered by default) does this for the
+  game's own `.CRZ` and `.RNG` courses: it finds the cipher key in
+  `LINKSM_1.EXE` through `GameFolder`, keeps it in `user://crz_keys.cfg`,
+  and caches decoded terrain in `user://course_cache/`. Its `CrzTerrain`
+  takes heights from the course mesh and surfaces from the ground classes in
+  `TerrainTypes`; anywhere off the mesh is out of bounds. Hazard and OB
+  outlines (`Shapes`) and objects are not wired in yet.
 - **Objects:** subclass `ObjectLibrary` (`instantiate(id) -> Node3D`) and
   set `AssetProviders.object_library`. `PlacedObject.id` is whatever key the
   library understands. `DecodedObjectLibrary.open(game_folder)` (in

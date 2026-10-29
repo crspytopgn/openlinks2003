@@ -9,6 +9,9 @@ namespace {
 constexpr std::uint32_t kHeaderVersion = 15;
 constexpr std::uint32_t kTerrainVersion = 6;
 constexpr std::uint32_t kMaterialsVersion = 4;
+constexpr std::uint32_t kTerrainTypesVersion = 4;
+constexpr std::size_t kTerrainTypeSize = 243;
+constexpr std::size_t kGroundClassOffset = 0x54;
 constexpr std::size_t kTeesPerHole = 5;
 constexpr std::size_t kPinsPerHole = 18;
 constexpr std::size_t kAimPointsPerHole = 5;
@@ -182,6 +185,19 @@ std::vector<TerrainMaterial> parse_materials(const std::vector<std::uint8_t>& da
     m.kind = r.u32();
     r.u32();  // always 0
   }
+  return out;
+}
+
+std::vector<std::uint8_t> parse_ground_classes(const std::vector<std::uint8_t>& data) {
+  BinaryReader r(data);
+  std::uint32_t version = r.u32();
+  if (version != kTerrainTypesVersion) {
+    throw ReadError("terrain types version " + std::to_string(version) + " is not supported");
+  }
+  std::uint32_t count = r.u32();
+  if (count > r.remaining() / kTerrainTypeSize) throw ReadError("terrain types run past end of entry");
+  std::vector<std::uint8_t> out(count);
+  for (std::uint32_t i = 0; i < count; ++i) out[i] = data[8 + i * kTerrainTypeSize + kGroundClassOffset];
   return out;
 }
 
