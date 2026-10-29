@@ -7,7 +7,7 @@ extends ObjectLibrary
 ## `instantiate()` takes an object id from OBJECT.LIB as a decimal string, or
 ## a catalog file name such as "Tall Trees100.btx".
 
-var folder: GameFolder
+var folder: CaseInsensitiveDir
 var catalog: ObjectCatalog
 var _by_name := {}
 var _by_id := {}
@@ -17,7 +17,7 @@ var _meshes := {}
 
 ## Returns null if `game_folder` has no readable object.lib.
 static func open(game_folder: String) -> DecodedObjectLibrary:
-	var gf := GameFolder.new(game_folder)
+	var gf := CaseInsensitiveDir.new(game_folder)
 	var cat_data := ObjectCatalog.from_bytes(gf.read("object.lib"))
 	if cat_data == null:
 		return null

@@ -30,7 +30,17 @@ What the file holds and when the game loads it.
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.
 - [model.md](model.md): 3D objects (`.XYZ` meshes, `.CMF` textures).
+- [ls-archive.md](ls-archive.md): `LSls` archives (`.LS`, `.L3`, `.TIP`) and
+  their LZW compression. Complete.
+- [ssf.md](ssf.md): `.SSF` sound banks. Partial (voice conditions open).
+- [golfer-script.md](golfer-script.md): `SCRIPT.TXT` in golfer archives, the
+  animation state script. Complete.
+- [carrera-store.md](carrera-store.md): the object store behind `.SKL`
+  models and `.CLP` clips. Container complete, contents partial.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with
 `tools/cdimage/cdimage.py` and run `oldump --strings` against them.
+`tools/lsarchive/lsarchive.py` (or `oldump ls` / `oldump ssf`) unpacks
+archives and sound banks; `oldump store` lists what is in a `.SKL` or
+`.CLP`.

@@ -1,6 +1,6 @@
-class_name GameFolder
+class_name CaseInsensitiveDir
 extends RefCounted
-## The player's Links 2003 install folder (or a folder made with
+## A folder of the player's Links 2003 files (an install, or a folder made with
 ## `tools/cdimage/cdimage.py install`). File names in the game's data use
 ## any case and Windows separators, so lookups ignore case.
 

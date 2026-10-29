@@ -4,7 +4,6 @@ extends Node3D
 ## Object folder from your own install (or a folder made with
 ## `tools/cdimage/cdimage.py install`). Esc goes back to the range.
 
-const SETTINGS_PATH := "user://settings.cfg"
 const SCATTER_COUNT := 40
 const SCATTER_RADIUS := 40.0
 
@@ -24,10 +23,7 @@ var orbit_target := Vector3(0, 4, 0)
 func _ready() -> void:
 	_build_world()
 	_build_ui()
-	var start := _saved_folder()
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--game-folder="):
-			start = arg.trim_prefix("--game-folder=")
+	var start := GameFolder.configured_path()
 	path_edit.text = start
 	if OS.has_feature("web"):
 		_set_status("The object viewer needs a desktop build: browsers cannot read your game folder yet.")
@@ -122,18 +118,11 @@ func _set_status(text: String) -> void:
 	status.text = text
 
 
-func _saved_folder() -> String:
-	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) != OK:
-		return ""
-	return cfg.get_value("paths", "game_folder", "")
-
-
 func _save_folder(path: String) -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS_PATH)
-	cfg.set_value("paths", "game_folder", path)
-	cfg.save(SETTINGS_PATH)
+	cfg.load(GameFolder.SETTINGS_PATH)
+	cfg.set_value("game", "folder", path)
+	cfg.save(GameFolder.SETTINGS_PATH)
 
 
 func _load_folder(path: String) -> void:
