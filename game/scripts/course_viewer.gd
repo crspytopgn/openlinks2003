@@ -126,6 +126,11 @@ func _load_course(dir: String) -> void:
 	course_root.add_child(terrain)
 
 	var billboards := _load_billboards(dir, course.get("billboards", []))
+	var models_path := dir.path_join("models.bin")
+	if FileAccess.file_exists(models_path):
+		var models := CourseModels.read(FileAccess.get_file_as_bytes(models_path))
+		if not models.is_empty():
+			course_root.add_child(CourseModels.build(dir, models))
 
 	course_name = str(course.get("name", "Course"))
 	if billboards > 0:

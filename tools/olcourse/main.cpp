@@ -11,8 +11,9 @@
 // LinksMMIII.exe in an install): the cipher tables and key are read from it.
 // `export` writes course.json, terrain.bin and the terrain textures; the
 // standard textures (Rough01.tga and so on) come from STDTER_1.LIB on CD1.
-// It also writes the course's billboard objects: objects.bin and one sprite
-// per object type under textures/objects/.
+// It also writes the course's billboard objects (objects.bin, one sprite per
+// type under textures/objects/) and 3D objects (models.bin, textures under
+// textures/models/).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -296,6 +297,101 @@ BillboardExport export_billboards(const CrzArchive& crz, const fs::path& outdir)
   return result;
 }
 
+// models.bin: "OLMD", u32 version (1), u32 model count, then per model:
+// u32 surface count, and per surface: u32 length + texture path (relative to
+// the export), u32 vertex count, f32 x, y, z per vertex (model units, Godot
+// axes), f32 u, v per vertex, u32 index count, u32 indices. Then u32
+// placement count and per placement: u32 model, f32[12] transform (row-major
+// 3x4 basis and origin, model units to Godot metres).
+std::size_t export_models(const CrzArchive& crz, const fs::path& outdir) {
+  auto master = crz.find("MasterObj3D");
+  auto plants = crz.find("3DPlant");
+  auto refs_entry = crz.find("texture3dobj.t3l");
+  if (!master || !plants || !refs_entry) return 0;
+  auto models = parse_course_models(crz.read(*master));
+  auto placements = parse_model_placements(crz.read(*plants));
+  auto refs = parse_object_textures(crz.read(*refs_entry));
+
+  fs::create_directories(outdir / "textures" / "models");
+  std::map<std::string, std::string> written;  // "<maq>#<level>" -> file
+  std::map<std::string, std::vector<std::uint8_t>> maqs;
+  auto texture_file = [&](const std::string& maq, std::uint32_t level) -> std::string {
+    std::string key = to_lower(maq) + "#" + std::to_string(level);
+    auto it = written.find(key);
+    if (it != written.end()) return it->second;
+    std::string file;
+    try {
+      auto m = maqs.find(maq);
+      if (m == maqs.end()) {
+        auto e = crz.find(maq);
+        if (!e) throw std::runtime_error("not in the course");
+        m = maqs.emplace(maq, crz.read(*e)).first;
+      }
+      std::string stem = maq.size() > 4 ? maq.substr(0, maq.size() - 4) : maq;
+      file = "textures/models/" + safe_name(stem) + "_" + std::to_string(level) + ".tga";
+      write_file(outdir / file, encode_tga(decode_maq(m->second, level)));
+    } catch (const std::exception& ex) {
+      std::fprintf(stderr, "warning: %s level %u: %s\n", maq.c_str(), level, ex.what());
+      file.clear();
+    }
+    written[key] = file;
+    return file;
+  };
+
+  std::vector<std::uint8_t> bin = {'O', 'L', 'M', 'D'};
+  put<std::uint32_t>(bin, 1);
+  put<std::uint32_t>(bin, std::uint32_t(models.size()));
+  for (std::size_t k = 0; k < models.size(); ++k) {
+    auto surfaces = triangulate(models[k].model);
+    put<std::uint32_t>(bin, std::uint32_t(surfaces.size()));
+    for (const auto& surf : surfaces) {
+      std::string file;
+      if (k < refs.size() && surf.texture < refs[k].maq.size()) {
+        file = texture_file(refs[k].maq[surf.texture], refs[k].level[surf.texture]);
+      }
+      put<std::uint32_t>(bin, std::uint32_t(file.size()));
+      bin.insert(bin.end(), file.begin(), file.end());
+      const std::size_t n = surf.positions.size() / 3;
+      put<std::uint32_t>(bin, std::uint32_t(n));
+      for (std::size_t i = 0; i < n; ++i) {
+        // Course axes (z up) to Godot axes (y up): (x, y, z) -> (x, z, -y).
+        put<float>(bin, surf.positions[3 * i]);
+        put<float>(bin, surf.positions[3 * i + 2]);
+        put<float>(bin, -surf.positions[3 * i + 1]);
+      }
+      for (float f : surf.uvs) put<float>(bin, f);
+      put<std::uint32_t>(bin, std::uint32_t(surf.indices.size()));
+      for (std::uint32_t i : surf.indices) put<std::uint32_t>(bin, i);
+    }
+  }
+
+  std::vector<const ModelPlacement*> drawn;
+  for (const auto& p : placements) {
+    if (p.drawn() && p.model < models.size()) drawn.push_back(&p);
+  }
+  put<std::uint32_t>(bin, std::uint32_t(drawn.size()));
+  for (const ModelPlacement* p : drawn) {
+    // The placement is affine: find its origin and axes by placing points,
+    // then convert both sides to Godot axes. Model-space Godot axes are
+    // (x, z, -y) of the stored ones, so stored = (gx, -gz, gy).
+    auto o = place_point(*p, {0, 0, 0});
+    std::array<std::array<float, 3>, 3> columns;
+    const std::array<std::array<float, 3>, 3> unit_godot = {{{1, 0, 0}, {0, 0, 1}, {0, -1, 0}}};  // stored x, y, z of Godot x, y, z
+    for (int c = 0; c < 3; ++c) {
+      auto q = place_point(*p, unit_godot[c]);
+      columns[c] = to_godot({q.x - o.x, q.y - o.y, q.z - o.z});
+    }
+    auto origin = to_godot(o);
+    put<std::uint32_t>(bin, p->model);
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) put<float>(bin, columns[c][r]);
+      put<float>(bin, origin[r]);
+    }
+  }
+  write_file(outdir / "models.bin", bin);
+  return drawn.size();
+}
+
 int do_export(const CrzArchive& crz, const std::string& path, const std::vector<std::string>& libs,
               const fs::path& outdir) {
   Course course = load_any_course(crz, path);
@@ -384,13 +480,26 @@ int do_export(const CrzArchive& crz, const std::string& path, const std::vector<
     j += h + 1 < course.holes.size() ? ",\n" : "\n";
   }
   j += "  ]";
-  BillboardExport billboards = export_billboards(crz, outdir);
+  // Objects are optional: a course whose objects can't be read still exports.
+  BillboardExport billboards;
+  std::size_t model_count = 0;
+  try {
+    billboards = export_billboards(crz, outdir);
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: billboards skipped: %s\n", ex.what());
+  }
+  try {
+    model_count = export_models(crz, outdir);
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: 3D objects skipped: %s\n", ex.what());
+  }
   j += billboards.json + "\n}\n";
   write_file(outdir / "course.json", std::vector<std::uint8_t>(j.begin(), j.end()));
   write_file(outdir / "terrain.bin", build_terrain_bin(course.terrain));
-  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures, %zu billboards -> %s\n",
+  std::printf("%s: %zu holes, %zu vertices, %zu triangles, %zu textures, %zu billboards, %zu 3D objects -> %s\n",
               course.name.c_str(), course.holes.size(), course.terrain.vertices.size(),
-              course.terrain.triangles.size(), exported.size(), billboards.placements, outdir.string().c_str());
+              course.terrain.triangles.size(), exported.size(), billboards.placements, model_count,
+              outdir.string().c_str());
   return 0;
 }
 
