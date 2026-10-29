@@ -20,6 +20,8 @@ const HINT_WAIT := "Space or click: continue    Tab: scorecard"
 
 ## Course to load; empty plays the placeholder course.
 @export var course_path := ""
+## Set by the boot screen's course picker before it opens this scene.
+static var chosen_course := ""
 
 var state: State = State.AIM
 var course: CourseData
@@ -72,6 +74,8 @@ func _ready() -> void:
 
 
 func start_round() -> void:
+	if course_path.is_empty():
+		course_path = chosen_course
 	course = AssetProviders.load_course(course_path)
 	card = Scorecard.new(course.pars())
 	hud.scorecard.visible = false

@@ -25,6 +25,9 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Browser file import tests
+        if: runner.os == 'Linux'
+        run: node game/web/tests/test_game_files.mjs
       - name: Upload olcourse
         uses: actions/upload-artifact@v4
         with:

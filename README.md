@@ -49,6 +49,13 @@ The latest `main` build is published to
 **https://crspytopgn.github.io/openlinks2003/** (desktop Chrome, Firefox,
 Edge or Safari; needs WebGL 2).
 
+It plays with placeholder content out of the box. To use the real courses,
+textures, objects and sounds, choose **Load disc images** on the first screen
+and pick your own Links 2003 disc images (`.b6i` or `.iso`), or **Load a game
+folder** for an installed copy. The files are read and kept by your browser on
+your own computer (in IndexedDB); nothing is uploaded, and the site itself
+hosts no game data. Use **Forget stored files** to remove them.
+
 ## Download a build
 
 Every push to `main` builds the game for all three platforms. Open the
