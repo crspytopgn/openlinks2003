@@ -1,5 +1,6 @@
-// olcourse: open Links 2003 courses (.CRZ, also .RNG and .CVT) from your own
-// discs or install, and export them for the Godot course viewer.
+// olcourse: open Links 2003 courses (.CRZ, also .RNG) and the converted
+// Links LS courses (.CVT on CD2) from your own discs or install, and export
+// them for the Godot course viewer.
 //
 //   olcourse list    --exe <game exe> <course>
 //   olcourse info    --exe <game exe> <course>
@@ -26,6 +27,7 @@
 #include "olcore/binary_reader.hpp"
 #include "olcore/course.hpp"
 #include "olcore/crz.hpp"
+#include "olcore/cvt.hpp"
 #include "olcore/strings.hpp"
 
 namespace fs = std::filesystem;
@@ -66,6 +68,16 @@ std::unique_ptr<CrzArchive> open_course(const std::string& course, const std::st
     throw std::runtime_error(course + " is locked: pass --exe <game executable>");
   }
   return std::make_unique<CrzArchive>(std::move(data), keys ? &*keys : nullptr);
+}
+
+// Links 2003 courses and the converted Links LS courses (.CVT) share the
+// container but not the entry layouts.
+Course load_any_course(const CrzArchive& crz, const std::string& path) {
+  if (!is_converted_course(crz)) return load_course(crz);
+  Course c = load_converted_course(crz);
+  std::string title = converted_course_title(fs::path(path).stem().string());
+  if (!title.empty()) c.name = title;
+  return c;
 }
 
 // --- Minimal TGA reader, only to compute a texture's average colour ------
@@ -224,8 +236,9 @@ std::vector<std::uint8_t> build_terrain_bin(const Terrain& t) {
   return out;
 }
 
-int do_export(const CrzArchive& crz, const std::vector<std::string>& libs, const fs::path& outdir) {
-  Course course = load_course(crz);
+int do_export(const CrzArchive& crz, const std::string& path, const std::vector<std::string>& libs,
+              const fs::path& outdir) {
+  Course course = load_any_course(crz, path);
   fs::create_directories(outdir / "textures");
 
   std::vector<std::unique_ptr<Arc0Archive>> lib_archives;
@@ -344,7 +357,7 @@ int main(int argc, char** argv) {
         }
         return 0;
       }
-      Course c = load_course(*crz);
+      Course c = load_any_course(*crz, rest[0]);
       std::printf("%s\n%zu entries, terrain %zu vertices / %zu triangles, %zu materials, %zu textures\n",
                   c.name.c_str(), crz->entries().size(), c.terrain.vertices.size(), c.terrain.triangles.size(),
                   c.materials.size(), c.textures.size());
@@ -366,7 +379,7 @@ int main(int argc, char** argv) {
     }
     if (cmd == "export" && rest.size() == 2) {
       auto crz = open_course(rest[0], exe);
-      return do_export(*crz, libs, rest[1]);
+      return do_export(*crz, rest[0], libs, rest[1]);
     }
   } catch (const std::exception& ex) {
     std::fprintf(stderr, "error: %s\n", ex.what());

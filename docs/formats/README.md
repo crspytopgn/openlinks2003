@@ -39,6 +39,8 @@ What the file holds and when the game loads it.
   animation state script. Complete.
 - [carrera-store.md](carrera-store.md): the object store behind `.SKL`
   models and `.CLP` clips. Container, clips and skeleton complete; meshes open.
+- [cvt.md](cvt.md): the 39 converted Links LS courses (`.CVT`): older hole
+  and terrain versions and the terrain types.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with

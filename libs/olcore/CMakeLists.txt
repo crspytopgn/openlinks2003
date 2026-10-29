@@ -8,6 +8,7 @@ add_library(olcore STATIC
   src/crz.cpp
   src/carrera_store.cpp
   src/golfer_anim.cpp
+  src/cvt.cpp
   src/inflate.cpp
   src/ls_archive.cpp
   src/lzw.cpp
@@ -29,3 +30,7 @@ add_test(NAME olcore_tests COMMAND olcore_tests)
 add_executable(olcourse_tests tests/test_course.cpp)
 target_link_libraries(olcourse_tests PRIVATE olcore)
 add_test(NAME olcourse_tests COMMAND olcourse_tests)
+
+add_executable(olcvt_tests tests/test_cvt.cpp)
+target_link_libraries(olcvt_tests PRIVATE olcore)
+add_test(NAME olcvt_tests COMMAND olcvt_tests)
