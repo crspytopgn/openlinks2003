@@ -32,6 +32,7 @@ func _initialize() -> void:
 	_run("round_scoring", _test_round_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
+	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
 	_run("free_assets", _test_free_assets)
 	_run("web_game_files", _test_web_game_files)
@@ -405,6 +406,36 @@ func _test_placeholder_course() -> void:
 		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
 		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
 	_check(par == 36, "par 36")
+
+
+func _test_hd_pack() -> void:
+	_check(HdPack.key("terrain/cabo", "Sand 1A.tga") == "terrain/cabo__sand 1a", "course texture key")
+	_check(HdPack.key("billboards", "Tall Trees100A.btc") == "billboards/tall trees100a", "billboard key")
+	_check(HdPack.key("models/cabo", "Cabo 3D005_20") == "models/cabo__cabo 3d005_20", "model key")
+	_check(HdPack.key_for_file("Links 2003 HD/terrain/cabo__Sand 1A_upscayl_4x_remacri.png") == "terrain/cabo__sand 1a", "upscayl file name")
+	_check(HdPack.key_for_file("pack/golfers/eric/L_M03_FACE_01.png") == "golfers/eric__l_m03_face_01", "nested folders")
+	_check(HdPack.key_for_file("pack/hdpack.json").is_empty(), "not a texture")
+	# A 32 x 32 ground texture exported with its 16-pixel border, upscaled 4x.
+	var up := Image.create_empty(256, 256, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(up, Vector2i(32, 32), 16, true).get_size() == Vector2i(128, 128), "border trimmed")
+	var plain := Image.create_empty(1024, 1024, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(plain, Vector2i(256, 256), 16, true).get_size() == Vector2i(1024, 1024), "no border kept")
+	var sky := Image.create_empty(2 * (4800 + 128) / 8, 2 * 320 / 8, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(sky, Vector2i(600, 40), 8, false).get_size() == Vector2i(1200, 80), "sky border trimmed")
+	# A pack folder: the upscaled file is used, other textures stay as they were.
+	var dir := "user://test_hd_pack/terrain"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var big := Image.create_empty(80, 80, false, Image.FORMAT_RGB8)
+	big.fill(Color.RED)
+	big.save_png(dir.path_join("standard__Rough01_upscayl_2x_remacri.png"))
+	HdPack.override_path = ProjectSettings.globalize_path("user://test_hd_pack")
+	var original := Image.create_empty(8, 8, false, Image.FORMAT_RGB8)
+	var got := HdPack.replace("terrain/standard", "Rough01.tga", original)
+	_check(got.get_size() == Vector2i(16, 16), "upscaled texture loaded and trimmed: %s" % got.get_size())
+	_check(HdPack.replace("terrain/standard", "Fairway01.tga", original) == original, "missing texture keeps the original")
+	_check(HdPack.is_active(), "pack is active")
+	HdPack.override_path = ""
+	_check(not HdPack.is_active() or not HdPack.saved_enabled(), "pack off again")
 
 
 func _test_graphics_settings() -> void:

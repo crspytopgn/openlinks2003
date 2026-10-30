@@ -1,6 +1,7 @@
 // Minimal self-contained test runner so the core library has no dependencies.
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,7 @@
 #include "olcore/carrera_store.hpp"
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
+#include "olcore/image.hpp"
 #include "olcore/inflate.hpp"
 #include "olcore/links_flight.hpp"
 #include "olcore/ls_archive.hpp"
@@ -574,6 +576,81 @@ void test_block_runs_modes() {
     threw = true;
   }
   CHECK(threw);
+}
+
+void test_tga_rle_bottom_up() {
+  // 3 x 2, 24-bit RLE, bottom-left origin: bottom row a run of three blue
+  // pixels, top row three raw pixels (red, green, white).
+  std::vector<std::uint8_t> d(18, 0);
+  d[2] = 10;
+  d[12] = 3;
+  d[14] = 2;
+  d[16] = 24;
+  d.insert(d.end(), {0x82, 255, 0, 0});                                     // run of 3, B G R
+  d.insert(d.end(), {0x02, 0, 0, 255, 0, 255, 0, 255, 255, 255});        // 3 raw
+  auto img = decode_tga(d);
+  CHECK(img && img->width == 3 && img->height == 2);
+  if (!img) return;
+  CHECK(pixel(*img, 0, 0)[0] == 255 && pixel(*img, 0, 0)[2] == 0);  // red, top row
+  CHECK(pixel(*img, 1, 0)[1] == 255 && pixel(*img, 1, 0)[0] == 0);  // green
+  CHECK(pixel(*img, 2, 1)[2] == 255 && pixel(*img, 2, 1)[3] == 255);  // blue, bottom row
+  CHECK(!decode_tga(std::vector<std::uint8_t>(10, 0)));
+}
+
+std::uint32_t be32(const std::vector<std::uint8_t>& v, std::size_t at) {
+  return static_cast<std::uint32_t>(v[at]) << 24 | static_cast<std::uint32_t>(v[at + 1]) << 16 |
+         static_cast<std::uint32_t>(v[at + 2]) << 8 | v[at + 3];
+}
+
+void test_png_round_trip() {
+  RgbaImage img;
+  img.width = 37;
+  img.height = 11;
+  for (int i = 0; i < img.width * img.height; ++i)
+    img.pixels.insert(img.pixels.end(), {static_cast<std::uint8_t>(i * 7), static_cast<std::uint8_t>(i / 3), 200,
+                                         static_cast<std::uint8_t>(i % 5 ? 255 : 0)});
+  auto png = encode_png(img);
+  CHECK(png.size() > 33 && png[1] == 'P' && be32(png, 16) == 37 && be32(png, 20) == 11 && png[25] == 6);
+  // One IDAT right after IHDR: inflate it and undo the row filters.
+  std::uint32_t len = be32(png, 33);
+  CHECK(std::memcmp(&png[37], "IDAT", 4) == 0);
+  CHECK(crc32(&png[37], len + 4) == be32(png, 41 + len));
+  auto rows = zlib_decompress(&png[41], len);
+  const std::size_t stride = 37 * 4;
+  CHECK(rows.size() == 11 * (stride + 1));
+  std::vector<std::uint8_t> prev(stride, 0), out;
+  for (int y = 0; y < 11 && rows.size() == 11 * (stride + 1); ++y) {
+    const std::uint8_t* r = &rows[y * (stride + 1)];
+    std::vector<std::uint8_t> line(stride);
+    for (std::size_t k = 0; k < stride; ++k) {
+      int a = k >= 4 ? line[k - 4] : 0, b = prev[k], c = k >= 4 ? prev[k - 4] : 0;
+      int p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+      int pred = r[0] == 0 ? 0 : r[0] == 1 ? a : r[0] == 2 ? b : r[0] == 3 ? (a + b) / 2 : (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      line[k] = static_cast<std::uint8_t>(r[1 + k] + pred);
+    }
+    out.insert(out.end(), line.begin(), line.end());
+    prev = line;
+  }
+  // Transparent pixels keep their colour in the file.
+  CHECK(out == img.pixels);
+  // Long repeats compress.
+  std::vector<std::uint8_t> zeros(100000, 0);
+  auto z = zlib_compress(zeros.data(), zeros.size());
+  CHECK(z.size() < 2000 && zlib_decompress(z) == zeros);
+}
+
+void test_pad_and_bleed() {
+  RgbaImage img;
+  img.width = 2;
+  img.height = 2;
+  img.pixels = {10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 0};
+  RgbaImage p = pad_wrapped(img, 1);
+  CHECK(p.width == 4 && p.height == 4);
+  CHECK(pixel(p, 0, 0)[0] == 40 && pixel(p, 1, 1)[0] == 10 && pixel(p, 3, 3)[0] == 10);
+  RgbaImage q = pad_wrapped(img, 3, false);
+  CHECK(q.width == 8 && q.height == 2 && pixel(q, 0, 0)[0] == 20);
+  bleed_transparent(img);
+  CHECK(pixel(img, 1, 1)[0] == 20 && pixel(img, 1, 1)[3] == 0);  // mean of 10, 20, 30
 }
 
 void test_btcv_places_tiles_from_bottom() {
@@ -1351,6 +1428,9 @@ int main() {
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"panorama_tiles", test_panorama_tiles},
+      {"tga_rle_bottom_up", test_tga_rle_bottom_up},
+      {"png_round_trip", test_png_round_trip},
+      {"pad_and_bleed", test_pad_and_bleed},
       {"model_reads_tables", test_model_reads_tables},
       {"object_library_parses", test_object_library_parses},
       {"lzw_round_trip", test_lzw_round_trip},
