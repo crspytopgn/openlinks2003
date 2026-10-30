@@ -67,7 +67,8 @@ double turf_restitution(double normal_speed);
 
 // `start.position` is where the ball sits (bottom of the ball, on the
 // ground). A start with almost no speed off the ground, such as a putt,
-// begins rolling straight away.
+// begins rolling straight away. With p.links set the whole shot uses the
+// Links 2003 model instead (simulate_links_shot in links_ground.hpp).
 ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                          const ShotOptions& opt = {});
 

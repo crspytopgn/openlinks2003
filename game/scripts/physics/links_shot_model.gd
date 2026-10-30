@@ -1,8 +1,8 @@
 class_name LinksShotModel
 extends StandardShotModel
-## The stand-in model with the ball flight of Links 2003 (LinksAero), used
-## when the player's game folder has the executable. Launch, bounce and roll
-## are still the stand-in ones; see docs/formats/physics.md for what is left.
+## The ball flight (LinksAero), bounce and roll (LinksGround) of Links 2003,
+## used when the player's game folder has the executable. The launch is still
+## the stand-in one; see docs/formats/physics.md for what is left.
 
 var aero: LinksAero
 

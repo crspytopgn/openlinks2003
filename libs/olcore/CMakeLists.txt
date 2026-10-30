@@ -14,6 +14,7 @@ add_library(olcore STATIC
   src/cvt.cpp
   src/inflate.cpp
   src/links_flight.cpp
+  src/links_ground.cpp
   src/ls_archive.cpp
   src/lzw.cpp
   src/model.cpp

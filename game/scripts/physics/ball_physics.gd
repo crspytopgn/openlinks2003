@@ -147,9 +147,11 @@ static func hit_obstacle(s: BallState, hit: Dictionary) -> void:
 
 ## Mirrors olcore::simulate_shot: flight, bounces and roll over the terrain
 ## until the ball stops, drops, or finds water or out of bounds. `wind` acts
-## on the flight only, as in olcore. With `aero` the flight uses the Links 2003
-## model (olcore::BallParams::links).
+## on the flight only, as in olcore. With `aero` the whole shot uses the Links
+## 2003 model (olcore::BallParams::links and LinksGround.simulate_shot).
 static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := false, cup := Vector3.ZERO, wind := Vector3.ZERO, aero: LinksAero = null) -> ShotResult:
+	if aero != null:
+		return LinksGround.simulate_shot(start, terrain, has_cup, cup, wind, aero)
 	var r := ShotResult.new()
 	var s := start.copy()
 	var t := 0.0
