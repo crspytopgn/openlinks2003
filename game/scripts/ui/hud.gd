@@ -8,6 +8,9 @@ var hint: Label
 var meter: SwingMeter
 var wind: WindIndicator
 var scorecard: ScorecardPanel
+## With the player's own interface art: one chrome bar per line of `info`.
+var art: HudArt
+var _bars: Array[InfoBar] = []
 
 var _message_time := 0.0
 
@@ -43,7 +46,21 @@ func _ready() -> void:
 	add_child(scorecard)
 
 
+## Switches to the original's interface pieces from the player's files.
+func use_art(hud_art: HudArt) -> void:
+	art = hud_art
+	if art == null:
+		return
+	info.visible = false
+	meter.art = art
+	var want := meter.wanted_size()
+	_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
+	meter.queue_redraw()
+
+
 func _process(delta: float) -> void:
+	if art != null:
+		_update_bars()
 	if _message_time > 0.0:
 		_message_time -= delta
 		if _message_time <= 0.0:
@@ -75,3 +92,17 @@ func _label(font_size: int) -> Label:
 	l.add_theme_constant_override("outline_size", 5)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+func _update_bars() -> void:
+	var lines := info.text.split("\n", false)
+	while _bars.size() < lines.size():
+		var bar := InfoBar.new(art)
+		bar.position = Vector2(8, 6 + _bars.size() * (bar.size.y - 10.0))
+		add_child(bar)
+		move_child(bar, 0)
+		_bars.append(bar)
+	for i in _bars.size():
+		_bars[i].visible = i < lines.size()
+		if i < lines.size():
+			_bars[i].text = lines[i].strip_edges()

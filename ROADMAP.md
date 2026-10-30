@@ -48,6 +48,12 @@ feel) still need a working install.
 ## Phase 3: look and sound
 
 - [ ] Textures and skies **(unblocked: `STDTER_1.LIB`, `PANSKY.LIB`, `BTCV` sprites, patch `.sky` files)**
+  - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
+  - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
+  - [ ] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks); `.SHA` shadow maps
+- [ ] In-play interface from `GRAPHICS.LS`
+  - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
+  - [ ] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, club icons, wind and lie windows, the game's own fonts (`.D3F`)
 - [ ] Golfer models and animation **(unblocked: `POLYANI/*.L3` with `.CLP` clips; probably the hardest format)**
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
@@ -55,7 +61,8 @@ feel) still need a working install.
   - [ ] Iron and wedge clubs, lie-specific clips, the low-detail model, shirt and pants choices
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
-  - [ ] Voice event conditions, commentary, ambient and menu sounds wired into the game
+  - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
+  - [ ] Voice event conditions, commentary and menu sounds wired into the game
 
 ## Phase 4: the full game
 

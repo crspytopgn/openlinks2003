@@ -5,7 +5,9 @@ extends CourseTerrain
 ## CrzCourseLoader; all holes of a course share one.
 
 const CELL := 8.0  ## metres per side of a lookup grid cell
-const TILE_METRES := 6.0  ## how far one repeat of a ground texture spans
+## How far one repeat of a ground texture spans: 12 feet, the scale of the
+## courses' "Default Planar" texture mapping (docs/formats/crz.md).
+const TILE_METRES := 12.0 * 0.3048
 
 ## Ground class (see olcore::parse_ground_classes) to how the ball plays.
 const CLASS_SURFACE := {

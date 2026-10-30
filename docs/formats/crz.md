@@ -125,10 +125,10 @@ different textures and sounds.
 |-------|---------------|--------|
 | `newformat` | Text `V.2.0` | |
 | `*.btc` (about 860) | `BTCV` billboard sprites for the course's objects, five sizes each | [btcv.md](btcv.md) |
-| `Panorama.prv`, `Panorama` | Panoramic sky (`pan` / `tpme` / `desu` tags) | Not decoded |
+| `Panorama.prv`, `Panorama` | The course's horizon panorama and a TGA preview of it | Decoded ([panorama.md](panorama.md)) |
 | `Flag.tga`, `Logo.tga`, `Tee0..4.tga` | Flag, course logo and tee marker textures | Standard TGA |
 | `Splash0.jpg`, `Splash1.jpg`, `Holprv00..17.jpg` | Loading screens and the 298 x 500 hole preview cards | Standard JPEG |
-| `*.wav` | Ambient sound loops (ADPCM WAV) | Standard |
+| `*.wav` | Ambient sounds (MS ADPCM WAV, 44.1 kHz stereo) | Standard |
 | `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Ground class decoded, below |
 | `LieIcons` | 4 bytes | |
 | `Materials` | Terrain materials (below) | Decoded |
@@ -138,11 +138,11 @@ different textures and sounds.
 | `vertex` (encrypted) | Terrain mesh (below) | Decoded |
 | `Water` | 104 bytes | Not decoded |
 | `RayEngine` | Spatial index over the terrain for ray casts: a header, a bounding box, one min corner and one max corner per node (129,123 nodes), then node lists | Partly understood |
-| `Mappings` | Texture projections (`Default Planar` and others, with scale values) | Not decoded |
+| `Mappings` | Texture projections (`Default Planar`, per-hole fairway planars and others) | Not decoded; `Default Planar` repeats a texture every 12 feet |
 | `Shapes` | The course's area outlines as closed cubic Bezier splines (below) | Decoded, not yet used |
 | `HoleIDShapes` | One outline per hole: the hole's boundary | Same format as `Shapes` |
 | `BugIDShapes` | A few outlines | Same format as `Shapes` |
-| `EnvSound` | Ambient sound emitters and their WAV names | Not decoded |
+| `EnvSound` | Ambient sound kinds, their WAV names, and emitters placed round the course | Decoded (below) |
 | `MasterObj`, `MasterObj3D` | The course's billboard types and 3D object meshes | Decoded ([course-objects.md](course-objects.md)) |
 | `*.maq` (stored) | Paletted textures with mip levels for 3D objects | Decoded ([course-objects.md](course-objects.md)) |
 | `texture3dobj.t3l`, `ObjectCull.dat` | 3D object textures and visibility | `.t3l` decoded ([course-objects.md](course-objects.md)); `ObjectCull.dat` not |
@@ -262,6 +262,23 @@ ball plays off it:
 These were matched against the type names in all six CD2 courses. The
 physics values are not decoded yet; the game maps the classes onto its own
 surface table for now.
+
+### `EnvSound`: ambient sounds
+
+A u32 count of sound kinds. Each kind: a u32 length and that many bytes of
+NUL-terminated name (`GE Amb01`), a u32 (the kind's own index), a u32 file
+count, then for each file a u32 length and a NUL-terminated WAV name, an
+entry in the same course.
+
+Then a u32 emitter count and 36 bytes per emitter: `u32 kind`, `f32 x, y, z`
+(feet), an f32 that is 29997 for the long ambient loops and 29994 for the
+short one-off sounds (so it seems to mark looping), `f32 radius` (75 or 90
+feet), `f32 volume` (0.2 or 0.3) and two f32 zeros. Gleneagles has 27 kinds
+(14 ambient loops, 11 short sounds, a distant train and gunshots) and 48
+emitters, two or three round each hole. Four bytes follow the last emitter.
+
+`CourseAmbience` (`game/scripts/audio/course_ambience.gd`) plays the
+nearest loop for each hole.
 
 ## Open questions
 
