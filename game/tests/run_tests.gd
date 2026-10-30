@@ -38,10 +38,13 @@ func _initialize() -> void:
 	_run("free_assets", _test_free_assets)
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
+	_run("free_golfer", _test_free_golfer)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
+	# Fixed wind, so the shots (and what the camera sees) are the same every run.
+	GolfRound.wind_seed = 20031
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
@@ -722,6 +725,22 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
+
+
+## The MakeHuman golfer used without the original files.
+func _test_free_golfer() -> void:
+	var golfer := FreeGolfer.create()
+	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
+	if golfer == null:
+		return
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate"]:
+		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
+	var made := PlaceholderGolferAssets.new().create_golfer()
+	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
+	made.free()
+	golfer.play(&"putt")
+	golfer.play(&"address")
+	golfer.free()
 
 
 ## Hot-seat rounds through the real round: skins over the front nine for three

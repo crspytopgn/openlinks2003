@@ -42,6 +42,9 @@ static var chosen_course := ""
 ## Set by the round setup menu; null plays one player, stroke play, on
 ## `course_path` or `chosen_course`.
 static var setup: RoundSetup
+## Seeds the wind; 0 gives different conditions each round. Tests set it so
+## their rounds play the same way every run.
+static var wind_seed := 0
 
 var state: State = State.AIM
 var course: CourseData
@@ -142,7 +145,7 @@ func start_round() -> void:
 		ambience = CourseAmbience.create(course.read_entry)
 		if ambience != null:
 			add_child(ambience)
-	wind = Wind.new(graphics.wind)
+	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
 	start_hole(0)
 
