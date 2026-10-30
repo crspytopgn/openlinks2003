@@ -40,6 +40,7 @@ var shot_time := 0.0
 var result_timer := 0.0
 
 var shot_model: ShotModel
+var wind: Wind
 var sounds: SoundBank
 var hud: Hud
 var camera: Camera3D
@@ -78,6 +79,7 @@ func start_round() -> void:
 		course_path = chosen_course
 	course = AssetProviders.load_course(course_path)
 	card = Scorecard.new(course.pars())
+	wind = Wind.new(graphics.wind)
 	hud.scorecard.visible = false
 	start_hole(0)
 
@@ -107,6 +109,7 @@ func start_hole(index: int) -> void:
 	hole_root.add_child(golfer)
 
 	strokes = 0
+	wind.start_hole()
 	ball_at = hole.tee
 	ball.visible = true
 	_clear_trail()
@@ -124,7 +127,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
-	shot = shot_model.simulate(start, hole.terrain, hole.pin)
+	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
+	wind.next_shot()
 	shot_time = 0.0
 	aim_marker.visible = false
 	hud.show_message("")
@@ -289,6 +293,7 @@ func _process_aim(delta: float) -> void:
 	aim_deg = wrapf(aim_deg + turn * rate * delta, -180.0, 180.0)
 	_place_golfer()
 	_update_aim_marker()
+	_update_hud()
 	_aim_camera(false)
 
 
@@ -488,6 +493,10 @@ func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
 	scenery.apply(graphics)
 	camera.fov = graphics.fov
+	if wind != null:
+		wind.set_level(graphics.wind)
+		if hole != null:
+			_update_hud()
 
 
 func _add_flag() -> void:
@@ -599,12 +608,13 @@ func _update_hud() -> void:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
-	hud.info.text = "%s    Hole %d    Par %d    %d yd\nStroke %d    To pin %s    Lie: %s\nClub: %s    Wind: calm\nRound: %s thru %d" % [
+	hud.info.text = "%s    Hole %d    Par %d    %d yd\nStroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
 		course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE),
 		strokes + 1, pin_text, Surface.name_of(lie),
-		club_text,
+		club_text, wind.describe(aim_deg),
 		total, thru,
 	]
+	hud.wind.show_wind(wind, aim_deg)
 
 
 func _clear_trail() -> void:

@@ -38,6 +38,9 @@ What the file holds and when the game loads it.
 - [ls-archive.md](ls-archive.md): `LSls` archives (`.LS`, `.L3`, `.TIP`) and
   their LZW compression. Complete.
 - [ssf.md](ssf.md): `.SSF` sound banks. Partial (voice conditions open).
+- [physics.md](physics.md): the ball physics in the executable: units, the
+  flight model and its coefficient tables, per-surface values, launch
+  tables. Partial (flight complete).
 - [golfer-script.md](golfer-script.md): `SCRIPT.TXT` in golfer archives, the
   animation state script. Complete.
 - [carrera-store.md](carrera-store.md): the object store behind `.SKL`

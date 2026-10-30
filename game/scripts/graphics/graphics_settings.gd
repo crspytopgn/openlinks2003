@@ -1,13 +1,14 @@
 class_name GraphicsSettings
 extends RefCounted
 ## Display and quality settings, saved to user://settings.cfg under
-## [graphics]. Other sections of that file (such as the game folder) are left
-## alone.
+## [graphics], plus the wind strength under [game]. Other sections of that
+## file (such as the game folder) are left alone.
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 
 const PATH := "user://settings.cfg"
 const SECTION := "graphics"
+const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
 const MSAA_CHOICES := [0, 2, 4, 8]
 const RENDER_SCALES := [0.5, 0.75, 1.0, 1.25, 1.5]
@@ -18,6 +19,7 @@ var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
 var fov := 60.0  ## vertical field of view, degrees
+var wind: int = Wind.Level.MODERATE
 
 
 func _init() -> void:
@@ -40,6 +42,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.msaa = samples if MSAA_CHOICES.has(samples) else s.msaa
 	s.render_scale = clampf(float(cfg.get_value(SECTION, "render_scale", s.render_scale)), 0.25, 2.0)
 	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
+	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
 	return s
 
 
@@ -52,6 +55,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "msaa", msaa)
 	cfg.set_value(SECTION, "render_scale", render_scale)
 	cfg.set_value(SECTION, "fov", fov)
+	cfg.set_value(GAME_SECTION, "wind", wind)
 	var err := cfg.save(path)
 	if err != OK:
 		push_warning("Could not save graphics settings to %s (error %d)" % [path, err])

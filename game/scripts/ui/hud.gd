@@ -6,6 +6,7 @@ var info: Label
 var message: Label
 var hint: Label
 var meter: SwingMeter
+var wind: WindIndicator
 var scorecard: ScorecardPanel
 
 var _message_time := 0.0
@@ -28,6 +29,10 @@ func _ready() -> void:
 	hint = _label(16)
 	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -34, 900, 26))
 	add_child(hint)
+
+	wind = WindIndicator.new()
+	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 12, 90, 112))
+	add_child(wind)
 
 	meter = SwingMeter.new()
 	_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))

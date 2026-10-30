@@ -48,9 +48,12 @@ static func make_launch(speed: float, launch_deg: float, azimuth_deg: float, bac
 
 
 ## Mirrors olcore::acceleration: gravity, spin-dependent drag, Magnus lift.
-static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
+## `wind` is the velocity of the air (olcore::BallParams::wind); drag and lift
+## act on the ball's velocity through it.
+static func acceleration(vel: Vector3, spin: Vector3, wind := Vector3.ZERO) -> Vector3:
 	var a := Vector3(0.0, -GRAVITY, 0.0)
-	var speed := vel.length()
+	var air := vel - wind
+	var speed := air.length()
 	if speed < 1e-9:
 		return a
 	var area := PI * RADIUS * RADIUS
@@ -58,8 +61,8 @@ static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
 	var spin_rate := spin.length()
 	var spin_ratio := RADIUS * spin_rate / speed
 	var cd := DRAG_COEFFICIENT + DRAG_SPIN_FACTOR * spin_ratio
-	a += vel * (-q * cd / (MASS * speed))
-	var wxv := spin.cross(vel)
+	a += air * (-q * cd / (MASS * speed))
+	var wxv := spin.cross(air)
 	var wxv_len := wxv.length()
 	if wxv_len > 1e-9 and spin_rate > 1e-9:
 		var cl := clampf(-0.05 + sqrt(0.0025 + 0.36 * spin_ratio), 0.0, 0.35)
@@ -67,16 +70,18 @@ static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
 	return a
 
 
-## Mirrors olcore::step_flight (RK4).
-static func step_flight(s: BallState, dt: float) -> BallState:
+## Mirrors olcore::step_flight (RK4, or the game's own step with `aero`).
+static func step_flight(s: BallState, dt: float, wind := Vector3.ZERO, aero: LinksAero = null) -> BallState:
+	if aero != null:
+		return aero.step_flight(s, dt, wind)
 	var v1 := s.velocity
-	var a1 := acceleration(v1, s.spin)
+	var a1 := acceleration(v1, s.spin, wind)
 	var v2 := s.velocity + a1 * (dt / 2.0)
-	var a2 := acceleration(v2, s.spin)
+	var a2 := acceleration(v2, s.spin, wind)
 	var v3 := s.velocity + a2 * (dt / 2.0)
-	var a3 := acceleration(v3, s.spin)
+	var a3 := acceleration(v3, s.spin, wind)
 	var v4 := s.velocity + a3 * dt
-	var a4 := acceleration(v4, s.spin)
+	var a4 := acceleration(v4, s.spin, wind)
 	var out := BallState.new()
 	out.position = s.position + (v1 + v2 * 2.0 + v3 * 2.0 + v4) * (dt / 6.0)
 	out.velocity = s.velocity + (a1 + a2 * 2.0 + a3 * 2.0 + a4) * (dt / 6.0)
@@ -141,8 +146,10 @@ static func hit_obstacle(s: BallState, hit: Dictionary) -> void:
 
 
 ## Mirrors olcore::simulate_shot: flight, bounces and roll over the terrain
-## until the ball stops, drops, or finds water or out of bounds.
-static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := false, cup := Vector3.ZERO) -> ShotResult:
+## until the ball stops, drops, or finds water or out of bounds. `wind` acts
+## on the flight only, as in olcore. With `aero` the flight uses the Links 2003
+## model (olcore::BallParams::links).
+static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := false, cup := Vector3.ZERO, wind := Vector3.ZERO, aero: LinksAero = null) -> ShotResult:
 	var r := ShotResult.new()
 	var s := start.copy()
 	var t := 0.0
@@ -159,7 +166,7 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 
 	while t < MAX_TIME:
 		if not rolling:
-			var nxt := step_flight(s, DT)
+			var nxt := step_flight(s, DT, wind, aero)
 			var h0 := s.position.y - terrain.height_at(s.position.x, s.position.z)
 			var h1 := nxt.position.y - terrain.height_at(nxt.position.x, nxt.position.z)
 			t += DT
