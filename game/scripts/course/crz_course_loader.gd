@@ -364,6 +364,9 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		var pin: Vector3 = pins[0]
 		hole.tee = Vector3(tee.x, terrain.height_at(tee.x, tee.z), tee.z)
 		hole.pin = Vector3(pin.x, terrain.height_at(pin.x, pin.z), pin.z)
+		for t: Dictionary in tees:
+			var at: Vector3 = t.position
+			hole.tees.append(Vector3(at.x, terrain.height_at(at.x, at.z), at.z))
 		# The aim points run from the tee to the green; skip the tee itself.
 		for p in h.aim as Array:
 			var q := Vector2(p.x, p.z)
