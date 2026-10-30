@@ -14,6 +14,7 @@ func run_all() -> Array[String]:
 	_test_model()
 	_test_course_billboards()
 	_test_course_models()
+	_test_course_objects()
 	return failures
 
 
@@ -24,7 +25,8 @@ func check(cond: bool, what: String) -> void:
 
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/object_viewer.gd", "res://scripts/assets/decoded_object_library.gd",
-			"res://scripts/course_viewer.gd", "res://scripts/course/course_models.gd"]:
+			"res://scripts/course_viewer.gd", "res://scripts/course/course_models.gd",
+			"res://scripts/course/crz_course_loader.gd", "res://scripts/main.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -278,4 +280,162 @@ func _test_course_models() -> void:
 	var node := root.get_child(0) as MeshInstance3D
 	check(node.mesh.get_surface_count() == 1, "models: mesh built")
 	check(is_equal_approx(node.position.x, 10.0), "models: placed")
+	root.free()
+
+
+## A `MasterObj` with one type, "Tall Trees001", aspect 0.5.
+func _master_obj() -> PackedByteArray:
+	var b := PackedByteArray()
+	b.resize(0xE0)
+	b.fill(0)
+	b.encode_u32(0, 0xE0)
+	b.encode_u32(4, 0x80)
+	b.encode_u32(8, 1)
+	b.encode_u32(12, 0x40)
+	b.encode_u32(0x40, 0x50)  # type table -> type record
+	b.encode_u32(0x50, 64)
+	b.encode_u32(0x54, 128)
+	b.encode_u32(0x58, 1)  # one level
+	b.encode_u32(0x5C, 0x90)  # level list
+	b.encode_float(0x50 + 0x18, 0.5)
+	b.encode_u32(0x98, 0xA0)  # level -> sprite descriptor width field
+	b.encode_u32(0xA0 + 12, 0xC0)  # first tile record
+	var name := "Tall Trees001A.btc".to_ascii_buffer()
+	for i in name.size():
+		b[0xC0 + i] = name[i]
+	return b
+
+
+func _test_course_objects() -> void:
+	# 2DPlant: one cell at (64, 128) ft, base 10 ft, then a second cell.
+	var plant := PackedByteArray()
+	plant.append_array("2JBO".to_ascii_buffer())
+	put_u32(plant, 2)
+	put_u32(plant, 3)
+	while plant.size() < 0x40:
+		plant.append(0)
+	put_u16(plant, 0xFFFF)
+	for v in [64.0, 128.0, 10.0]:
+		put_f32(plant, v)
+	put_u16(plant, 0)
+	put_u32(plant, 5 | 0x20000000 | 0x40000000)  # both extra fields
+	plant.append(7)
+	put_u16(plant, 99)
+	for v in [16, 32, 0x10000 - 16, 160]:  # x 1 ft, y 2 ft, z -1 ft, height 10 ft
+		put_u16(plant, v)
+	put_u16(plant, 0)
+	put_u32(plant, 6)
+	for v in [0, 0, 0, 8]:
+		put_u16(plant, v)
+	put_u16(plant, 0xFFFF)
+	for v in [0.0, 0.0, 0.0]:
+		put_f32(plant, v)
+	put_u16(plant, 0)
+	put_u32(plant, 7)
+	for v in [160, 0, 0, 320]:
+		put_u16(plant, v)
+	var placed := CourseObjects.parse_billboard_placements(plant)
+	check(not placed.is_empty(), "objects: 2DPlant parses")
+	if placed.is_empty():
+		return
+	var xyzh: PackedFloat32Array = placed.xyzh
+	check(xyzh.size() == 12, "objects: three placements")
+	var f := CourseObjects.FEET
+	check(Vector3(xyzh[0], xyzh[1], xyzh[2]).distance_to(Vector3(65, 9, -130) * f) < 1e-4, "objects: placement in Godot metres")
+	check(is_equal_approx(xyzh[3], 10 * f), "objects: placement height")
+	check(CourseObjects.parse_billboard_placements(plant.slice(0, plant.size() - 2)).is_empty(), "objects: truncated 2DPlant rejected")
+
+	var types := CourseObjects.parse_billboard_types(_master_obj())
+	check(types.size() == 1 and types[0].name == "Tall Trees001" and types[0].sprite == "Tall Trees001A.btc", "objects: MasterObj type name")
+	check(types.size() == 1 and is_equal_approx(types[0].aspect, 0.5), "objects: MasterObj aspect")
+
+	# TrnyPlant: a cell, then a spectator with an extra byte.
+	var crowd := PackedByteArray()
+	put_u32(crowd, 2)
+	put_u32(crowd, 1)
+	while crowd.size() < 0x40:
+		crowd.append(0)
+	crowd.append(0xFF)
+	for v in [64.0, 0.0, 0.0]:
+		put_f32(crowd, v)
+	crowd.append(1)
+	put_u32(crowd, 3 | 0x20000000)
+	crowd.append(9)
+	for v in [16, 16, 0]:
+		put_u16(crowd, v)
+	var people := CourseObjects.parse_crowd_placements(crowd)
+	check(not people.is_empty() and people.kind[0] == 1 and people.instance[0] == 3, "objects: TrnyPlant kind and instance")
+	check(not people.is_empty() and is_equal_approx(people.xyz[0], 65 * f), "objects: TrnyPlant position")
+
+	# place_point: scale, z offset, then a quarter turn about z.
+	var p := {"position": Vector3(100, 200, 5), "z_offset": 2.0, "scale": Vector3(2, 2, 2), "yaw": PI / 2, "pitch": 0.0}
+	check(CourseObjects.place_point(p, Vector3(1, 0, 0)).distance_to(Vector3(100, 202, 9)) < 1e-4, "objects: place_point")
+
+	# .maq: one 2x1 level, colour 1 is blue 10, green 20, red 30.
+	var maq := PackedByteArray()
+	maq.resize(16 + 36 + 1024 + 2)
+	maq.fill(0)
+	maq.encode_u32(4, 1)
+	maq.encode_u32(8, 1)
+	maq.encode_u32(12, 16)
+	maq.encode_u32(16, 2)
+	maq.encode_u32(20, 1)
+	maq.encode_u32(24, 8)
+	maq.encode_u32(16 + 28, 52)
+	maq.encode_u32(16 + 32, 52 + 1024)
+	for i in 4:
+		maq[52 + 4 + i] = [10, 20, 30, 255][i]
+	maq[52 + 1024] = 1
+	var img := CourseObjects.decode_maq(maq, 0)
+	check(img != null and img.get_size() == Vector2i(2, 1), "objects: maq size")
+	if img != null:
+		var c := img.get_pixel(0, 0)
+		check(c.r8 == 30 and c.g8 == 20 and c.b8 == 10, "objects: maq palette is BGRA")
+
+	check(CourseObjects.plant_shape("Tall Trees212") == 1 and CourseObjects.plant_shape("Evergreens004") == 2, "objects: tree shapes")
+	check(CourseObjects.plant_shape("Bushes156") == 3 and CourseObjects.plant_shape("Rocks027") == 4, "objects: bush and rock shapes")
+	check(CourseObjects.plant_shape("Grasses113") == 0, "objects: grass lets the ball through")
+	check(CourseObjects.height_class(0.3) == 0 and CourseObjects.height_class(10.0) == 3, "objects: height classes")
+
+	# The whole thing from an archive with no sprites: all three placements
+	# are the tree type.
+	var entries := {"masterobj": _master_obj(), "2dplant": plant}
+	var read := func(n: String) -> PackedByteArray: return entries.get(n.to_lower(), PackedByteArray())
+	var decoded := CourseObjects.decode(read)
+	check(not decoded.is_empty(), "objects: decode")
+	if decoded.is_empty():
+		return
+	var objects := CourseObjects.build(read, decoded)
+	# The 0.15 m plant (height 8/16 ft) is too small to stop the ball; the
+	# other two each get a trunk and a canopy.
+	check(objects.obstacles.size() == 4, "objects: trunk and canopy per tree (%d)" % objects.obstacles.size())
+	var base := Vector3(xyzh[0], xyzh[1], xyzh[2])
+	var hit := objects.obstacles.segment_hit(base + Vector3(0, 0.5, -3), base + Vector3(0, 0.5, 3))
+	check(not hit.is_empty() and int(hit.kind) == ObstacleField.Kind.SOLID, "objects: trunk blocks the ball")
+	hit = objects.obstacles.segment_hit(base + Vector3(0, 2.5, -3), base + Vector3(0, 2.5, 3))
+	check(not hit.is_empty() and int(hit.kind) == ObstacleField.Kind.CANOPY, "objects: canopy higher up")
+
+	var hole := HoleData.new()
+	hole.tee = base
+	hole.pin = base + Vector3(0, 0, 50)
+	var root := objects.build_visual(hole)
+	var instances := 0
+	var tall: MultiMeshInstance3D = null
+	for child in root.get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null:
+			instances += mmi.multimesh.instance_count
+			if is_zero_approx(mmi.visibility_range_end):
+				tall = mmi
+	check(instances == 3, "objects: every placement drawn (%d)" % instances)
+	check(tall != null, "objects: the 20 ft tree is always drawn")
+	if tall != null:
+		# The headless renderer keeps no MultiMesh data; check the buffer built.
+		var buffer: PackedFloat32Array = tall.multimesh.get_meta("buffer")
+		check(buffer.size() == 16, "objects: 16 floats per instance")
+		check(is_equal_approx(buffer[5], 20 * f) and is_equal_approx(buffer[0], 10 * f), "objects: scaled by height and aspect")
+		var rect := objects.plants.rects
+		check(is_equal_approx(buffer[12], rect[0]) and is_equal_approx(buffer[15], rect[3]), "objects: atlas rectangle as custom data")
+		var world := tall.position + Vector3(buffer[3], buffer[7], buffer[11])
+		check(world.distance_to(Vector3(10 * f, 0, 0)) < 1e-3, "objects: chunk offset restored")
 	root.free()

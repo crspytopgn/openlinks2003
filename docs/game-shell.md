@@ -41,11 +41,14 @@ game/scripts/
     ball_physics.gd             BallPhysics: GDScript port of olcore ball_physics + shot
     swing.gd, club.gd           Swing-meter-to-launch mapping and the club table
     surface.gd                  Surface types and per-surface constants
+    obstacle_field.gd           ObstacleField: trunks, canopies and walls (port of olcore/obstacles)
     ball_state.gd, shot_result.gd, flat_terrain.gd
   course/
     course_loader.gd            CourseLoader: interface for the .CRZ decoder
     course_data.gd, hole_data.gd, placed_object.gd
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
+    course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
+                                drawn per hole and turned into obstacles
     placeholder_*.gd            The procedural nine-hole stand-in course
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
@@ -170,6 +173,11 @@ GDScript in `game/scripts/physics/ball_physics.gd`:
   without slipping, which is what checks a wedge on the green.
 - **Roll:** 5/7 g along the slope for a rolling solid sphere, plus rolling
   resistance per surface. Green resistance gives roughly a Stimp 10 green.
+- **Obstacles:** `CourseTerrain.obstacle_hit()` (`Terrain::obstacle_hit` in
+  C++) reports the first trunk, canopy or wall a flight or roll step enters.
+  A solid keeps 35% of the speed into its face and 75% along it; a canopy
+  keeps 20% and drops the ball; a ball that settles on a flat top (a wall,
+  a bridge) stays there. Rolling balls ignore canopies.
 - **Clubs:** tour-average launch monitor data (ball speed, launch angle,
   spin) for driver to pitching wedge; wedges and putter are estimates.
 
@@ -180,5 +188,5 @@ together.
 
 ## Not done yet
 
-Wind, trees and other objects the ball can hit, lie-specific animations,
+Wind, lie-specific animations,
 camera styles from the original, menus, and the real-time mouse swing.

@@ -91,6 +91,8 @@ func start_hole(index: int) -> void:
 	hole_root.name = "Hole%d" % hole.number
 	add_child(hole_root)
 	hole_root.add_child(hole.terrain.build_visual())
+	if course.objects != null:
+		hole_root.add_child(course.objects.build_visual(hole))
 	for o in hole.objects:
 		var node := AssetProviders.object_library.instantiate(o.id)
 		if node == null:

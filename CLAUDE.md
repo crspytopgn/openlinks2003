@@ -17,13 +17,16 @@ and don't start a "(needs data)" item on guesses.
 - Until GDExtension lands, `game/scripts/physics/` holds a GDScript port of
   `libs/olcore` (`ball_physics.cpp`, `shot.cpp`, `swing.cpp`, `scoring.cpp`).
   Change both together; `game/tests/run_tests.gd` checks the port against
-  numbers printed by the C++ tests.
+  numbers printed by the C++ tests. `obstacle_field.gd` ports
+  `obstacles.cpp` the same way.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
   (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
   `ShotModel`), registered with `AssetProviders`.
 - `game/scripts/audio/ssf_bank.gd` (`ssf.cpp`, `wav.cpp`) and
   `game/scripts/data/` (`ls_archive.cpp`, `lzw.cpp`, `carrera_store.cpp`,
-  `golfer_anim.cpp`, `golfer_mesh.cpp`) are GDScript ports; change both sides together.
+  `golfer_anim.cpp`, `golfer_mesh.cpp`) are GDScript ports; change both sides
+  together. So are the parsers in `game/scripts/course/course_objects.gd`
+  (`course_objects.cpp`).
 
 ## Checks before pushing
 
