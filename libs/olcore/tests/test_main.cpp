@@ -16,6 +16,7 @@
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/inflate.hpp"
+#include "olcore/links_flight.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
@@ -1151,6 +1152,102 @@ void test_skinned_mesh() {
 
 }  // namespace
 
+void test_wind_moves_the_ball() {
+  FlatTerrain ground(Surface::Fairway);
+  BallState launch = launch_from_swing(club("7i"), {}, Surface::Fairway);
+  BallParams calm;
+  BallParams head;
+  head.wind = {0, 0, -8};
+  BallParams tail;
+  tail.wind = {0, 0, 8};
+  BallParams cross;
+  cross.wind = {8, 0, 0};  // blowing towards the golfer's left
+  ShotResult c = simulate_shot(launch, calm, ground);
+  ShotResult h = simulate_shot(launch, head, ground);
+  ShotResult t = simulate_shot(launch, tail, ground);
+  ShotResult x = simulate_shot(launch, cross, ground);
+  std::printf("  7i wind: calm carry %.2f, head carry %.2f, tail carry %.2f, cross carry %.2f drift %.2f m\n",
+              c.carry_m, h.carry_m, t.carry_m, x.carry_m, x.first_landing.x);
+  CHECK(h.carry_m < c.carry_m - 10);
+  CHECK(t.carry_m > c.carry_m + 5);
+  // Into the wind hurts more than downwind helps.
+  CHECK(c.carry_m - h.carry_m > t.carry_m - c.carry_m);
+  CHECK(x.first_landing.x > 5);
+  CHECK(x.first_landing.x < 30);
+}
+
+// A stand-in for the executable: two coefficient tables in the game's layout
+// with made-up values, between filler bytes. Built the same way by
+// game/tests/run_tests.gd.
+std::vector<std::uint8_t> synthetic_aero_exe() {
+  std::vector<std::uint8_t> out(64, 0xCD);
+  auto u32 = [&](std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<std::uint8_t>(v >> (8 * i)));
+  };
+  auto f32 = [&](float f) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &f, 4);
+    u32(bits);
+  };
+  for (int table = 0; table < 2; ++table) {
+    u32(11);
+    u32(14);
+    for (int r = 0; r < 11; ++r) f32(30.0f * r);
+    for (int c = 0; c < 14; ++c) f32(10.0f * c);
+    u32(0x00401000);
+    u32(0x0040102c);
+    u32(0);
+    for (int r = 0; r < 11; ++r) {
+      for (int c = 0; c < 14; ++c) {
+        f32(table == 0 ? 0.2f + 0.01f * r + 0.001f * c : 0.01f * c);
+      }
+    }
+    for (int i = 0; i < 40; ++i) out.push_back(0xCD);
+  }
+  return out;
+}
+
+void test_links_aero_tables() {
+  std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
+  CHECK(aero.has_value());
+  if (!aero) {
+    return;
+  }
+  CHECK_NEAR(aero->drag.at(45, 15), 0.2165, 1e-6);
+  CHECK_NEAR(aero->lift.at(45, 15), 0.015, 1e-6);
+  CHECK_NEAR(aero->drag.at(-5, 500), 0.2 + 0.013, 1e-6);  // clamped to the grid
+  CHECK_NEAR(aero->lift.at(1000, 0), 0.0, 1e-9);
+  CHECK(!find_links_aero(std::vector<std::uint8_t>(400, 0)).has_value());
+}
+
+void test_links_flight() {
+  std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
+  if (!aero) {
+    CHECK(false);
+    return;
+  }
+  // No spin and no speed: gravity alone, 32.152 ft/s^2.
+  BallState still{{0, 10, 0}, {0, 0, 0}, {0, 0, 0}};
+  BallState next = links_step_flight(still, *aero, {}, 0.5);
+  CHECK_NEAR(next.velocity.y, -32.152 * 0.3048 * 0.5, 1e-9);
+  CHECK_NEAR(next.position.y, 10 - 32.152 * 0.3048 * 0.125, 1e-9);
+  // Spin keeps 0.9994 of itself every 1/60 s.
+  BallState spinning{{0, 10, 0}, {0, 0, 0}, {100, 0, 0}};
+  CHECK_NEAR(links_step_flight(spinning, *aero, {}, 1.0).spin.x, 100 * std::pow(0.9994, 60), 1e-9);
+
+  FlatTerrain ground(Surface::Fairway);
+  BallParams p;
+  p.links = &*aero;
+  BallState launch = launch_from_swing(club("7i"), {}, Surface::Fairway);
+  ShotResult calm = simulate_shot(launch, p, ground);
+  p.wind = {0, 0, -8};
+  ShotResult head = simulate_shot(launch, p, ground);
+  std::printf("  links 7i: carry %.2f m, apex %.2f m, headwind carry %.2f m\n", calm.carry_m, calm.apex_m,
+              head.carry_m);
+  CHECK(calm.carry_m > 100 && calm.carry_m < 250);
+  CHECK(head.carry_m < calm.carry_m);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1188,6 +1285,9 @@ int main() {
       {"water_and_out_of_bounds_stop_the_ball", test_water_and_out_of_bounds_stop_the_ball},
       {"obstacle_field_hits", test_obstacle_field_hits},
       {"trees_stop_the_ball", test_trees_stop_the_ball},
+      {"wind_moves_the_ball", test_wind_moves_the_ball},
+      {"links_aero_tables", test_links_aero_tables},
+      {"links_flight", test_links_flight},
       {"scorecard", test_scorecard},
   };
   for (auto& [name, fn] : tests) {

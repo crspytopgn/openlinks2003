@@ -1,5 +1,7 @@
 #include "olcore/ball_physics.hpp"
 
+#include "olcore/links_flight.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -48,7 +50,8 @@ BallState make_launch(double speed_mps, double launch_deg, double azimuth_deg, d
 
 Vec3 acceleration(const BallState& s, const BallParams& p) {
   Vec3 a{0, -p.gravity, 0};
-  double speed = length(s.velocity);
+  Vec3 air = s.velocity - p.wind;  // velocity through the air
+  double speed = length(air);
   if (speed < 1e-9) {
     return a;
   }
@@ -59,12 +62,12 @@ Vec3 acceleration(const BallState& s, const BallParams& p) {
   double spin_rate = length(s.spin);
   double spin_ratio = p.radius * spin_rate / speed;
 
-  // Drag opposes velocity.
+  // Drag opposes motion through the air.
   double cd = p.drag_coefficient + p.drag_spin_factor * spin_ratio;
-  a = a + s.velocity * (-q * cd / (p.mass * speed));
+  a = a + air * (-q * cd / (p.mass * speed));
 
   // Magnus lift acts along w x v.
-  Vec3 wxv = cross(s.spin, s.velocity);
+  Vec3 wxv = cross(s.spin, air);
   double wxv_len = length(wxv);
   if (wxv_len > 1e-9 && spin_rate > 1e-9) {
     double cl = lift_coefficient(spin_ratio);
@@ -74,6 +77,9 @@ Vec3 acceleration(const BallState& s, const BallParams& p) {
 }
 
 BallState step_flight(const BallState& s, const BallParams& p, double dt) {
+  if (p.links) {
+    return links_step_flight(s, *p.links, p.wind, dt);
+  }
   auto deriv = [&](const BallState& st) { return acceleration(st, p); };
 
   BallState k1s = s;

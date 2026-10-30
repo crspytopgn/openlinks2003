@@ -1,7 +1,8 @@
 class_name SettingsPanel
 extends PanelContainer
-## Graphics options: quality, window mode, v-sync, anti-aliasing, render
-## scale and field of view. Changes apply at once and are saved.
+## Graphics options (quality, window mode, v-sync, anti-aliasing, render
+## scale, field of view) and the wind strength. Changes apply at once and are
+## saved.
 
 signal changed
 
@@ -15,6 +16,7 @@ var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
 var _fov: OptionButton
+var _wind: OptionButton
 
 
 func _ready() -> void:
@@ -49,6 +51,7 @@ func _ready() -> void:
 	for f in FOV_CHOICES:
 		fovs.append("%d deg" % roundi(f))
 	_fov = _row(grid, "Field of view", fovs)
+	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
 
 	var hint := Label.new()
 	hint.text = "Esc: close    F11: fullscreen"
@@ -67,6 +70,7 @@ func open(s: GraphicsSettings) -> void:
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
 	_fov.select(_closest(FOV_CHOICES, s.fov))
+	_wind.select(s.wind)
 	visible = true
 	_quality.grab_focus()
 
@@ -96,6 +100,7 @@ func _on_selected() -> void:
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
 	settings.fov = FOV_CHOICES[_fov.selected]
+	settings.wind = _wind.selected
 	settings.save()
 	changed.emit()
 
