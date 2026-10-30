@@ -149,6 +149,42 @@ jobs:
         with:
           path: game/export/web
 
+  # Publishes the desktop builds from main as the rolling "latest" release,
+  # so there's a plain download link (artifacts need a GitHub login and
+  # expire). The builds contain no game data.
+  release:
+    name: Publish latest release
+    needs: export
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: OpenLinks2003-*
+          path: dist
+      - name: Package
+        run: |
+          ls -lR dist
+          mkdir out
+          cp dist/OpenLinks2003-macos/OpenLinks2003.zip out/OpenLinks2003-macOS.zip
+          (cd dist/OpenLinks2003-windows && zip -qr ../../out/OpenLinks2003-Windows.zip .)
+          chmod +x dist/OpenLinks2003-linux/OpenLinks2003.x86_64
+          tar -C dist/OpenLinks2003-linux -czf out/OpenLinks2003-Linux.tar.gz .
+          ls -l out
+      - name: Update the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NOTES: |
+            Built from main. No game data is included; the game loads your own Links 2003 files.
+
+            **macOS:** unzip, move OpenLinks2003.app to Applications, then right-click it and choose Open (the app is ad-hoc signed, not notarized). On macOS 15 or later, if it still won't open, go to System Settings > Privacy & Security and click Open Anyway.
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest out/* --title "Latest build (${GITHUB_SHA::7})" --notes "$NOTES" --target "$GITHUB_SHA" --prerelease
+
   # Publishes the web build to https://<owner>.github.io/<repo>/.
   # Requires a public repo (Pages on private repos needs a paid plan) and
   # Settings > Pages > Source set to "GitHub Actions". Skipped while private.
