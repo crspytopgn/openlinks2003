@@ -58,6 +58,7 @@ game/scripts/
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends
     golfer_assets.gd, golfer_rig.gd   interfaces for the golfer model and animation
     sound_bank.gd               SoundBank: interface for game audio
+    free_golfer.gd              FreeGolfer: the CC0 MakeHuman golfer (assets/golfer/free_golfer.glb)
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
@@ -147,7 +148,13 @@ Nothing in the round needs to change.
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
   `LinksGolferAssets` (`scripts/golfer/`) is used automatically when a game
   folder is configured: the original skinned, textured golfer and clubs as a
-  `Skeleton3D`, driven by the original clips.
+  `Skeleton3D`, driven by the original clips. Without a game folder,
+  `PlaceholderGolferAssets` gives `FreeGolfer`: a realistic man built from
+  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with the
+  swing, putt and celebration keyed by hand and baked into
+  `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
+  If that file is missing it falls back to `PlaceholderGolfer`, the figure
+  built from primitives.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.

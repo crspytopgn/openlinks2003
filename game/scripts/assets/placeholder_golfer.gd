@@ -1,7 +1,8 @@
 class_name PlaceholderGolfer
 extends GolferRig
-## The golfer used without the original game files: a low-poly figure in a
-## polo shirt, slacks and cap, built from primitives, with a hand-keyed swing.
+## The fallback golfer when neither the original game files nor the free
+## model (FreeGolfer) are there: a low-poly figure in a polo shirt, slacks and
+## cap, built from primitives, with a hand-keyed swing.
 ##
 ## The swing is driven by a few numbers: the hands travel round a circle in
 ## the swing plane (the plane through the swing centre and the ball line),
