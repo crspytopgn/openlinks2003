@@ -94,6 +94,11 @@ docs/           Clean-room rules and file-format notes
 
 See [ROADMAP.md](ROADMAP.md).
 
+## Supporting the project
+
+OpenLinks2003 is free and always will be. If you enjoy it and want to chip in,
+you can [sponsor it on GitHub](https://github.com/sponsors/crspytopgn).
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE). Links 2003 is a trademark of its respective
