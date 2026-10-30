@@ -4,6 +4,9 @@ extends RefCounted
 
 var course_name := ""
 var holes: Array[HoleData] = []
+## Trees, plants, 3D objects and spectators read from the course file (null
+## for courses that have none; their holes may list objects instead).
+var objects: CourseObjects
 
 
 func pars() -> Array[int]:

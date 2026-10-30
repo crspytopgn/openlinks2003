@@ -12,9 +12,11 @@ add_library(olcore STATIC
   src/golfer_mesh.cpp
   src/cvt.cpp
   src/inflate.cpp
+  src/links_flight.cpp
   src/ls_archive.cpp
   src/lzw.cpp
   src/model.cpp
+  src/obstacles.cpp
   src/object_library.cpp
   src/scoring.cpp
   src/shot.cpp

@@ -74,14 +74,20 @@ game/scripts/
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
+    links_shot_model.gd         LinksShotModel: the stand-in with the game's own ball flight
+    links_aero.gd               LinksAero: that flight model (port of olcore/links_flight)
+    wind.gd                     Wind: conditions for the round, hole and shot
     ball_physics.gd             BallPhysics: GDScript port of olcore ball_physics + shot
     swing.gd, club.gd           Swing-meter-to-launch mapping and the club table
     surface.gd                  Surface types and per-surface constants
+    obstacle_field.gd           ObstacleField: trunks, canopies and walls (port of olcore/obstacles)
     ball_state.gd, shot_result.gd, flat_terrain.gd
   course/
     course_loader.gd            CourseLoader: interface for the .CRZ decoder
     course_data.gd, hole_data.gd, placed_object.gd
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
+    course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
+                                drawn per hole and turned into obstacles
     placeholder_*.gd            The procedural nine-hole stand-in course
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
@@ -90,7 +96,7 @@ game/scripts/
     sound_bank.gd               SoundBank: interface for game audio
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
-    swing_meter.gd, hud.gd, scorecard_panel.gd
+    swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
@@ -207,15 +213,33 @@ GDScript in `game/scripts/physics/ball_physics.gd`:
   without slipping, which is what checks a wedge on the green.
 - **Roll:** 5/7 g along the slope for a rolling solid sphere, plus rolling
   resistance per surface. Green resistance gives roughly a Stimp 10 green.
+- **Obstacles:** `CourseTerrain.obstacle_hit()` (`Terrain::obstacle_hit` in
+  C++) reports the first trunk, canopy or wall a flight or roll step enters.
+  A solid keeps 35% of the speed into its face and 75% along it; a canopy
+  keeps 20% and drops the ball; a ball that settles on a flat top (a wall,
+  a bridge) stays there. Rolling balls ignore canopies.
+- **Wind:** drag and lift use the ball's velocity through the air, so a
+  uniform wind (`BallParams::wind`, the `wind` argument in GDScript) slows,
+  carries or pushes the ball sideways. It does not act on a rolling ball.
+  `Wind` (`scripts/physics/wind.gd`) picks the conditions: a prevailing
+  direction for the round, a speed and a shift for each hole, and a small
+  change between shots, scaled by the Wind setting (Off, Light, Moderate,
+  Strong).
 - **Clubs:** tour-average launch monitor data (ball speed, launch angle,
   spin) for driver to pitching wedge; wedges and putter are estimates.
 
-None of these constants come from Links 2003. Tuning them against the
+When the game folder has the executable, `LinksShotModel` replaces
+`StandardShotModel` and flies the ball with the game's own model
+(`LinksAero`, `olcore/links_flight.hpp`; see
+[formats/physics.md](formats/physics.md)). Launch, bounce and roll stay as
+above.
+
+Apart from that flight model, none of these constants come from Links 2003. Tuning them against the
 original game is the "(needs data)" item in the roadmap. `run_tests.gd` checks
 the GDScript port against numbers from the C++ tests, so change both
 together.
 
 ## Not done yet
 
-Wind, trees and other objects the ball can hit, lie-specific animations,
+Gusts during a flight, wind that changes with height, lie-specific animations,
 camera styles from the original, handicaps, computer opponents, and the real-time mouse swing.

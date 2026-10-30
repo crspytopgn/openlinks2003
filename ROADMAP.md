@@ -26,14 +26,15 @@ feel) still need a working install.
   - [x] Course billboards and their placement (`MasterObj`, `2DPlant`), drawn in the course viewer ([course-objects.md](docs/formats/course-objects.md))
   - [x] Course 3D objects (`MasterObj3D`, `3DPlant`, `.t3l`, `.maq` textures), drawn in the course viewer
   - [x] Tournament spectators (`TrnyPlant`, `CROWDS.LIB` sprites; which sprite each kind uses is a guess)
+  - [x] Objects in the playable round: `CourseObjects` reads them from the `.CRZ`, draws them with one atlas and chunked MultiMeshes, and trees, rocks and 3D objects stop the ball (trunk, canopy and box sizes are guesses)
   - [ ] Object culling (`ObjectCull.dat`)
 - [x] Course loader in `olcore` plus a fly-around course viewer in Godot (`tools/olcourse export`, then press C in the game)
 - [x] Real courses in the round: `CrzCourseLoader` reads `.CRZ`/`.RNG` straight from the player's files in GDScript (works in the web build)
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**
-- [ ] Wind
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. The flight now uses the game's own model and coefficient tables, read from the player's executable ([physics.md](docs/formats/physics.md)); launch, bounce and roll are located in the executable but not ported
+- [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
 - [x] Stand-in ball physics: published flight, bounce and roll model behind a `ShotModel` interface

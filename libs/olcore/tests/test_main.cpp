@@ -16,9 +16,11 @@
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/inflate.hpp"
+#include "olcore/links_flight.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
+#include "olcore/obstacles.hpp"
 #include "olcore/object_library.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
@@ -814,6 +816,80 @@ void test_water_and_out_of_bounds_stop_the_ball() {
         ShotOutcome::OutOfBounds);
 }
 
+void test_obstacle_field_hits() {
+  ObstacleField f;
+  f.add_cylinder(0, 10, 0.5, 0, 5, ObstacleKind::Solid);
+  f.add_box({20, 1, 0}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {1, 1, 2}, ObstacleKind::Solid);
+  f.add_cylinder(-30, 0, 4, 2, 10, ObstacleKind::Canopy);
+  f.finalize();
+  CHECK(f.size() == 3);
+  ObstacleHit h;
+  // Into the trunk from the front: enters 0.5 m short of its centre.
+  CHECK(f.segment_hit({0, 1, 0}, {0, 1, 20}, h));
+  CHECK_NEAR(h.fraction, 9.5 / 20, 1e-9);
+  CHECK_NEAR(h.normal.z, -1, 1e-9);
+  CHECK(h.kind == ObstacleKind::Solid);
+  // Over it, and starting inside it.
+  CHECK(!f.segment_hit({0, 6, 0}, {0, 6, 20}, h));
+  CHECK(!f.segment_hit({0, 1, 10}, {0, 1, 20}, h));
+  // Into the box from the -x side, then down onto its top.
+  CHECK(f.segment_hit({15, 1, 0}, {25, 1, 0}, h));
+  CHECK_NEAR(h.fraction, 0.4, 1e-9);
+  CHECK_NEAR(h.normal.x, -1, 1e-9);
+  CHECK(f.segment_hit({20, 4, 0.5}, {20, 1, 0.5}, h));
+  CHECK_NEAR(h.fraction, 2.0 / 3.0, 1e-9);
+  CHECK_NEAR(h.normal.y, 1, 1e-9);
+  // Down through the canopy top; under it misses.
+  CHECK(f.segment_hit({-30, 12, 1}, {-30, 8, 1}, h));
+  CHECK(h.kind == ObstacleKind::Canopy);
+  CHECK_NEAR(h.fraction, 0.5, 1e-9);
+  CHECK(!f.segment_hit({-40, 1, 0}, {-20, 1, 0}, h));
+}
+
+void test_trees_stop_the_ball() {
+  BallParams p;
+  ObstacleField trunk;
+  trunk.add_cylinder(0, 40, 0.5, -1, 30, ObstacleKind::Solid);
+  trunk.finalize();
+  FlatTerrain ground(Surface::Fairway);
+  ground.obstacles = &trunk;
+  ShotResult r = simulate_shot(launch_from_swing(club("Dr"), {}, Surface::Tee), p, ground);
+  std::printf("  trunk: rest z %.2f m, total %.2f m, %d hits\n", r.rest.z, r.total_m, r.obstacle_hits);
+  CHECK(r.obstacle_hits >= 1);
+  CHECK(r.rest.z < 40);
+  CHECK(r.outcome == ShotOutcome::Rest);
+
+  ObstacleField canopy;
+  canopy.add_cylinder(0, 150, 6, 3, 40, ObstacleKind::Canopy);
+  canopy.finalize();
+  ground.obstacles = &canopy;
+  r = simulate_shot(launch_from_swing(club("Dr"), {}, Surface::Tee), p, ground);
+  std::printf("  canopy: carry %.2f m, total %.2f m, %d hits\n", r.carry_m, r.total_m, r.obstacle_hits);
+  CHECK(r.obstacle_hits >= 1);
+  CHECK(r.carry_m < 165);
+
+  // A putt rolled into a wall comes back.
+  ObstacleField wall;
+  wall.add_box({0, 0.5, 4}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {2, 1, 0.1}, ObstacleKind::Solid);
+  wall.finalize();
+  FlatTerrain green(Surface::Green);
+  green.obstacles = &wall;
+  r = simulate_shot(make_launch(3.0, 0, 0, 0, 0), p, green);
+  std::printf("  wall: rest z %.3f m, %d hits\n", r.rest.z, r.obstacle_hits);
+  CHECK(r.obstacle_hits == 1);
+  CHECK(r.rest.z < 3.9);
+
+  // A ball dropped onto a wide flat box settles on top of it.
+  ObstacleField deck;
+  deck.add_box({0, 1, 0}, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, {5, 0.5, 5}, ObstacleKind::Solid);
+  deck.finalize();
+  ground.obstacles = &deck;
+  r = simulate_shot({{0, 3, 0}, {0, 1, 0.5}, {}}, p, ground);
+  std::printf("  deck: rest y %.3f m, %d hits\n", r.rest.y, r.obstacle_hits);
+  CHECK(r.outcome == ShotOutcome::Rest);
+  CHECK_NEAR(r.rest.y, 1.5, 0.05);
+}
+
 void test_scorecard() {
   CHECK(score_name(1, 3) == "Hole in one");
   CHECK(score_name(3, 4) == "Birdie");
@@ -1121,6 +1197,102 @@ void test_skinned_mesh() {
 
 }  // namespace
 
+void test_wind_moves_the_ball() {
+  FlatTerrain ground(Surface::Fairway);
+  BallState launch = launch_from_swing(club("7i"), {}, Surface::Fairway);
+  BallParams calm;
+  BallParams head;
+  head.wind = {0, 0, -8};
+  BallParams tail;
+  tail.wind = {0, 0, 8};
+  BallParams cross;
+  cross.wind = {8, 0, 0};  // blowing towards the golfer's left
+  ShotResult c = simulate_shot(launch, calm, ground);
+  ShotResult h = simulate_shot(launch, head, ground);
+  ShotResult t = simulate_shot(launch, tail, ground);
+  ShotResult x = simulate_shot(launch, cross, ground);
+  std::printf("  7i wind: calm carry %.2f, head carry %.2f, tail carry %.2f, cross carry %.2f drift %.2f m\n",
+              c.carry_m, h.carry_m, t.carry_m, x.carry_m, x.first_landing.x);
+  CHECK(h.carry_m < c.carry_m - 10);
+  CHECK(t.carry_m > c.carry_m + 5);
+  // Into the wind hurts more than downwind helps.
+  CHECK(c.carry_m - h.carry_m > t.carry_m - c.carry_m);
+  CHECK(x.first_landing.x > 5);
+  CHECK(x.first_landing.x < 30);
+}
+
+// A stand-in for the executable: two coefficient tables in the game's layout
+// with made-up values, between filler bytes. Built the same way by
+// game/tests/run_tests.gd.
+std::vector<std::uint8_t> synthetic_aero_exe() {
+  std::vector<std::uint8_t> out(64, 0xCD);
+  auto u32 = [&](std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<std::uint8_t>(v >> (8 * i)));
+  };
+  auto f32 = [&](float f) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &f, 4);
+    u32(bits);
+  };
+  for (int table = 0; table < 2; ++table) {
+    u32(11);
+    u32(14);
+    for (int r = 0; r < 11; ++r) f32(30.0f * r);
+    for (int c = 0; c < 14; ++c) f32(10.0f * c);
+    u32(0x00401000);
+    u32(0x0040102c);
+    u32(0);
+    for (int r = 0; r < 11; ++r) {
+      for (int c = 0; c < 14; ++c) {
+        f32(table == 0 ? 0.2f + 0.01f * r + 0.001f * c : 0.01f * c);
+      }
+    }
+    for (int i = 0; i < 40; ++i) out.push_back(0xCD);
+  }
+  return out;
+}
+
+void test_links_aero_tables() {
+  std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
+  CHECK(aero.has_value());
+  if (!aero) {
+    return;
+  }
+  CHECK_NEAR(aero->drag.at(45, 15), 0.2165, 1e-6);
+  CHECK_NEAR(aero->lift.at(45, 15), 0.015, 1e-6);
+  CHECK_NEAR(aero->drag.at(-5, 500), 0.2 + 0.013, 1e-6);  // clamped to the grid
+  CHECK_NEAR(aero->lift.at(1000, 0), 0.0, 1e-9);
+  CHECK(!find_links_aero(std::vector<std::uint8_t>(400, 0)).has_value());
+}
+
+void test_links_flight() {
+  std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
+  if (!aero) {
+    CHECK(false);
+    return;
+  }
+  // No spin and no speed: gravity alone, 32.152 ft/s^2.
+  BallState still{{0, 10, 0}, {0, 0, 0}, {0, 0, 0}};
+  BallState next = links_step_flight(still, *aero, {}, 0.5);
+  CHECK_NEAR(next.velocity.y, -32.152 * 0.3048 * 0.5, 1e-9);
+  CHECK_NEAR(next.position.y, 10 - 32.152 * 0.3048 * 0.125, 1e-9);
+  // Spin keeps 0.9994 of itself every 1/60 s.
+  BallState spinning{{0, 10, 0}, {0, 0, 0}, {100, 0, 0}};
+  CHECK_NEAR(links_step_flight(spinning, *aero, {}, 1.0).spin.x, 100 * std::pow(0.9994, 60), 1e-9);
+
+  FlatTerrain ground(Surface::Fairway);
+  BallParams p;
+  p.links = &*aero;
+  BallState launch = launch_from_swing(club("7i"), {}, Surface::Fairway);
+  ShotResult calm = simulate_shot(launch, p, ground);
+  p.wind = {0, 0, -8};
+  ShotResult head = simulate_shot(launch, p, ground);
+  std::printf("  links 7i: carry %.2f m, apex %.2f m, headwind carry %.2f m\n", calm.carry_m, calm.apex_m,
+              head.carry_m);
+  CHECK(calm.carry_m > 100 && calm.carry_m < 250);
+  CHECK(head.carry_m < calm.carry_m);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1156,6 +1328,11 @@ int main() {
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
       {"ball_rolls_downhill", test_ball_rolls_downhill},
       {"water_and_out_of_bounds_stop_the_ball", test_water_and_out_of_bounds_stop_the_ball},
+      {"obstacle_field_hits", test_obstacle_field_hits},
+      {"trees_stop_the_ball", test_trees_stop_the_ball},
+      {"wind_moves_the_ball", test_wind_moves_the_ball},
+      {"links_aero_tables", test_links_aero_tables},
+      {"links_flight", test_links_flight},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
   };

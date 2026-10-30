@@ -68,6 +68,7 @@ var shot_time := 0.0
 var result_timer := 0.0
 
 var shot_model: ShotModel
+var wind: Wind
 var sounds: SoundBank
 var hud: Hud
 var camera: Camera3D
@@ -134,6 +135,7 @@ func start_round() -> void:
 		honour.append(i)
 	current = 0
 	card = scoring.cards[0]
+	wind = Wind.new(graphics.wind)
 	hud.scorecard.visible = false
 	start_hole(0)
 
@@ -156,6 +158,8 @@ func start_hole(index: int) -> void:
 	hole_root.name = "Hole%d" % hole.number
 	add_child(hole_root)
 	hole_root.add_child(hole.terrain.build_visual())
+	if course.objects != null:
+		hole_root.add_child(course.objects.build_visual(hole))
 	for o in hole.objects:
 		var node := AssetProviders.object_library.instantiate(o.id)
 		if node == null:
@@ -169,6 +173,7 @@ func start_hole(index: int) -> void:
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
 
+	wind.start_hole()
 	for p in players:
 		p.at = hole.tee
 		p.strokes = 0
@@ -236,7 +241,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
-	shot = shot_model.simulate(start, hole.terrain, hole.pin)
+	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
+	wind.next_shot()
 	shot_time = 0.0
 	aim_marker.visible = false
 	hud.show_message("")
@@ -408,6 +414,7 @@ func _process_aim(delta: float) -> void:
 	aim_deg = wrapf(aim_deg + turn * rate * delta, -180.0, 180.0)
 	_place_golfer()
 	_update_aim_marker()
+	_update_hud()
 	_aim_camera(false)
 
 
@@ -702,6 +709,10 @@ func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
 	scenery.apply(graphics)
 	camera.fov = graphics.fov
+	if wind != null:
+		wind.set_level(graphics.wind)
+		if hole != null:
+			_update_hud()
 
 
 func _add_flag() -> void:
@@ -822,12 +833,13 @@ func _update_hud() -> void:
 	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
 	if players.size() > 1:
 		text += "%s    " % scoring.names[current]
-	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: calm\nRound: %s thru %d" % [
-		strokes + 1, pin_text, Surface.name_of(lie), club_text, total, thru]
+	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
+		strokes + 1, pin_text, Surface.name_of(lie), club_text, wind.describe(aim_deg), total, thru]
 	var status := scoring.status_text()
 	if not status.is_empty():
 		text += "\n" + status
 	hud.info.text = text
+	hud.wind.show_wind(wind, aim_deg)
 
 
 func _clear_trail() -> void:

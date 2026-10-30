@@ -20,6 +20,10 @@ func _initialize() -> void:
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
 	_run("hazards", _test_hazards)
+	_run("wind_matches_olcore", _test_wind_matches_olcore)
+	_run("wind_conditions", _test_wind_conditions)
+	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
+	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
@@ -137,6 +141,65 @@ func _test_hazards() -> void:
 	_check(water.outcome == ShotResult.Outcome.WATER, "lands in water")
 	var ob := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), FlatTerrain.new(Surface.Type.OUT_OF_BOUNDS))
 	_check(ob.outcome == ShotResult.Outcome.OUT_OF_BOUNDS, "lands out of bounds")
+
+
+func _test_obstacles_match_olcore() -> void:
+	var f := ObstacleField.new()
+	f.add_cylinder(0, 10, 0.5, 0, 5, ObstacleField.Kind.SOLID)
+	f.add_box(Vector3(20, 1, 0), Basis.IDENTITY, Vector3(1, 1, 2), ObstacleField.Kind.SOLID)
+	f.add_cylinder(-30, 0, 4, 2, 10, ObstacleField.Kind.CANOPY)
+	f.finalize()
+	_check(f.size() == 3, "three obstacles")
+	var h := f.segment_hit(Vector3(0, 1, 0), Vector3(0, 1, 20))
+	_check(not h.is_empty(), "hits the trunk")
+	if not h.is_empty():
+		_check_near(h.fraction, 9.5 / 20.0, 1e-5, "trunk entry")
+		_check_near((h.normal as Vector3).z, -1.0, 1e-5, "trunk normal")
+	_check(f.segment_hit(Vector3(0, 6, 0), Vector3(0, 6, 20)).is_empty(), "passes over the trunk")
+	_check(f.segment_hit(Vector3(0, 1, 10), Vector3(0, 1, 20)).is_empty(), "starting inside misses")
+	h = f.segment_hit(Vector3(15, 1, 0), Vector3(25, 1, 0))
+	_check(not h.is_empty() and absf(float(h.fraction) - 0.4) < 1e-5 and (h.normal as Vector3).x < -0.99, "box side")
+	h = f.segment_hit(Vector3(20, 4, 0.5), Vector3(20, 1, 0.5))
+	_check(not h.is_empty() and absf(float(h.fraction) - 2.0 / 3.0) < 1e-5 and (h.normal as Vector3).y > 0.99, "box top")
+	h = f.segment_hit(Vector3(-30, 12, 1), Vector3(-30, 8, 1))
+	_check(not h.is_empty() and int(h.kind) == ObstacleField.Kind.CANOPY, "canopy top")
+	_check(f.segment_hit(Vector3(-40, 1, 0), Vector3(-20, 1, 0)).is_empty(), "under the canopy")
+
+	# The same shots as test_trees_stop_the_ball in test_main.cpp.
+	var ground := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var trunk := ObstacleField.new()
+	trunk.add_cylinder(0, 40, 0.5, -1, 30, ObstacleField.Kind.SOLID)
+	trunk.finalize()
+	ground.obstacles = trunk
+	var r := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("Dr"), 1.0, 0.0, 0.0, Surface.Type.TEE), ground)
+	print("  trunk: rest z %.2f m, total %.2f m, %d hits" % [r.rest.z, r.total_m, r.obstacle_hits])
+	_check_near(r.rest.z, -27.06, 1.0, "trunk rest z")
+	_check(r.obstacle_hits >= 1, "trunk hit")
+	var canopy := ObstacleField.new()
+	canopy.add_cylinder(0, 150, 6, 3, 40, ObstacleField.Kind.CANOPY)
+	canopy.finalize()
+	ground.obstacles = canopy
+	r = BallPhysics.simulate_shot(Swing.launch_from_swing(_club("Dr"), 1.0, 0.0, 0.0, Surface.Type.TEE), ground)
+	print("  canopy: carry %.2f m, total %.2f m, %d hits" % [r.carry_m, r.total_m, r.obstacle_hits])
+	_check_near(r.carry_m, 140.95, 1.0, "canopy carry")
+	_check_near(r.total_m, 155.83, 1.5, "canopy total")
+	var wall := ObstacleField.new()
+	wall.add_box(Vector3(0, 0.5, 4), Basis.IDENTITY, Vector3(2, 1, 0.1), ObstacleField.Kind.SOLID)
+	wall.finalize()
+	var green := FlatTerrain.new(Surface.Type.GREEN)
+	green.obstacles = wall
+	r = BallPhysics.simulate_shot(BallPhysics.make_launch(3.0, 0, 0, 0, 0), green)
+	print("  wall: rest z %.3f m, %d hits" % [r.rest.z, r.obstacle_hits])
+	_check_near(r.rest.z, 3.348, 0.02, "wall rest z")
+	_check(r.obstacle_hits == 1, "wall hit once")
+	var deck := ObstacleField.new()
+	deck.add_box(Vector3(0, 1, 0), Basis.IDENTITY, Vector3(5, 0.5, 5), ObstacleField.Kind.SOLID)
+	deck.finalize()
+	ground.obstacles = deck
+	r = BallPhysics.simulate_shot(BallState.new(Vector3(0, 3, 0), Vector3(0, 1, 0.5)), ground)
+	_check(r.outcome == ShotResult.Outcome.REST, "settles on the deck")
+	_check_near(r.rest.y, 1.510, 0.01, "deck rest y")
+	_check(r.obstacle_hits == 3, "deck hits")
 
 
 func _test_swing_accuracy() -> void:
@@ -354,18 +417,112 @@ func _test_graphics_settings() -> void:
 	s.msaa = 4
 	s.render_scale = 0.75
 	s.fov = 70.0
+	s.wind = Wind.Level.STRONG
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
 	_check(loaded.msaa == 4, "msaa saved")
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
 	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
+	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
 	cfg = ConfigFile.new()
 	cfg.load(path)
 	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	_check(Materials.terrain().shader != null, "terrain shader loads")
 	_check(Materials.water().shader != null, "water shader loads")
+
+
+## Numbers from the C++ wind_moves_the_ball test.
+func _test_wind_matches_olcore() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var launch := Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY)
+	var head := BallPhysics.simulate_shot(launch, fairway, false, Vector3.ZERO, Vector3(0, 0, -8))
+	var tail := BallPhysics.simulate_shot(launch, fairway, false, Vector3.ZERO, Vector3(0, 0, 8))
+	var cross := BallPhysics.simulate_shot(launch, fairway, false, Vector3.ZERO, Vector3(8, 0, 0))
+	print("  7i wind: head carry %.2f, tail carry %.2f, cross carry %.2f drift %.2f m" % [head.carry_m, tail.carry_m, cross.carry_m, cross.first_landing.x])
+	_check_near(head.carry_m, 133.17, 1.0, "headwind carry")
+	_check_near(tail.carry_m, 179.50, 1.0, "tailwind carry")
+	_check_near(cross.carry_m, 164.77, 1.0, "crosswind carry")
+	_check_near(cross.first_landing.x, 22.69, 0.5, "crosswind drift")
+
+
+## Same made-up tables as synthetic_aero_exe() in the C++ tests.
+static func _synthetic_aero_exe() -> PackedByteArray:
+	var out := PackedByteArray()
+	out.resize(64)
+	out.fill(0xCD)
+	for table in 2:
+		var b := PackedByteArray()
+		b.resize(LinksAero.TABLE_BYTES)
+		b.encode_u32(0, 11)
+		b.encode_u32(4, 14)
+		var q := 8
+		for i in 11:
+			b.encode_float(q, 30.0 * i)
+			q += 4
+		for i in 14:
+			b.encode_float(q, 10.0 * i)
+			q += 4
+		b.encode_u32(q, 0x00401000)
+		b.encode_u32(q + 4, 0x0040102c)
+		b.encode_u32(q + 8, 0)
+		q += 12
+		for row in 11:
+			for col in 14:
+				b.encode_float(q, 0.2 + 0.01 * row + 0.001 * col if table == 0 else 0.01 * col)
+				q += 4
+		out.append_array(b)
+		var pad := PackedByteArray()
+		pad.resize(40)
+		pad.fill(0xCD)
+		out.append_array(pad)
+	return out
+
+
+func _test_links_flight_matches_olcore() -> void:
+	var aero := LinksAero.from_exe(_synthetic_aero_exe())
+	_check(aero != null, "finds the coefficient tables")
+	if aero == null:
+		return
+	_check_near(LinksAero.coefficient(aero.drag, 45, 15), 0.2165, 1e-6, "drag lookup")
+	_check_near(LinksAero.coefficient(aero.lift, 45, 15), 0.015, 1e-6, "lift lookup")
+	_check_near(LinksAero.coefficient(aero.drag, -5, 500), 0.213, 1e-6, "clamped lookup")
+	var zeros := PackedByteArray()
+	zeros.resize(400)
+	_check(LinksAero.from_exe(zeros) == null, "no tables in zeros")
+	var still := aero.step_flight(BallState.new(Vector3(0, 10, 0), Vector3.ZERO, Vector3.ZERO), 0.5, Vector3.ZERO)
+	_check_near(still.velocity.y, -32.152 * 0.3048 * 0.5, 1e-6, "gravity")
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var launch := Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY)
+	var calm := BallPhysics.simulate_shot(launch, fairway, false, Vector3.ZERO, Vector3.ZERO, aero)
+	var head := BallPhysics.simulate_shot(launch, fairway, false, Vector3.ZERO, Vector3(0, 0, -8), aero)
+	print("  links 7i: carry %.2f m, apex %.2f m, headwind carry %.2f m" % [calm.carry_m, calm.apex_m, head.carry_m])
+	_check_near(calm.carry_m, 151.23, 1.0, "links carry")
+	_check_near(calm.apex_m, 15.57, 0.3, "links apex")
+	_check_near(head.carry_m, 146.87, 1.0, "links headwind carry")
+
+
+func _test_wind_conditions() -> void:
+	var off := Wind.new(Wind.Level.OFF, 7)
+	_check(off.velocity() == Vector3.ZERO and off.describe(0.0) == "calm", "no wind when off")
+	var a := Wind.new(Wind.Level.STRONG, 7)
+	var b := Wind.new(Wind.Level.STRONG, 7)
+	_check(a.velocity() == b.velocity(), "same seed, same wind")
+	for i in 20:
+		a.start_hole()
+		a.next_shot()
+		var mph := a.speed_mph()
+		_check(mph >= 25.0 * Wind.MIN_FRACTION * 0.85 - 1e-6 and mph <= 25.0 * 1.15 + 1e-6, "strong wind in range: %.1f mph" % mph)
+		_check_near(a.velocity().length(), a.speed_mps, 1e-5, "velocity matches speed")
+	var light := a.speed_mph()
+	a.set_level(Wind.Level.LIGHT)
+	_check_near(a.speed_mph(), light * 8.0 / 25.0, 1e-4, "level change rescales the wind")
+	a.towards_deg = 0.0
+	_check(a.describe(0.0).ends_with("helping"), "tailwind described as helping")
+	_check(a.describe(180.0).ends_with("against"), "headwind described as against")
+	_check(a.describe(-90.0).ends_with("right to left"), "blowing to the left of the aim")
+	_check(a.describe(90.0).ends_with("left to right"), "blowing to the right of the aim")
 
 
 func _test_object_library_chain() -> void:

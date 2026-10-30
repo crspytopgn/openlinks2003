@@ -25,6 +25,12 @@ const MAX_HOLING_SPEED := 1.6
 const ROLL_THRESHOLD := 0.4
 const STOP_SPEED := 0.03
 const MAX_CRATER_DEG := 30.0
+const SOLID_RESTITUTION := 0.35  ## normal speed kept off a trunk or wall
+const SOLID_FRICTION := 0.75  ## speed along the face kept
+const CANOPY_KEEP := 0.2  ## speed kept going into leaves
+const CANOPY_BOUNCE := 0.05  ## normal speed kept coming back out
+const OBSTACLE_GAP := 0.01  ## m; keeps the ball off the face it hit
+const FLAT_TOP := 0.7  ## normal y above which the ball can rest on a solid
 
 
 ## Mirrors olcore::make_launch. Positive azimuth is left of +z; positive
@@ -42,9 +48,12 @@ static func make_launch(speed: float, launch_deg: float, azimuth_deg: float, bac
 
 
 ## Mirrors olcore::acceleration: gravity, spin-dependent drag, Magnus lift.
-static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
+## `wind` is the velocity of the air (olcore::BallParams::wind); drag and lift
+## act on the ball's velocity through it.
+static func acceleration(vel: Vector3, spin: Vector3, wind := Vector3.ZERO) -> Vector3:
 	var a := Vector3(0.0, -GRAVITY, 0.0)
-	var speed := vel.length()
+	var air := vel - wind
+	var speed := air.length()
 	if speed < 1e-9:
 		return a
 	var area := PI * RADIUS * RADIUS
@@ -52,8 +61,8 @@ static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
 	var spin_rate := spin.length()
 	var spin_ratio := RADIUS * spin_rate / speed
 	var cd := DRAG_COEFFICIENT + DRAG_SPIN_FACTOR * spin_ratio
-	a += vel * (-q * cd / (MASS * speed))
-	var wxv := spin.cross(vel)
+	a += air * (-q * cd / (MASS * speed))
+	var wxv := spin.cross(air)
 	var wxv_len := wxv.length()
 	if wxv_len > 1e-9 and spin_rate > 1e-9:
 		var cl := clampf(-0.05 + sqrt(0.0025 + 0.36 * spin_ratio), 0.0, 0.35)
@@ -61,16 +70,18 @@ static func acceleration(vel: Vector3, spin: Vector3) -> Vector3:
 	return a
 
 
-## Mirrors olcore::step_flight (RK4).
-static func step_flight(s: BallState, dt: float) -> BallState:
+## Mirrors olcore::step_flight (RK4, or the game's own step with `aero`).
+static func step_flight(s: BallState, dt: float, wind := Vector3.ZERO, aero: LinksAero = null) -> BallState:
+	if aero != null:
+		return aero.step_flight(s, dt, wind)
 	var v1 := s.velocity
-	var a1 := acceleration(v1, s.spin)
+	var a1 := acceleration(v1, s.spin, wind)
 	var v2 := s.velocity + a1 * (dt / 2.0)
-	var a2 := acceleration(v2, s.spin)
+	var a2 := acceleration(v2, s.spin, wind)
 	var v3 := s.velocity + a2 * (dt / 2.0)
-	var a3 := acceleration(v3, s.spin)
+	var a3 := acceleration(v3, s.spin, wind)
 	var v4 := s.velocity + a3 * dt
-	var a4 := acceleration(v4, s.spin)
+	var a4 := acceleration(v4, s.spin, wind)
 	var out := BallState.new()
 	out.position = s.position + (v1 + v2 * 2.0 + v3 * 2.0 + v4) * (dt / 6.0)
 	out.velocity = s.velocity + (a1 + a2 * 2.0 + a3 * 2.0 + a4) * (dt / 6.0)
@@ -117,9 +128,28 @@ static func bounce(s: BallState, ground_normal: Vector3, surface: int) -> void:
 	s.velocity = vt + n * (-e * vn)
 
 
+## Mirrors olcore::hit_obstacle: a solid sends the ball back with some of its
+## speed; a canopy soaks up most of it, so the ball drops. `hit` comes from
+## CourseTerrain.obstacle_hit().
+static func hit_obstacle(s: BallState, hit: Dictionary) -> void:
+	var n: Vector3 = hit.normal
+	var vn := s.velocity.dot(n)
+	if vn >= 0.0:
+		return
+	var vt := s.velocity - n * vn
+	if int(hit.kind) == ObstacleField.Kind.SOLID:
+		s.velocity = vt * SOLID_FRICTION - n * (vn * SOLID_RESTITUTION)
+		s.spin *= 0.5
+	else:
+		s.velocity = vt * CANOPY_KEEP - n * (vn * CANOPY_BOUNCE)
+		s.spin *= 0.2
+
+
 ## Mirrors olcore::simulate_shot: flight, bounces and roll over the terrain
-## until the ball stops, drops, or finds water or out of bounds.
-static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := false, cup := Vector3.ZERO) -> ShotResult:
+## until the ball stops, drops, or finds water or out of bounds. `wind` acts
+## on the flight only, as in olcore. With `aero` the flight uses the Links 2003
+## model (olcore::BallParams::links).
+static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := false, cup := Vector3.ZERO, wind := Vector3.ZERO, aero: LinksAero = null) -> ShotResult:
 	var r := ShotResult.new()
 	var s := start.copy()
 	var t := 0.0
@@ -136,12 +166,36 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 
 	while t < MAX_TIME:
 		if not rolling:
-			var nxt := step_flight(s, DT)
+			var nxt := step_flight(s, DT, wind, aero)
 			var h0 := s.position.y - terrain.height_at(s.position.x, s.position.z)
 			var h1 := nxt.position.y - terrain.height_at(nxt.position.x, nxt.position.z)
 			t += DT
 			step += 1
 			r.apex_m = maxf(r.apex_m, nxt.position.y - start.position.y)
+
+			# An obstacle met before the ground. Time keeps the whole step,
+			# so a ball wedged between obstacles still runs out of time.
+			var ground := (h0 / (h0 - h1) if h0 > 0.0 else 0.0) if h1 <= 0.0 else 2.0
+			var hit := terrain.obstacle_hit(s.position, nxt.position)
+			if not hit.is_empty() and float(hit.fraction) < ground:
+				var f: float = hit.fraction
+				var b := BallState.new(s.position.lerp(nxt.position, f), s.velocity.lerp(nxt.velocity, f), nxt.spin)
+				hit_obstacle(b, hit)
+				# Just outside a solid, or just inside a canopy, so the same
+				# face is not met again.
+				var gap := OBSTACLE_GAP if int(hit.kind) == ObstacleField.Kind.SOLID else -OBSTACLE_GAP
+				b.position += (hit.normal as Vector3) * gap
+				r.obstacle_hits += 1
+				r.add_sample(t, b.position)
+				# Settled on top of something flat enough (a wall, a bridge).
+				var n: Vector3 = hit.normal
+				if int(hit.kind) == ObstacleField.Kind.SOLID and n.y > FLAT_TOP and b.velocity.dot(n) < ROLL_THRESHOLD:
+					if not landed:
+						landed = true
+						r.first_landing = b.position
+					return _finish(r, ShotResult.Outcome.REST, b.position, t, landed, start, terrain)
+				s = b
+				continue
 
 			if h1 <= 0.0:
 				var frac := h0 / (h0 - h1) if h0 > 0.0 else 0.0
@@ -197,6 +251,21 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 			nv -= nn * nv.dot(nn)
 			t += DT
 			step += 1
+
+			# Rolling into a trunk or a wall; leaves do not stop a rolling ball.
+			var hit := terrain.obstacle_hit(pos, npos)
+			if not hit.is_empty() and int(hit.kind) == ObstacleField.Kind.SOLID:
+				var hp := pos.lerp(npos, float(hit.fraction)) + (hit.normal as Vector3) * OBSTACLE_GAP
+				hp.y = terrain.height_at(hp.x, hp.z)
+				var b := BallState.new(hp, nv, s.spin)
+				hit_obstacle(b, hit)
+				var hn := terrain.normal_at(hp.x, hp.z)
+				s.position = hp
+				s.velocity = b.velocity - hn * b.velocity.dot(hn)
+				s.spin = b.spin
+				r.obstacle_hits += 1
+				r.add_sample(t, hp)
+				continue
 
 			if has_cup and nv.length() < MAX_HOLING_SPEED and _segment_distance_xz(pos, npos, cup) < CUP_RADIUS:
 				return _finish(r, ShotResult.Outcome.HOLED, cup, t, landed, start, terrain)
