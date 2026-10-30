@@ -12,6 +12,11 @@ installing the game. Only the standard library is used.
         # The names come from the file table in SETUP.EXE, read from the same
         # disc by default; pass CD1's SETUP.EXE for CD2, which has none.
         # Run it once per disc with the same OUTDIR to build a full install.
+    cdimage.py info    DISC.b6i                 # volume label and serial
+    cdimage.py vcd     DISC.b6i OUTDIR
+        # extract the whole disc and add the .windows-label and
+        # .windows-serial files Wine reads, so OUTDIR works as a virtual CD
+        # when mapped to a "cdrom" drive (tools/mac/links2003-mac.sh does this).
 
 Sector size and the offset of the data track are detected automatically:
 2048-byte (.iso) and 2352-byte raw Mode 1 sectors are both supported, with or
@@ -104,6 +109,43 @@ def files(img):
     return walk(img, record, joliet)
 
 
+def volume_info(img):
+    """Return (label, serial) as Windows reports them for the disc.
+
+    Windows uses the volume descriptor with the highest type (the Joliet one,
+    when there is one). NT sums the descriptor's 2048 bytes column-wise into
+    four bytes and reads them big-endian to get the serial, as Wine does.
+    """
+    best = None
+    lba = 16
+    while True:
+        desc = img.sector(lba)
+        if desc[1:6] != b"CD001" or desc[0] == 255:
+            break
+        if best is None or desc[0] > best[0]:
+            best = desc
+        lba += 1
+    if best[0] == 2:
+        label = best[40:72].decode("utf-16-be", "replace")
+    else:
+        label = best[40:72].decode("latin-1")
+    sums = [sum(best[i::4]) & 0xFF for i in range(4)]
+    serial = (sums[0] << 24) | (sums[1] << 16) | (sums[2] << 8) | sums[3]
+    return label.rstrip(" \x00"), serial
+
+
+def extract(img, outdir, pattern="*"):
+    for path, lba, size in files(img):
+        if not fnmatch.fnmatch(path.lower(), pattern.lower()):
+            continue
+        dest = os.path.join(outdir, *path.strip("/").split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as out:
+            for chunk in img.chunks(lba, size):
+                out.write(chunk)
+        print(path)
+
+
 def long_names(setup_exe):
     """Map disc paths under GAME/ (upper case, '/' separated) to install paths.
 
@@ -154,25 +196,28 @@ def main(argv):
                 sys.exit("this disc has no SETUP.EXE; pass the one from disc 1")
         install(img, argv[3], setup)
         return
-    if len(argv) < 3 or argv[1] not in ("list", "extract"):
+    if len(argv) < 3 or argv[1] not in ("list", "extract", "info", "vcd"):
         sys.exit(__doc__)
     img = Image(argv[2])
     if argv[1] == "list":
         for path, _, size in files(img):
             print(f"{path}\t{size}")
         return
+    if argv[1] == "info":
+        label, serial = volume_info(img)
+        print(f"label\t{label}\nserial\t{serial:08X}")
+        return
     if len(argv) < 4:
         sys.exit(__doc__)
-    outdir, pattern = argv[3], argv[4] if len(argv) > 4 else "*"
-    for path, lba, size in files(img):
-        if not fnmatch.fnmatch(path.lower(), pattern.lower()):
-            continue
-        dest = os.path.join(outdir, *path.strip("/").split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "wb") as out:
-            for chunk in img.chunks(lba, size):
-                out.write(chunk)
-        print(path)
+    if argv[1] == "vcd":
+        extract(img, argv[3])
+        label, serial = volume_info(img)
+        with open(os.path.join(argv[3], ".windows-label"), "w") as f:
+            f.write(label + "\n")
+        with open(os.path.join(argv[3], ".windows-serial"), "w") as f:
+            f.write(f"{serial:08x}\n")
+        return
+    extract(img, argv[3], argv[4] if len(argv) > 4 else "*")
 
 
 if __name__ == "__main__":

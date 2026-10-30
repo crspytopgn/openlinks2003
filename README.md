@@ -85,6 +85,7 @@ The game: open `game/project.godot` in Godot 4.4 and press F5.
 libs/olcore/    Portable C++ core: file formats, physics (engine-independent)
 tools/oldump/   File inspection tool for format reverse engineering
 tools/cdimage/  Reads files from raw CD images (.b6i, .iso)
+tools/mac/      Installs and wraps the original game for macOS under Wine
 tools/lsarchive/ Lists and extracts LSls archives and .SSF sound banks
 game/           Godot 4 project (scenes, scripts, export presets)
 docs/           Clean-room rules and file-format notes
