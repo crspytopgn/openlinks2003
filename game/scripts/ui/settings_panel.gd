@@ -1,7 +1,9 @@
 class_name SettingsPanel
 extends PanelContainer
-## Graphics options: quality, window mode, v-sync, anti-aliasing, render
-## scale and field of view. Changes apply at once and are saved.
+## Graphics options (quality, window mode, v-sync, anti-aliasing, render
+## scale, field of view), the wind strength and the HD texture pack. Changes
+## apply at once and are saved; the HD pack applies to textures loaded from
+## then on (HdPack).
 
 signal changed
 
@@ -15,6 +17,10 @@ var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
 var _fov: OptionButton
+var _wind: OptionButton
+var _hd: OptionButton
+var _hd_note: Label
+var _hd_dialog: FileDialog
 
 
 func _ready() -> void:
@@ -49,6 +55,8 @@ func _ready() -> void:
 	for f in FOV_CHOICES:
 		fovs.append("%d deg" % roundi(f))
 	_fov = _row(grid, "Field of view", fovs)
+	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
+	_add_hd_rows(box, grid)
 
 	var hint := Label.new()
 	hint.text = "Esc: close    F11: fullscreen"
@@ -67,12 +75,89 @@ func open(s: GraphicsSettings) -> void:
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
 	_fov.select(_closest(FOV_CHOICES, s.fov))
+	_wind.select(s.wind)
+	_show_hd()
 	visible = true
 	_quality.grab_focus()
 
 
 func close() -> void:
 	visible = false
+
+
+# --- HD texture pack ----------------------------------------------------------
+
+
+func _add_hd_rows(box: VBoxContainer, grid: GridContainer) -> void:
+	var l := Label.new()
+	l.text = "HD textures"
+	grid.add_child(l)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	grid.add_child(row)
+	_hd = OptionButton.new()
+	_hd.add_item("Off")
+	_hd.add_item("On")
+	_hd.item_selected.connect(_on_hd_selected)
+	row.add_child(_hd)
+	var choose := Button.new()
+	choose.text = "Choose pack..."
+	choose.pressed.connect(_choose_hd_pack)
+	row.add_child(choose)
+	_hd_note = Label.new()
+	_hd_note.add_theme_font_size_override("font_size", 14)
+	_hd_note.modulate = Color(1, 1, 1, 0.7)
+	_hd_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hd_note.custom_minimum_size = Vector2(420, 0)
+	box.add_child(_hd_note)
+	if OS.has_feature("web"):
+		# The browser build can't open a folder on disk yet.
+		_hd.disabled = true
+		choose.disabled = true
+		return
+	_hd_dialog = FileDialog.new()
+	_hd_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_hd_dialog.file_mode = FileDialog.FILE_MODE_OPEN_ANY
+	_hd_dialog.filters = PackedStringArray(["*.zip ; HD pack (.zip)"])
+	_hd_dialog.title = "Choose an HD pack folder or .zip"
+	_hd_dialog.dir_selected.connect(_on_hd_picked)
+	_hd_dialog.file_selected.connect(_on_hd_picked)
+	add_child(_hd_dialog)
+
+
+func _show_hd() -> void:
+	var path := HdPack.saved_path()
+	_hd.select(1 if HdPack.saved_enabled() and not path.is_empty() else 0)
+	if OS.has_feature("web"):
+		_hd_note.text = "HD texture packs work in the desktop version for now."
+	elif path.is_empty():
+		_hd_note.text = "No HD pack chosen. Make one from your own files: see docs/hd-textures.md."
+	else:
+		_hd_note.text = "%s (%d textures). Applies from the next course or hole." % [path, HdPack.count_textures(path)]
+
+
+func _choose_hd_pack() -> void:
+	if _hd_dialog == null:
+		return
+	var path := HdPack.saved_path()
+	if not path.is_empty():
+		_hd_dialog.current_dir = path if DirAccess.dir_exists_absolute(path) else path.get_base_dir()
+	_hd_dialog.popup_centered_ratio(0.6)
+
+
+func _on_hd_picked(path: String) -> void:
+	HdPack.save(path, true)
+	_show_hd()
+
+
+func _on_hd_selected(index: int) -> void:
+	var path := HdPack.saved_path()
+	if index == 1 and path.is_empty():
+		_hd.select(0)
+		_choose_hd_pack()
+		return
+	HdPack.save(path, index == 1)
+	_show_hd()
 
 
 func _row(grid: GridContainer, label: String, items: Array) -> OptionButton:
@@ -96,6 +181,7 @@ func _on_selected() -> void:
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
 	settings.fov = FOV_CHOICES[_fov.selected]
+	settings.wind = _wind.selected
 	settings.save()
 	changed.emit()
 

@@ -71,6 +71,7 @@ func _billboard_texture(o: Dictionary) -> ImageTexture:
 	if arc and not arc.entries.is_empty():
 		var img := Btcv.decode(arc.read(0))
 		if img:
+			img = HdPack.replace("billboards", str(arc.entries[0].name), img)
 			img.generate_mipmaps()
 			tex = ImageTexture.create_from_image(img)
 	_textures[key] = tex
@@ -102,7 +103,13 @@ func _make_model(o: Dictionary) -> Node3D:
 	var key: String = o.path
 	if not _meshes.has(key):
 		var base := _path(o).get_basename()
-		_meshes[key] = XyzModel.build_mesh(folder.read(base + ".XYZ"), XyzModel.read_textures(folder.read(base + ".cmf")))
+		var textures := XyzModel.read_textures(folder.read(base + ".cmf"))
+		for i in textures.size():
+			var hd := HdPack.find("models/library", "%s_%d" % [base.get_file(), i], textures[i])
+			if hd != null:
+				hd.generate_mipmaps()
+				textures[i] = hd
+		_meshes[key] = XyzModel.build_mesh(folder.read(base + ".XYZ"), textures)
 	if _meshes[key] == null:
 		return null
 	var mi := MeshInstance3D.new()

@@ -215,6 +215,19 @@ feet tall.
   `olcourse export` writes `models.bin` (meshes and placements) and the
   textures under `textures/models/`; `CourseModels`
   (`game/scripts/course/course_models.gd`) draws them.
+- In the playable round, `CourseObjects`
+  (`game/scripts/course/course_objects.gd`) reads all of these straight from
+  the `.CRZ` (a GDScript port of the parsers), packs every billboard sprite
+  into one atlas, and draws each 100 m chunk as one MultiMesh per height
+  class with a billboard shader (the atlas rectangle is per-instance custom
+  data). Only chunks near the hole being played are built. The decoded
+  `2DPlant` placements are kept in the course cache.
+- Ball collision: types whose names say tree (`Tall Trees`, `Maple`, ...)
+  get a solid trunk (radius 2% of the height, 0.1 to 0.45 m) up to 40% of
+  the height and a canopy (radius 40% of the width) above 35%; conifers'
+  canopies start at 20%. Bushes get a canopy, rocks a solid; grasses let
+  the ball through. 3D objects block with the bounding box of their mesh.
+  These proportions are guesses from the sprites, not from the game.
 - `olcore::parse_crowd_placements` reads `TrnyPlant`. With `--crowds`,
   `olcourse export` writes `crowds.bin` (the `objects.bin` format) and a
   `crowds` list in `course.json`; the viewer draws them as billboards and T

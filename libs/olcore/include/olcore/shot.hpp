@@ -48,6 +48,7 @@ struct ShotResult {
   double apex_m = 0;        // highest point above the start
   double time_s = 0;
   int bounces = 0;
+  int obstacle_hits = 0;    // trees, walls and the like
   std::vector<ShotSample> path;
 };
 
@@ -55,13 +56,19 @@ struct ShotResult {
 // surface normal at the contact point.
 void bounce(Vec3& velocity, Vec3& spin, Vec3 n, Surface surface, const BallParams& p);
 
+// Resolves the ball meeting an obstacle in place. A solid sends it back
+// with some of its speed; a canopy soaks up most of it, so the ball drops.
+// Generic values, to be tuned against the original game.
+void hit_obstacle(Vec3& velocity, Vec3& spin, const ObstacleHit& hit);
+
 // Restitution of turf for a given normal impact speed (m/s), before the
 // per-surface scale.
 double turf_restitution(double normal_speed);
 
 // `start.position` is where the ball sits (bottom of the ball, on the
 // ground). A start with almost no speed off the ground, such as a putt,
-// begins rolling straight away.
+// begins rolling straight away. With p.links set the whole shot uses the
+// Links 2003 model instead (simulate_links_shot in links_ground.hpp).
 ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                          const ShotOptions& opt = {});
 

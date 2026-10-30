@@ -115,6 +115,11 @@ static func _utf16(bytes: PackedByteArray, offset: int, max_bytes: int) -> Strin
 	return bytes.slice(offset, end).get_string_from_utf16()
 
 
+## A WAV file (16-bit PCM or MS ADPCM) as a stream, or null.
+static func wav_to_stream(wav: PackedByteArray) -> AudioStreamWAV:
+	return _wav_to_stream(wav)
+
+
 ## Mirrors olcore::parse_wav and olcore::decode_pcm16.
 static func _wav_to_stream(wav: PackedByteArray) -> AudioStreamWAV:
 	if wav.size() < 12 or wav.slice(0, 4).get_string_from_ascii() != "RIFF":

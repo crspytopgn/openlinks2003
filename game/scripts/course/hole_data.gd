@@ -4,7 +4,10 @@ extends RefCounted
 
 var number := 1
 var par := 4
+## The tee in play.
 var tee := Vector3.ZERO
+## Every tee box, back to forward, when the course has more than one.
+var tees: Array[Vector3] = []
 var pin := Vector3.ZERO
 var terrain: CourseTerrain
 var objects: Array[PlacedObject] = []

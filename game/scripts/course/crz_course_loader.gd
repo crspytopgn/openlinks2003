@@ -12,7 +12,7 @@ extends CourseLoader
 const FEET := 0.3048
 const KEYS_PATH := "user://crz_keys.cfg"
 const CACHE_DIR := "user://course_cache"
-const CACHE_VERSION := 1
+const CACHE_VERSION := 2
 const EXE_NAMES := ["LINKSM_1.EXE", "LinksMMIII.exe", "LinksM~1.exe"]
 const TEXTURE_LIBRARIES := ["STDTER_1.LIB", "StdTerrain.lib", "StdTer~1.lib"]
 ## How far one repeat of a free ground texture spans.
@@ -39,6 +39,7 @@ func can_load(path: String) -> bool:
 
 
 func load_course(path: String) -> CourseData:
+	HdPack.course = path.get_file().get_basename().to_lower()
 	var data := _cached(path)
 	var archive: CrzArchive = null
 	if data.is_empty():
@@ -133,7 +134,7 @@ static func _store_cache(path: String, data: Dictionary) -> void:
 
 ## Everything the game needs from an open archive, as plain data (so it can
 ## be cached): {version, name, holes, positions, triangles, triangle_material,
-## ground_classes, material_textures}. Empty on error.
+## ground_classes, material_textures, objects}. Empty on error.
 static func decode(archive: CrzArchive) -> Dictionary:
 	var holes := parse_holes(archive.read_named("header"))
 	var terrain := parse_terrain(archive.read_named("vertex"))
@@ -168,6 +169,7 @@ static func decode(archive: CrzArchive) -> Dictionary:
 		"triangle_material": terrain.triangle_material,
 		"ground_classes": parse_ground_classes(archive.read_named("TerrainTypes")),
 		"material_textures": material_textures,
+		"objects": CourseObjects.decode(archive.read_named),
 	}
 
 
@@ -336,10 +338,18 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 	terrain.ground_classes = data.ground_classes
 	terrain.normals = _vertex_normals(terrain.positions, terrain.triangles)
 	terrain.finalize()
-	terrain.materials = _materials(path, data.material_textures, terrain.ground_classes, archive)
+	if archive == null:
+		archive = _open(path)
+	terrain.materials = _materials(data.material_textures, terrain.ground_classes, archive)
 
 	var course := CourseData.new()
 	course.course_name = data.name
+	if archive != null:
+		if archive.has("Panorama"):
+			course.horizon = LinksPanorama.decode(archive.read_named("Panorama"))
+		course.read_entry = archive.read_named
+		course.objects = CourseObjects.build(archive.read_named, data.get("objects", {}), CourseObjects.find_crowd_library())
+		terrain.obstacles = course.objects.obstacles
 	var number := 0
 	for h in data.holes as Array:
 		number += 1
@@ -355,6 +365,9 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		var pin: Vector3 = pins[0]
 		hole.tee = Vector3(tee.x, terrain.height_at(tee.x, tee.z), tee.z)
 		hole.pin = Vector3(pin.x, terrain.height_at(pin.x, pin.z), pin.z)
+		for t: Dictionary in tees:
+			var at: Vector3 = t.position
+			hole.tees.append(Vector3(at.x, terrain.height_at(at.x, at.z), at.z))
 		# The aim points run from the tee to the green; skip the tee itself.
 		for p in h.aim as Array:
 			var q := Vector2(p.x, p.z)
@@ -386,9 +399,7 @@ static func _vertex_normals(positions: PackedVector3Array, triangles: PackedInt3
 ## course archive or from the standard terrain library on the game disc.
 ## A stock texture that isn't there (add-on courses played without the
 ## standard library) falls back to the free ground texture for its surface.
-func _materials(path: String, names: PackedStringArray, classes: PackedByteArray, archive: CrzArchive) -> Array[Dictionary]:
-	if archive == null:
-		archive = _open(path)
+func _materials(names: PackedStringArray, classes: PackedByteArray, archive: CrzArchive) -> Array[Dictionary]:
 	var library: Arc0 = null
 	var lib_path := GameFolder.find_file(PackedStringArray(TEXTURE_LIBRARIES))
 	if not lib_path.is_empty():
@@ -412,15 +423,18 @@ func _materials(path: String, names: PackedStringArray, classes: PackedByteArray
 
 static func _load_texture(tex_name: String, archive: CrzArchive, library: Arc0) -> Texture2D:
 	var bytes := PackedByteArray()
+	var hd_dir := "terrain/" + HdPack.course
 	if archive != null and archive.has(tex_name):
 		bytes = archive.read_named(tex_name)
 	elif library != null and library.find(tex_name) >= 0:
 		bytes = library.read_named(tex_name)
+		hd_dir = "terrain/standard"
 	if bytes.is_empty():
 		return null
 	var image := Image.new()
 	if image.load_tga_from_buffer(bytes) != OK or image.is_empty():
 		return null
+	image = HdPack.replace(hd_dir, tex_name, image)
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 

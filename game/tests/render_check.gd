@@ -18,6 +18,8 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	_out = args[0] if args.size() > 0 else "user://render_check.png"
 	print("renderer: %s" % RenderingServer.get_current_rendering_method())
+	# Fixed wind, so the shots (and what the camera sees) are the same every run.
+	GolfRound.wind_seed = 20031
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
@@ -27,6 +29,7 @@ func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames == 2:
 		_game.start_hole(1)
+		_game.scenery.set_backdrop(_test_horizon())
 	elif _frames == SHOT_FRAME:
 		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()
@@ -65,6 +68,15 @@ func _save_jpg(img: Image, suffix: String) -> void:
 	var small := img.duplicate() as Image
 	small.resize(1280, 1280 * small.get_height() / small.get_width(), Image.INTERPOLATE_LANCZOS)
 	small.save_jpg(_out.get_basename() + suffix + ".jpg", 0.85)
+
+
+## A stand-in horizon so the backdrop's shader compiles here: green land
+## below eye level, transparent above, like a course's Panorama.
+func _test_horizon() -> Image:
+	var img := Image.create_empty(1024, 96, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	img.fill_rect(Rect2i(0, 64, 1024, 32), Color(0.25, 0.4, 0.2))
+	return img
 
 
 func _mean(img: Image, r: Rect2i) -> Color:

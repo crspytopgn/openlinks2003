@@ -14,7 +14,8 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
-| Esc | Settings: quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view |
+| Esc | Menu: resume, scorecard, settings (quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view), restart, main menu |
+| M | Back to the main menu once the round is over |
 | F11 | Toggle fullscreen |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
@@ -29,32 +30,76 @@ distance). Holes run tee to cup, then on to the next. Water costs a stroke
 and a drop on the line of flight; out of bounds is stroke and distance. A
 hole is picked up at 10 strokes.
 
+## Menus and game modes
+
+Once the game files are ready, the boot screen is the main menu: **Play a
+round**, the game-file buttons, **Settings** and **Quit** (desktop). Play a
+round opens the setup page (`ui/round_setup_panel.gd`): course, tees (back,
+middle, forward; courses with one tee box play from it whatever is chosen),
+holes (all, front nine, back nine), game mode and one to four players with
+names. The choice is a `RoundSetup`, saved under `[round]` in
+`user://settings.cfg` with the last course, and handed to the round through
+`GolfRound.setup`.
+
+Players share the round in turn (hot seat). On each hole everyone tees off
+in order of the honour (the lowest score on the last hole goes first; ties
+keep their order), then whoever is furthest from the hole plays. The other
+balls stay on the ground where they lie. The modes:
+
+| Mode | Players | Scoring |
+| --- | --- | --- |
+| Stroke play | 1 to 4 | Lowest total |
+| Match play | 2 | Hole by hole; ends once the leader can't be caught ("3 & 2") |
+| Skins | 2 to 4 | One skin a hole for the outright lowest score; ties carry over |
+| Best ball | 3 or 4, two teams | Each team counts its best score per hole |
+| Stableford | 1 to 4 | 2 points for par, one more per stroke under, one fewer per stroke over |
+
+`GameModes` (`game_modes.gd`) does the scoring and mirrors the game-mode
+functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
+cards and turns them into the HUD status line, the end-of-hole result and the
+final standings. The scorecard shows a row per player plus the mode's rows
+(points, skin winners, match holes, team best balls). Handicaps and computer
+opponents are not done yet.
+
 ## Code map
 
 ```
 game/scripts/
-  main.gd                       GolfRound: the round state machine, camera, HUD wiring
+  boot.gd                       Game files, main menu and round setup
+  main.gd                       GolfRound: the round state machine, turns, camera, HUD wiring
   scorecard.gd                  Scorecard (mirrors olcore/scoring)
+  game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
+  round_setup.gd                RoundSetup: course, tees, holes, mode and players for a round
+  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
+    links_shot_model.gd         LinksShotModel: the stand-in with the game's own flight, bounce and roll
+    links_aero.gd               LinksAero: that flight model (port of olcore/links_flight)
+    links_ground.gd             LinksGround: its bounce and roll (port of olcore/links_ground)
+    wind.gd                     Wind: conditions for the round, hole and shot
     ball_physics.gd             BallPhysics: GDScript port of olcore ball_physics + shot
     swing.gd, club.gd           Swing-meter-to-launch mapping and the club table
     surface.gd                  Surface types and per-surface constants
+    obstacle_field.gd           ObstacleField: trunks, canopies and walls (port of olcore/obstacles)
     ball_state.gd, shot_result.gd, flat_terrain.gd
   course/
     course_loader.gd            CourseLoader: interface for the .CRZ decoder
     course_data.gd, hole_data.gd, placed_object.gd
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
+    course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
+                                drawn per hole and turned into obstacles
     placeholder_*.gd            The procedural nine-hole stand-in course
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends
     golfer_assets.gd, golfer_rig.gd   interfaces for the golfer model and animation
     sound_bank.gd               SoundBank: interface for game audio
+    free_golfer.gd              FreeGolfer: the CC0 MakeHuman golfer (assets/golfer/free_golfer.glb)
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
-    swing_meter.gd, hud.gd, scorecard_panel.gd
+    swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
+    round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
 
@@ -141,7 +186,13 @@ Nothing in the round needs to change.
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
   `LinksGolferAssets` (`scripts/golfer/`) is used automatically when a game
   folder is configured: the original skinned, textured golfer and clubs as a
-  `Skeleton3D`, driven by the original clips.
+  `Skeleton3D`, driven by the original clips. Without a game folder,
+  `PlaceholderGolferAssets` gives `FreeGolfer`: a realistic man built from
+  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with the
+  swing, putt and celebration keyed by hand and baked into
+  `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
+  If that file is missing it falls back to `PlaceholderGolfer`, the figure
+  built from primitives.
 - **Audio:** subclass `SoundBank` (`play(event)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
   `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.
@@ -170,15 +221,34 @@ GDScript in `game/scripts/physics/ball_physics.gd`:
   without slipping, which is what checks a wedge on the green.
 - **Roll:** 5/7 g along the slope for a rolling solid sphere, plus rolling
   resistance per surface. Green resistance gives roughly a Stimp 10 green.
+- **Obstacles:** `CourseTerrain.obstacle_hit()` (`Terrain::obstacle_hit` in
+  C++) reports the first trunk, canopy or wall a flight or roll step enters.
+  A solid keeps 35% of the speed into its face and 75% along it; a canopy
+  keeps 20% and drops the ball; a ball that settles on a flat top (a wall,
+  a bridge) stays there. Rolling balls ignore canopies.
+- **Wind:** drag and lift use the ball's velocity through the air, so a
+  uniform wind (`BallParams::wind`, the `wind` argument in GDScript) slows,
+  carries or pushes the ball sideways. It does not act on a rolling ball.
+  `Wind` (`scripts/physics/wind.gd`) picks the conditions: a prevailing
+  direction for the round, a speed and a shift for each hole, and a small
+  change between shots, scaled by the Wind setting (Off, Light, Moderate,
+  Strong).
 - **Clubs:** tour-average launch monitor data (ball speed, launch angle,
   spin) for driver to pitching wedge; wedges and putter are estimates.
 
-None of these constants come from Links 2003. Tuning them against the
+When the game folder has the executable, `LinksShotModel` replaces
+`StandardShotModel` and plays the whole shot with the game's own model:
+flight (`LinksAero`, `olcore/links_flight.hpp`) and bounce and roll
+(`LinksGround`, `olcore/links_ground.hpp`); see
+[formats/physics.md](formats/physics.md). The launch stays as above, and
+trees, the cup, water and out of bounds use our own handling.
+
+Apart from that model, none of these constants come from Links 2003. Tuning them against the
 original game is the "(needs data)" item in the roadmap. `run_tests.gd` checks
 the GDScript port against numbers from the C++ tests, so change both
 together.
 
 ## Not done yet
 
-Wind, trees and other objects the ball can hit, lie-specific animations,
-camera styles from the original, menus, and the real-time mouse swing.
+Gusts during a flight, wind that changes with height, lie-specific animations,
+camera styles from the original, handicaps, computer opponents, and the real-time mouse swing.

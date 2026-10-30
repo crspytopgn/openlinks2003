@@ -32,12 +32,16 @@ What the file holds and when the game loads it.
   billboards (`MasterObj`, `2DPlant`) and 3D objects (`MasterObj3D`,
   `3DPlant`, `.t3l`, `.maq`) and tournament spectators (`TrnyPlant`).
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
+- [panorama.md](panorama.md): course horizons and cloud skies (`Panorama`, `PANSKY.LIB`).
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.
 - [model.md](model.md): 3D objects (`.XYZ` meshes, `.CMF` textures).
 - [ls-archive.md](ls-archive.md): `LSls` archives (`.LS`, `.L3`, `.TIP`) and
   their LZW compression. Complete.
 - [ssf.md](ssf.md): `.SSF` sound banks. Partial (voice conditions open).
+- [physics.md](physics.md): the ball physics in the executable: units, the
+  flight model and its coefficient tables, per-surface values, launch
+  tables. Partial (flight complete).
 - [golfer-script.md](golfer-script.md): `SCRIPT.TXT` in golfer archives, the
   animation state script. Complete.
 - [carrera-store.md](carrera-store.md): the object store behind `.SKL`

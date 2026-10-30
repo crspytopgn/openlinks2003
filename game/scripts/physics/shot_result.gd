@@ -14,6 +14,7 @@ var total_m := 0.0
 var apex_m := 0.0
 var time_s := 0.0
 var bounces := 0
+var obstacle_hits := 0  ## trees, walls and the like
 var times := PackedFloat32Array()
 var points := PackedVector3Array()
 

@@ -76,7 +76,7 @@ size of the first entry. Each entry is a zlib stream. Contents seen:
 | File | Entries | First entry |
 |------|--------:|-------------|
 | `STDTER_1.LIB` (`stdterrain.lib`) | 228 | TGA: standard terrain textures |
-| `PANSKY.LIB` | 50 | Tag `yks` with `desu`: panoramic sky images, probably DXT-compressed |
+| `PANSKY.LIB` | 50 | ARC0: 12 cloud skies (`skyNN.btc`), 13 stock horizons (`PanNN.btc`) and TGA previews ([panorama.md](panorama.md)) |
 | `CROWDS.LIB` (also `TRNYCRWD.LIB`) | 981 | `BTCV` sprite: spectators |
 | `OBJECT/**/*.BTX` | 6 | `BTCV` sprite: a 2D billboard object (tree, bush) |
 | `OBJECT/TOPVIEWS/*.TOP` | 6 | `BTCV` sprite: top-down view of an object for the course map |
