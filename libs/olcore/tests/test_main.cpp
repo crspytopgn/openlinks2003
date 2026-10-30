@@ -1,6 +1,7 @@
 // Minimal self-contained test runner so the core library has no dependencies.
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <cstring>
@@ -16,8 +17,10 @@
 #include "olcore/carrera_store.hpp"
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
+#include "olcore/image.hpp"
 #include "olcore/inflate.hpp"
 #include "olcore/links_flight.hpp"
+#include "olcore/links_ground.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
@@ -576,6 +579,81 @@ void test_block_runs_modes() {
   CHECK(threw);
 }
 
+void test_tga_rle_bottom_up() {
+  // 3 x 2, 24-bit RLE, bottom-left origin: bottom row a run of three blue
+  // pixels, top row three raw pixels (red, green, white).
+  std::vector<std::uint8_t> d(18, 0);
+  d[2] = 10;
+  d[12] = 3;
+  d[14] = 2;
+  d[16] = 24;
+  d.insert(d.end(), {0x82, 255, 0, 0});                                     // run of 3, B G R
+  d.insert(d.end(), {0x02, 0, 0, 255, 0, 255, 0, 255, 255, 255});        // 3 raw
+  auto img = decode_tga(d);
+  CHECK(img && img->width == 3 && img->height == 2);
+  if (!img) return;
+  CHECK(pixel(*img, 0, 0)[0] == 255 && pixel(*img, 0, 0)[2] == 0);  // red, top row
+  CHECK(pixel(*img, 1, 0)[1] == 255 && pixel(*img, 1, 0)[0] == 0);  // green
+  CHECK(pixel(*img, 2, 1)[2] == 255 && pixel(*img, 2, 1)[3] == 255);  // blue, bottom row
+  CHECK(!decode_tga(std::vector<std::uint8_t>(10, 0)));
+}
+
+std::uint32_t be32(const std::vector<std::uint8_t>& v, std::size_t at) {
+  return static_cast<std::uint32_t>(v[at]) << 24 | static_cast<std::uint32_t>(v[at + 1]) << 16 |
+         static_cast<std::uint32_t>(v[at + 2]) << 8 | v[at + 3];
+}
+
+void test_png_round_trip() {
+  RgbaImage img;
+  img.width = 37;
+  img.height = 11;
+  for (int i = 0; i < img.width * img.height; ++i)
+    img.pixels.insert(img.pixels.end(), {static_cast<std::uint8_t>(i * 7), static_cast<std::uint8_t>(i / 3), 200,
+                                         static_cast<std::uint8_t>(i % 5 ? 255 : 0)});
+  auto png = encode_png(img);
+  CHECK(png.size() > 33 && png[1] == 'P' && be32(png, 16) == 37 && be32(png, 20) == 11 && png[25] == 6);
+  // One IDAT right after IHDR: inflate it and undo the row filters.
+  std::uint32_t len = be32(png, 33);
+  CHECK(std::memcmp(&png[37], "IDAT", 4) == 0);
+  CHECK(crc32(&png[37], len + 4) == be32(png, 41 + len));
+  auto rows = zlib_decompress(&png[41], len);
+  const std::size_t stride = 37 * 4;
+  CHECK(rows.size() == 11 * (stride + 1));
+  std::vector<std::uint8_t> prev(stride, 0), out;
+  for (int y = 0; y < 11 && rows.size() == 11 * (stride + 1); ++y) {
+    const std::uint8_t* r = &rows[y * (stride + 1)];
+    std::vector<std::uint8_t> line(stride);
+    for (std::size_t k = 0; k < stride; ++k) {
+      int a = k >= 4 ? line[k - 4] : 0, b = prev[k], c = k >= 4 ? prev[k - 4] : 0;
+      int p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+      int pred = r[0] == 0 ? 0 : r[0] == 1 ? a : r[0] == 2 ? b : r[0] == 3 ? (a + b) / 2 : (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      line[k] = static_cast<std::uint8_t>(r[1 + k] + pred);
+    }
+    out.insert(out.end(), line.begin(), line.end());
+    prev = line;
+  }
+  // Transparent pixels keep their colour in the file.
+  CHECK(out == img.pixels);
+  // Long repeats compress.
+  std::vector<std::uint8_t> zeros(100000, 0);
+  auto z = zlib_compress(zeros.data(), zeros.size());
+  CHECK(z.size() < 2000 && zlib_decompress(z) == zeros);
+}
+
+void test_pad_and_bleed() {
+  RgbaImage img;
+  img.width = 2;
+  img.height = 2;
+  img.pixels = {10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 0};
+  RgbaImage p = pad_wrapped(img, 1);
+  CHECK(p.width == 4 && p.height == 4);
+  CHECK(pixel(p, 0, 0)[0] == 40 && pixel(p, 1, 1)[0] == 10 && pixel(p, 3, 3)[0] == 10);
+  RgbaImage q = pad_wrapped(img, 3, false);
+  CHECK(q.width == 8 && q.height == 2 && pixel(q, 0, 0)[0] == 20);
+  bleed_transparent(img);
+  CHECK(pixel(img, 1, 1)[0] == 20 && pixel(img, 1, 1)[3] == 0);  // mean of 10, 20, 30
+}
+
 void test_btcv_places_tiles_from_bottom() {
   // 70 x 6 image, one 64-pixel tile at x = 0, y = 0 filled with opaque white
   // (mode 4). Its bottom edge sits on the image bottom, so only the tile's
@@ -952,6 +1030,51 @@ void test_scorecard() {
   CHECK(format_to_par(-3) == "-3");
 }
 
+// game/tests/run_tests.gd checks the GDScript port against the same cases.
+void test_game_modes() {
+  CHECK(stableford_points(4, 4) == 2);
+  CHECK(stableford_points(3, 4) == 3);
+  CHECK(stableford_points(2, 5) == 5);
+  CHECK(stableford_points(6, 4) == 0);
+  CHECK(stableford_points(9, 4) == 0);
+  CHECK(stableford_points(0, 4) == 0);
+  Scorecard card({4, 3, 5});
+  card.record(0, 5);
+  card.record(1, 2);
+  CHECK(stableford_total(card) == 4);
+
+  std::vector<int> bb = best_ball({{5, 3, 0}, {4, 4, 0}});
+  CHECK((bb == std::vector<int>{4, 3, 0}));
+
+  // Hole 2 is tied, so hole 3 is worth two skins; hole 4 is tied and carried.
+  SkinsResult sk = skins({{4, 3, 4, 5, 0}, {5, 3, 5, 5, 0}, {5, 4, 6, 5, 0}});
+  CHECK((sk.skins == std::vector<int>{3, 0, 0}));
+  CHECK((sk.hole_winner == std::vector<int>{0, -1, 0, -1, -2}));
+  CHECK(sk.carried == 1);
+  CHECK(skins({{4, 3}, {3, 0}}).skins[1] == 1);
+  CHECK(skins({{4, 3}, {3, 0}}).hole_winner[1] == -2);
+
+  // A wins 1, 2 and 4, halves 3: 3 up with 5 left after 4 of 9.
+  std::vector<int> a = {4, 3, 5, 4, 0, 0, 0, 0, 0};
+  std::vector<int> b = {5, 4, 5, 5, 0, 0, 0, 0, 0};
+  MatchStatus m = match_status(a, b);
+  CHECK(m.up == 3 && m.played == 4 && m.remaining == 5 && !m.finished && !m.dormie);
+  CHECK(match_text(m) == "3 up");
+  a[4] = 4; b[4] = 5;
+  m = match_status(a, b);
+  CHECK(m.up == 4 && m.remaining == 4 && m.dormie && match_text(m) == "4 up (dormie)");
+  a[5] = 3; b[5] = 4;
+  m = match_status(a, b);
+  CHECK(m.finished && m.played == 6 && m.remaining == 3 && match_text(m) == "5 & 3");
+  m = match_status({4, 4, 4}, {4, 3, 5});
+  CHECK(m.up == 0 && m.finished && match_text(m) == "Halved");
+  m = match_status({4, 4, 3}, {4, 4, 4});
+  CHECK(m.up == 1 && m.finished && m.remaining == 0 && match_text(m) == "1 up");
+  m = match_status({5, 0}, {4, 0});
+  CHECK(m.up == -1 && m.played == 1 && m.dormie && match_text(m) == "1 up (dormie)");
+  CHECK(match_text(match_status({0, 0}, {0, 0})) == "All square");
+}
+
 // Builds a store from named objects. Each object's bytes may hold pointers
 // to other objects as "index + 1 into objs" placeholders in the slots listed
 // in `pointers`; they are patched to file offsets.
@@ -1291,6 +1414,168 @@ void test_links_flight() {
   CHECK(head.carry_m < calm.carry_m);
 }
 
+// The ground in the game's frame for the Links ground tests: a plane, or a
+// flat shelf ending in a 3 ft drop at y = 5.
+class TestGround : public LinksGround {
+ public:
+  TestGround(int cls, double gx = 0, double gy = 0, bool cliff = false) : cls_(cls), gx_(gx), gy_(gy), cliff_(cliff) {}
+  double height(double x, double y) const override {
+    if (cliff_) {
+      return y < 5 ? 0 : -3;
+    }
+    return gx_ * x + gy_ * y;
+  }
+  Vec3 normal(double, double) const override {
+    Vec3 n{-gx_, -gy_, 1};
+    return n * (1 / length(n));
+  }
+  LinksSurface surface(double, double) const override { return links_surface(cls_); }
+
+ private:
+  int cls_;
+  double gx_, gy_;
+  bool cliff_;
+};
+
+// No air: the tables are all zero, so flight is gravity alone.
+LinksAero still_air() {
+  CoefficientTable t{{0, 1}, {0, 1}, {0, 0, 0, 0}};
+  return LinksAero{t, t};
+}
+
+// Steps until the ball stops; returns the step it stopped on, or -1.
+int run_links_ball(LinksBall& b, const LinksGround& g, LinksRandom& rng, int max_steps = 2000) {
+  LinksAero air = still_air();
+  for (int k = 0; k < max_steps; ++k) {
+    links_step(b, g, air, {}, rng);
+    if (b.mode == LinksMode::Rest) {
+      return k;
+    }
+  }
+  return -1;
+}
+
+LinksBall links_ball(Vec3 pos, Vec3 vel, Vec3 spin, LinksMode mode) {
+  LinksBall b;
+  b.position = pos;
+  b.velocity = vel;
+  b.spin = spin;
+  b.mode = mode;
+  if (mode != LinksMode::Flight) {
+    b.on_ground_started = true;
+    b.checkpoint_x = pos.x;
+    b.checkpoint_y = pos.y;
+  }
+  return b;
+}
+
+// The expected numbers below come from running the game's own code (see
+// docs/formats/physics.md); the ball stops on the same 1/60 s step.
+void test_links_random() {
+  LinksRandom rng;
+  CHECK(rng.next_u32() == 0x79a8b120u);
+  CHECK(rng.state() == 0x65b8545cu);
+  CHECK(rng.next_u32() == 0xe8a8769au);
+  CHECK(rng.state() == 0x3cbd052fu);
+  CHECK(LinksRandom::seed_for(12.7, -3.2) == static_cast<std::uint32_t>(-36));
+  CHECK(LinksRandom::seed_for(0.5, 100) == 0x12345678u);
+}
+
+void test_links_impact() {
+  // Fairway, 45 degrees in at 56.6 ft/s with backspin.
+  LinksBall b = links_ball({0, 0, 0.07}, {0, 40, -40}, {100, 0, 0}, LinksMode::Flight);
+  links_impact(b, {0, 0, 1}, links_surface(kLinksFairway));
+  CHECK_NEAR(b.velocity.y, 16.3559, 1e-3);
+  CHECK_NEAR(b.velocity.z, 10.6632, 1e-3);
+  CHECK_NEAR(b.spin.x, 62.2534, 1e-3);
+  CHECK(b.mode == LinksMode::Flight);
+  // Green, steeper with more spin.
+  b = links_ball({0, 0, 0.07}, {0, 30, -45}, {150, 0, 0}, LinksMode::Flight);
+  links_impact(b, {0, 0, 1}, links_surface(kLinksGreen));
+  CHECK_NEAR(b.velocity.y, 9.5844, 1e-3);
+  CHECK_NEAR(b.velocity.z, 10.35, 1e-3);
+  CHECK_NEAR(b.spin.x, 119.3187, 1e-3);
+  // Rough turns the ball by an angle picked from where it lands.
+  b = links_ball({12.3, 40.7, 0.07}, {5, 40, -30}, {60, 0, 0}, LinksMode::Flight);
+  links_impact(b, {0, 0, 1}, links_surface(kLinksRough));
+  CHECK_NEAR(b.velocity.x, 1.3239, 1e-3);
+  CHECK_NEAR(b.velocity.y, 21.9725, 1e-3);
+  CHECK_NEAR(b.velocity.z, 7.2864, 1e-3);
+  CHECK_NEAR(b.spin.y, -2.7779, 1e-3);
+  // Water stops it.
+  b = links_ball({0, 0, 0.07}, {0, 40, -40}, {100, 0, 0}, LinksMode::Flight);
+  links_impact(b, {0, 0, 1}, links_surface(kLinksWater));
+  CHECK(b.mode == LinksMode::Rest);
+
+  CHECK_NEAR(links_contact_time({1, 2, -3}, {1, 2, -3.5}, 0.4), 0.4, 1e-12);
+  CHECK_NEAR(links_contact_time({0, 2, -3}, {0, 1.5, -3.5}, 0.7), 0.72827, 1e-5);
+}
+
+void test_links_roll() {
+  LinksRandom rng;
+  // A fast roll on a flat fairway.
+  LinksBall b = links_ball({0, 0, 0.07}, {0, 45, 0}, {-102.3, 0, 0}, LinksMode::Roll);
+  CHECK(run_links_ball(b, TestGround(kLinksFairway), rng) == 382);
+  CHECK_NEAR(b.position.y, 119.867, 2e-3);
+  // Sliding across a sloping green with sidespin.
+  b = links_ball({0, 0, 0.07}, {2, 25, 0}, {30, 0, 10}, LinksMode::Skid);
+  CHECK(run_links_ball(b, TestGround(kLinksGreen, 0.03, -0.02), rng) == 334);
+  CHECK_NEAR(b.position.x, -0.219, 2e-3);
+  CHECK_NEAR(b.position.y, 47.457, 2e-3);
+  // Off a 3 ft drop: the ball takes off, lands and rolls on.
+  b = links_ball({0, 0, 0.07}, {0, 15, 0}, {-34.1, 0, 0}, LinksMode::Roll);
+  CHECK(run_links_ball(b, TestGround(kLinksFairway, 0, 0, true), rng) == 155);
+  CHECK_NEAR(b.position.y, 19.705, 2e-3);
+}
+
+void test_links_landing() {
+  LinksRandom rng;
+  LinksBall b = links_ball({0, 0, 0.3}, {0, 40, -40}, {100, 0, 0}, LinksMode::Flight);
+  CHECK(run_links_ball(b, TestGround(kLinksFairway), rng) == 114);
+  CHECK_NEAR(b.position.y, 18.366, 2e-3);
+  b = links_ball({0, 0, 0.3}, {0, 40, -40}, {100, 0, 0}, LinksMode::Flight);
+  CHECK(run_links_ball(b, TestGround(kLinksSand), rng) == 55);
+  CHECK_NEAR(b.position.y, 8.888, 2e-3);
+  // Rough makes the ball hop now and then (the game's random numbers from
+  // their starting seed).
+  b = links_ball({0, 0, 0.07}, {0, 20, 0}, {-45.47, 0, 0}, LinksMode::Roll);
+  CHECK(run_links_ball(b, TestGround(kLinksRough), rng) == 138);
+  CHECK_NEAR(b.position.x, -2.594, 2e-3);
+  CHECK_NEAR(b.position.y, 19.371, 2e-3);
+  // Rocks kick it about until a slow ball is stopped.
+  LinksRandom rocks(0x65b8545cu);
+  b = links_ball({0, 0, 0.07}, {0, 14, 0}, {-31.8, 0, 0}, LinksMode::Roll);
+  CHECK(run_links_ball(b, TestGround(kLinksRocks), rocks) == 74);
+  CHECK_NEAR(b.position.y, 2.761, 2e-3);
+}
+
+void test_links_shot() {
+  std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
+  if (!aero) {
+    CHECK(false);
+    return;
+  }
+  BallParams p;
+  p.links = &*aero;
+  FlatTerrain fairway(Surface::Fairway);
+  ShotResult r = simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, fairway);
+  std::printf("  links PW: carry %.2f m, total %.2f m, %d bounces\n", r.carry_m, r.total_m, r.bounces);
+  CHECK(r.outcome == ShotOutcome::Rest);
+  CHECK(r.bounces >= 1);
+  CHECK(r.total_m > r.carry_m);
+  CHECK_NEAR(r.rest.y, 0.0, 1e-6);
+  // A putt that drops.
+  FlatTerrain green(Surface::Green);
+  ShotOptions opt;
+  opt.has_cup = true;
+  opt.cup = {0, 0, 3};
+  ShotResult putt = simulate_shot(BallState{{0, 0, 0}, {0, 0, 3.55}, {}}, p, green, opt);
+  std::printf("  putt %s at %.3f %.3f %.3f\n", outcome_name(putt.outcome), putt.rest.x, putt.rest.y, putt.rest.z);
+  CHECK(putt.outcome == ShotOutcome::Holed);
+  FlatTerrain water(Surface::Water);
+  CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, water).outcome == ShotOutcome::Water);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1306,6 +1591,9 @@ int main() {
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"panorama_tiles", test_panorama_tiles},
+      {"tga_rle_bottom_up", test_tga_rle_bottom_up},
+      {"png_round_trip", test_png_round_trip},
+      {"pad_and_bleed", test_pad_and_bleed},
       {"model_reads_tables", test_model_reads_tables},
       {"object_library_parses", test_object_library_parses},
       {"lzw_round_trip", test_lzw_round_trip},
@@ -1332,7 +1620,13 @@ int main() {
       {"wind_moves_the_ball", test_wind_moves_the_ball},
       {"links_aero_tables", test_links_aero_tables},
       {"links_flight", test_links_flight},
+      {"links_random", test_links_random},
+      {"links_impact", test_links_impact},
+      {"links_roll", test_links_roll},
+      {"links_landing", test_links_landing},
+      {"links_shot", test_links_shot},
       {"scorecard", test_scorecard},
+      {"game_modes", test_game_modes},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

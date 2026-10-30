@@ -14,7 +14,8 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
-| Esc | Settings: quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view |
+| Esc | Menu: resume, scorecard, settings (quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view), restart, main menu |
+| M | Back to the main menu once the round is over |
 | F11 | Toggle fullscreen |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
@@ -29,17 +30,53 @@ distance). Holes run tee to cup, then on to the next. Water costs a stroke
 and a drop on the line of flight; out of bounds is stroke and distance. A
 hole is picked up at 10 strokes.
 
+## Menus and game modes
+
+Once the game files are ready, the boot screen is the main menu: **Play a
+round**, the game-file buttons, **Settings** and **Quit** (desktop). Play a
+round opens the setup page (`ui/round_setup_panel.gd`): course, tees (back,
+middle, forward; courses with one tee box play from it whatever is chosen),
+holes (all, front nine, back nine), game mode and one to four players with
+names. The choice is a `RoundSetup`, saved under `[round]` in
+`user://settings.cfg` with the last course, and handed to the round through
+`GolfRound.setup`.
+
+Players share the round in turn (hot seat). On each hole everyone tees off
+in order of the honour (the lowest score on the last hole goes first; ties
+keep their order), then whoever is furthest from the hole plays. The other
+balls stay on the ground where they lie. The modes:
+
+| Mode | Players | Scoring |
+| --- | --- | --- |
+| Stroke play | 1 to 4 | Lowest total |
+| Match play | 2 | Hole by hole; ends once the leader can't be caught ("3 & 2") |
+| Skins | 2 to 4 | One skin a hole for the outright lowest score; ties carry over |
+| Best ball | 3 or 4, two teams | Each team counts its best score per hole |
+| Stableford | 1 to 4 | 2 points for par, one more per stroke under, one fewer per stroke over |
+
+`GameModes` (`game_modes.gd`) does the scoring and mirrors the game-mode
+functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
+cards and turns them into the HUD status line, the end-of-hole result and the
+final standings. The scorecard shows a row per player plus the mode's rows
+(points, skin winners, match holes, team best balls). Handicaps and computer
+opponents are not done yet.
+
 ## Code map
 
 ```
 game/scripts/
-  main.gd                       GolfRound: the round state machine, camera, HUD wiring
+  boot.gd                       Game files, main menu and round setup
+  main.gd                       GolfRound: the round state machine, turns, camera, HUD wiring
   scorecard.gd                  Scorecard (mirrors olcore/scoring)
+  game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
+  round_setup.gd                RoundSetup: course, tees, holes, mode and players for a round
+  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
-    links_shot_model.gd         LinksShotModel: the stand-in with the game's own ball flight
+    links_shot_model.gd         LinksShotModel: the stand-in with the game's own flight, bounce and roll
     links_aero.gd               LinksAero: that flight model (port of olcore/links_flight)
+    links_ground.gd             LinksGround: its bounce and roll (port of olcore/links_ground)
     wind.gd                     Wind: conditions for the round, hole and shot
     ball_physics.gd             BallPhysics: GDScript port of olcore ball_physics + shot
     swing.gd, club.gd           Swing-meter-to-launch mapping and the club table
@@ -62,6 +99,7 @@ game/scripts/
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
+    round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
 
@@ -199,12 +237,13 @@ GDScript in `game/scripts/physics/ball_physics.gd`:
   spin) for driver to pitching wedge; wedges and putter are estimates.
 
 When the game folder has the executable, `LinksShotModel` replaces
-`StandardShotModel` and flies the ball with the game's own model
-(`LinksAero`, `olcore/links_flight.hpp`; see
-[formats/physics.md](formats/physics.md)). Launch, bounce and roll stay as
-above.
+`StandardShotModel` and plays the whole shot with the game's own model:
+flight (`LinksAero`, `olcore/links_flight.hpp`) and bounce and roll
+(`LinksGround`, `olcore/links_ground.hpp`); see
+[formats/physics.md](formats/physics.md). The launch stays as above, and
+trees, the cup, water and out of bounds use our own handling.
 
-Apart from that flight model, none of these constants come from Links 2003. Tuning them against the
+Apart from that model, none of these constants come from Links 2003. Tuning them against the
 original game is the "(needs data)" item in the roadmap. `run_tests.gd` checks
 the GDScript port against numbers from the C++ tests, so change both
 together.
@@ -212,4 +251,4 @@ together.
 ## Not done yet
 
 Gusts during a flight, wind that changes with height, lie-specific animations,
-camera styles from the original, menus, and the real-time mouse swing.
+camera styles from the original, handicaps, computer opponents, and the real-time mouse swing.

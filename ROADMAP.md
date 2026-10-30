@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. The flight now uses the game's own model and coefficient tables, read from the player's executable ([physics.md](docs/formats/physics.md)); launch, bounce and roll are located in the executable but not ported
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient tables are read from the player's executable, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Still to do: the launch (club tables, lie effects), the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -48,6 +48,7 @@ feel) still need a working install.
 ## Phase 3: look and sound
 
 - [ ] Textures and skies **(unblocked: `STDTER_1.LIB`, `PANSKY.LIB`, `BTCV` sprites, patch `.sky` files)**
+  - [x] HD texture packs: `tools/oltex export` writes the textures as PNG for upscaling, and the game loads an upscaled pack in their place (`HdPack`, [hd-textures.md](docs/hd-textures.md)). Still to do: packs in the browser build, the HUD and menu art, the patch `.sky` skies
   - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
   - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
   - [ ] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks); `.SHA` shadow maps
@@ -68,8 +69,11 @@ feel) still need a working install.
 ## Phase 4: the full game
 
 - [ ] Game modes: stroke, match, skins, best ball and others
+  - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
+  - [ ] Handicaps, alternate shot, scramble and the other original modes
 - [ ] AI opponents
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
+  - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker
@@ -77,5 +81,6 @@ feel) still need a working install.
 ## Phase 5: later
 
 - [ ] Hot-seat multiplayer, then online
+  - [x] Hot seat: up to four players in one round, honour and furthest-away order
 - [ ] Player profiles and saves (original format optional)
 - [ ] Settings, controller support, performance

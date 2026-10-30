@@ -10,9 +10,11 @@ add_library(olcore STATIC
   src/carrera_store.cpp
   src/golfer_anim.cpp
   src/golfer_mesh.cpp
+  src/image.cpp
   src/cvt.cpp
   src/inflate.cpp
   src/links_flight.cpp
+  src/links_ground.cpp
   src/ls_archive.cpp
   src/lzw.cpp
   src/model.cpp

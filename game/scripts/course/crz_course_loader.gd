@@ -39,6 +39,7 @@ func can_load(path: String) -> bool:
 
 
 func load_course(path: String) -> CourseData:
+	HdPack.course = path.get_file().get_basename().to_lower()
 	var data := _cached(path)
 	var archive: CrzArchive = null
 	if data.is_empty():
@@ -364,6 +365,9 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		var pin: Vector3 = pins[0]
 		hole.tee = Vector3(tee.x, terrain.height_at(tee.x, tee.z), tee.z)
 		hole.pin = Vector3(pin.x, terrain.height_at(pin.x, pin.z), pin.z)
+		for t: Dictionary in tees:
+			var at: Vector3 = t.position
+			hole.tees.append(Vector3(at.x, terrain.height_at(at.x, at.z), at.z))
 		# The aim points run from the tee to the green; skip the tee itself.
 		for p in h.aim as Array:
 			var q := Vector2(p.x, p.z)
@@ -419,15 +423,18 @@ func _materials(names: PackedStringArray, classes: PackedByteArray, archive: Crz
 
 static func _load_texture(tex_name: String, archive: CrzArchive, library: Arc0) -> Texture2D:
 	var bytes := PackedByteArray()
+	var hd_dir := "terrain/" + HdPack.course
 	if archive != null and archive.has(tex_name):
 		bytes = archive.read_named(tex_name)
 	elif library != null and library.find(tex_name) >= 0:
 		bytes = library.read_named(tex_name)
+		hd_dir = "terrain/standard"
 	if bytes.is_empty():
 		return null
 	var image := Image.new()
 	if image.load_tga_from_buffer(bytes) != OK or image.is_empty():
 		return null
+	image = HdPack.replace(hd_dir, tex_name, image)
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 

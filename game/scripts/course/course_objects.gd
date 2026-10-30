@@ -19,6 +19,9 @@ const ATLAS_SIZE := 4096  ## atlas width
 const ATLAS_HEIGHT := 2048  ## at most; 32 MB of RGBA, which a browser can hold
 const MAX_SPRITE := 512  ## largest sprite side kept in the atlas, pixels
 const PAD := 2  ## transparent pixels around each sprite in the atlas
+## With an HD texture pack on desktop, sprites keep up to twice the detail.
+const HD_MAX_SPRITE := 1024
+const HD_ATLAS_HEIGHT := 4096
 ## Billboards below each height (m) are hidden beyond the matching distance
 ## (CLASS_RANGE; 0 = always drawn). The last class is everything taller.
 const CLASS_LIMITS: Array[float] = [0.6, 2.0, 5.0]
@@ -466,7 +469,10 @@ func _load_plants(read: Callable, decoded: Dictionary) -> void:
 	var aspect := PackedFloat32Array()
 	for t: Dictionary in types:
 		var bytes: PackedByteArray = read.call(str(t.sprite)) if not str(t.sprite).is_empty() else PackedByteArray()
-		images.append(Btcv.decode(bytes) if not bytes.is_empty() else null)
+		var img: Image = Btcv.decode(bytes) if not bytes.is_empty() else null
+		if img != null:
+			img = HdPack.replace("billboards", str(t.sprite), img)
+		images.append(img)
 		aspect.append(float(t.aspect))
 	s.aspect = aspect
 	s.xyzh = decoded.xyzh
@@ -520,6 +526,8 @@ func _load_crowds(bytes: PackedByteArray, library: Arc0) -> void:
 			var h := img.get_height() if img != null else 128
 			aspect.append(float(w) / float(h))
 			heights.append(h / 128.0 * CROWD_SPRITE_FEET * FEET)
+			if img != null:
+				images[images.size() - 1] = HdPack.replace("crowds", name, img)
 		var k: int = sprite_of[name]
 		out_xyzh.append_array(PackedFloat32Array([xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2], heights[k]]))
 		out_sprite.append(k)
@@ -586,6 +594,7 @@ static func _maq_texture(read: Callable, maq: String, level: int, maqs: Dictiona
 	var img := decode_maq(maqs[maq], level)
 	var tex: Texture2D = null
 	if img != null:
+		img = HdPack.replace("models/" + HdPack.course, "%s_%d" % [maq.get_basename(), level], img)
 		img.generate_mipmaps()
 		tex = ImageTexture.create_from_image(img)
 	textures[key] = tex
@@ -689,22 +698,31 @@ func _add_model_obstacles() -> void:
 
 # --- Drawing ------------------------------------------------------------------
 
+## True when the atlas may use the HD limits: an HD pack is on, outside the
+## browser (whose memory the larger atlas would strain).
+static func hd_atlas() -> bool:
+	return not OS.has_feature("web") and HdPack.is_active()
+
+
 ## Packs `images` (null for a missing one) into one atlas: {texture, rects}
 ## with rects as u, v, width, height per image. Sprites are shrunk to fit.
 static func build_atlas(images: Array[Image]) -> Dictionary:
 	var sizes: Array[Vector2i] = []
 	var area := 0.0
+	var hd := hd_atlas()
+	var max_sprite := HD_MAX_SPRITE if hd else MAX_SPRITE
+	var atlas_height := HD_ATLAS_HEIGHT if hd else ATLAS_HEIGHT
 	for img in images:
 		var s := Vector2i(4, 4) if img == null or img.is_empty() else img.get_size()
 		var big := maxi(s.x, s.y)
-		if big > MAX_SPRITE:
-			s = Vector2i(maxi(1, roundi(float(s.x) * MAX_SPRITE / big)), maxi(1, roundi(float(s.y) * MAX_SPRITE / big)))
+		if big > max_sprite:
+			s = Vector2i(maxi(1, roundi(float(s.x) * max_sprite / big)), maxi(1, roundi(float(s.y) * max_sprite / big)))
 		sizes.append(s)
 		area += (s.x + 2 * PAD) * (s.y + 2 * PAD)
-	var scale := minf(1.0, sqrt(0.8 * ATLAS_SIZE * ATLAS_HEIGHT / maxf(area, 1.0)))
+	var scale := minf(1.0, sqrt(0.8 * ATLAS_SIZE * atlas_height / maxf(area, 1.0)))
 	var placed: Array[Rect2i] = []
 	while true:
-		placed = _pack(sizes, scale)
+		placed = _pack(sizes, scale, atlas_height)
 		if not placed.is_empty() or scale < 0.05:
 			break
 		scale *= 0.9
@@ -734,7 +752,7 @@ static func build_atlas(images: Array[Image]) -> Dictionary:
 
 
 ## Shelf packing, tallest first. Empty if the sprites do not fit.
-static func _pack(sizes: Array[Vector2i], scale: float) -> Array[Rect2i]:
+static func _pack(sizes: Array[Vector2i], scale: float, atlas_height := ATLAS_HEIGHT) -> Array[Rect2i]:
 	var scaled: Array[Vector2i] = []
 	var order: Array[int] = []
 	for i in sizes.size():
@@ -752,7 +770,7 @@ static func _pack(sizes: Array[Vector2i], scale: float) -> Array[Rect2i]:
 			x = PAD
 			y += shelf + 2 * PAD
 			shelf = 0
-		if y + s.y + PAD > ATLAS_HEIGHT or s.x + 2 * PAD > ATLAS_SIZE:
+		if y + s.y + PAD > atlas_height or s.x + 2 * PAD > ATLAS_SIZE:
 			return [] as Array[Rect2i]
 		out[i] = Rect2i(Vector2i(x, y), s)
 		x += s.x + 2 * PAD

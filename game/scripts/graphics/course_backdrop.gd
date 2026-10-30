@@ -50,6 +50,8 @@ var has_horizon := false
 static func create(horizon: Image, sky_name := "") -> CourseBackdrop:
 	var b := CourseBackdrop.new()
 	b.name = "Backdrop"
+	if horizon != null:
+		horizon = HdPack.replace("horizon", HdPack.course, horizon)
 	var sky := load_sky(sky_name if not sky_name.is_empty() else GameFolder.setting("sky", DEFAULT_SKY))
 	if sky != null:
 		b.has_sky = true
@@ -76,7 +78,8 @@ static func load_sky(sky_name: String) -> Image:
 		entry = DEFAULT_SKY + ".btc"
 	if lib.find(entry) < 0:
 		return null
-	return LinksPanorama.decode(lib.read_named(entry))
+	var sky := LinksPanorama.decode(lib.read_named(entry))
+	return HdPack.replace("sky", entry, sky) if sky != null else null
 
 
 func _process(_delta: float) -> void:

@@ -27,6 +27,7 @@ var _meshes: Array[Dictionary] = []
 var _skeleton: Skeleton3D
 var _clubs := {}  ## "driver"/"putter" -> Node3D
 var _textures := {}  ## file name (upper case) -> Texture2D or null
+var _hd_dirs := {}  ## LsArchiveFile -> its folder in an HD pack ("golfers/eric")
 
 var _clip: Dictionary = {}
 var _frame := 0.0
@@ -42,6 +43,7 @@ static func load_from(archive_path: String) -> LinksGolfer:
 		return null
 	var golfer := LinksGolfer.new()
 	golfer._archive = archive
+	golfer._hd_dirs[archive] = "golfers/" + archive_path.get_file().get_basename().to_lower()
 	golfer._script = parse_script(archive.read("SCRIPT.TXT").get_string_from_ascii())
 	var skl: String = golfer._script.get("file_locations", {}).get("golfer.skl", "")
 	if skl.is_empty() or not archive.has(skl):
@@ -277,6 +279,8 @@ func _texture(file_name: String, archive: LsArchiveFile) -> Texture2D:
 		var bytes := archive.read(key)
 		var texture: Texture2D = null
 		if not bytes.is_empty() and image.load_tga_from_buffer(bytes) == OK:
+			if _hd_dirs.has(archive):
+				image = HdPack.replace(_hd_dirs[archive], key, image)
 			texture = ImageTexture.create_from_image(image)
 		_textures[key] = texture
 	return _textures[key]
@@ -300,6 +304,7 @@ func _build_clubs(folder: String) -> void:
 		var archive := LsArchiveFile.open(_find_file(folder, where[0]))
 		if archive == null or not archive.has(where[1]):
 			continue
+		_hd_dirs[archive] = "golfers/" + where[0].get_basename().to_lower()
 		var attach := BoneAttachment3D.new()
 		_skeleton.add_child(attach)
 		attach.bone_idx = grip

@@ -23,12 +23,17 @@ func _initialize() -> void:
 	_run("wind_matches_olcore", _test_wind_matches_olcore)
 	_run("wind_conditions", _test_wind_conditions)
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
+	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
+	_run("game_modes_match_olcore", _test_game_modes)
+	_run("round_setup", _test_round_setup)
+	_run("round_scoring", _test_round_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
+	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
 	_run("free_assets", _test_free_assets)
 	_run("web_game_files", _test_web_game_files)
@@ -49,6 +54,7 @@ func _process(_delta: float) -> bool:
 		return false
 	_done = true
 	_run("full_round", _test_full_round)
+	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
 		quit(1)
@@ -248,6 +254,148 @@ func _test_scorecard() -> void:
 	_check(Scorecard.format_to_par(card.to_par()) == "+2", "+2")
 
 
+## The same cases as test_game_modes in libs/olcore/tests/test_main.cpp.
+func _test_game_modes() -> void:
+	_check(GameModes.stableford_points(4, 4) == 2, "stableford par")
+	_check(GameModes.stableford_points(3, 4) == 3, "stableford birdie")
+	_check(GameModes.stableford_points(2, 5) == 5, "stableford albatross")
+	_check(GameModes.stableford_points(6, 4) == 0, "stableford double bogey")
+	_check(GameModes.stableford_points(9, 4) == 0, "stableford never negative")
+	_check(GameModes.stableford_points(0, 4) == 0, "stableford unplayed")
+	var pars: Array[int] = [4, 3, 5]
+	var card := Scorecard.new(pars)
+	card.record(0, 5)
+	card.record(1, 2)
+	_check(GameModes.stableford_total(card) == 4, "stableford total")
+
+	var bb := GameModes.best_ball([_ints([5, 3, 0]), _ints([4, 4, 0])])
+	_check(bb == _ints([4, 3, 0]), "best ball %s" % [bb])
+
+	var sk := GameModes.skins([_ints([4, 3, 4, 5, 0]), _ints([5, 3, 5, 5, 0]), _ints([5, 4, 6, 5, 0])])
+	_check(sk.skins == _ints([3, 0, 0]), "skins %s" % [sk.skins])
+	_check(sk.hole_winner == _ints([0, -1, 0, -1, -2]), "skin winners %s" % [sk.hole_winner])
+	_check(sk.carried == 1, "skin carried")
+	var part := GameModes.skins([_ints([4, 3]), _ints([3, 0])])
+	_check(part.skins[1] == 1 and part.hole_winner[1] == -2, "incomplete hole doesn't count")
+
+	var a := _ints([4, 3, 5, 4, 0, 0, 0, 0, 0])
+	var b := _ints([5, 4, 5, 5, 0, 0, 0, 0, 0])
+	var m := GameModes.match_status(a, b)
+	_check(m.up == 3 and m.played == 4 and m.remaining == 5 and not m.finished and not m.dormie, "match after 4: %s" % m)
+	_check(GameModes.match_text(m) == "3 up", "3 up")
+	a[4] = 4
+	b[4] = 5
+	m = GameModes.match_status(a, b)
+	_check(m.up == 4 and m.remaining == 4 and m.dormie and GameModes.match_text(m) == "4 up (dormie)", "dormie: %s" % m)
+	a[5] = 3
+	b[5] = 4
+	m = GameModes.match_status(a, b)
+	_check(m.finished and m.played == 6 and m.remaining == 3 and GameModes.match_text(m) == "5 & 3", "won early: %s" % m)
+	m = GameModes.match_status(_ints([4, 4, 4]), _ints([4, 3, 5]))
+	_check(m.up == 0 and m.finished and GameModes.match_text(m) == "Halved", "halved")
+	m = GameModes.match_status(_ints([4, 4, 3]), _ints([4, 4, 4]))
+	_check(m.up == 1 and m.finished and m.remaining == 0 and GameModes.match_text(m) == "1 up", "won on the last")
+	m = GameModes.match_status(_ints([5, 0]), _ints([4, 0]))
+	_check(m.up == -1 and m.played == 1 and m.dormie and GameModes.match_text(m) == "1 up (dormie)", "B dormie")
+	_check(GameModes.match_text(GameModes.match_status(_ints([0, 0]), _ints([0, 0]))) == "All square", "all square")
+
+
+func _ints(values: Array) -> Array[int]:
+	var out: Array[int] = []
+	for v: int in values:
+		out.append(v)
+	return out
+
+
+func _strs(values: Array) -> Array[String]:
+	var out: Array[String] = []
+	for v: String in values:
+		out.append(v)
+	return out
+
+
+func _test_round_setup() -> void:
+	var s := RoundSetup.new()
+	_check(s.problem().is_empty(), "one player stroke play is fine")
+	s.mode = GameModes.Mode.MATCH
+	_check(not s.problem().is_empty(), "match play needs two")
+	s.names = _strs(["A", "B"])
+	s.teams = _ints([0, 1])
+	_check(s.problem().is_empty(), "two-player match")
+	s.mode = GameModes.Mode.BEST_BALL
+	_check(not s.problem().is_empty(), "best ball needs three or four")
+	s.names = _strs(["A", "B", "C"])
+	s.teams = _ints([0, 0, 0])
+	_check(not s.problem().is_empty(), "best ball needs both teams")
+	s.teams = _ints([0, 1, 0])
+	_check(s.problem().is_empty(), "best ball, three players")
+	_check(s.hole_indices(18).size() == 18, "all 18")
+	s.holes = RoundSetup.Holes.BACK_NINE
+	_check(s.hole_indices(18) == _ints([9, 10, 11, 12, 13, 14, 15, 16, 17]), "back nine")
+	_check(s.hole_indices(9).size() == 9, "a nine-hole course has no back nine")
+	s.holes = RoundSetup.Holes.FRONT_NINE
+	_check(s.hole_indices(18).back() == 8, "front nine")
+	_check(s.tee_index(5) == 0, "back tees")
+	s.tees = RoundSetup.Tees.FORWARD
+	_check(s.tee_index(5) == 4 and s.tee_index(1) == 0, "forward tees")
+	s.tees = RoundSetup.Tees.MIDDLE
+	_check(s.tee_index(3) == 1, "middle tees")
+
+	var path := "user://test_round.cfg"
+	s.save(path)
+	var loaded := RoundSetup.load_saved(path)
+	_check(loaded.mode == GameModes.Mode.BEST_BALL and loaded.holes == RoundSetup.Holes.FRONT_NINE and loaded.tees == RoundSetup.Tees.MIDDLE, "setup saved")
+	_check(loaded.names == s.names and loaded.teams == s.teams, "players saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _test_round_scoring() -> void:
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.mode = GameModes.Mode.MATCH
+	var pars := _ints([4, 3, 5])
+	var numbers := _ints([10, 11, 12])
+	var r := RoundScoring.new(s, pars, numbers)
+	_check(r.status_text() == "Match: All square", "match starts square: %s" % r.status_text())
+	r.cards[0].record(0, 4)
+	r.cards[1].record(0, 5)
+	_check(r.hole_result(0) == "Ann wins the hole.", "hole result: %s" % r.hole_result(0))
+	r.cards[0].record(1, 3)
+	r.cards[1].record(1, 4)
+	_check(r.decided(), "2 up with 1 to play is decided")
+	_check(r.winner_text() == "Ann wins 2 & 1", "winner: %s" % r.winner_text())
+
+	s.mode = GameModes.Mode.SKINS
+	r = RoundScoring.new(s, pars, numbers)
+	r.cards[0].record(0, 4)
+	r.cards[1].record(0, 4)
+	_check(r.hole_result(0) == "Tied: the skin carries over.", "skin tie: %s" % r.hole_result(0))
+	r.cards[0].record(1, 4)
+	r.cards[1].record(1, 3)
+	_check(r.hole_result(1) == "Bob wins 2 skins.", "carried skins: %s" % r.hole_result(1))
+	_check(r.status_text() == "Skins: Ann 0, Bob 2", "skins status: %s" % r.status_text())
+
+	s.mode = GameModes.Mode.BEST_BALL
+	s.names = _strs(["Ann", "Bob", "Cy"])
+	s.teams = _ints([0, 1, 0])
+	r = RoundScoring.new(s, pars, numbers)
+	r.cards[0].record(0, 5)
+	r.cards[1].record(0, 4)
+	r.cards[2].record(0, 3)
+	_check(r.team_name(0) == "Ann & Cy", "team name")
+	_check(r.team_scores(0)[0] == 3, "team best ball")
+	_check(r.hole_result(0) == "Ann & Cy win the hole, 3 to 4.", "best ball hole: %s" % r.hole_result(0))
+
+	s.mode = GameModes.Mode.STABLEFORD
+	r = RoundScoring.new(s, pars, numbers)
+	r.cards[0].record(0, 3)
+	r.cards[1].record(0, 4)
+	r.cards[2].record(0, 6)
+	_check(r.standings()[0] == ["Ann", "3 points"], "stableford leader: %s" % [r.standings()])
+	_check(r.winner_text() == "Ann wins: 3 points", "stableford winner: %s" % r.winner_text())
+
+
 func _test_placeholder_course() -> void:
 	var course := AssetProviders.load_course("")
 	_check(course.holes.size() == 9, "nine holes")
@@ -260,6 +408,36 @@ func _test_placeholder_course() -> void:
 		_check_near(h.tee.y, tee_ground, 1e-3, "hole %d tee height" % h.number)
 		_check(h.length_m() > 100.0 and h.length_m() < 560.0, "hole %d length" % h.number)
 	_check(par == 36, "par 36")
+
+
+func _test_hd_pack() -> void:
+	_check(HdPack.key("terrain/cabo", "Sand 1A.tga") == "terrain/cabo__sand 1a", "course texture key")
+	_check(HdPack.key("billboards", "Tall Trees100A.btc") == "billboards/tall trees100a", "billboard key")
+	_check(HdPack.key("models/cabo", "Cabo 3D005_20") == "models/cabo__cabo 3d005_20", "model key")
+	_check(HdPack.key_for_file("Links 2003 HD/terrain/cabo__Sand 1A_upscayl_4x_remacri.png") == "terrain/cabo__sand 1a", "upscayl file name")
+	_check(HdPack.key_for_file("pack/golfers/eric/L_M03_FACE_01.png") == "golfers/eric__l_m03_face_01", "nested folders")
+	_check(HdPack.key_for_file("pack/hdpack.json").is_empty(), "not a texture")
+	# A 32 x 32 ground texture exported with its 16-pixel border, upscaled 4x.
+	var up := Image.create_empty(256, 256, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(up, Vector2i(32, 32), 16, true).get_size() == Vector2i(128, 128), "border trimmed")
+	var plain := Image.create_empty(1024, 1024, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(plain, Vector2i(256, 256), 16, true).get_size() == Vector2i(1024, 1024), "no border kept")
+	var sky := Image.create_empty(2 * (4800 + 128) / 8, 2 * 320 / 8, false, Image.FORMAT_RGB8)
+	_check(HdPack.trim_border(sky, Vector2i(600, 40), 8, false).get_size() == Vector2i(1200, 80), "sky border trimmed")
+	# A pack folder: the upscaled file is used, other textures stay as they were.
+	var dir := "user://test_hd_pack/terrain"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var big := Image.create_empty(80, 80, false, Image.FORMAT_RGB8)
+	big.fill(Color.RED)
+	big.save_png(dir.path_join("standard__Rough01_upscayl_2x_remacri.png"))
+	HdPack.override_path = ProjectSettings.globalize_path("user://test_hd_pack")
+	var original := Image.create_empty(8, 8, false, Image.FORMAT_RGB8)
+	var got := HdPack.replace("terrain/standard", "Rough01.tga", original)
+	_check(got.get_size() == Vector2i(16, 16), "upscaled texture loaded and trimmed: %s" % got.get_size())
+	_check(HdPack.replace("terrain/standard", "Fairway01.tga", original) == original, "missing texture keeps the original")
+	_check(HdPack.is_active(), "pack is active")
+	HdPack.override_path = ""
+	_check(not HdPack.is_active() or not HdPack.saved_enabled(), "pack off again")
 
 
 func _test_graphics_settings() -> void:
@@ -333,6 +511,118 @@ static func _synthetic_aero_exe() -> PackedByteArray:
 		pad.fill(0xCD)
 		out.append_array(pad)
 	return out
+
+
+## The game's frame for the Links ground tests: a plane, or a flat shelf
+## ending in a 3 ft drop at y = 5. Mirrors TestGround in the C++ tests.
+class TestLinksGround extends LinksGround.Ground:
+	var cls: int
+	var gx: float
+	var gy: float
+	var cliff: bool
+
+	func _init(p_cls: int, p_gx := 0.0, p_gy := 0.0, p_cliff := false) -> void:
+		cls = p_cls
+		gx = p_gx
+		gy = p_gy
+		cliff = p_cliff
+
+	func height(x: float, y: float) -> float:
+		if cliff:
+			return 0.0 if y < 5.0 else -3.0
+		return gx * x + gy * y
+
+	func normal(_x: float, _y: float) -> Vector3:
+		return Vector3(-gx, -gy, 1.0).normalized()
+
+	func surface(_x: float, _y: float) -> LinksGround.Params:
+		return LinksGround.surface_for_class(cls)
+
+
+static func _still_air() -> LinksAero:
+	var a := LinksAero.new()
+	var t := {"speeds": PackedFloat64Array([0, 1]), "spins": PackedFloat64Array([0, 1]), "values": PackedFloat64Array([0, 0, 0, 0])}
+	a.drag = t
+	a.lift = t
+	return a
+
+
+static func _links_ball(pos: Vector3, vel: Vector3, spin: Vector3, mode: int) -> LinksGround.Ball:
+	var b := LinksGround.Ball.new()
+	b.position = pos
+	b.velocity = vel
+	b.spin = spin
+	b.mode = mode
+	if mode != LinksGround.Mode.FLIGHT:
+		b.on_ground_started = true
+		b.checkpoint_x = pos.x
+		b.checkpoint_y = pos.y
+	return b
+
+
+## Steps until the ball stops; returns the step it stopped on, or -1.
+static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: LinksGround.Rng) -> int:
+	var air := _still_air()
+	for k in 2000:
+		LinksGround.step(b, g, air, Vector3.ZERO, rng)
+		if b.mode == LinksGround.Mode.REST:
+			return k
+	return -1
+
+
+## Same cases and numbers as the links_* tests in the C++ core, which come
+## from the game's own code.
+func _test_links_ground_matches_olcore() -> void:
+	var rng := LinksGround.Rng.new()
+	_check(rng.next_u32() == 0x79a8b120, "first random number")
+	_check(rng.state == 0x65b8545c, "random state")
+	_check(rng.next_u32() == 0xe8a8769a, "second random number")
+	_check(LinksGround.Rng.seed_for(12.7, -3.2) == 0xffffffdc, "seed")
+	_check(LinksGround.Rng.seed_for(0.5, 100) == 0x12345678, "zero seed")
+
+	var b := _links_ball(Vector3(0, 0, 0.07), Vector3(0, 40, -40), Vector3(100, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.FAIRWAY))
+	_check_near(b.velocity.y, 16.3559, 2e-3, "fairway bounce along")
+	_check_near(b.velocity.z, 10.6632, 2e-3, "fairway bounce up")
+	_check_near(b.spin.x, 62.2534, 2e-3, "fairway bounce spin")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 30, -45), Vector3(150, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.GREEN))
+	_check_near(b.velocity.y, 9.5844, 2e-3, "green bounce along")
+	_check_near(b.spin.x, 119.3187, 2e-3, "green bounce spin")
+	b = _links_ball(Vector3(12.3, 40.7, 0.07), Vector3(5, 40, -30), Vector3(60, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.ROUGH))
+	_check_near(b.velocity.x, 1.3239, 2e-3, "rough bounce turns")
+	_check_near(b.spin.y, -2.7779, 2e-3, "rough bounce spin")
+	_check_near(LinksGround.contact_time(Vector3(0, 2, -3), Vector3(0, 1.5, -3.5), 0.7), 0.72827, 1e-4, "contact time")
+
+	# Float vectors here, so allow a step either way.
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 45, 0), Vector3(-102.3, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY), rng) - 382) <= 1, "fast roll stops")
+	_check_near(b.position.y, 119.867, 0.02, "fast roll distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(2, 25, 0), Vector3(30, 0, 10), LinksGround.Mode.SKID)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.GREEN, 0.03, -0.02), rng) - 334) <= 1, "sloping green stops")
+	_check_near(b.position.y, 47.457, 0.02, "sloping green distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 15, 0), Vector3(-34.1, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY, 0.0, 0.0, true), rng) - 155) <= 1, "off the drop")
+	_check_near(b.position.y, 19.705, 0.02, "off the drop distance")
+	b = _links_ball(Vector3(0, 0, 0.3), Vector3(0, 40, -40), Vector3(100, 0, 0), LinksGround.Mode.FLIGHT)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY), rng) - 114) <= 1, "landing stops")
+	_check_near(b.position.y, 18.366, 0.02, "landing distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 20, 0), Vector3(-45.47, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.ROUGH), rng) - 138) <= 1, "rough hops stop")
+	# Each hop flies on from a slightly different float, so the spread grows.
+	_check_near(b.position.x, -2.594, 0.3, "rough hops across")
+	_check_near(b.position.y, 19.371, 0.5, "rough hops distance")
+	var rocks := LinksGround.Rng.new(0x65b8545c)
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 14, 0), Vector3(-31.8, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.ROCKS), rocks) - 74) <= 1, "rocks stop")
+	_check_near(b.position.y, 2.761, 0.02, "rocks distance")
+
+	var aero := LinksAero.from_exe(_synthetic_aero_exe())
+	var putt := BallPhysics.simulate_shot(BallState.new(Vector3.ZERO, Vector3(0, 0, 3.55)), FlatTerrain.new(Surface.Type.GREEN), true, Vector3(0, 0, 3), Vector3.ZERO, aero)
+	_check(putt.outcome == ShotResult.Outcome.HOLED, "links putt drops")
+	var pw := BallPhysics.simulate_shot(BallPhysics.make_launch(40.0, 25.0, 0.0, 8000.0, 0.0), FlatTerrain.new(Surface.Type.FAIRWAY), false, Vector3.ZERO, Vector3.ZERO, aero)
+	_check(pw.outcome == ShotResult.Outcome.REST and pw.bounces >= 1 and pw.total_m > pw.carry_m, "links wedge lands and rolls")
 
 
 func _test_links_flight_matches_olcore() -> void:
@@ -449,6 +739,51 @@ func _test_free_golfer() -> void:
 	golfer.play(&"putt")
 	golfer.play(&"address")
 	golfer.free()
+
+
+## Hot-seat rounds through the real round: skins over the front nine for three
+## players, and a match that can end early.
+func _test_multiplayer_rounds() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob", "Cy"])
+	s.teams = _ints([0, 1, 0])
+	s.mode = GameModes.Mode.SKINS
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.players.size() == 3, "three players")
+	_check(game.honour == _ints([0, 1, 2]), "first hole in player order")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "skins round finishes")
+	var won := 0
+	var sk := GameModes.skins(game.scoring.strokes_table())
+	for i in 3:
+		_check(game.scoring.cards[i].holes_played() == game.holes.size(), "player %d played every hole" % i)
+		won += sk.skins[i]
+	_check(won + sk.carried == game.holes.size(), "every skin is won or carried")
+	print("  skins: %s" % game.scoring.status_text())
+
+	s = RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.mode = GameModes.Mode.MATCH
+	s.holes = RoundSetup.Holes.FRONT_NINE
+	GolfRound.setup = s
+	game.start_round()
+	steps = 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "match finishes")
+	var m := game.scoring.match_status()
+	_check(m.finished, "match is decided at the end: %s" % m)
+	print("  match: %s after %d holes" % [game.scoring.winner_text(), m.played])
+	GolfRound.setup = null
 
 
 ## The readers behind LinksGolfer, on synthetic data (no original files).
