@@ -833,6 +833,51 @@ void test_scorecard() {
   CHECK(format_to_par(-3) == "-3");
 }
 
+// game/tests/run_tests.gd checks the GDScript port against the same cases.
+void test_game_modes() {
+  CHECK(stableford_points(4, 4) == 2);
+  CHECK(stableford_points(3, 4) == 3);
+  CHECK(stableford_points(2, 5) == 5);
+  CHECK(stableford_points(6, 4) == 0);
+  CHECK(stableford_points(9, 4) == 0);
+  CHECK(stableford_points(0, 4) == 0);
+  Scorecard card({4, 3, 5});
+  card.record(0, 5);
+  card.record(1, 2);
+  CHECK(stableford_total(card) == 4);
+
+  std::vector<int> bb = best_ball({{5, 3, 0}, {4, 4, 0}});
+  CHECK((bb == std::vector<int>{4, 3, 0}));
+
+  // Hole 2 is tied, so hole 3 is worth two skins; hole 4 is tied and carried.
+  SkinsResult sk = skins({{4, 3, 4, 5, 0}, {5, 3, 5, 5, 0}, {5, 4, 6, 5, 0}});
+  CHECK((sk.skins == std::vector<int>{3, 0, 0}));
+  CHECK((sk.hole_winner == std::vector<int>{0, -1, 0, -1, -2}));
+  CHECK(sk.carried == 1);
+  CHECK(skins({{4, 3}, {3, 0}}).skins[1] == 1);
+  CHECK(skins({{4, 3}, {3, 0}}).hole_winner[1] == -2);
+
+  // A wins 1, 2 and 4, halves 3: 3 up with 5 left after 4 of 9.
+  std::vector<int> a = {4, 3, 5, 4, 0, 0, 0, 0, 0};
+  std::vector<int> b = {5, 4, 5, 5, 0, 0, 0, 0, 0};
+  MatchStatus m = match_status(a, b);
+  CHECK(m.up == 3 && m.played == 4 && m.remaining == 5 && !m.finished && !m.dormie);
+  CHECK(match_text(m) == "3 up");
+  a[4] = 4; b[4] = 5;
+  m = match_status(a, b);
+  CHECK(m.up == 4 && m.remaining == 4 && m.dormie && match_text(m) == "4 up (dormie)");
+  a[5] = 3; b[5] = 4;
+  m = match_status(a, b);
+  CHECK(m.finished && m.played == 6 && m.remaining == 3 && match_text(m) == "5 & 3");
+  m = match_status({4, 4, 4}, {4, 3, 5});
+  CHECK(m.up == 0 && m.finished && match_text(m) == "Halved");
+  m = match_status({4, 4, 3}, {4, 4, 4});
+  CHECK(m.up == 1 && m.finished && m.remaining == 0 && match_text(m) == "1 up");
+  m = match_status({5, 0}, {4, 0});
+  CHECK(m.up == -1 && m.played == 1 && m.dormie && match_text(m) == "1 up (dormie)");
+  CHECK(match_text(match_status({0, 0}, {0, 0})) == "All square");
+}
+
 // Builds a store from named objects. Each object's bytes may hold pointers
 // to other objects as "index + 1 into objs" placeholders in the slots listed
 // in `pointers`; they are patched to file offsets.
@@ -1112,6 +1157,7 @@ int main() {
       {"ball_rolls_downhill", test_ball_rolls_downhill},
       {"water_and_out_of_bounds_stop_the_ball", test_water_and_out_of_bounds_stop_the_ball},
       {"scorecard", test_scorecard},
+      {"game_modes", test_game_modes},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

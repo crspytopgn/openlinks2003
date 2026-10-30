@@ -17,7 +17,8 @@ and don't start a "(needs data)" item on guesses.
 - Until GDExtension lands, `game/scripts/physics/` holds a GDScript port of
   `libs/olcore` (`ball_physics.cpp`, `shot.cpp`, `swing.cpp`, `scoring.cpp`).
   Change both together; `game/tests/run_tests.gd` checks the port against
-  numbers printed by the C++ tests.
+  numbers printed by the C++ tests. `game/scripts/game_modes.gd` ports the
+  game-mode half of `scoring.cpp` the same way.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
   (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
   `ShotModel`), registered with `AssetProviders`.

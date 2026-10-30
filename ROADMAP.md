@@ -59,8 +59,11 @@ feel) still need a working install.
 ## Phase 4: the full game
 
 - [ ] Game modes: stroke, match, skins, best ball and others
+  - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
+  - [ ] Handicaps, alternate shot, scramble and the other original modes
 - [ ] AI opponents
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
+  - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker
@@ -68,5 +71,6 @@ feel) still need a working install.
 ## Phase 5: later
 
 - [ ] Hot-seat multiplayer, then online
+  - [x] Hot seat: up to four players in one round, honour and furthest-away order
 - [ ] Player profiles and saves (original format optional)
 - [ ] Settings, controller support, performance

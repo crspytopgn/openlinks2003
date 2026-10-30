@@ -1,6 +1,9 @@
 class_name GolfRound
 extends Node3D
 ## One round of golf: aim, swing, watch the ball, hole out, next hole.
+## Up to four players share the round (hot seat): everyone tees off in order
+## of the honour, then whoever is furthest from the hole plays next. The game
+## mode (RoundSetup, RoundScoring) decides what the cards mean.
 ##
 ## Courses, objects, the golfer and sounds come from AssetProviders
 ## (placeholders until the decoders land) and the ball physics from a
@@ -14,19 +17,44 @@ const MAX_STROKES := 10  ## pick up after this many on a hole
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: settings"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: menu"
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_WAIT := "Space or click: continue    Tab: scorecard"
+const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
+const MENU_SCENE := "res://scenes/boot.tscn"
+
+
+## One player's ball on the current hole.
+class PlayerBall:
+	var at := Vector3.ZERO
+	var strokes := 0
+	var holed := false
+	var picked_up := false
+	var marker: MeshInstance3D
+
+	func done() -> bool:
+		return holed or picked_up
 
 ## Course to load; empty plays the placeholder course.
 @export var course_path := ""
 ## Set by the boot screen's course picker before it opens this scene.
 static var chosen_course := ""
+## Set by the round setup menu; null plays one player, stroke play, on
+## `course_path` or `chosen_course`.
+static var setup: RoundSetup
 
 var state: State = State.AIM
 var course: CourseData
+## The holes being played, in order (all of the course, or a nine).
+var holes: Array[HoleData] = []
 var hole: HoleData
 var hole_index := 0
+var round_setup: RoundSetup
+var scoring: RoundScoring
+var players: Array[PlayerBall] = []
+var current := 0  ## whose turn it is
+var honour: Array[int] = []  ## tee-off order for this hole
+## The current player's card.
 var card: Scorecard
 var clubs: Array[Club] = []
 var club_index := 0
@@ -51,6 +79,7 @@ var hole_root: Node3D
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
+var pause_menu: PauseMenu
 
 var _trail_mesh := ImmediateMesh.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
@@ -74,17 +103,53 @@ func _ready() -> void:
 
 
 func start_round() -> void:
+	round_setup = setup
+	if round_setup == null:
+		round_setup = RoundSetup.single(course_path if not course_path.is_empty() else chosen_course)
 	if course_path.is_empty():
-		course_path = chosen_course
+		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
-	card = Scorecard.new(course.pars())
+	holes.clear()
+	var pars: Array[int] = []
+	var numbers: Array[int] = []
+	for i in round_setup.hole_indices(course.holes.size()):
+		var h := course.holes[i]
+		if h.tees.size() > 1:
+			h.tee = h.tees[round_setup.tee_index(h.tees.size())]
+		holes.append(h)
+		pars.append(h.par)
+		numbers.append(h.number)
+	scoring = RoundScoring.new(round_setup, pars, numbers)
+	for p in players:
+		if p.marker:
+			p.marker.queue_free()
+	players.clear()
+	honour.clear()
+	for i in scoring.player_count():
+		var p := PlayerBall.new()
+		p.marker = _make_ball_mesh()
+		p.marker.visible = false
+		add_child(p.marker)
+		players.append(p)
+		honour.append(i)
+	current = 0
+	card = scoring.cards[0]
 	hud.scorecard.visible = false
 	start_hole(0)
 
 
+func _round_name() -> String:
+	var title := course.course_name
+	if holes.size() < course.holes.size():
+		title += "  (%s)" % RoundSetup.HOLES_NAMES[round_setup.holes].to_lower()
+	if scoring.player_count() > 1 or round_setup.mode != GameModes.Mode.STROKE:
+		title += "    " + GameModes.MODE_NAMES[round_setup.mode]
+	return title
+
+
 func start_hole(index: int) -> void:
 	hole_index = index
-	hole = course.holes[index]
+	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
 	hole_root = Node3D.new()
@@ -104,13 +169,62 @@ func start_hole(index: int) -> void:
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
 
-	strokes = 0
-	ball_at = hole.tee
-	ball.visible = true
+	for p in players:
+		p.at = hole.tee
+		p.strokes = 0
+		p.holed = false
+		p.picked_up = false
 	_clear_trail()
 	hud.scorecard.visible = false
-	hud.show_message("Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)], 3.0)
-	_prepare_shot(true)
+	_begin_turn(_next_player(), true)
+	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
+	if players.size() > 1:
+		text += "\n%s has the honour" % scoring.names[current]
+	hud.show_message(text, 3.0)
+
+
+## Who plays next: tee shots in order of the honour, then whoever is furthest
+## from the hole. -1 once everyone has holed out or picked up.
+func _next_player() -> int:
+	for i in honour:
+		if players[i].strokes == 0 and not players[i].done():
+			return i
+	var best := -1
+	var best_d := -1.0
+	for i in players.size():
+		if players[i].done():
+			continue
+		var d := _flat_distance(players[i].at, hole.pin)
+		if d > best_d:
+			best = i
+			best_d = d
+	return best
+
+
+func _begin_turn(index: int, snap_camera: bool) -> void:
+	current = index
+	var p := players[index]
+	ball_at = p.at
+	strokes = p.strokes
+	card = scoring.cards[index]
+	ball.visible = true
+	_update_markers()
+	_prepare_shot(snap_camera)
+
+
+## Shows the other players' balls where they lie.
+func _update_markers() -> void:
+	for i in players.size():
+		var p := players[i]
+		p.marker.visible = i != current and p.strokes > 0 and not p.done()
+		if p.marker.visible:
+			_size_ball(p.marker, p.at)
+
+
+## Keeps the current player's ball and strokes in their PlayerBall.
+func _store_turn() -> void:
+	players[current].at = ball_at
+	players[current].strokes = strokes
 
 
 ## Plays a shot with the current club and aim. The swing meter calls this;
@@ -176,8 +290,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_ESCAPE:
 					if settings_panel.visible:
 						settings_panel.close()
+						pause_menu.open()
+					elif pause_menu.visible:
+						pause_menu.close()
 					else:
-						settings_panel.open(graphics)
+						pause_menu.open()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -185,12 +302,16 @@ func _unhandled_input(event: InputEvent) -> void:
 					graphics.save()
 					_apply_graphics()
 					return
-	if settings_panel.visible:
+	if settings_panel.visible or pause_menu.visible:
 		return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
 			match key.keycode:
+				KEY_M:
+					if state == State.ROUND_DONE:
+						_quit_to_menu()
+						return
 				KEY_O:
 					get_tree().change_scene_to_file("res://scenes/object_viewer.tscn")
 					return
@@ -198,7 +319,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					if hud.scorecard.visible:
 						hud.scorecard.visible = false
 					else:
-						hud.scorecard.show_card(card, course.course_name)
+						hud.scorecard.show_round(scoring, _round_name())
 					return
 				KEY_UP:
 					_change_club(-1)
@@ -311,7 +432,7 @@ func _complete_flight() -> void:
 		ShotResult.Outcome.HOLED:
 			sounds.play(&"cup")
 			ball.visible = false
-			_finish_hole(false)
+			_hole_out(false)
 			return
 		ShotResult.Outcome.WATER:
 			sounds.play(&"splash")
@@ -330,8 +451,10 @@ func _complete_flight() -> void:
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
 	if strokes >= MAX_STROKES:
-		_finish_hole(true)
+		_hole_out(true)
 		return
+	if players.size() > 1:
+		msg = scoring.names[current] + ": " + msg
 	hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
@@ -341,31 +464,97 @@ func _complete_flight() -> void:
 func _after_result() -> void:
 	hud.show_message("")
 	_clear_trail()
-	_prepare_shot(false)
+	_store_turn()
+	var next := _next_player()
+	if next < 0:
+		_finish_hole()
+		return
+	if next == current:
+		_prepare_shot(false)
+	else:
+		_begin_turn(next, true)
+		if players.size() > 1:
+			hud.show_message("%s to play" % scoring.names[current], 1.5)
 
 
-func _finish_hole(picked_up: bool) -> void:
-	card.record(hole_index, strokes)
-	state = State.HOLE_DONE
+## The current player is done with the hole: holed, or picked up after
+## MAX_STROKES. The hole ends when everyone is.
+func _hole_out(picked_up: bool) -> void:
+	_store_turn()
+	var p := players[current]
+	p.holed = not picked_up
+	p.picked_up = picked_up
 	var title := "Picked up" if picked_up else Scorecard.score_name(strokes, hole.par)
 	if not picked_up and strokes < hole.par:
 		sounds.play(&"applause")
 		if golfer:
 			golfer.play(&"celebrate")
-	hud.show_message("%s!   %d on the par %d.   Round: %s" % [title, strokes, hole.par, Scorecard.format_to_par(card.to_par())])
-	hud.scorecard.show_card(card, course.course_name)
+	if _next_player() < 0:
+		_finish_hole()
+		return
+	_update_markers()
+	hud.show_message("%s: %s!   %d on the par %d." % [scoring.names[current], title, strokes, hole.par])
+	hud.hint.text = HINT_WAIT
+	state = State.SHOT_RESULT
+	result_timer = RESULT_PAUSE
+
+
+func _finish_hole() -> void:
+	for i in players.size():
+		scoring.cards[i].record(hole_index, players[i].strokes)
+	state = State.HOLE_DONE
+	if players.size() == 1:
+		var p := players[0]
+		var title := "Picked up" if p.picked_up else Scorecard.score_name(p.strokes, hole.par)
+		hud.show_message("%s!   %d on the par %d.   Round: %s" % [title, p.strokes, hole.par, Scorecard.format_to_par(card.to_par())])
+	else:
+		var parts: Array[String] = []
+		for i in players.size():
+			var p := players[i]
+			parts.append("%s %d%s" % [scoring.names[i], p.strokes, " (picked up)" if p.picked_up else ""])
+		var text := "   ".join(parts)
+		var result := scoring.hole_result(hole_index)
+		if not result.is_empty():
+			text += "\n" + result
+		hud.show_message(text)
+	_update_honour()
+	_update_markers()
+	hud.scorecard.show_round(scoring, _round_name())
 	hud.hint.text = HINT_WAIT
 	_update_hud()
 
 
+## The lowest score on the hole tees off first on the next; ties keep their
+## order.
+func _update_honour() -> void:
+	var order := honour.duplicate()
+	order.sort_custom(_tees_off_before)
+	honour = order
+
+
+func _tees_off_before(a: int, b: int) -> bool:
+	var sa := players[a].strokes
+	var sb := players[b].strokes
+	return sa < sb or (sa == sb and honour.find(a) < honour.find(b))
+
+
 func _next_hole() -> void:
-	if hole_index + 1 < course.holes.size():
+	if hole_index + 1 < holes.size() and not scoring.decided():
 		start_hole(hole_index + 1)
 		return
 	state = State.ROUND_DONE
-	hud.show_message("Round complete: %d (%s). Click to play again." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())])
-	hud.scorecard.show_card(card, course.course_name, "Final")
-	hud.hint.text = "Space or click: new round"
+	for p in players:
+		p.marker.visible = false
+	if players.size() == 1 and round_setup.mode == GameModes.Mode.STROKE:
+		hud.show_message("Round complete: %d (%s)." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())])
+	else:
+		hud.show_message("Round complete. " + scoring.winner_text())
+	hud.scorecard.show_round(scoring, _round_name(), "Final")
+	hud.hint.text = HINT_DONE
+
+
+func _quit_to_menu() -> void:
+	get_tree().change_scene_to_file(MENU_SCENE)
 
 
 ## Drop point for a ball in water: back along the line of flight to dry land,
@@ -438,16 +627,7 @@ func _build_world() -> void:
 	scenery = Scenery.new()
 	add_child(scenery)
 
-	ball = MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 1.0
-	sphere.height = 2.0
-	ball.mesh = sphere
-	var ball_mat := StandardMaterial3D.new()
-	ball_mat.albedo_color = Color.WHITE
-	ball_mat.emission_enabled = true
-	ball_mat.emission = Color(0.25, 0.25, 0.25)
-	ball.material_override = ball_mat
+	ball = _make_ball_mesh()
 	add_child(ball)
 
 	trail = MeshInstance3D.new()
@@ -480,6 +660,42 @@ func _build_world() -> void:
 	settings_panel = SettingsPanel.new()
 	canvas.add_child(settings_panel)
 	settings_panel.changed.connect(_apply_graphics)
+	pause_menu = PauseMenu.new()
+	canvas.add_child(pause_menu)
+	pause_menu.resume_pressed.connect(pause_menu.close)
+	pause_menu.scorecard_pressed.connect(_on_pause_scorecard)
+	pause_menu.settings_pressed.connect(_on_pause_settings)
+	pause_menu.restart_pressed.connect(_on_pause_restart)
+	pause_menu.menu_pressed.connect(_quit_to_menu)
+
+
+func _make_ball_mesh() -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	m.mesh = sphere
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color.WHITE
+	mat.emission_enabled = true
+	mat.emission = Color(0.25, 0.25, 0.25)
+	m.material_override = mat
+	return m
+
+
+func _on_pause_scorecard() -> void:
+	pause_menu.close()
+	hud.scorecard.show_round(scoring, _round_name())
+
+
+func _on_pause_settings() -> void:
+	pause_menu.close()
+	settings_panel.open(graphics)
+
+
+func _on_pause_restart() -> void:
+	pause_menu.close()
+	start_round()
 
 
 func _apply_graphics() -> void:
@@ -547,14 +763,20 @@ func _place_ball(p: Vector3) -> void:
 	_update_ball_size()
 
 
-## Draws the ball bigger with distance so it stays visible, as Links does.
+## Draws the balls bigger with distance so they stay visible, as Links does.
 func _update_ball_size() -> void:
-	if not ball.visible:
-		return
-	var d := camera.position.distance_to(_ball_base)
+	if ball.visible:
+		_size_ball(ball, _ball_base)
+	for p in players:
+		if p.marker.visible:
+			_size_ball(p.marker, p.at)
+
+
+func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
+	var d := camera.position.distance_to(base)
 	var r := maxf(BallPhysics.RADIUS, d * 0.0045)
-	ball.scale = Vector3.ONE * r
-	ball.position = _ball_base + Vector3.UP * r
+	m.scale = Vector3.ONE * r
+	m.position = base + Vector3.UP * r
 
 
 func _place_golfer() -> void:
@@ -597,12 +819,15 @@ func _update_hud() -> void:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
-	hud.info.text = "%s    Hole %d    Par %d    %d yd\nStroke %d    To pin %s    Lie: %s\nClub: %s    Wind: calm\nRound: %s thru %d" % [
-		course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE),
-		strokes + 1, pin_text, Surface.name_of(lie),
-		club_text,
-		total, thru,
-	]
+	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
+	if players.size() > 1:
+		text += "%s    " % scoring.names[current]
+	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: calm\nRound: %s thru %d" % [
+		strokes + 1, pin_text, Surface.name_of(lie), club_text, total, thru]
+	var status := scoring.status_text()
+	if not status.is_empty():
+		text += "\n" + status
+	hud.info.text = text
 
 
 func _clear_trail() -> void:
