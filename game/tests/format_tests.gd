@@ -495,7 +495,9 @@ func _test_backdrop() -> void:
 	var h := 16.0 * TAU * 100.0 / 64.0
 	check(absf(aabb.end.y - h * 0.5) < 0.01 and absf(aabb.position.y + h * 0.5) < 0.01, "backdrop band height")
 	band.free()
-	check(CourseBackdrop._row_mean(img, 0, 4).is_equal_approx(Color(0.2, 0.5, 0.2)), "backdrop colour")
+	var mean := CourseBackdrop._row_mean(img, 0, 4)
+	# RGBA8 rounds 0.5 to 128/255.
+	check(absf(mean.r - 0.2) < 0.01 and absf(mean.g - 0.5) < 0.01 and absf(mean.b - 0.2) < 0.01, "backdrop colour")
 
 
 func _test_env_sound() -> void:
