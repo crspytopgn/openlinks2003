@@ -74,8 +74,9 @@ game/scripts/
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
-    links_shot_model.gd         LinksShotModel: the stand-in with the game's own ball flight
+    links_shot_model.gd         LinksShotModel: the stand-in with the game's own flight, bounce and roll
     links_aero.gd               LinksAero: that flight model (port of olcore/links_flight)
+    links_ground.gd             LinksGround: its bounce and roll (port of olcore/links_ground)
     wind.gd                     Wind: conditions for the round, hole and shot
     ball_physics.gd             BallPhysics: GDScript port of olcore ball_physics + shot
     swing.gd, club.gd           Swing-meter-to-launch mapping and the club table
@@ -229,12 +230,13 @@ GDScript in `game/scripts/physics/ball_physics.gd`:
   spin) for driver to pitching wedge; wedges and putter are estimates.
 
 When the game folder has the executable, `LinksShotModel` replaces
-`StandardShotModel` and flies the ball with the game's own model
-(`LinksAero`, `olcore/links_flight.hpp`; see
-[formats/physics.md](formats/physics.md)). Launch, bounce and roll stay as
-above.
+`StandardShotModel` and plays the whole shot with the game's own model:
+flight (`LinksAero`, `olcore/links_flight.hpp`) and bounce and roll
+(`LinksGround`, `olcore/links_ground.hpp`); see
+[formats/physics.md](formats/physics.md). The launch stays as above, and
+trees, the cup, water and out of bounds use our own handling.
 
-Apart from that flight model, none of these constants come from Links 2003. Tuning them against the
+Apart from that model, none of these constants come from Links 2003. Tuning them against the
 original game is the "(needs data)" item in the roadmap. `run_tests.gd` checks
 the GDScript port against numbers from the C++ tests, so change both
 together.

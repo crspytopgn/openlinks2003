@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "olcore/links_ground.hpp"
+
 namespace olcore {
 
 namespace {
@@ -152,6 +154,9 @@ void hit_obstacle(Vec3& velocity, Vec3& spin, const ObstacleHit& hit) {
 
 ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                          const ShotOptions& opt) {
+  if (p.links) {
+    return simulate_links_shot(start, p, terrain, opt);
+  }
   ShotResult r;
   BallState s = start;
   double t = 0;

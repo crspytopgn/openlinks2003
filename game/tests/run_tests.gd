@@ -23,6 +23,7 @@ func _initialize() -> void:
 	_run("wind_matches_olcore", _test_wind_matches_olcore)
 	_run("wind_conditions", _test_wind_conditions)
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
+	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
@@ -509,6 +510,118 @@ static func _synthetic_aero_exe() -> PackedByteArray:
 		pad.fill(0xCD)
 		out.append_array(pad)
 	return out
+
+
+## The game's frame for the Links ground tests: a plane, or a flat shelf
+## ending in a 3 ft drop at y = 5. Mirrors TestGround in the C++ tests.
+class TestLinksGround extends LinksGround.Ground:
+	var cls: int
+	var gx: float
+	var gy: float
+	var cliff: bool
+
+	func _init(p_cls: int, p_gx := 0.0, p_gy := 0.0, p_cliff := false) -> void:
+		cls = p_cls
+		gx = p_gx
+		gy = p_gy
+		cliff = p_cliff
+
+	func height(x: float, y: float) -> float:
+		if cliff:
+			return 0.0 if y < 5.0 else -3.0
+		return gx * x + gy * y
+
+	func normal(_x: float, _y: float) -> Vector3:
+		return Vector3(-gx, -gy, 1.0).normalized()
+
+	func surface(_x: float, _y: float) -> LinksGround.Params:
+		return LinksGround.surface_for_class(cls)
+
+
+static func _still_air() -> LinksAero:
+	var a := LinksAero.new()
+	var t := {"speeds": PackedFloat64Array([0, 1]), "spins": PackedFloat64Array([0, 1]), "values": PackedFloat64Array([0, 0, 0, 0])}
+	a.drag = t
+	a.lift = t
+	return a
+
+
+static func _links_ball(pos: Vector3, vel: Vector3, spin: Vector3, mode: int) -> LinksGround.Ball:
+	var b := LinksGround.Ball.new()
+	b.position = pos
+	b.velocity = vel
+	b.spin = spin
+	b.mode = mode
+	if mode != LinksGround.Mode.FLIGHT:
+		b.on_ground_started = true
+		b.checkpoint_x = pos.x
+		b.checkpoint_y = pos.y
+	return b
+
+
+## Steps until the ball stops; returns the step it stopped on, or -1.
+static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: LinksGround.Rng) -> int:
+	var air := _still_air()
+	for k in 2000:
+		LinksGround.step(b, g, air, Vector3.ZERO, rng)
+		if b.mode == LinksGround.Mode.REST:
+			return k
+	return -1
+
+
+## Same cases and numbers as the links_* tests in the C++ core, which come
+## from the game's own code.
+func _test_links_ground_matches_olcore() -> void:
+	var rng := LinksGround.Rng.new()
+	_check(rng.next_u32() == 0x79a8b120, "first random number")
+	_check(rng.state == 0x65b8545c, "random state")
+	_check(rng.next_u32() == 0xe8a8769a, "second random number")
+	_check(LinksGround.Rng.seed_for(12.7, -3.2) == 0xffffffdc, "seed")
+	_check(LinksGround.Rng.seed_for(0.5, 100) == 0x12345678, "zero seed")
+
+	var b := _links_ball(Vector3(0, 0, 0.07), Vector3(0, 40, -40), Vector3(100, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.FAIRWAY))
+	_check_near(b.velocity.y, 16.3559, 2e-3, "fairway bounce along")
+	_check_near(b.velocity.z, 10.6632, 2e-3, "fairway bounce up")
+	_check_near(b.spin.x, 62.2534, 2e-3, "fairway bounce spin")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 30, -45), Vector3(150, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.GREEN))
+	_check_near(b.velocity.y, 9.5844, 2e-3, "green bounce along")
+	_check_near(b.spin.x, 119.3187, 2e-3, "green bounce spin")
+	b = _links_ball(Vector3(12.3, 40.7, 0.07), Vector3(5, 40, -30), Vector3(60, 0, 0), LinksGround.Mode.FLIGHT)
+	LinksGround.impact(b, Vector3(0, 0, 1), LinksGround.surface_for_class(LinksGround.ROUGH))
+	_check_near(b.velocity.x, 1.3239, 2e-3, "rough bounce turns")
+	_check_near(b.spin.y, -2.7779, 2e-3, "rough bounce spin")
+	_check_near(LinksGround.contact_time(Vector3(0, 2, -3), Vector3(0, 1.5, -3.5), 0.7), 0.72827, 1e-4, "contact time")
+
+	# Float vectors here, so allow a step either way.
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 45, 0), Vector3(-102.3, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY), rng) - 382) <= 1, "fast roll stops")
+	_check_near(b.position.y, 119.867, 0.02, "fast roll distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(2, 25, 0), Vector3(30, 0, 10), LinksGround.Mode.SKID)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.GREEN, 0.03, -0.02), rng) - 334) <= 1, "sloping green stops")
+	_check_near(b.position.y, 47.457, 0.02, "sloping green distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 15, 0), Vector3(-34.1, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY, 0.0, 0.0, true), rng) - 155) <= 1, "off the drop")
+	_check_near(b.position.y, 19.705, 0.02, "off the drop distance")
+	b = _links_ball(Vector3(0, 0, 0.3), Vector3(0, 40, -40), Vector3(100, 0, 0), LinksGround.Mode.FLIGHT)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.FAIRWAY), rng) - 114) <= 1, "landing stops")
+	_check_near(b.position.y, 18.366, 0.02, "landing distance")
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 20, 0), Vector3(-45.47, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.ROUGH), rng) - 138) <= 1, "rough hops stop")
+	# Each hop flies on from a slightly different float, so the spread grows.
+	_check_near(b.position.x, -2.594, 0.3, "rough hops across")
+	_check_near(b.position.y, 19.371, 0.5, "rough hops distance")
+	var rocks := LinksGround.Rng.new(0x65b8545c)
+	b = _links_ball(Vector3(0, 0, 0.07), Vector3(0, 14, 0), Vector3(-31.8, 0, 0), LinksGround.Mode.ROLL)
+	_check(absi(_run_links_ball(b, TestLinksGround.new(LinksGround.ROCKS), rocks) - 74) <= 1, "rocks stop")
+	_check_near(b.position.y, 2.761, 0.02, "rocks distance")
+
+	var aero := LinksAero.from_exe(_synthetic_aero_exe())
+	var putt := BallPhysics.simulate_shot(BallState.new(Vector3.ZERO, Vector3(0, 0, 3.55)), FlatTerrain.new(Surface.Type.GREEN), true, Vector3(0, 0, 3), Vector3.ZERO, aero)
+	_check(putt.outcome == ShotResult.Outcome.HOLED, "links putt drops")
+	var pw := BallPhysics.simulate_shot(BallPhysics.make_launch(40.0, 25.0, 0.0, 8000.0, 0.0), FlatTerrain.new(Surface.Type.FAIRWAY), false, Vector3.ZERO, Vector3.ZERO, aero)
+	_check(pw.outcome == ShotResult.Outcome.REST and pw.bounces >= 1 and pw.total_m > pw.carry_m, "links wedge lands and rolls")
 
 
 func _test_links_flight_matches_olcore() -> void:
