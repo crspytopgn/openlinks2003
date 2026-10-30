@@ -18,6 +18,8 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	_out = args[0] if args.size() > 0 else "user://render_check.png"
 	print("renderer: %s" % RenderingServer.get_current_rendering_method())
+	# Fixed wind, so the shots (and what the camera sees) are the same every run.
+	GolfRound.wind_seed = 20031
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)

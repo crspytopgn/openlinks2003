@@ -43,6 +43,8 @@ func _initialize() -> void:
 	_run("course_reader", _test_course_reader)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
+	# Fixed wind, so the shots (and what the camera sees) are the same every run.
+	GolfRound.wind_seed = 20031
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
