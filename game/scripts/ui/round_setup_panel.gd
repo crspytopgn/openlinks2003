@@ -101,7 +101,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_mode.select(saved.mode)
 	_count.select(saved.player_count() - 1)
 	for i in RoundSetup.MAX_PLAYERS:
-		var named := i < saved.names.size() and saved.names[i] != RoundSetup.DEFAULT_NAMES[i]
+		var named: bool = i < saved.names.size() and saved.names[i] != RoundSetup.DEFAULT_NAMES[i]
 		_names[i].text = saved.names[i] if named else ""
 		_teams[i].select(saved.teams[i] if i < saved.teams.size() else i % 2)
 	_refresh()
