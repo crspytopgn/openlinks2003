@@ -12,6 +12,7 @@
 #include "olcore/ball_physics.hpp"
 #include "olcore/binary_reader.hpp"
 #include "olcore/btcv.hpp"
+#include "olcore/panorama.hpp"
 #include "olcore/carrera_store.hpp"
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
@@ -603,6 +604,48 @@ void test_btcv_places_tiles_from_bottom() {
   CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 0, 0)[3] == 255);  // tile row 58
   CHECK(pixel(img, 10, 5)[0] < 140 && pixel(img, 10, 5)[0] > 120);  // tile row 63, grey
   CHECK(pixel(img, 66, 3)[3] == 0);
+}
+
+void test_panorama_tiles() {
+  // 70 x 260 horizon: one 256 tile row (a single tile, cropped to 70 wide),
+  // then a row of 4-pixel tiles (18 across) cropped to the last 4 rows.
+  CHECK((panorama_row_sizes(720) == std::vector<int>{256, 256, 256}));
+  CHECK((panorama_row_sizes(320) == std::vector<int>{256, 64}));
+  CHECK((panorama_row_sizes(260) == std::vector<int>{256, 4}));
+  std::vector<std::uint8_t> d = {'n', 'a', 'p', 0};
+  put_u32(d, 70);
+  put_u32(d, 260);
+  put_u32(d, 1);
+  put_u32(d, 2);
+  std::vector<std::uint8_t> runs;
+  put_u16(runs, 0x4000);  // 4096 flat blocks
+  for (int i = 0; i < 4096; ++i) runs.insert(runs.end(), {0, 0, 255, 255});  // B, G, R, A: red
+  d.insert(d.end(), {'d', 'e', 's', 'u'});
+  put_u32(d, static_cast<std::uint32_t>(runs.size()));
+  d.insert(d.end(), runs.begin(), runs.end());
+  for (int c = 0; c < 18; ++c) {
+    if (c == 2) {
+      d.insert(d.end(), {'d', 'e', 's', 'u'});
+      put_u32(d, 6);
+      put_u16(d, 0x4001);
+      d.insert(d.end(), {255, 0, 0, 255});  // blue
+    } else {
+      d.insert(d.end(), {'t', 'p', 'm', 'e'});
+    }
+  }
+  RgbaImage img = decode_panorama(d);
+  CHECK(img.width == 70 && img.height == 260);
+  CHECK(pixel(img, 69, 255)[0] == 255 && pixel(img, 69, 255)[3] == 255);
+  CHECK(pixel(img, 9, 258)[2] == 255 && pixel(img, 9, 258)[3] == 255);
+  CHECK(pixel(img, 4, 258)[3] == 0);
+  bool threw = false;
+  try {
+    d.push_back(0);
+    decode_panorama(d);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
 }
 
 void test_model_reads_tables() {
@@ -1262,6 +1305,7 @@ int main() {
       {"arc0_reads_entries", test_arc0_reads_entries},
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
+      {"panorama_tiles", test_panorama_tiles},
       {"model_reads_tables", test_model_reads_tables},
       {"object_library_parses", test_object_library_parses},
       {"lzw_round_trip", test_lzw_round_trip},

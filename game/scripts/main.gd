@@ -38,12 +38,13 @@ var shot: ShotResult
 var shot_from := Vector3.ZERO
 var shot_time := 0.0
 var result_timer := 0.0
+var _land_time := INF  ## when the ball first lands; INF once the sound has played
 
 var shot_model: ShotModel
 var wind: Wind
 var sounds: SoundBank
 var hud: Hud
-var camera: Camera3D
+var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
@@ -52,12 +53,10 @@ var hole_root: Node3D
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
+var ambience: CourseAmbience
 
 var _trail_mesh := ImmediateMesh.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
-var _cam_pos := Vector3.ZERO
-var _cam_look := Vector3.ZERO
-var _cam_look_now := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -78,6 +77,14 @@ func start_round() -> void:
 	if course_path.is_empty():
 		course_path = chosen_course
 	course = AssetProviders.load_course(course_path)
+	scenery.set_backdrop(course.horizon)
+	if ambience != null:
+		ambience.queue_free()
+		ambience = null
+	if course.read_entry.is_valid():
+		ambience = CourseAmbience.create(course.read_entry)
+		if ambience != null:
+			add_child(ambience)
 	card = Scorecard.new(course.pars())
 	wind = Wind.new(graphics.wind)
 	hud.scorecard.visible = false
@@ -107,6 +114,9 @@ func start_hole(index: int) -> void:
 	_add_tee_markers()
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
+	camera.terrain = hole.terrain
+	if ambience != null:
+		ambience.start_hole(hole.tee)
 
 	strokes = 0
 	wind.start_hole()
@@ -130,6 +140,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
 	shot_time = 0.0
+	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
+	camera.follow(shot)
 	aim_marker.visible = false
 	hud.show_message("")
 	hud.hint.text = "Space or click: skip"
@@ -170,7 +182,7 @@ func _process(delta: float) -> void:
 			result_timer -= delta
 			if result_timer <= 0.0:
 				_after_result()
-	_update_camera(delta)
+	camera.update(delta, shot_time, _ball_base)
 	_update_ball_size()
 
 
@@ -267,6 +279,10 @@ func _change_club(step: int) -> void:
 func _prepare_shot(snap_camera: bool) -> void:
 	state = State.AIM
 	lie = hole.terrain.surface_at(ball_at.x, ball_at.z)
+	# The first shot is played from the teeing ground, whatever mown grass
+	# the course paints there.
+	if strokes == 0 and ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
+		lie = Surface.Type.TEE
 	_auto_club()
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
@@ -302,7 +318,9 @@ func _process_flight(delta: float) -> void:
 	var p := shot.position_at(shot_time)
 	_place_ball(p)
 	_draw_trail(shot.sample_index_at(shot_time), p)
-	_follow_camera(p)
+	if shot_time >= _land_time:
+		_land_time = INF
+		sounds.play(&"land")
 	if shot_time >= shot.time_s:
 		_complete_flight()
 
@@ -311,7 +329,6 @@ func _complete_flight() -> void:
 	shot_time = shot.time_s
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
-	_follow_camera(shot.rest)
 	strokes += 1
 	var msg := ""
 	match shot.outcome:
@@ -476,7 +493,7 @@ func _build_world() -> void:
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
 
-	camera = Camera3D.new()
+	camera = RoundCamera.new()
 	camera.far = 3000.0
 	add_child(camera)
 
@@ -484,6 +501,7 @@ func _build_world() -> void:
 	add_child(canvas)
 	hud = Hud.new()
 	canvas.add_child(hud)
+	hud.use_art(HudArt.load_from_game())
 	settings_panel = SettingsPanel.new()
 	canvas.add_child(settings_panel)
 	settings_panel.changed.connect(_apply_graphics)
@@ -634,40 +652,7 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 
 # --- Camera ------------------------------------------------------------------
 
-## Behind the ball, looking down the aim line.
-func _aim_camera(snap: bool) -> void:
-	var dir := _aim_dir()
-	var putting := clubs[club_index].is_putter
-	var back := 3.5 if putting else 7.5
-	var up := 1.5 if putting else 2.6
-	_cam_pos = ball_at - dir * back + Vector3.UP * up
-	_cam_look = ball_at + dir * (8.0 if putting else 60.0) + Vector3.UP * (0.0 if putting else 3.0)
-	_keep_above_ground()
-	if snap:
-		camera.position = _cam_pos
-		_cam_look_now = _cam_look
-		camera.look_at(_cam_look_now)
-
-
-## Holds at the tee for a moment, then chases the ball.
-func _follow_camera(p: Vector3) -> void:
-	_cam_look = p
-	if shot_time < 0.6 and not clubs[club_index].is_putter:
-		return
-	var dir := _aim_dir()
-	var putting := clubs[club_index].is_putter
-	_cam_pos = p - dir * (4.0 if putting else 16.0) + Vector3.UP * (1.8 if putting else 6.0)
-	_keep_above_ground()
-
-
-func _keep_above_ground() -> void:
-	var ground := hole.terrain.height_at(_cam_pos.x, _cam_pos.z)
-	_cam_pos.y = maxf(_cam_pos.y, ground + 1.0)
-
-
-func _update_camera(delta: float) -> void:
-	camera.position = camera.position.lerp(_cam_pos, 1.0 - exp(-delta * 2.5))
-	_cam_look_now = _cam_look_now.lerp(_cam_look, 1.0 - exp(-delta * 6.0))
-	var to_look := _cam_look_now - camera.position
-	if to_look.length() > 0.1 and absf(to_look.normalized().y) < 0.99:
-		camera.look_at(_cam_look_now)
+## Behind the ball, looking down the aim line. Links cuts straight to the
+## new view rather than gliding, so this always snaps.
+func _aim_camera(_snap: bool) -> void:
+	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter)

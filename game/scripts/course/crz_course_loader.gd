@@ -344,6 +344,9 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 	var course := CourseData.new()
 	course.course_name = data.name
 	if archive != null:
+		if archive.has("Panorama"):
+			course.horizon = LinksPanorama.decode(archive.read_named("Panorama"))
+		course.read_entry = archive.read_named
 		course.objects = CourseObjects.build(archive.read_named, data.get("objects", {}), CourseObjects.find_crowd_library())
 		terrain.obstacles = course.objects.obstacles
 	var number := 0
