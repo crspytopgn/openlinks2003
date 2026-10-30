@@ -15,6 +15,10 @@ func run_all() -> Array[String]:
 	_test_course_billboards()
 	_test_course_models()
 	_test_course_objects()
+	_test_panorama()
+	_test_backdrop()
+	_test_env_sound()
+	_test_ambience_loop()
 	return failures
 
 
@@ -26,7 +30,9 @@ func check(cond: bool, what: String) -> void:
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/object_viewer.gd", "res://scripts/assets/decoded_object_library.gd",
 			"res://scripts/course_viewer.gd", "res://scripts/course/course_models.gd",
-			"res://scripts/course/crz_course_loader.gd", "res://scripts/main.gd"]:
+			"res://scripts/course/crz_course_loader.gd", "res://scripts/main.gd",
+			"res://scripts/round_camera.gd", "res://scripts/ui/hud_art.gd", "res://scripts/ui/info_bar.gd",
+			"res://scripts/audio/course_ambience.gd", "res://scripts/graphics/course_backdrop.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -439,3 +445,95 @@ func _test_course_objects() -> void:
 		var world := tall.position + Vector3(buffer[3], buffer[7], buffer[11])
 		check(world.distance_to(Vector3(10 * f, 0, 0)) < 1e-3, "objects: chunk offset restored")
 	root.free()
+
+
+## Mirrors test_panorama_tiles in libs/olcore/tests/test_main.cpp.
+func _test_panorama() -> void:
+	check(LinksPanorama.row_sizes(720) == PackedInt32Array([256, 256, 256]), "panorama rows for 720")
+	check(LinksPanorama.row_sizes(320) == PackedInt32Array([256, 64]), "panorama rows for 320")
+	check(LinksPanorama.row_sizes(260) == PackedInt32Array([256, 4]), "panorama rows for 260")
+	var d := PackedByteArray("nap".to_ascii_buffer())
+	d.append(0)
+	put_u32(d, 70)
+	put_u32(d, 260)
+	put_u32(d, 1)
+	put_u32(d, 2)
+	var runs := PackedByteArray()
+	put_u16(runs, 0x4000)  # 4096 flat blocks
+	for i in 4096:
+		runs.append_array(PackedByteArray([0, 0, 255, 255]))  # B, G, R, A: red
+	d.append_array("desu".to_ascii_buffer())
+	put_u32(d, runs.size())
+	d.append_array(runs)
+	for c in 18:
+		if c == 2:
+			d.append_array("desu".to_ascii_buffer())
+			put_u32(d, 6)
+			put_u16(d, 0x4001)
+			d.append_array(PackedByteArray([255, 0, 0, 255]))  # blue
+		else:
+			d.append_array("tpme".to_ascii_buffer())
+	check(LinksPanorama.is_panorama(d) and not LinksPanorama.is_sky(d), "panorama tag")
+	var img := LinksPanorama.decode(d)
+	check(img != null and img.get_width() == 70 and img.get_height() == 260, "panorama size")
+	if img != null:
+		check(img.get_pixel(69, 255).r > 0.99 and img.get_pixel(69, 255).a > 0.99, "panorama big tile")
+		check(img.get_pixel(9, 258).b > 0.99 and img.get_pixel(9, 258).a > 0.99, "panorama small tile")
+		check(img.get_pixel(4, 258).a < 0.01, "panorama empty tile")
+	d.append(0)
+	check(LinksPanorama.decode(d) == null, "panorama with trailing bytes")
+
+
+func _test_backdrop() -> void:
+	var img := Image.create_empty(64, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.2, 0.5, 0.2))
+	var band := CourseBackdrop._band(img, 100.0, 0.5, 0.0, -1)
+	check(band.mesh.get_surface_count() == 1, "backdrop band pieces")
+	var aabb := band.mesh.get_aabb()
+	# 64 pixels round a 100 m circle: 16 rows are 16 * TAU * 100 / 64 high,
+	# half above eye level.
+	var h := 16.0 * TAU * 100.0 / 64.0
+	check(absf(aabb.end.y - h * 0.5) < 0.01 and absf(aabb.position.y + h * 0.5) < 0.01, "backdrop band height")
+	band.free()
+	check(CourseBackdrop._row_mean(img, 0, 4).is_equal_approx(Color(0.2, 0.5, 0.2)), "backdrop colour")
+
+
+func _test_env_sound() -> void:
+	var b := PackedByteArray()
+	put_u32(b, 2)
+	put_counted(b, "Birds")
+	put_u32(b, 0)
+	put_u32(b, 2)
+	put_counted(b, "a.wav")
+	put_counted(b, "b.wav")
+	put_counted(b, "Crow")
+	put_u32(b, 1)
+	put_u32(b, 1)
+	put_counted(b, "c.wav")
+	put_u32(b, 2)
+	for e in [[0, 100.0, 200.0, 30.0, 29997.0], [1, -50.0, 0.0, 10.0, 29994.0]]:
+		put_u32(b, e[0])
+		for v in [e[1], e[2], e[3], e[4], 75.0, 0.2, 0.0, 0.0]:
+			put_f32(b, v)
+	var parsed := CourseAmbience.parse_env_sound(b)
+	check(not parsed.is_empty(), "EnvSound parses")
+	if parsed.is_empty():
+		return
+	check(parsed.defs.size() == 2 and parsed.defs[0].files == PackedStringArray(["a.wav", "b.wav"]), "EnvSound kinds")
+	check(parsed.emitters.size() == 2 and parsed.emitters[0].looping and not parsed.emitters[1].looping, "EnvSound loops")
+	var p: Vector3 = parsed.emitters[0].position
+	check(p.is_equal_approx(Vector3(100.0, 30.0, -200.0) * 0.3048), "EnvSound position")
+
+
+func _test_ambience_loop() -> void:
+	var s := AudioStreamWAV.new()
+	s.format = AudioStreamWAV.FORMAT_16_BITS
+	s.mix_rate = 100
+	var data := PackedByteArray()
+	data.resize(1000 * 2)
+	for i in 1000:
+		data.encode_s16(i * 2, 1000 if i < 900 else -1000)
+	s.data = data
+	CourseAmbience.make_loop(s, 1.0)
+	check(s.data.size() == 900 * 2 and s.loop_mode == AudioStreamWAV.LOOP_FORWARD and s.loop_end == 900, "ambience loop length")
+	check(s.data.decode_s16(0) == -1000 and s.data.decode_s16(99 * 2) > 900, "ambience crossfade")

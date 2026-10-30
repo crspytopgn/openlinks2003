@@ -18,16 +18,17 @@ var fullscreen := false
 var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
-var fov := 60.0  ## vertical field of view, degrees
+var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
 var wind: int = Wind.Level.MODERATE
 
 
 func _init() -> void:
 	# The browser build runs on everything from phones to desktops, on the
-	# simpler renderer, so it starts a notch lower.
+	# simpler renderer, so it starts a notch lower, but with 2x MSAA:
+	# without it trees, flags and the golfer look jagged and low-res.
 	if OS.has_feature("web"):
 		quality = Quality.MEDIUM
-		msaa = 0
+		msaa = 2
 
 
 static func load_saved(path := PATH) -> GraphicsSettings:
