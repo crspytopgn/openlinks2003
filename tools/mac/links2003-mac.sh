@@ -30,6 +30,7 @@ APP="${LINKS2003_APP:-$HOME/Applications/Links 2003.app}"
 DEFAULT_DISCS="/Volumes/nvme.fanxiang/Claude/links2003/gameiso"
 export WINEPREFIX="$BASE/prefix"
 export WINEDEBUG="${WINEDEBUG:--all}"
+export MVK_CONFIG_LOG_LEVEL="${MVK_CONFIG_LOG_LEVEL:-0}"  # quiet MoltenVK
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -160,7 +161,9 @@ run_setup() {
 run_patch() {
 	local exe
 	exe="$(find_game)"
-	if [ -n "$exe" ] && [ -f "$(dirname "$exe")/LinksLauncher.exe" ]; then
+	# Setup installs LinksMMIII.exe and LinksLauncher.exe too, so look for
+	# the patch's readme instead.
+	if [ -n "$exe" ] && [ -f "$(dirname "$exe")/readme_107.txt" ]; then
 		say "The 1.07 patch is already applied"
 		return
 	fi
@@ -196,6 +199,7 @@ EOF
 # Made by openlinks2003 tools/mac/links2003-mac.sh: runs Links 2003 in Wine.
 export WINEPREFIX="$WINEPREFIX"
 export WINEDEBUG=-all
+export MVK_CONFIG_LOG_LEVEL=0
 ln -sfn "$BASE/discs/cd1" "$WINEPREFIX/dosdevices/d:"
 cd "$dir" && exec "$WINE" "\${LINKS2003_EXE:-LinksMMIII.exe}" "\$@"
 EOF

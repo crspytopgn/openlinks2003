@@ -57,15 +57,13 @@ the game's DirectX 8 renderer.
 
 ## Notes
 
-- The app starts `LinksMMIII.exe` directly. Neither it, the original
-  `LINKSM_1.EXE` nor either launcher carries SafeDisc; on CD 1 only
-  `RUKSHUK.EXE` does, and SafeDisc's driver can't run in Wine (or on current
-  Windows). If the game turns out to need starting through its launcher,
-  use `play --launcher`.
-- Not yet tried against the real `SETUP.EXE` (the cloud copies of the discs
-  leave out CD 1's root folder). The virtual CD, prefix, drive mapping,
-  patch step and app were checked end to end with stand-in programs under
-  Wine on Linux: they see `D:` as a CD-ROM with the disc's label and serial.
+- The 1.07 patch is required. Setup installs `LinksMMIII.exe` as a SafeDisc
+  loader (the real game goes next to it as `rukshuk.icd`), and SafeDisc's
+  driver can't run in Wine, so setup's "play now" step ends with "a debugger
+  has been detected". That is harmless: the install is complete by then. The
+  patch replaces the loader with an unprotected `LinksMMIII.exe`.
+- Tried on an M4 Mac mini on 2026-10-30: the virtual CDs (labels
+  `2003DISK1`-`2003DISK3`) and the disc swap during setup work.
 - Wine caches a drive's label once it has looked at it. Pressing `1`-`3`
   during setup swaps the files in `D:`, but setup may still see disc 1's
   label. If setup then refuses the disc, point it at `E:` (disc 2) or `F:`
