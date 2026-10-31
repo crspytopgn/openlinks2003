@@ -28,14 +28,14 @@ class Glb:
         arr = np.frombuffer(self.blob, _DTYPES[a["componentType"]], a["count"] * width, offset)
         return arr.reshape(a["count"], width) if width > 1 else arr
 
-    def add(self, array, minmax=False):
-        a = np.ascontiguousarray(array, dtype=np.float32)
+    def add(self, array, minmax=False, component=5126):
+        a = np.ascontiguousarray(array, dtype=_DTYPES[component])
         while len(self.blob) % 4:
             self.blob.append(0)
         self.doc["bufferViews"].append({"buffer": 0, "byteOffset": len(self.blob), "byteLength": a.nbytes})
         self.blob.extend(a.tobytes())
         width = 1 if a.ndim == 1 else int(np.prod(a.shape[1:]))
-        acc = {"bufferView": len(self.doc["bufferViews"]) - 1, "componentType": 5126,
+        acc = {"bufferView": len(self.doc["bufferViews"]) - 1, "componentType": component,
                "count": int(a.shape[0]), "type": _TYPES[width]}
         if minmax:
             flat = a.reshape(a.shape[0], -1)
