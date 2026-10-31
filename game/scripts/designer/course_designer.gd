@@ -22,6 +22,10 @@ const LINE_COLORS := {
 	Surface.Type.WATER: Color(0.4, 0.7, 1.0),
 	Surface.Type.OUT_OF_BOUNDS: Color(1.0, 1.0, 1.0),
 }
+## Imported areas the map lacked are dashed; guessed ones (not traced from
+## the photo) also in this colour.
+const GUESSED_COLOR := Color(1.0, 0.5, 0.2)
+const DASH := 3.0  ## metres
 
 ## The course the designer opens with (the last one saved or played).
 static var last_path := ""
@@ -537,7 +541,16 @@ func _select_press(p2: Variant, double_click: bool) -> void:
 	if hit >= 0:
 		panel.show_surface(course.shapes[hit].surface)
 		_start_drag("shape", hit, p2)
-		_set_status("%s selected. Drag it or its points; Delete removes it." % Surface.name_of(course.shapes[hit].surface))
+		_set_status("%s selected%s. Drag it or its points; Delete removes it." % [Surface.name_of(course.shapes[hit].surface), _origin_note(course.shapes[hit])])
+
+
+## Where an imported area came from, for the status line.
+static func _origin_note(s: CourseShape) -> String:
+	if not s.guessed:
+		return ""
+	if s.found:
+		return " (traced from the aerial photo, not the map: check it)"
+	return " (guessed at a standard size: redraw it from the photo)"
 
 
 func _start_drag(kind: String, index: int, at: Vector2) -> void:
@@ -560,6 +573,9 @@ func _drag_to() -> void:
 		"point", "shape":
 			var s := course.shapes[selected]
 			var old := s.bounds()
+			# Edited by hand: no longer a guess.
+			s.guessed = false
+			s.found = false
 			if _drag == "point":
 				s.points[_drag_index] = p2
 				s.changed()
@@ -849,13 +865,19 @@ func _draw_overlay() -> void:
 		if poly.size() < 3:
 			continue
 		var c: Color = LINE_COLORS.get(s.surface, Color.WHITE)
+		if s.guessed and not s.found:
+			c = GUESSED_COLOR
 		if i == selected:
 			c = Color(1.0, 0.95, 0.2)
-		_lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-		for k in poly.size() + 1:
-			_lines.surface_set_color(c)
-			_lines.surface_add_vertex(_ground_point(poly[k % poly.size()]))
-		_lines.surface_end()
+		if s.guessed:
+			# Not from the map: dashed, so it is easy to spot and check.
+			_dashed(poly, c)
+		else:
+			_lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+			for k in poly.size() + 1:
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(poly[k % poly.size()]))
+			_lines.surface_end()
 		any = true
 	if selected >= 0 and selected < course.shapes.size():
 		var size := camera.distance * 0.008
@@ -897,6 +919,31 @@ func _draw_overlay() -> void:
 		_lines.surface_add_vertex(Vector3.ZERO)
 		_lines.surface_add_vertex(Vector3.ZERO)
 		_lines.surface_end()
+
+
+## A closed outline drawn as dashes of about DASH metres.
+func _dashed(poly: PackedVector2Array, c: Color) -> void:
+	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
+	var on := true
+	var left := DASH
+	for k in poly.size():
+		var a := poly[k]
+		var b := poly[(k + 1) % poly.size()]
+		var seg := a.distance_to(b)
+		var t := 0.0
+		while t < seg:
+			var step := minf(left, seg - t)
+			if on:
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(a.lerp(b, t / seg)))
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(a.lerp(b, (t + step) / seg)))
+			t += step
+			left -= step
+			if left <= 0.0:
+				on = not on
+				left = DASH
+	_lines.surface_end()
 
 
 func _square(p: Vector2, size: float, c: Color) -> void:
@@ -1055,7 +1102,8 @@ func _on_file_action(action: String) -> void:
 
 
 func _save() -> bool:
-	var p := course.default_path()
+	# Never write over a different course that happens to share the name.
+	var p := course.save_path(path)
 	var err := course.save_file(p)
 	if err != OK:
 		_set_status("Couldn't save the course (%s)." % error_string(err))
@@ -1132,19 +1180,25 @@ func _on_imported(text: String, file_name: String) -> void:
 func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 	# The aerial photo is kept beside the course file, not in it.
 	var photo: Image = summary.get("photo", null)
+	var target := c.save_path()
 	if photo != null:
-		var file := c.default_path().get_basename().get_file() + ".photo.jpg"
+		var file := target.get_basename().get_file() + ".photo.jpg"
 		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
 		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
 			c.source["photo"] = file
 		c.set_photo(photo)
 	var cover: Image = summary.get("ground_cover", null)
 	if photo == null and cover != null:
-		var gfile := c.default_path().get_basename().get_file() + ".ground.png"
+		var gfile := target.get_basename().get_file() + ".ground.png"
 		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
 		if cover.save_png(DesignedCourse.FOLDER.path_join(gfile)) == OK:
 			c.source["ground"] = gfile
 		c.set_ground_cover(cover)
+	_photo_on = true
+	_set_course(c, "")
+	_unsaved = true
+	# Saved first, so the other courses can't take its file name.
+	var saved := _save()
 	# Other courses at the same club are saved beside it.
 	var others: Array = summary.get("others", [])
 	for o: DesignedCourse in others:
@@ -1154,17 +1208,29 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 			for key in ["photo", "ground"]:
 				if c.source.has(key):
 					o.source[key] = c.source[key]
-		o.save_file(o.default_path())
-	_photo_on = true
-	_set_course(c, "")
-	_unsaved = true
-	var saved := _save()
+		o.save_file(o.save_path())
 	_set_status("Built %s: %d holes, %d areas, %d trees%s%s. %s" % [c.course_name, int(summary.get("holes", 0)),
 		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
-		(" (%d areas the map lacked were guessed at standard sizes; check them)" % int(summary["guessed"])) if int(summary.get("guessed", 0)) > 0 else "",
+		_filled_note(summary),
 		(", ground every %.1f m" % float(summary.get("metres_per_pixel", 0))) if summary.has("metres_per_pixel") else "",
 		("Saved; polish it here, then play it." if saved else "Save it to keep it.") +
 		(" Also saved: %s (Open)." % ", ".join(others.map(func(o: DesignedCourse) -> String: return o.course_name)) if not others.is_empty() else "")])
+
+
+## Says how many greens, tees, fairways and bunkers the map lacked were
+## traced from the photo, and how many were guessed. Both are drawn dashed
+## (guesses in GUESSED_COLOR).
+static func _filled_note(summary: Dictionary) -> String:
+	var found := int(summary.get("detected", 0))
+	var guessed := int(summary.get("guessed", 0))
+	if found + guessed == 0:
+		return ""
+	var parts: Array[String] = []
+	if found > 0:
+		parts.append("%d traced from the photo" % found)
+	if guessed > 0:
+		parts.append("%d guessed at standard sizes" % guessed)
+	return " (areas the map lacked, dashed: %s; check them)" % ", ".join(parts)
 
 
 ## The course's aerial photo as a ground overlay material, if it has one.

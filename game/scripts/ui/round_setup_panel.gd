@@ -27,13 +27,21 @@ var _profiles := PlayerProfiles.new()
 var _rows: Array[HBoxContainer] = []
 var _problem: Label
 var _start: Button
+## The course files behind the course list after its first entry (the
+## placeholder), so a friend's result code can find its course.
+var course_paths: PackedStringArray = []
+var _code: LineEdit
+var _challenge_info: Label
+## The friend's round being played against, or null.
+var _challenge: RoundRecord = null
 
 
 func _ready() -> void:
 	MenuStyle.panel(self)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
-	box.custom_minimum_size = Vector2(760, 0)
+	# No fixed width: the panel fits what is showing (handicap and team
+	# columns appear only when needed), so it stays centred on screen.
 	add_child(box)
 	box.add_child(MenuStyle.heading("Play a round", 30))
 
@@ -109,6 +117,27 @@ func _ready() -> void:
 		_teams.append(team)
 		_rows.append(row)
 
+	var code_row := HBoxContainer.new()
+	code_row.add_theme_constant_override("separation", 8)
+	box.add_child(code_row)
+	_code = LineEdit.new()
+	_code.placeholder_text = "A friend's result code (optional): play their course and wind"
+	_code.custom_minimum_size = Vector2(560, 36)
+	_code.text_submitted.connect(_open_code.unbind(1))
+	code_row.add_child(_code)
+	var open_code := MenuStyle.button("Open")
+	open_code.pressed.connect(_open_code)
+	code_row.add_child(open_code)
+	var clear_code := MenuStyle.button("Clear")
+	clear_code.pressed.connect(_clear_code)
+	code_row.add_child(clear_code)
+	_challenge_info = Label.new()
+	_challenge_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_challenge_info.custom_minimum_size = Vector2(600, 0)
+	_challenge_info.add_theme_font_size_override("font_size", 15)
+	_challenge_info.visible = false
+	box.add_child(_challenge_info)
+
 	_problem = Label.new()
 	_problem.add_theme_color_override("font_color", MenuStyle.WARNING)
 	box.add_child(_problem)
@@ -145,7 +174,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 		_teams[i].select(saved.teams[i] if i < saved.teams.size() else i % 2)
 		_who[i].select(saved.computer_level(i) + 1)
 		_fill_index(i)
-	_refresh()
+	_clear_code()
 	visible = true
 	_start.grab_focus.call_deferred()
 
@@ -166,6 +195,7 @@ func current_setup() -> RoundSetup:
 		s.teams.append(_teams[i].selected)
 		s.computer.append(_who[i].selected - 1)
 		s.indexes.append(_index_of(i))
+	s.challenge = _challenge
 	return s
 
 
@@ -253,6 +283,8 @@ func _refresh() -> void:
 			if not t.is_empty() and Handicap.parse(t) == Handicap.NONE:
 				problem = "%s's handicap index should be a number such as 12.3." % _player_name(i)
 				break
+	if problem.is_empty() and _challenge != null and _course.selected != _challenge_slot(_challenge):
+		problem = "Their round was on %s: pick that course, or clear the code." % _challenge.course_name
 	_problem.text = problem
 	_problem.visible = not problem.is_empty()
 	_start.disabled = not problem.is_empty()
@@ -269,6 +301,69 @@ func _on_start() -> void:
 				_profiles.set_start_index(s.names[i], s.indexes[i])
 		_profiles.save()
 	start_pressed.emit(s, _course.selected)
+
+
+## Reads the pasted result code: picks its course, tees and holes, checks the
+## round on this machine where it can, and says what was found.
+func _open_code() -> void:
+	var rec := RoundRecord.from_code(_code.text)
+	if rec == null:
+		_challenge = null
+		_show_info("That isn't a result code. It starts with %s." % RoundRecord.CODE_PREFIX, true)
+		return
+	var slot := _challenge_slot(rec)
+	if slot < 0:
+		_challenge = null
+		_show_info("%s played %s, which isn't among your courses." % [rec.summary(), rec.course_name], true)
+		return
+	_challenge = rec
+	_course.select(slot)
+	_tees.select(rec.tees)
+	_holes.select(rec.holes)
+	var where := rec.course_name
+	var wind: String = Wind.LEVEL_NAMES[clampi(rec.wind_level, 0, Wind.LEVEL_NAMES.size() - 1)]
+	var path := "" if slot == 0 else course_paths[slot - 1]
+	var checked := ""
+	if not rec.finished:
+		checked = "The round wasn't finished."
+	elif slot > 0 and not FileAccess.file_exists(path):
+		checked = "It can't be checked in the browser yet."
+	else:
+		var answer := RoundReplay.check(rec, path)
+		if answer.ok:
+			checked = "Checked: every shot plays the same here."
+		else:
+			var errors: Array = answer.errors
+			checked = "Doesn't check out: %s%s" % [errors[0], "" if errors.size() == 1 else " (and %d more)" % (errors.size() - 1)]
+	_show_info("%s on %s, %s wind. %s Start to play the same course and wind." % [rec.summary(), where, wind.to_lower(), checked], false)
+
+
+func _clear_code() -> void:
+	_challenge = null
+	_code.text = ""
+	_challenge_info.visible = false
+	_refresh()
+
+
+func _show_info(text: String, warning: bool) -> void:
+	_challenge_info.text = text
+	_challenge_info.visible = true
+	if warning:
+		_challenge_info.add_theme_color_override("font_color", MenuStyle.WARNING)
+	else:
+		_challenge_info.add_theme_color_override("font_color", MenuStyle.ACCENT)
+	_refresh()
+
+
+## Where a friend's course sits in the course list (0: the placeholder), or
+## -1 if this player doesn't have it.
+func _challenge_slot(rec: RoundRecord) -> int:
+	if rec.course_file.is_empty():
+		return 0
+	for i in course_paths.size():
+		if course_paths[i].get_file() == rec.course_file:
+			return i + 1
+	return -1
 
 
 func _row(grid: GridContainer, label: String, items: Array) -> OptionButton:

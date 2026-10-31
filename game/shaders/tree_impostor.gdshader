@@ -63,6 +63,7 @@ void fragment() {
 	}
 	ALBEDO = c.rgb;
 	BACKLIGHT = c.rgb * 0.4;
-	ROUGHNESS = 0.85;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.1;
 	NORMAL = normalize(vec3((UV.x - 0.5) * 1.4, (0.5 - UV.y) * 1.0 + 0.4, 1.0));
 }

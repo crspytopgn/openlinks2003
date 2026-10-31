@@ -11,7 +11,7 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, DRIVE }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -24,7 +24,9 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard%s    Esc: menu"
+## The object viewer needs the game folder, which browsers can't read.
+const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
 const HINT_AIM_MOUSE := "Hold the left button: mouse swing    Space: meter"
 const HINT_PRACTICE := "Left/Right: aim (Shift: fine)    %s    V: read    N: new spot    [ ]: distance    L: slope    P: drill    T: next cup    H: next green    Esc: menu"
@@ -37,9 +39,17 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
+const HINT_AIM_TOUCH := "Swipe down, then flick up briskly and straight: swing    Tap: meter    Buttons: menu, club, aim"
+const HINT_TOUCH_SWING := "Keep your finger down: drag it back, then flick it up briskly and straight"
+const HINT_AIM_PAD := "    Pad: right stick swing, A meter, D-pad club, LB fine aim"
+const HINT_STICK_SWING := "Right stick: pull it back, then push it forward briskly and straight    B: call it off"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
+const HINT_DRIVE := "Up/Down or W/S: drive    Left/Right or A/D: steer    Space or click: skip to the ball    %d yd to go"
+const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
+const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
+const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
-const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
+const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
 const REPLAY_SLOW := 0.35
@@ -135,6 +145,19 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## What is driving the mouse swing: the mouse, a finger or a thumbstick.
+enum SwingInput { MOUSE, TOUCH, STICK }
+var _swing_input := SwingInput.MOUSE
+## A touch or stick swing's movement turned into the mouse's (AnalogSwing).
+var _analog: AnalogSwing.Tracker = null
+## The finger that touched down while aiming (-1 none) and where.
+var _touch_index := -1
+var _touch_from := Vector2.ZERO
+## The right stick as the last motion events left it, and its pad.
+var _stick_raw := Vector2.ZERO
+var _stick_device := -1
+## A new stick swing waits for the stick to come back to rest first.
+var _stick_armed := true
 ## The game's swing-help count per player (the mouse swing's help option).
 var _swing_help: Array[LinksMouse.Help] = []
 ## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
@@ -158,6 +181,7 @@ var aim_marker: MeshInstance3D
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig
 var hole_root: Node3D
+var marks: CourseMarks  ## divots, pitch marks and sand craters on this hole
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
@@ -170,6 +194,9 @@ var _voice_flight := ""
 var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
+var caddie: Caddie  ## Settings > Caddie; null when off
+var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
+var _drive_to := -1  ## the ball the buggy is driving to
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
 
@@ -243,6 +270,8 @@ func _ready() -> void:
 	hud.mouse_swing.backswing_started.connect(_on_backswing_started)
 	hud.mouse_swing.stroke_finished.connect(_on_mouse_stroke)
 	hud.mouse_swing.stroke_cancelled.connect(_on_mouse_stroke_cancelled)
+	hud.touch_pad.club_pressed.connect(_change_club)
+	hud.touch_pad.menu_pressed.connect(_escape)
 	start_round()
 
 
@@ -258,6 +287,10 @@ func start_round() -> void:
 	if round_setup.practice != RoundSetup.Practice.OFF:
 		round_setup.trim_for_practice()
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
+	# A friend's round: the same wind, shot for shot.
+	var versus := round_setup.challenge
+	if versus != null:
+		round_seed = versus.round_seed
 	practice = PuttingPractice.new(round_seed) if round_setup.practice != RoundSetup.Practice.OFF else null
 	for h: HoleData in _home_pins:
 		h.pin = _home_pins[h]  # the last practice moved them
@@ -318,10 +351,12 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	wind = Wind.new(graphics.wind, round_seed)
+	var wind_level := graphics.wind if versus == null else versus.wind_level
+	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
-	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", graphics.wind)
+	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
 	record.course_hash = RoundRecord.file_hash(course_path)
+	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
 	round_stats.clear()
 	for _i in scoring.player_count():
@@ -468,6 +503,8 @@ func start_hole(index: int) -> void:
 	else:
 		_add_flag()
 	_add_tee_markers()
+	marks = CourseMarks.new()
+	hole_root.add_child(marks)
 	if scenery.sun != null:
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	golfer = AssetProviders.golfer_assets.create_golfer()
@@ -498,6 +535,8 @@ func start_hole(index: int) -> void:
 		p.putts = 0
 	_clear_trail()
 	hud.scorecard.visible = false
+	if buggy != null:
+		_park_buggy(hole.tee)
 	_begin_turn(_next_player(), true)
 	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
 	if practice != null:
@@ -607,10 +646,13 @@ func _store_turn() -> void:
 ## tests call it directly.
 func play_shot(power: float, accuracy: float) -> void:
 	var club := clubs[club_index]
+	if caddie != null:
+		caddie.quiet()
 	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
+		golfer.watch(ball, 0.7 if club.is_putter else 0.3)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
@@ -645,6 +687,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
 	record.shots.append(rec)
+	if marks != null:
+		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
 	wind.next_shot()
 	_update_wind_shaders()
 	if free_ambience != null:
@@ -698,12 +742,15 @@ func auto_play_step() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.HOLE_DONE:
 			_next_hole()
 
 
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
+	_update_wind_shaders()
 	# The pause menu and settings stop the round: the swing meter, the ball
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
@@ -727,6 +774,8 @@ func _process(delta: float) -> void:
 					_after_result()
 			State.COMPUTER:
 				_process_computer(delta)
+			State.DRIVE:
+				_process_drive(delta)
 			State.HOLE_DONE:
 				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
 					result_timer -= delta
@@ -736,7 +785,8 @@ func _process(delta: float) -> void:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
 			start_replay()
-	camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	if state != State.DRIVE:
+		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
 	grass.update_around(camera.global_position)
 	_update_ball_size()
 	if broadcast:
@@ -747,18 +797,18 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton:
+		var jb := event as InputEventJoypadButton
+		if jb.pressed and jb.button_index == JOY_BUTTON_START:
+			_escape()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
 			match key.keycode:
 				KEY_ESCAPE:
-					if settings_panel.visible:
-						settings_panel.close()
-						pause_menu.open()
-					elif pause_menu.visible:
-						pause_menu.close()
-					else:
-						open_pause_menu()
+					_escape()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -792,8 +842,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.ROUND_DONE:
 						_quit_to_menu()
 						return
+				KEY_X:
+					if state == State.ROUND_DONE:
+						DisplayServer.clipboard_set(record.to_code())
+						hud.show_message("Result code copied. Send it to a friend: their game checks it and can play the same course and wind.", 4.0)
+						return
 				KEY_O:
-					_visit("res://scenes/object_viewer.tscn")
+					if _objects_viewable():
+						_visit("res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -830,6 +886,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.AIM and opponents[shooter] == null and practice == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
+	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _mouse_swing_input(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -866,6 +925,8 @@ func _on_swing_pressed() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.COMPUTER:
 			# Hurry up: finish the plan and swing now.
 			opponents[shooter].finish()
@@ -877,12 +938,26 @@ func _on_swing_pressed() -> void:
 			start_round()
 
 
+## Esc (Start on a pad, the menu button on a touch screen): back out of the
+## settings, close the pause menu, or open it.
+func _escape() -> void:
+	if settings_panel.visible:
+		settings_panel.close()
+		pause_menu.open()
+	elif pause_menu.visible:
+		pause_menu.close()
+	else:
+		open_pause_menu()
+
+
 ## Esc: the pause menu. A mouse swing in progress is called off, since the
 ## menu takes the button's release.
 func open_pause_menu() -> void:
 	if hud.mouse_swing.is_swinging():
 		hud.mouse_swing.reset()
 		_on_mouse_stroke_cancelled()
+	_touch_index = -1
+	hud.touch_pad.release_all()
 	pause_menu.open()
 
 
@@ -890,27 +965,155 @@ func open_pause_menu() -> void:
 ## it (with the mouse swing chosen); Space still uses the meter.
 func _mouse_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
+	if event is InputEventMouse and (event as InputEventMouse).device == InputEvent.DEVICE_ID_EMULATION:
+		# The mouse events a touch screen makes up: the finger has its own
+		# swing (and a tap its own meter), so while aiming or swinging only
+		# the touch counts.
+		return state == State.AIM or ms.is_swinging() or _touch_index >= 0
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var mb := event as InputEventMouseButton
 		if ms.is_swinging():
-			if not mb.pressed:
+			if not mb.pressed and _swing_input == SwingInput.MOUSE:
 				ms.release()
 			return true
-		if mb.pressed and state == State.AIM and graphics.swing_method == 1 and not _replaying and not camera.flying():
-			hud.scorecard.visible = false
-			state = State.SWING
-			hud.hint.text = HINT_MOUSE_SWING
-			hud.meter.reset()
-			var club := clubs[club_index]
-			var number := LinksMouse.PUTTER
-			if not club.is_putter:
-				number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
-			ms.begin(number, graphics.skill, _chip and not club.is_putter)
+		if mb.pressed and graphics.swing_method == 1 and _can_start_swing():
+			_begin_mouse_swing(SwingInput.MOUSE)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
-		ms.motion((event as InputEventMouseMotion).screen_relative)
+		if _swing_input == SwingInput.MOUSE:
+			ms.motion((event as InputEventMouseMotion).screen_relative)
 		return true
 	return false
+
+
+## Whether the player may start a swing now.
+func _can_start_swing() -> bool:
+	return state == State.AIM and not _replaying and not camera.flying() and not hud.mouse_swing.is_swinging()
+
+
+## Starts Links 2003's mouse swing, driven by the mouse, a finger or a stick.
+func _begin_mouse_swing(source: SwingInput) -> void:
+	hud.scorecard.visible = false
+	state = State.SWING
+	hud.meter.reset()
+	var club := clubs[club_index]
+	var number := LinksMouse.PUTTER
+	if not club.is_putter:
+		number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
+	var chip := _chip and not club.is_putter
+	_swing_input = source
+	hud.mouse_swing.begin(number, graphics.skill, chip, source == SwingInput.MOUSE)
+	var shot := LinksMouse.Shot.FULL
+	if club.is_putter:
+		shot = LinksMouse.Shot.PUTT
+	elif chip:
+		shot = LinksMouse.Shot.CHIP
+	_analog = AnalogSwing.Tracker.new(AnalogSwing.reach_px(shot, number))
+	match source:
+		SwingInput.TOUCH:
+			hud.hint.text = HINT_TOUCH_SWING
+		SwingInput.STICK:
+			hud.hint.text = HINT_STICK_SWING
+		_:
+			hud.hint.text = HINT_MOUSE_SWING
+
+
+## A finger on a touch screen: touching down while aiming and dragging it
+## back starts the mouse swing (AnalogSwing turns the drag into the mouse's
+## movement); a tap without dragging starts the PowerStroke meter, whose
+## later clicks are taps as before.
+func _touch_swing_input(event: InputEvent) -> bool:
+	var ms := hud.mouse_swing
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			if _touch_index < 0 and state == State.AIM and not ms.is_swinging() and not hud.touch_pad.covers(t.position):
+				_touch_index = t.index
+				_touch_from = t.position
+				return true
+			return false
+		if t.index != _touch_index:
+			return false
+		_touch_index = -1
+		if ms.is_swinging() and _swing_input == SwingInput.TOUCH:
+			ms.release()  # before the downswing this calls the swing off
+		elif state == State.AIM and _tap(t.position):
+			_on_swing_pressed()
+		return true
+	if event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if d.index != _touch_index:
+			return false
+		var at := AnalogSwing.touch(_touch_from, d.position, get_viewport().get_visible_rect().size.y)
+		if not ms.is_swinging():
+			if at.y <= AnalogSwing.START or not _can_start_swing():
+				return true
+			_begin_mouse_swing(SwingInput.TOUCH)
+		if _swing_input == SwingInput.TOUCH:
+			ms.motion(_analog.feed(at))
+		return true
+	return false
+
+
+## Whether a finger lifted at `at` barely moved since it touched down.
+func _tap(at: Vector2) -> bool:
+	return AnalogSwing.touch(_touch_from, at, get_viewport().get_visible_rect().size.y).length() < AnalogSwing.START
+
+
+## The right stick on a game pad: pulling it back while aiming starts the
+## mouse swing and pushing it forward swings the club down (AnalogSwing).
+## B calls it off before the downswing.
+func _stick_swing_input(event: InputEvent) -> bool:
+	var ms := hud.mouse_swing
+	if event is InputEventJoypadButton:
+		var jb := event as InputEventJoypadButton
+		if jb.pressed and jb.button_index == JOY_BUTTON_B and ms.is_swinging() and _swing_input == SwingInput.STICK:
+			ms.release()
+			return true
+		return false
+	if not (event is InputEventJoypadMotion):
+		return false
+	var m := event as InputEventJoypadMotion
+	if m.axis != JOY_AXIS_RIGHT_X and m.axis != JOY_AXIS_RIGHT_Y:
+		return false
+	if m.device != _stick_device:
+		_stick_device = m.device
+		_stick_raw = Vector2.ZERO
+	if m.axis == JOY_AXIS_RIGHT_X:
+		_stick_raw.x = m.axis_value
+	else:
+		_stick_raw.y = m.axis_value
+	var at := AnalogSwing.stick(_stick_raw)
+	if not ms.is_swinging():
+		if at.y <= 0.0:
+			_stick_armed = true
+		if not _stick_armed or at.y <= AnalogSwing.START or not _can_start_swing():
+			return true
+		_stick_armed = false
+		_begin_mouse_swing(SwingInput.STICK)
+	if _swing_input == SwingInput.STICK:
+		ms.motion(_analog.feed(at))
+	return true
+
+
+## A game pad's other buttons while playing: the D-pad changes club (left
+## and right aim, as the arrow keys) and Back shows the scorecard.
+func _pad_button(event: InputEvent) -> bool:
+	if not (event is InputEventJoypadButton) or not (event as InputEventJoypadButton).pressed:
+		return false
+	match (event as InputEventJoypadButton).button_index:
+		JOY_BUTTON_DPAD_UP:
+			_change_club(-1)
+		JOY_BUTTON_DPAD_DOWN:
+			_change_club(1)
+		JOY_BUTTON_BACK:
+			if hud.scorecard.visible:
+				hud.scorecard.visible = false
+			else:
+				hud.scorecard.show_round(scoring, _round_name())
+		_:
+			return false
+	return true
 
 
 ## The club met the ball: Links 2003's mouse maths make the swing (the
@@ -940,6 +1143,8 @@ func _on_mouse_stroke_cancelled() -> void:
 
 
 func _on_backswing_started() -> void:
+	if caddie != null:
+		caddie.quiet()
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
 
@@ -988,22 +1193,61 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_place_ball(ball_at)
 	_place_golfer()
 	read_view = GreenRead.View.PLAY
+	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
+		_footprints_at = ball_at
+		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()))
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
 	_update_green_grid()
 	_update_green_aids()
 	_save_progress()
+	_caddie_read()
 	if opponents[shooter] != null:
 		_start_computer_turn()
 
 
+## The caddie (if on) reads the player's shot; computer golfers go without.
+func _caddie_read() -> void:
+	if caddie == null:
+		return
+	if opponents[shooter] != null or state != State.AIM:
+		caddie.step_aside()
+		return
+	caddie.advise(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill, _aim_dir())
+
+
+## Settings > Caddie switched on or off.
+func _set_caddie(on: bool) -> void:
+	if on == (caddie != null):
+		return
+	if not on:
+		caddie.note.queue_free()
+		caddie.queue_free()
+		caddie = null
+		return
+	caddie = Caddie.new()
+	add_child(caddie)
+	hud.add_child(caddie.note)
+	if hole != null and state == State.AIM:
+		_caddie_read()
+
+
 ## The aiming keys, with the swing the settings chose.
 func _aim_hint() -> String:
+	if hud.touch_pad.visible:
+		return HINT_AIM_TOUCH
 	var swing: String = HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER
 	if practice != null:
 		return HINT_PRACTICE % swing
-	return HINT_AIM % swing
+	var text := HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+	if not Input.get_connected_joypads().is_empty():
+		text += HINT_AIM_PAD
+	return text
+
+
+static func _objects_viewable() -> bool:
+	return not OS.has_feature("web")
 
 
 func _process_aim(delta: float) -> void:
@@ -1015,13 +1259,20 @@ func _process_aim(delta: float) -> void:
 	if turn == 0.0:
 		return
 	var rate := PUTT_AIM_RATE_DEG if clubs[club_index].is_putter else AIM_RATE_DEG
-	if Input.is_key_pressed(KEY_SHIFT):
+	if Input.is_key_pressed(KEY_SHIFT) or _pad_held(JOY_BUTTON_LEFT_SHOULDER):
 		rate *= 0.2
 	aim_deg = wrapf(aim_deg + turn * rate * delta, -180.0, 180.0)
 	_place_golfer()
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(false)
+
+
+static func _pad_held(button: JoyButton) -> bool:
+	for pad in Input.get_connected_joypads():
+		if Input.is_joy_button_pressed(pad, button):
+			return true
+	return false
 
 
 func _process_flight(delta: float) -> void:
@@ -1046,8 +1297,27 @@ func _process_flight(delta: float) -> void:
 func _play_landing() -> void:
 	var t := RoundCamera.time_near(shot, shot.first_landing)
 	var speed := (shot.position_at(t) - shot.position_at(t - 0.05)).length() / 0.05
-	sounds.play_detail(&"land", {
-		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed})
+	_play_heard(&"land", {
+		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed},
+		shot.first_landing)
+	if marks != null:
+		var came := shot.position_at(t) - shot.position_at(t - 0.05)
+		marks.add_landing(hole.terrain, shot.first_landing, Vector3(came.x, 0.0, came.z), speed)
+
+
+## Plays a sound made at `at` as it would be heard where the camera
+## stands: late by the time sound takes to get there, and fainter with
+## distance (SoundBank.heard_from). From the tee a drive's bounce arrives
+## most of a second after you see it; from a camera beside the green it's
+## instant.
+func _play_heard(event: StringName, detail: Dictionary, at: Vector3) -> void:
+	var cam := get_viewport().get_camera_3d()
+	var heard := SoundBank.heard_from(cam.global_position.distance_to(at) if cam != null else 0.0)
+	detail["gain_db"] = heard.gain_db
+	if heard.delay_s < 0.03:
+		sounds.play_detail(event, detail)
+	else:
+		get_tree().create_timer(heard.delay_s).timeout.connect(sounds.play_detail.bind(event, detail))
 
 
 func _complete_flight() -> void:
@@ -1076,21 +1346,25 @@ func _complete_flight() -> void:
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
-			sounds.play(&"cup")
+			_play_heard(&"cup", {}, hole.pin)
 			ball.visible = false
 			_hole_out(false)
 			return
 		ShotResult.Outcome.WATER:
-			sounds.play(&"splash")
+			_play_heard(&"splash", {}, shot.rest)
 			strokes += 1
 			ball_at = shot.rest
 			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
 			_drop_pending = true
 			msg = "Water hazard. One-stroke penalty, take a drop."
+			if golfer:
+				golfer.play(&"upset")
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			strokes += 1
 			ball_at = shot_from
 			msg = "Out of bounds. Stroke and distance."
+			if golfer:
+				golfer.play(&"upset")
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
@@ -1184,12 +1458,102 @@ func _pass_turn() -> void:
 	if next < 0:
 		_finish_hole()
 		return
+	if _start_drive(next):
+		return
+	_take_turn(next)
+
+
+func _take_turn(next: int) -> void:
 	if next == current and _shooter_of(next) == shooter:
 		_prepare_shot(false)
 	else:
 		_begin_turn(next, true)
 		if players.size() > 1:
 			hud.show_message("%s to play" % scoring.names[shooter], 1.5)
+
+
+# --- Golf buggy --------------------------------------------------------------
+
+## Settings > Golf buggy switched on or off.
+func _set_buggy(on: bool) -> void:
+	if on == (buggy != null):
+		return
+	if not on:
+		if state == State.DRIVE:
+			_skip_drive()
+		buggy.queue_free()
+		buggy = null
+		return
+	buggy = GolfBuggy.new()
+	add_child(buggy)
+	if hole != null:
+		_park_buggy(ball_at)
+
+
+## Leaves the buggy beside `p`, off the line to the pin.
+func _park_buggy(p: Vector3) -> void:
+	var spot := BuggyDrive.parking_spot(hole.terrain, p, hole.pin)
+	buggy.park(spot, rad_to_deg(atan2(hole.pin.x - spot.x, hole.pin.z - spot.z)), hole.terrain)
+
+
+## Drives to ball `next` if the buggy is on, a person plays it and it is
+## far enough away; false to play on at once.
+func _start_drive(next: int) -> bool:
+	if buggy == null or opponents[_shooter_of(next)] != null:
+		return false
+	var to := players[next].at
+	if _flat_distance(buggy.drive.position, to) < DRIVE_MIN_M:
+		return false
+	_drive_to = next
+	state = State.DRIVE
+	# The golfer (and caddie) are aboard.
+	if golfer:
+		golfer.visible = false
+	if caddie != null:
+		caddie.step_aside()
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
+	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.visible = true
+	ball.visible = true
+	hud.show_message("")
+	return true
+
+
+func _process_drive(delta: float) -> void:
+	var throttle := 0.0
+	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+		throttle += 1.0
+	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+		throttle -= 1.0
+	var steer := 0.0
+	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+		steer += 1.0
+	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+		steer -= 1.0
+	buggy.step(delta, throttle, steer, hole.terrain)
+	var view: Array = buggy.chase(delta, hole.terrain)
+	camera.position = view[0]
+	camera.look_at(view[1])
+	var to := players[_drive_to].at
+	var left := _flat_distance(buggy.drive.position, to)
+	hud.hint.text = HINT_DRIVE % roundi(left * YARDS_PER_METRE)
+	var s := hole.terrain.surface_at(to.x, to.z)
+	var arrive := DRIVE_ARRIVE_GREEN_M if s == Surface.Type.GREEN or s == Surface.Type.FRINGE else DRIVE_ARRIVE_M
+	if left < arrive and absf(buggy.drive.speed) < 0.5 and throttle <= 0.0:
+		_end_drive()
+
+
+## Space during a drive: the buggy is parked by the ball and play goes on.
+func _skip_drive() -> void:
+	_park_buggy(players[_drive_to].at)
+	_end_drive()
+
+
+func _end_drive() -> void:
+	var next := _drive_to
+	_drive_to = -1
+	state = State.SHOT_RESULT  # in between, until the turn begins
+	_take_turn(next)
 
 
 ## The current player is done with the hole: holed, or picked up after
@@ -1285,6 +1649,8 @@ func _next_hole() -> void:
 			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
 	var records := _record_rounds()
 	_save_record()
+	if round_setup.challenge != null:
+		text += "\nTheir round: " + round_setup.challenge.summary()
 	if not records.is_empty():
 		text += "\n" + records
 	hud.show_message(text)
@@ -1354,6 +1720,8 @@ func _start_drop(reason: int) -> void:
 
 
 func _begin_drop(reason: int) -> void:
+	if caddie != null:
+		caddie.quiet()
 	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
 	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
 	_drop_reason = reason
@@ -1570,8 +1938,12 @@ func _auto_club() -> void:
 	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
 	var power := Surface.lie_power(lie)
 	var target := hole.aim_point(ball_at, clubs[0].total_m * shot_model.reach_scale(clubs[0]) * power)
-	var d := _flat_distance(ball_at, target)
 	club_index = 0
+	# Off the tee with the green out of reach, take the driver: picking the
+	# shortest club that reaches a route point leaves a hybrid off a par 4.
+	if lie == Surface.Type.TEE and target != hole.pin:
+		return
+	var d := _flat_distance(ball_at, target)
 	for i in clubs.size():
 		if not clubs[i].is_putter and clubs[i].total_m * shot_model.reach_scale(clubs[i]) * power >= d:
 			club_index = i
@@ -1616,6 +1988,7 @@ func _build_world() -> void:
 
 	ball = _make_ball_mesh()
 	add_child(ball)
+	_build_ball_details()
 
 	trail = MeshInstance3D.new()
 	trail.mesh = _trail_mesh
@@ -1770,6 +2143,8 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 		_update_green_aids()
+	_set_caddie(graphics.caddie)
+	_set_buggy(graphics.buggy)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
@@ -1804,46 +2179,64 @@ func _drift_clouds(delta: float) -> void:
 
 
 ## Tells the grass, trees and water which way the wind blows.
+## The steady wind is the hole's own; WindGust adds the gusts and lulls
+## the eye sees each frame (visual only: the ball flies in `wind`).
 func _update_wind_shaders() -> void:
+	if wind == null:
+		return
 	var v := wind.velocity()
-	RenderingServer.global_shader_parameter_set("wind_vector", Vector2(v.x, v.z))
+	var t := Time.get_ticks_msec() * 0.001
+	var seen := WindGust.visual_wind(Vector2(v.x, v.z), t, float(hole_index) if hole != null else 0.0)
+	RenderingServer.global_shader_parameter_set("wind_vector", seen)
+
+
+## Flagstick height: the Rules ask for at least 7 ft (2.13 m).
+const FLAGSTICK_M := 2.13
 
 
 func _add_flag() -> void:
 	var pin := hole.pin
 	var pole := MeshInstance3D.new()
 	var pole_mesh := CylinderMesh.new()
-	pole_mesh.top_radius = 0.04
-	pole_mesh.bottom_radius = 0.04
-	pole_mesh.height = 2.4
+	# True to scale: tour flagsticks are about 3/4 in (19 mm) thick.
+	pole_mesh.top_radius = 0.0095
+	pole_mesh.bottom_radius = 0.0095
+	pole_mesh.height = FLAGSTICK_M
+	pole_mesh.radial_segments = 8
 	pole.mesh = pole_mesh
-	pole.position = pin + Vector3(0, 1.2, 0)
+	pole.position = pin + Vector3(0, FLAGSTICK_M * 0.5, 0)
 	var white := StandardMaterial3D.new()
-	white.albedo_color = Color(0.95, 0.95, 0.95)
+	white.albedo_color = Color(0.95, 0.95, 0.92)
 	pole.material_override = white
 	hole_root.add_child(pole)
 
+	# The flag flies with the wind (shaders/flag.gdshader).
 	var flag := MeshInstance3D.new()
-	var cloth := BoxMesh.new()
-	cloth.size = Vector3(0.02, 0.5, 0.8)
+	var cloth := PlaneMesh.new()
+	cloth.orientation = PlaneMesh.FACE_Z
+	cloth.size = Vector2(0.51, 0.36)
+	cloth.subdivide_width = 16
+	cloth.subdivide_depth = 6
 	flag.mesh = cloth
-	flag.position = pin + Vector3(0, 2.15, 0.42)
-	var red := StandardMaterial3D.new()
-	red.albedo_color = Color(0.85, 0.1, 0.1)
-	red.cull_mode = BaseMaterial3D.CULL_DISABLED
-	flag.material_override = red
+	flag.position = pin + Vector3(0, FLAGSTICK_M - 0.02, 0)
+	flag.extra_cull_margin = 1.0  # the shader moves it well off the plane
+	var cloth_mat := ShaderMaterial.new()
+	cloth_mat.shader = load("res://shaders/flag.gdshader")
+	flag.material_override = cloth_mat
+	flag.name = "Flag"
 	hole_root.add_child(flag)
 
+	# The hole at its real size (4.25 in across), liner and all
+	# (shaders/cup.gdshader).
 	var cup := MeshInstance3D.new()
-	var cup_mesh := CylinderMesh.new()
-	cup_mesh.top_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.bottom_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.height = 0.02
+	var cup_mesh := PlaneMesh.new()
+	cup_mesh.size = Vector2.ONE * BallPhysics.CUP_RADIUS * 2.0
 	cup.mesh = cup_mesh
-	cup.position = pin + Vector3(0, 0.005, 0)
-	var black := StandardMaterial3D.new()
-	black.albedo_color = Color(0.03, 0.03, 0.03)
-	cup.material_override = black
+	cup.position = pin + Vector3(0, 0.004, 0)
+	var cup_mat := ShaderMaterial.new()
+	cup_mat.shader = load("res://shaders/cup.gdshader")
+	cup.material_override = cup_mat
+	cup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hole_root.add_child(cup)
 
 
@@ -1879,9 +2272,90 @@ func _update_ball_size() -> void:
 
 func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
 	var d := camera.position.distance_to(base)
-	var r := maxf(BallPhysics.RADIUS, d * 0.0045)
+	var r := BallPhysics.RADIUS if graphics != null and graphics.true_size_ball \
+		else maxf(BallPhysics.RADIUS, d * 0.0045)
 	m.scale = Vector3.ONE * r
-	m.position = base + Vector3.UP * r
+	var gap := _tee_gap() if m == ball else 0.0
+	m.position = base + Vector3.UP * (r + gap)
+	if m == ball:
+		_update_ball_details(base, r, gap)
+
+
+## Driver tee height: about half the ball above the club's crown.
+const TEE_GAP_DRIVER := 0.025
+const TEE_GAP_WOOD := 0.012  ## fairway woods and hybrids, teed low
+const TEE_GAP_IRON := 0.005  ## irons, the ball just off the grass
+var _tee_peg: MeshInstance3D
+var _ball_shadow: MeshInstance3D
+var _footprints_at := Vector3.INF  ## the bunker lie that last got footprints
+
+
+## How far the ball sits above the ground on a tee peg while aiming from
+## the teeing ground; 0 anywhere else, and once the ball is struck.
+func _tee_gap() -> float:
+	if lie != Surface.Type.TEE or not (state == State.AIM or state == State.COMPUTER) \
+			or _ball_base.distance_to(ball_at) > 0.01 or clubs.is_empty():
+		return 0.0
+	var club := clubs[club_index]
+	if club.is_putter:
+		return 0.0
+	match SoundBank.club_kind(club):
+		&"driver":
+			return TEE_GAP_DRIVER
+		&"wood":
+			return TEE_GAP_WOOD
+	return TEE_GAP_IRON
+
+
+func _build_ball_details() -> void:
+	# A white wooden tee: a thin shank with a cup on top.
+	_tee_peg = MeshInstance3D.new()
+	var shank := CylinderMesh.new()
+	shank.top_radius = 0.0055
+	shank.bottom_radius = 0.0022
+	shank.height = 0.012
+	shank.radial_segments = 8
+	shank.rings = 1
+	_tee_peg.mesh = shank
+	var peg_mat := StandardMaterial3D.new()
+	peg_mat.albedo_color = Color(0.92, 0.9, 0.84)
+	peg_mat.roughness = 0.8
+	_tee_peg.material_override = peg_mat
+	_tee_peg.visible = false
+	add_child(_tee_peg)
+	_ball_shadow = MeshInstance3D.new()
+	var quad := PlaneMesh.new()
+	quad.size = Vector2.ONE
+	_ball_shadow.mesh = quad
+	var shadow_mat := ShaderMaterial.new()
+	shadow_mat.shader = load("res://shaders/ball_shadow.gdshader")
+	_ball_shadow.material_override = shadow_mat
+	_ball_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_ball_shadow)
+
+
+## The tee peg under a teed-up ball (it stays in the ground after the
+## shot, as they mostly do), and the soft shadow that sits the ball in the
+## grass and follows it along the ground in flight, fading as it climbs.
+func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
+	if _tee_peg == null or hole == null:
+		return
+	if gap > 0.0:
+		var ground := hole.terrain.height_at(base.x, base.z)
+		var shank := _tee_peg.mesh as CylinderMesh
+		shank.height = gap + 0.004  # its cup holds the ball; the rest is in the ground
+		_tee_peg.position = Vector3(base.x, ground + shank.height * 0.5, base.z)
+		_tee_peg.visible = ball.visible
+	elif state == State.AIM or state == State.COMPUTER:
+		_tee_peg.visible = false
+	var ground_y := hole.terrain.height_at(base.x, base.z)
+	var height := maxf(base.y - ground_y, 0.0)
+	var fade := 1.0 - clampf(height / 2.0, 0.0, 1.0)
+	_ball_shadow.visible = ball.visible and fade > 0.0
+	if _ball_shadow.visible:
+		_ball_shadow.position = Vector3(base.x, ground_y + 0.006, base.z)
+		_ball_shadow.scale = Vector3.ONE * r * 2.6 * (1.0 + height)
+		(_ball_shadow.material_override as ShaderMaterial).set_shader_parameter("strength", 0.6 * fade)
 
 
 func _place_golfer() -> void:
@@ -1892,6 +2366,7 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
+	golfer.set_ground(hole.terrain.height_at)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
@@ -1990,7 +2465,7 @@ func _aim_camera(_snap: bool) -> void:
 		var pose := GreenRead.view_pose(read_view, hole.terrain, ball_at, hole.pin)
 		camera.look_from(pose[0], pose[1])
 		return
-	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter)
+	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter, _flat_distance(ball_at, _aim_target()))
 
 
 # --- Broadcast presentation ---------------------------------------------------
@@ -2121,6 +2596,7 @@ func start_replay() -> bool:
 	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
+		golfer.watch(ball, 0.7 if putting else 0.3)
 	sounds.play_detail(&"hit", _strike_sound)
 	return true
 

@@ -1807,6 +1807,175 @@ int run_cup_ball(LinksBall& b, LinksBall* seen = nullptr, int at = -1) {
   return -1;
 }
 
+// A billboard type for the object tests: a 20 x 20 picture, opaque where
+// `opaque` says.
+LinksObjectType test_object_type(std::uint32_t collision, std::array<float, 6> shape, bool (*opaque)(int, int)) {
+  LinksObjectType t;
+  t.collision = collision;
+  t.shape = shape;
+  t.mask.width = t.mask.height = 20;
+  t.mask.alpha.resize(400);
+  for (int y = 0; y < 20; ++y) {
+    for (int x = 0; x < 20; ++x) t.mask.alpha[std::size_t(y * 20 + x)] = opaque(x, y) ? 255 : 0;
+  }
+  return t;
+}
+
+// Flies a ball at a 10 ft billboard 20 ft away until it hits something or
+// lands; returns the ball.
+LinksBall fly_at_billboard(const LinksObjectType& type, Vec3 start = {0, 0, 3}) {
+  LinksObjects objects;
+  objects.types.push_back(type);
+  LinksBillboard b;
+  b.base = {0, 20, 0};
+  b.height = 10;
+  objects.add(b);
+  LinksBall ball = links_ball(start, {0, 60, 0}, {}, LinksMode::Flight);
+  TestGround ground(kLinksFairway);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  for (int k = 0; k < 30 && ball.last_object < 0 && ball.mode == LinksMode::Flight; ++k) {
+    links_step(ball, ground, air, {}, rng, LinksConstants::kFrameDt, nullptr, &objects, {0, -1, 0});
+  }
+  return ball;
+}
+
+// Trees and other billboards, as the game's routine treats them.
+void test_links_objects() {
+  CHECK_NEAR(links_anchor_x(-1), 0.5, 1e-12);
+  CHECK_NEAR(links_anchor_x(0xf6), 0.5 - 10 / 128.0, 1e-12);
+  CHECK_NEAR(links_anchor_z(58), 58 / 256.0, 1e-12);
+  auto all = [](int, int) { return true; };
+  auto none = [](int, int) { return false; };
+  // A solid object (a rock) sends the ball back with its restitution.
+  LinksBall b = fly_at_billboard(test_object_type(1, {0.8f, 1, 0, 0, 1, 1}, all));
+  CHECK(b.last_object == 0);
+  CHECK(b.velocity.y < 0);
+  CHECK_NEAR(b.velocity.y, -0.8 * 60, 1e-5);
+  CHECK(b.position.y < 20 - 0.09 && b.position.y > 20 - 0.11);
+  // A canopy the ball always meets keeps 0.9 of its speed and spin and lets
+  // it through.
+  b = fly_at_billboard(test_object_type(2, {0.5f, 1, 0, 0, 1, 1}, all));
+  CHECK(b.last_object == 0);
+  CHECK_NEAR(b.velocity.y, 0.9 * 60, 1e-5);
+  // Transparent parts let it by.
+  b = fly_at_billboard(test_object_type(1, {0.8f, 1, 0, 0, 1, 1}, none));
+  CHECK(b.last_object < 0);
+  // A tree's trunk turns the ball by where across the trunk it struck: here
+  // the trunk is columns 8 to 11 and the ball meets column 10.
+  auto trunk = [](int x, int y) { return y >= 12 || (x >= 8 && x <= 11); };
+  b = fly_at_billboard(test_object_type(0, {0.7f, 1, 0.35f, 0, 0.65f, 0.6f}, trunk));
+  CHECK(b.last_object == 0);
+  double turn = (3.0 / 5 - 0.5) * 2.09440565;
+  CHECK_NEAR(b.velocity.x, 0.5 * 60 * std::sin(2 * turn), 1e-6);
+  CHECK_NEAR(b.velocity.y, -0.5 * 60 * std::cos(2 * turn), 1e-6);
+}
+
+// 3D objects for the tests: each quad is four corners, fanned from the
+// first; a face is met from the side its corners turn anticlockwise to.
+LinksObjects test_models(const std::vector<std::array<Vec3, 4>>& quads, bool holes = false) {
+  LinksObjects objects;
+  LinksMesh mesh;
+  for (const auto& q : quads) {
+    LinksMesh::Face f;
+    f.first = static_cast<std::uint16_t>(mesh.corners.size());
+    f.count = 4;
+    for (const Vec3& v : q) {
+      mesh.corners.push_back(static_cast<std::uint16_t>(mesh.positions.size()));
+      mesh.positions.push_back({float(v.x), float(v.y), float(v.z)});
+      mesh.uvs.push_back({0.5f, 0.5f});
+    }
+    mesh.faces.push_back(f);
+  }
+  mesh.holes.resize(1);
+  if (holes) {
+    mesh.holes[0].width = mesh.holes[0].height = 4;
+    mesh.holes[0].alpha.assign(16, 0);
+  }
+  objects.meshes.push_back(mesh);
+  LinksModel m;
+  for (const auto& v : mesh.positions) m.points.push_back({v[0], v[1], v[2]});
+  objects.add_model(m);
+  return objects;
+}
+
+// Runs a ball for up to `steps` frames; `each` sees it after every step.
+template <typename F>
+LinksBall run_with_objects(LinksBall b, const LinksObjects& objects, int steps, F each) {
+  TestGround ground(kLinksFairway);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  for (int k = 0; k < steps && b.mode != LinksMode::Rest; ++k) {
+    links_step(b, ground, air, {}, rng, LinksConstants::kFrameDt, nullptr, &objects, {0, -1, 0});
+    each(b);
+  }
+  return b;
+}
+
+// Walls, decks and other 3D objects, as the game's routines treat them.
+void test_links_models() {
+  // A wall across the path at y = 20, facing the ball.
+  const std::array<Vec3, 4> wall{Vec3{-5, 20, 0}, Vec3{-5, 20, 10}, Vec3{5, 20, 10}, Vec3{5, 20, 0}};
+  LinksObjects objects = test_models({wall});
+  LinksBall hit_at;
+  bool hit = false;
+  run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), objects, 30, [&](const LinksBall& b) {
+    if (!hit && b.velocity.y < 0) {
+      hit = true;
+      hit_at = b;
+    }
+  });
+  // Off it with the velocity mirrored, keeping 70%, from where it met it.
+  CHECK(hit);
+  CHECK_NEAR(hit_at.velocity.y, -0.7 * 60, 1e-6);
+  CHECK_NEAR(hit_at.position.y, 20, 1e-9);
+  CHECK(hit_at.last_object < 0);
+  // From behind, or through a see-through texture's clear texels, it passes.
+  LinksObjects behind = test_models({{wall[3], wall[2], wall[1], wall[0]}});
+  LinksBall b = run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), behind, 30, [](const LinksBall&) {});
+  CHECK(b.position.y > 25);
+  LinksObjects clear = test_models({wall}, true);
+  b = run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), clear, 30, [](const LinksBall&) {});
+  CHECK(b.position.y > 25);
+
+  // A deck 2 ft up from y = 10 to 30: the ball comes down on it too slowly
+  // to bounce, rolls along it, rolls off its end and lands on the ground.
+  const std::array<Vec3, 4> deck{Vec3{-5, 10, 2}, Vec3{-5, 30, 2}, Vec3{5, 30, 2}, Vec3{5, 10, 2}};
+  objects = test_models({deck});
+  bool rolled = false, off = false;
+  double deck_z = 0;
+  b = run_with_objects(links_ball({0, 15, 2.05}, {0, 30, 0}, {}, LinksMode::Flight), objects, 400, [&](const LinksBall& x) {
+    if (x.mode == LinksMode::OnObject && x.position.y > 20 && !rolled) {
+      rolled = true;
+      deck_z = x.position.z;
+    }
+    if (rolled && x.mode == LinksMode::Flight) off = true;
+  });
+  CHECK(rolled);
+  CHECK_NEAR(deck_z, 2.07, 1e-9);
+  CHECK(off);
+  CHECK(b.position.y > 30);
+  CHECK_NEAR(b.position.z, 0.07, 1e-6);
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK_NEAR(b.position.y, 36.943, 1e-3);  // game/tests/run_tests.gd checks the same
+
+  // A step up it cannot climb (a higher deck from y = 20) stops it there.
+  const std::array<Vec3, 4> low{Vec3{-5, 10, 2}, Vec3{-5, 20, 2}, Vec3{5, 20, 2}, Vec3{5, 10, 2}};
+  const std::array<Vec3, 4> high{Vec3{-5, 20, 3}, Vec3{-5, 30, 3}, Vec3{5, 30, 3}, Vec3{5, 20, 3}};
+  objects = test_models({low, high});
+  LinksBall start = links_ball({0, 15, 2.07}, {0, 10, 0}, {}, LinksMode::OnObject);
+  start.on_object = 0;
+  b = run_with_objects(start, objects, 400, [](const LinksBall&) {});
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK(b.position.y > 19 && b.position.y < 20);
+  CHECK_NEAR(b.position.z, 2.07, 1e-9);
+
+  // The ground of an object.
+  LinksSurface s = links_object_surface();
+  CHECK(s.ground_class == 0);
+  CHECK_NEAR(s.roll_resistance, 0.2, 1e-12);
+}
+
 // The cup and flagstick. Every case was run through the game's own code (see
 // docs/formats/physics.md) and matches it step for step; game/tests/run_tests.gd
 // checks the GDScript port against the same numbers.
@@ -2557,6 +2726,8 @@ int main() {
       {"links_green", test_links_green},
       {"links_landing", test_links_landing},
       {"links_cup", test_links_cup},
+      {"links_objects", test_links_objects},
+      {"links_models", test_links_models},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},

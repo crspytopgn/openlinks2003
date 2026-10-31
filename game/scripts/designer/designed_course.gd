@@ -419,6 +419,19 @@ func default_path() -> String:
 	return FOLDER.path_join(file + "." + EXTENSION)
 
 
+## Where to save: the file named after the course, unless a different
+## course already has it; then "Name 2", "Name 3" and so on. `own` is the
+## file this course was opened from or last saved to.
+func save_path(own := "") -> String:
+	var base := default_path()
+	var p := base
+	var n := 2
+	while p != own and FileAccess.file_exists(p):
+		p = "%s %d.%s" % [base.get_basename(), n, EXTENSION]
+		n += 1
+	return p
+
+
 ## Saved designed courses, sorted by file name.
 static func saved_paths() -> PackedStringArray:
 	var out := PackedStringArray()

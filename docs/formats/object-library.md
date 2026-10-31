@@ -49,8 +49,8 @@ string with no bytes.
 | f32[2] | extra | Always 0.5 and 0 |
 | u32 | id | Unique object id |
 | counted string | top_view | `TopViews\maple18.top`, or empty |
-| u32 | collision | 0 for trees and large plants, 1 for solid objects (rocks, benches, cacti), 2 for things a ball passes through (flowers, grasses, some bushes). A guess from which categories use which value |
-| f32[6] | shape | With collision 0, the numbers vary per tree and look like fractions of the picture: canopy bottom and top heights, then a trunk rectangle. Otherwise usually `1 1 0 0 1 1` with the first value lowered for some categories. Unconfirmed |
+| u32 | collision | 0 for trees and large plants, 1 for solid objects (rocks, benches, cacti), 2 for things a ball passes through (flowers, grasses, some bushes). Confirmed from the game's code: bit 0 solid all over, bit 1 never solid ([physics.md](physics.md#trees-and-other-objects)) |
+| f32[6] | shape | The restitution off the solid part (and least speed kept through the canopy), the chance the canopy catches the ball, then the solid rectangle u0, v0, u1, v1 as fractions of the picture (a tree's trunk) |
 
 A billboard's world size is not in the catalog. Courses presumably store a
 size or scale per placed object; until the course format is decoded, the

@@ -84,6 +84,14 @@ var breakline := false
 ## Links 2003's Putting Assistant: the line and power at Amateur skill, a
 ## band round the line at Professional, nothing harder.
 var putting_assistant := false
+## A caddie at the players' shots with a read scaled to the swing skill
+## (Caddie, CaddieAdvice). Off by default, as in Links 2003.
+var caddie := false
+## Draw the ball at its true size everywhere. Off by default: like Links,
+## the ball is drawn bigger with distance so it stays easy to follow.
+var true_size_ball := false
+## Drive a golf buggy to the ball between shots (GolfBuggy). Off by default.
+var buggy := false
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -207,6 +215,9 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.putting_grid = clampi(int(cfg.get_value(GAME_SECTION, "putting_grid", s.putting_grid)), 0, PUTTING_GRID_NAMES.size() - 1)
 	s.breakline = bool(cfg.get_value(GAME_SECTION, "breakline", s.breakline))
 	s.putting_assistant = bool(cfg.get_value(GAME_SECTION, "putting_assistant", s.putting_assistant))
+	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
+	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
+	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -252,6 +263,9 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "putting_grid", putting_grid)
 	cfg.set_value(GAME_SECTION, "breakline", breakline)
 	cfg.set_value(GAME_SECTION, "putting_assistant", putting_assistant)
+	cfg.set_value(GAME_SECTION, "caddie", caddie)
+	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
+	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

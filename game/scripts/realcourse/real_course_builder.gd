@@ -60,6 +60,12 @@ var photo_trees := PackedVector2Array()
 ## Trees from the land cover (LandCover.tree_points), used when there are
 ## no lidar or photo trees, outside the mapped woods.
 var land_trees := PackedVector2Array()
+## The course photo (AerialPhotos.course_photo), for finding greens,
+## fairways and bunkers the map lacks.
+var photo: Image
+## Close-up photos round greens the map leaves unfinished, for finding the
+## green and its bunkers: {"image", "area"} (see detail_spots()).
+var details: Array[Dictionary] = []
 var _guessed: Array[Dictionary] = []  ## CourseGuesser's shapes: {"ring", "box"}
 ## With several courses at one club (golf:course:name on the holes),
 ## build only this one; empty builds every hole.
@@ -146,16 +152,20 @@ func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	_fill_heights(c, height, fallback)
 	_add_shapes(c)
 	_add_holes(c)
+	# Paths first: sandy tracks found in the photo aren't bunkers.
+	_add_paths(c)
 	_guessed.clear()
-	for s in CourseGuesser.fill(c, hash(c.course_name)):
+	var detected := 0
+	for s in CourseGuesser.fill(c, hash(c.course_name), photo, details):
+		if s.found:
+			detected += 1
 		var ring := s.outline()
 		var r := Rect2(ring[0], Vector2.ZERO)
 		for p in ring:
 			r = r.expand(p)
 		_guessed.append({"ring": ring, "box": r})
-	_add_paths(c)
 	_add_trees(c)
-	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size()}
+	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size() - detected, "detected": detected}
 	return c
 
 
@@ -736,6 +746,30 @@ static func _near_ring(rings: Array[PackedVector2Array], p: Vector2, radius: flo
 				best_d = d
 				best = k
 	return best
+
+
+## Where close-up photos would help: the green end of each hole whose
+## green or bunkers aren't mapped.
+func detail_spots() -> PackedVector2Array:
+	var greens := _rings_of(Surface.Type.GREEN)
+	var sands := _rings_of(Surface.Type.SAND)
+	var out := PackedVector2Array()
+	for d in _holes:
+		var line: PackedVector2Array = d["line"]
+		if line.size() < 2:
+			continue
+		var end := line[line.size() - 1]
+		if _near_ring(greens, line[0], 25.0) >= 0 and _near_ring(greens, end, 25.0) < 0:
+			end = line[0]
+		var sand := false
+		for r in sands:
+			var p := _centroid(r)
+			for k in range(1, line.size()):
+				if p.distance_to(Geometry2D.get_closest_point_to_segment(p, line[k - 1], line[k])) < 45.0:
+					sand = true
+		if (_near_ring(greens, end, 20.0) < 0 or not sand) and area.has_point(end):
+			out.append(end)
+	return out
 
 
 static func _ref_number(ref: String) -> int:

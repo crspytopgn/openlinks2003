@@ -848,11 +848,108 @@ this, and match the game's code step for step in an emulator on putts that
 drop, lip out round the rim, hit the flagstick or miss, and on balls
 dropped into the hole's air.
 
+### Trees and other objects
+
+After each step (in flight, on the ground and in the hole's air) the game
+checks the ball's path from its old centre to its new one against the
+objects near it, then against the flagstick, and acts on the first hit.
+
+Billboards (trees, bushes, grasses, rocks and other pictures) are flat
+pictures standing on the ground and turned to face the viewer: the game
+uses its view direction, so the picture's plane is upright and square to
+it. olcore turns them to face back along the shot. A billboard is `height`
+tall and `height * aspect` wide; the placement's two `2DPlant` extra fields
+anchor it (see [course-objects.md](course-objects.md)), so it spans from
+`anchor_x` of its width left of its base to the rest on the right, and from
+`anchor_z` of its height below its base to the rest above.
+
+- **Candidates.** Only a billboard whose plane the path crosses is tried,
+  and not the one hit last (one shot can't hit the same object twice in a
+  row).
+- **Where.** The path is cut with the plane. Off the picture's rectangle
+  there is no hit. Otherwise u (across, from its left edge) and v (up, from
+  its bottom) are the fractions of the picture at that point, and the
+  game looks at that pixel of the largest picture: a transparent pixel is
+  no hit.
+- **Solid or canopy.** Each type has the Course Designer library's
+  `collision` value and six `shape` values (the course repeats them in
+  its `MasterObj` types). Unless bit 1 of `collision` is set, the hit is
+  solid when (u, v) is inside the rectangle `shape[2..5]` (u0, v0, u1, v1;
+  a tree's trunk) or, one time in ten, anywhere else (the game decides by
+  whether the bit pattern of v as a float divides by 10). Otherwise the
+  canopy catches the ball when `shape[1] * 10` is more than the bit
+  pattern of u modulo 10 (signed), so `shape[1]` is about the chance it
+  does.
+- **Solid hit.** The ball is moved to the hit, then 0.1 ft back along its
+  path, keeps its spin, and its velocity (as at the end of the step) is
+  mirrored off the picture's plane and scaled by the type's `shape[0]` when
+  bit 0 of `collision` is set (solid objects: rocks, benches), else by 0.5
+  (trees). Off a tree the plane's normal is first turned about the
+  vertical by up to 60 degrees either way: by (where the hit is across the
+  opaque run of pixels in that row, from 0 to 1, minus 0.5) times 2 pi / 3.
+- **Canopy.** The ball stays where it met the picture and its velocity and
+  spin are scaled by `(alpha / 255 * (1 - shape[0]) + shape[0]) * 0.9`.
+
+Kauri's types: 78 trees (`collision` 0, e.g. shape 0.7, 0.92 and a trunk
+rectangle), 39 solid objects (1; 0.8 to 0.91, 1, then the whole picture)
+and 64 that only slow the ball (2; grasses and flowers, 0.91, 1).
+
+olcore (`LinksObjects`, given to `links_step` or `ShotOptions::links_objects`)
+and the GDScript port follow this. The game reads the full-size picture;
+the Godot course loader keeps a copy reduced to 128 pixels on its longest
+side, which moves the edges of the opaque parts by up to a few percent.
+
+### 3D objects
+
+Walls, bridges, buildings and other meshes are tested in the same pass as
+billboards, as the ray from the step's start towards its end, reaching as
+far as the end.
+
+- **Candidates.** The ray must meet the object's placed bounding box
+  (nearer than the end of the step). A 3D object is never skipped as the
+  one hit last.
+- **Faces.** Each face is cut into a fan of triangles from its first
+  corner, and each triangle is met from one side only: a triangle seen from
+  behind (its corners turning clockwise), or one the ray runs along, is no
+  hit. The nearest hit across all faces wins.
+- **See-through textures.** When the face's texture is marked see-through
+  (see [course-objects.md](course-objects.md)) the game finds the texel at
+  the hit and lets the ball through where its alpha is zero. It blends the
+  texture coordinates of the mesh's first corner and the triangle's two
+  other corners as numbered in the whole mesh (not in the face), a quirk we
+  keep. The coordinates wrap round the picture.
+- **Fast hit.** If the ball meets the face at 2 ft/s or more along its
+  normal, its velocity (as at the end of the step) is mirrored off the face
+  and scaled by 0.7. Its position and spin are those of the step at the
+  point where it met the face.
+- **Slow hit.** Otherwise the ball goes on to the object: its velocity is
+  scaled by 0.7 and loses its part along the normal, and it sits 0.07 ft
+  (its radius) off the face. Its mode is "on an object".
+- **On an object.** The ground step runs as for rolling, but with the
+  object's own surface (class 0; restitution 0.27, impact friction and skid
+  friction 0.13, impact drag 0.44, roll resistance 0.2, stop speed 5, no
+  spin grip, no lie effect) and the object's normal under the ball, found by
+  a ray straight down from 5 ft above it. If the object is not above the
+  terrain there, or no object is found under the ball's next spot, the
+  ball flies off. If the height under the next spot differs from the
+  ball's by more than about 0.32 ft (squared difference over 0.1), the game
+  looks along the ball's path, both ways, from halfway between the two
+  heights: a face within 2 ft of the next spot is a wall, and the ball
+  bounces off it (velocity mirrored, no loss); otherwise it is a step it
+  can't climb, and the ball stops where it is.
+
+olcore (`LinksObjects::add_model`, `hit_model`) and the GDScript port follow
+this; the course loader passes each placed mesh in.
+
 ### Not ported
 
 - Hole size options other than 1 (the game uses a different cup routine).
-- Trees and other objects in flight and while rolling (the same routine as
-  the flagstick, before it), and balls rolling on objects such as bridges.
+- Where the ball is when it flies off an object: the game flies on from the
+  step's end in a way that is hard to follow; olcore flies the step again
+  from its start.
+- Tournament-only 3D objects (kind 6): the game drops them outside
+  tournaments; we always keep them, and all 3D objects are tested against
+  the whole step.
 
 ## Open questions
 

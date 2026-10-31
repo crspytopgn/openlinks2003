@@ -57,6 +57,41 @@ static func mouse_inputs(stroke: LinksMouse.Stroke, outcome: LinksMouse.Outcome)
 	return Vector2(clampf(outcome.power / full, 0.0, 1.0), clampf(-outcome.face_deg / 10.0, -1.0, 1.0))
 
 
+## The holes a round with these RoundSetup holes and tees plays on `course`,
+## in order, with the tee set as GolfRound sets it.
+static func holes_for(course: CourseData, holes_setting: int, tees: int) -> Array[HoleData]:
+	var s := RoundSetup.new()
+	s.holes = holes_setting as RoundSetup.Holes
+	s.tees = tees as RoundSetup.Tees
+	var out: Array[HoleData] = []
+	for i in s.hole_indices(course.holes.size()):
+		var h := course.holes[i]
+		if h.tees.size() > 1:
+			h.tee = h.tees[s.tee_index(h.tees.size())]
+		out.append(h)
+	return out
+
+
+## Checks a friend's round on the course at `course_path` with this game's
+## shot model: verify() plus the course file and physics matching. Adds
+## {course_ok: bool} to verify's answer.
+static func check(record: RoundRecord, course_path: String) -> Dictionary:
+	AssetProviders.ensure_defaults()
+	var model := AssetProviders.shot_model
+	var mine := "links" if model is LinksShotModel else "standard"
+	var errors: Array[String] = []
+	if record.model != mine:
+		errors.append("the round used the %s physics, this game has the %s physics" % [record.model, mine])
+	if RoundRecord.file_hash(course_path) != record.course_hash:
+		errors.append("your copy of %s is different from theirs" % record.course_name)
+	if not errors.is_empty():
+		return {"ok": false, "checked": 0, "errors": errors, "cards_checked": false, "course_ok": false}
+	var course := AssetProviders.load_course(course_path)
+	var answer := verify(record, model, Club.standard_set(), holes_for(course, record.holes, record.tees))
+	answer["course_ok"] = true
+	return answer
+
+
 ## Checks `record` against `holes` (the round's holes, in order) with `model`
 ## and `clubs`. Returns {ok: bool, checked: shots replayed, errors: [String],
 ## cards_checked: bool}.

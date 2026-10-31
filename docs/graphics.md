@@ -102,8 +102,12 @@ at Medium and grass at Low.
   `shaders/course_ground.gdshader`): with Photoreal lighting (every look
   but Classic), grass, fairway, green, rough, deep rough and sand draw the
   free photoscanned set of their surface (albedo, normal and roughness:
-  ambientCG's short lawn for mown grass and dense long grass for rough,
-  Poly Haven sand) instead of the disc's 2003 texture. The lawn scan's
+  ambientCG's short lawn for mown grass, dense long grass for rough, fine
+  bunker sand, concrete for cart paths and bare ground for dirt) instead
+  of the disc's 2003 texture. Paths and dirt keep their own hue
+  (`realistic_class`). Greens draw the lawn scan at 0.6 m a repeat, so
+  they read as fine putting turf next to the coarser collar. Path, dirt
+  and bark sets stay at 1024 pixels to save video memory. The lawn scan's
   light and dark is boosted (`PHOTO_GAINS`), since it is shot in soft light
   and would read flat at playing distance; its roughness map gives glossy
   and matt blades near the camera. The photo's detail sits on the course's own colour for that
@@ -133,13 +137,30 @@ at Medium and grass at Low.
   replaces the disc's painted sky. The course's own horizon panorama
   stays, which keeps Kauri's sea, and fades 30% into the haze.
   Compatibility shows the sky brighter, since it has no sky fill light.
-  The water reflects at most 60% of the sky, so a glancing view still
-  shows deep blue, not white. When the player picks a sky in Settings
+  The water reflects the photographed sky itself (its clouds), with the
+  far banks dark and green at the bottom of the reflection and a quarter
+  of every reflection taken by the banks round it; the water's own colour
+  is a dark, slightly green deep.
+  The water reflects at most 60% of the plain sky colour (80% of the
+  photographed sky), so a glancing view still shows deep water, not white.
+  When the player picks a sky in Settings
   (anything but the course's own), Photoreal shows that disc sky instead
   and the light follows its weather (`Scenery._apply_weather`): the sun
   loses up to 65% of its energy and, in Forward+, its shadows soften,
   while the fill light grows by up to 60%; Sunrise and Mojave Sunset warm
   the sun. Classic always shows the chosen or course sky.
+- **Matt surfaces**: ground (every terrain shader), grass tufts, trees
+  and the golfer's cloth and skin are matt (roughness 0.9 to 1, specular
+  0.1), so the sun and sky leave no plastic sheen; only the water and
+  the clubs shine. The photo ground's colours (`realistic()`) are a little
+  lighter to make up for the glare they no longer get.
+- **Ground relief** (`PHOTO_RELIEF` in `crz_terrain.gd`): each photo set's
+  height map shifts the texture with the view within about 35 m
+  (two-step parallax, a few millimetres to 5 cm of relief per surface)
+  and darkens its low parts and lightens its tops around the map's own
+  mean (cavities between blades, pebbles and footprints), fading out
+  sooner on finely tiled ground (greens) before its repeat shows, so the
+  ground looks deep rather than printed on.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump
@@ -165,6 +186,38 @@ at Medium and grass at Low.
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat
   colour, with finer, wind-driven ripples.
+- **Gusts** (`WindGust`): the wind the eye sees surges and settles every
+  few seconds (55% to 145% of the hole's wind, swinging up to 8 degrees),
+  through the `wind_vector` shader global, so the flag, grass, trees and
+  water ripples move together. Visual only: the ball flies in the game's
+  own per-shot wind.
+- **Flag** (`shaders/flag.gdshader`): a 20 by 14 inch flag on a 7 ft
+  stick, as the Rules ask. It swings round the pole to fly downwind, lifts
+  from hanging limp to straight out at about 20 mph, ripples faster as the
+  wind gets up, and glows when the sun is behind it. Players can read the
+  wind from it, as real golfers do.
+- **Course marks** (`CourseMarks`, `shaders/course_mark.gdshader`): iron and
+  wedge shots off the fairway or rough take a divot just ahead of the ball
+  (longer for wedges, a nick off a tee, small for chips; woods and hybrids
+  sweep it), approach shots landing hard on the green leave a pitch mark,
+  and balls landing in sand leave a crater (a bunker shot leaves a long
+  scoop). They last for the hole, at most 48 of them. Each is one small
+  lit quad, so they cost almost nothing. Looks only. Golfers in a bunker
+  leave shoe prints: the stance, and the walk in from behind the ball up to
+  the edge of the sand.
+- **True to scale at the pin**: the hole is its real 4.25 in (108 mm)
+  across, painted (`shaders/cup.gdshader`) with the cut turf edge and the
+  white liner on the far wall, which always faces the camera as in a real
+  cup. The flagstick is 7 ft tall and 19 mm thick.
+- **Tee peg**: a teed-up ball sits on a white peg, higher for the driver
+  (2.5 cm of air under it) than for woods (1.2 cm) and irons (5 mm). The
+  peg stays in the ground after the shot.
+- **Ball contact shadow** (`shaders/ball_shadow.gdshader`): a soft dark
+  blob under the ball, since a golf ball is too small for the sun's shadow
+  maps. It follows the ball over the ground in flight and fades as it
+  climbs.
+- **Ball size** (Settings): drawn bigger with distance, as Links does, or
+  at its true size everywhere.
 
 ## Performance budget
 
@@ -180,6 +233,25 @@ on phones and in the browser. The placeholder course used about 580 draw
 calls, 0.7 million triangles, 1,100 objects and 125 MB from the tee in
 Compatibility when the budget was set. Raise a limit only with a reason
 written here.
+
+## Download size
+
+`tools/size_report.py` runs after the CI export. It writes each build's
+download size, its game data (the `.pck`) and the biggest files in the pack
+to the job summary, and fails CI when a build goes over
+`tools/size_budget.json`. When it was added (2026-10-31) the game data was
+33 MB, a third of it the HDR sky, and the Godot engine was the rest of each
+download (about 70 MB uncompressed on Linux). Two import changes took the
+data from 33 to 27.7 MB without changing the look (30.5 MB once the photoscanned sand, paths and height maps of #79 landed):
+
+- the sky panorama has no mipmaps (it is only ever magnified), and
+- textures without their own `.import` settings (the golfer's, extracted
+  from its `.glb`) default to lossy WebP at quality 0.85 through
+  `[importer_defaults]` in `project.godot`, instead of lossless.
+
+`.import` files are not committed, so import settings live in
+`tools/fetch_free_assets.py` (the free textures) and `project.godot` (the
+defaults).
 
 ## Still to do
 

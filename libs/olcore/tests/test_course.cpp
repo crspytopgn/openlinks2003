@@ -526,6 +526,13 @@ void test_billboard_types() {
     std::memcpy(&bits, &aspect, 4);
     set_u32(b, rec + 0x18, bits);
     set_u32(b, rec + 0x34, 0x8401e192u + k);
+    if (k == 1) {
+      // A tree's collision record.
+      std::size_t phys = b.size();
+      put_u32(b, 0);
+      for (float v : {0.7f, 0.92f, 0.626f, 0.0f, 0.831f, 0.332f}) put_f32(b, v);
+      set_u32(b, rec + 0x14, std::uint32_t(phys));
+    }
   }
   std::size_t table = b.size();
   for (auto r : recs) put_u32(b, r);
@@ -542,6 +549,9 @@ void test_billboard_types() {
   CHECK(types[1].width == 201 && types[1].height == 150);
   CHECK(std::fabs(types[0].aspect - 200 / 150.0f) < 1e-6f);
   CHECK(types[1].id == 0x8401e193u);
+  CHECK(types[0].collision == 1 && types[0].shape[0] == 1.0f);
+  CHECK(types[1].collision == 0);
+  CHECK(types[1].shape[1] == 0.92f && types[1].shape[5] == 0.332f);
 }
 
 void test_billboard_placements() {
@@ -661,9 +671,21 @@ void test_model_placements() {
   CHECK(p.size() == 1);
   CHECK(p[0].instance == 7 && p[0].model == 1 && p[0].drawn());
   CHECK(p[0].z_offset == -10 && p[0].scale[2] == 0.25f);
-  // (10, 0, 10): scaled to (5, 0, 0), turned a quarter about z to (0, 5, 0).
+  CHECK(p[0].axis[0] == 0 && p[0].axis[2] == 1 && p[0].flag == 1);
+  // (10, 0, 10): scaled to (5, 0, 0), turned a quarter about +z the game's
+  // way (clockwise seen from above) to (0, -5, 0).
   auto q = place_point(p[0], {10, 0, 10});
-  CHECK(std::fabs(q.x - 100) < 1e-3f && std::fabs(q.y - 205) < 1e-3f && std::fabs(q.z - 50) < 1e-3f);
+  CHECK(std::fabs(q.x - 100) < 1e-3f && std::fabs(q.y - 195) < 1e-3f && std::fabs(q.z - 50) < 1e-3f);
+  // About -z the other way; and the slope lifts z by pitch * x before the turn.
+  p[0].axis = {0, 0, -1};
+  p[0].pitch = 0.5f;
+  q = place_point(p[0], {10, 0, 10});
+  CHECK(std::fabs(q.x - 100) < 1e-3f && std::fabs(q.y - 205) < 1e-3f && std::fabs(q.z - 52.5f) < 1e-3f);
+  // An axis that is not unit length is made so by the game's orthonormalising.
+  p[0].axis = {0, 0, 2};
+  p[0].pitch = 0;
+  q = place_point(p[0], {10, 0, 10});
+  CHECK(std::fabs(q.x - 100) < 1e-3f && std::fabs(q.y - 195) < 1e-3f && std::fabs(q.z - 50) < 1e-3f);
   b.push_back(0);
   bool threw = false;
   try {
@@ -693,6 +715,8 @@ void test_object_textures_and_maq() {
   t.resize(t.size() + 4 * 64, 0);
   std::memcpy(t.data() + levels, "Course 3D001.maq", 16);
   std::memcpy(t.data() + levels + 128, "junk", 4);  // later records hold leftovers
+  set_u32(t, levels + 2 * 64 + 0x28, 0x80000111u);  // level 2 is see-through
+  set_u32(t, levels + 0x28, 0x111u);
   set_u32(t, 0, std::uint32_t(t.size()));
   set_u32(t, rec, 8);
   set_u32(t, rec + 4, 2);
@@ -702,6 +726,7 @@ void test_object_textures_and_maq() {
   CHECK(refs.size() == 1);
   CHECK(refs[0].maq.size() == 2 && refs[0].maq[1] == "Course 3D001.maq");
   CHECK(refs[0].level[0] == 0 && refs[0].level[1] == 2);
+  CHECK(refs[0].see_through.size() == 2 && !refs[0].see_through[0] && refs[0].see_through[1]);
 
   // maq with one 2 x 1 level.
   Bytes m;

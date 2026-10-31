@@ -7,9 +7,9 @@ and the leaf texture of the 3D trees from ambientCG (https://ambientcg.com).
 
 Nothing here comes from Links 2003. The files are not committed (see
 .gitignore); CI runs this before importing the project, and the game falls
-back to plain shading when they are missing. The grass and rough slots
-are photoscanned turf from ambientCG (AMBIENT_GROUNDS), with Poly Haven as
-the fallback. Each slot below lists the Poly Haven assets to try in order; if none of them exists any more, the most
+back to plain shading when they are missing. The grass, rough, sand, path
+and dirt slots are photoscans from ambientCG (AMBIENT_GROUNDS), with Poly
+Haven as the fallback. Each slot below lists the Poly Haven assets to try in order; if none of them exists any more, the most
 downloaded asset whose name or tags match the slot's keywords is used. The
 files are saved under fixed names, so the game doesn't care which asset was
 picked, and CREDITS.md in the output folder records what was.
@@ -37,18 +37,24 @@ USER_AGENT = "OpenLinks2003-asset-fetch (https://github.com/crspytopgn/openlinks
 
 
 
-# ambientCG photoscanned turf, preferred over Poly Haven's for the grass
-# slots (Poly Haven has no short mown lawn): {slot: asset ids in order}.
+# ambientCG photoscanned sets, preferred over Poly Haven's for these slots
+# (Poly Haven has no short mown lawn or fine bunker sand): {slot: asset
+# ids in order}.
 AMBIENT_GROUNDS = {
     "grass": ["Grass005", "Grass008"],  # short, clean lawn: fairway, green, tee
     "rough": ["Grass004", "Grass001"],  # dense, longer grass with straw
+    "sand": ["Ground080", "Ground054"],  # fine bunker sand, raked and trodden
+    "path": ["Concrete034", "Concrete031"],  # cart paths (tinted to the course's)
+    "dirt": ["Ground103"],  # bare, worn ground
 }
-AMBIENT_MAPS = {"albedo.jpg": "_Color.jpg", "normal.jpg": "_NormalGL.jpg", "roughness.jpg": "_Roughness.jpg"}
+AMBIENT_MAPS = {"albedo.jpg": "_Color.jpg", "normal.jpg": "_NormalGL.jpg", "roughness.jpg": "_Roughness.jpg",
+                "height.jpg": "_Displacement.jpg"}
 AMBIENT_RES = "2K"
 
 
 def texture_maps(res):
-    return {"albedo.jpg": ("Diffuse", res, "jpg"), "normal.jpg": ("nor_gl", res, "jpg"), "roughness.jpg": ("Rough", res, "jpg")}
+    return {"albedo.jpg": ("Diffuse", res, "jpg"), "normal.jpg": ("nor_gl", res, "jpg"), "roughness.jpg": ("Rough", res, "jpg"),
+            "height.jpg": ("Displacement", res, "jpg")}
 
 
 # slot: (asset type, preferred ids, fallback keywords, {out name: (map, resolution, format)})
@@ -56,12 +62,16 @@ SLOTS = {
     "grass": ("textures", ["leafy_grass", "sparse_grass", "aerial_grass_rock"], ["grass"], texture_maps("1k")),
     "rough": ("textures", ["forrest_ground_01", "forest_ground_04", "brown_mud_leaves_01"], ["forest ground", "grass"], texture_maps("1k")),
     "sand": ("textures", ["coast_sand_01", "coast_sand_02", "aerial_beach_01"], ["sand"], texture_maps("1k")),
+    "path": ("textures", ["concrete_floor_02", "concrete_floor_01"], ["concrete"], texture_maps("1k")),
+    "dirt": ("textures", ["brown_mud_02", "dry_ground_rocks"], ["mud", "dirt"], texture_maps("1k")),
     "bark": ("textures", ["bark_brown_02", "bark_brown_01", "pine_bark"], ["bark"], texture_maps("1k")),
     "sky": ("hdris", ["kloofendal_48d_partly_cloudy_puresky", "kloofendal_43d_clear_puresky"], ["pure sky", "clear"], {"panorama.hdr": ("hdri", "2k", "hdr")}),
 }
 
 # Import settings Godot would otherwise guess: compressed with mipmaps, as
-# 3D textures need. Written next to each file before the project is imported.
+# 3D textures need (the sky panorama goes without: it is only ever magnified,
+# and the mip levels were a quarter of its size). Written next to each file
+# before the project is imported.
 TEXTURE_IMPORT = """[remap]
 
 importer="texture"
@@ -71,7 +81,7 @@ type="CompressedTexture2D"
 
 compress/mode={mode}
 compress/lossy_quality=0.85
-mipmaps/generate=true
+mipmaps/generate={mipmaps}
 process/size_limit={limit}
 """
 
@@ -124,14 +134,20 @@ def fetch_slot(out_dir, slot, spec):
                 f.write(data)
         # Lossless for the HDR sky (lossy would clip it), lossy for the rest.
         with open(path + ".import", "w") as f:
-            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1, limit=size_limit(out_name)))
+            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1, limit=size_limit(f"{slot}_{out_name}"), mipmaps=str(fmt != "hdr").lower()))
     authors = ", ".join(info.get("authors", {}).keys())
     return f"- **{slot}**: [{info.get('name', asset_id)}](https://polyhaven.com/a/{asset_id}) by {authors or 'Poly Haven'}, CC0"
 
 
+# Slots seen mostly from a distance, kept at 1024 pixels to save video
+# memory in the browser.
+SMALL_SLOTS = ("path_", "dirt_", "bark_")
+
+
 def size_limit(out_name):
     """Roughness is soft detail: 1024 pixels is plenty and saves memory."""
-    return 1024 if out_name.startswith("roughness") else 0
+    soft = out_name.startswith("roughness") or "_roughness" in out_name or "_height" in out_name
+    return 1024 if soft or out_name.startswith(SMALL_SLOTS) else 0
 
 
 def fetch_ambient_ground(out_dir, slot):
@@ -151,7 +167,7 @@ def fetch_ambient_ground(out_dir, slot):
                 open(marker, "w").close()
             for name, p in paths.items():
                 with open(p + ".import", "w") as f:
-                    f.write(TEXTURE_IMPORT.format(mode=1, limit=size_limit(name)))
+                    f.write(TEXTURE_IMPORT.format(mode=1, limit=size_limit(f"{slot}_{name}"), mipmaps="true"))
             return f"- **{slot}**: [{asset_id}]({AMBIENTCG}/view?id={asset_id}) by ambientCG, CC0"
         except Exception as e:  # noqa: BLE001 - try the next set, then Poly Haven
             print(f"  {slot}: {asset_id} failed: {e}")
@@ -174,7 +190,7 @@ def fetch_leaves(out_dir):
             # transparent pixels, which then show as bright leaf edges.
             for p in paths.values():
                 with open(p + ".import", "w") as f:
-                    f.write(TEXTURE_IMPORT.format(mode=0, limit=0))
+                    f.write(TEXTURE_IMPORT.format(mode=0, limit=0, mipmaps="true"))
             return f"- **leaves**: [{asset_id}]({AMBIENTCG}/view?id={asset_id}) by ambientCG, CC0"
         except Exception as e:  # noqa: BLE001 - try the next set
             print(f"  leaves: {asset_id} failed: {e}")

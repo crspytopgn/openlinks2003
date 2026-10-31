@@ -36,6 +36,15 @@ std::vector<BillboardType> parse_billboard_types(const std::vector<std::uint8_t>
     std::uint32_t bits = u32_at(data, rec + 0x18);
     std::memcpy(&t.aspect, &bits, 4);
     t.id = u32_at(data, rec + 0x34);
+    // The collision record: a u32 and six floats.
+    const std::uint32_t phys = u32_at(data, rec + 0x14);
+    if (phys != 0 && std::size_t(phys) + 28 <= data.size()) {
+      t.collision = u32_at(data, phys);
+      for (std::size_t i = 0; i < 6; ++i) {
+        std::uint32_t v = u32_at(data, phys + 4 + 4 * i);
+        std::memcpy(&t.shape[i], &v, 4);
+      }
+    }
     if (lods > 0) {
       // First level: its sprite descriptor, then the sprite's first tile
       // record, which starts with the sprite's file name.
@@ -162,9 +171,8 @@ std::vector<ModelPlacement> parse_model_placements(const std::vector<std::uint8_
     for (CourseVec3* v : {&p.position, &p.box_max, &p.box_min}) *v = {r.f32(), r.f32(), r.f32()};
     r.f32();  // always 0.5
     p.z_offset = r.f32();
-    r.f32();
-    r.f32();
-    p.flag = r.f32();
+    for (float& f : p.axis) f = r.f32();
+    p.flag = p.axis[2];
     for (float& f : p.scale) f = r.f32();
     p.yaw = r.f32();
     p.pitch = r.f32();
@@ -173,14 +181,48 @@ std::vector<ModelPlacement> parse_model_placements(const std::vector<std::uint8_
   return out;
 }
 
+ModelTransform model_transform(const ModelPlacement& p) {
+  // A turn by yaw about the axis as given (Rodrigues' formula for a unit
+  // axis; the game does not normalise it), then the rows made orthonormal.
+  const double ax = p.axis[0], ay = p.axis[1], az = p.axis[2];
+  const double s = std::sin(double(p.yaw)), c = std::cos(double(p.yaw)), k = 1 - c;
+  ModelTransform t;
+  auto& r = t.rows;
+  r[0] = {ax * ax * k + c, ax * ay * k - az * s, ax * az * k + ay * s};
+  r[1] = {ax * ay * k + az * s, ay * ay * k + c, ay * az * k - ax * s};
+  r[2] = {ax * az * k - ay * s, ay * az * k + ax * s, az * az * k + c};
+  auto dot3 = [](const std::array<double, 3>& a, const std::array<double, 3>& b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  };
+  auto normalise = [&](std::array<double, 3>& a) {
+    double n = std::sqrt(dot3(a, a));
+    if (n != 0) {
+      for (double& x : a) x /= n;
+    }
+  };
+  normalise(r[0]);
+  double d = dot3(r[1], r[0]);
+  for (int i = 0; i < 3; ++i) r[1][i] -= d * r[0][i];
+  normalise(r[1]);
+  double d0 = dot3(r[2], r[0]), d1 = dot3(r[2], r[1]);
+  for (int i = 0; i < 3; ++i) r[2][i] -= d0 * r[0][i] + d1 * r[1][i];
+  normalise(r[2]);
+  t.origin = p.position;
+  return t;
+}
+
+CourseVec3 place_point(const ModelTransform& t, const ModelPlacement& p, const std::array<float, 3>& v) {
+  const double x = double(p.scale[0]) * v[0];
+  const double y = double(p.scale[1]) * v[1];
+  const double z = double(p.scale[2]) * (double(v[2]) + p.z_offset) + double(p.pitch) * x;
+  const auto& r = t.rows;
+  return {float(t.origin.x + x * r[0][0] + y * r[1][0] + z * r[2][0]),
+          float(t.origin.y + x * r[0][1] + y * r[1][1] + z * r[2][1]),
+          float(t.origin.z + x * r[0][2] + y * r[1][2] + z * r[2][2])};
+}
+
 CourseVec3 place_point(const ModelPlacement& p, const std::array<float, 3>& v) {
-  double x = double(p.scale[0]) * v[0];
-  double y = double(p.scale[1]) * v[1];
-  double z = double(p.scale[2]) * (double(v[2]) + p.z_offset);
-  const double cp = std::cos(p.pitch), sp = std::sin(p.pitch);
-  const double x1 = cp * x + sp * z, z1 = -sp * x + cp * z;
-  const double cy = std::cos(p.yaw), sy = std::sin(p.yaw);
-  return {float(p.position.x + cy * x1 - sy * y), float(p.position.y + sy * x1 + cy * y), float(p.position.z + z1)};
+  return place_point(model_transform(p), p, v);
 }
 
 std::vector<ModelTextureRefs> parse_object_textures(const std::vector<std::uint8_t>& data) {
@@ -204,8 +246,11 @@ std::vector<ModelTextureRefs> parse_object_textures(const std::vector<std::uint8
     const std::string maq(name, std::find(name, name + 32, 0));
     for (std::uint32_t t = 0; t < textures; ++t) {
       const std::uint32_t n = u32_at(data, list);
+      const std::uint32_t level = n ? u32_at(data, list + 8) : 0;
       out[k].maq.push_back(maq);
-      out[k].level.push_back(n ? u32_at(data, list + 8) : 0);
+      out[k].level.push_back(level);
+      const std::size_t flags = levels + 64 * std::size_t(level) + 0x28;
+      out[k].see_through.push_back(flags + 4 <= data.size() && (u32_at(data, flags) & 0x80000000u) != 0);
       list += 8 + 4 * std::size_t(n);
     }
   }

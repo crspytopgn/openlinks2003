@@ -81,5 +81,6 @@ void fragment() {
 		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, n.y, 0.0)).xyz * normal_strength * near);
 	}
 	ALBEDO = col * ground_shading(world_pos.xz, dist);
-	ROUGHNESS = rough;
+	ROUGHNESS = max(rough, 0.92);
+	SPECULAR = 0.1;  // matt ground, no sheen
 }

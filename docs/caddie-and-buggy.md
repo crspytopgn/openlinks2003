@@ -1,0 +1,93 @@
+# Caddie and golf buggy
+
+Two optional extras that Links 2003 doesn't have. Both are off by default,
+so a round plays exactly as the original unless the player turns them on.
+
+## Caddie
+
+Settings > Caddie. At each of the players' shots (never a computer
+golfer's) a caddie stands off to the side with the bag, and a card above the
+controls line gives their read:
+
+> 153 to the pin, playing 160 uphill. 7 Iron. Start it 5 yards left for the wind.
+
+> 13 feet, uphill. Breaks left to right, start it 6" left of the hole. Be firm with it.
+
+The read comes from the tour-level computer golfer's plan (`ComputerGolfer`),
+run through the round's own physics, wind and course, so it agrees with how
+the ball will actually fly and roll. "Plays like" uses a caddie's rules of
+thumb: a yard per yard of rise, one per cent per mph into the wind and half
+that helping (`CaddieAdvice.plays_like_m`).
+
+How much the caddie says follows Settings > Swing skill, so the caddie
+doesn't make the hard levels easy:
+
+| Swing skill | The caddie says |
+| --- | --- |
+| Levels 1 and 2 | Yardage, plays-like, club and how hard, the line in yards; the putt's break to the inch and the pace |
+| Level 3 | The same, but only which side to favour, and the break in words ("a touch", "a fair bit", "a lot") |
+| Level 4 (Links 2003's hardest) | Yardage, plays-like and club; on the green the slope and which way it breaks |
+
+Planning is spread over frames (3 ms a frame), so the browser build doesn't
+stall. The figure is the free MakeHuman golfer (CC0) in a standing pose with
+white overalls of a tournament caddie; the bag is built in code (`GolfBag`, one mesh, three
+materials).
+
+Code: `game/scripts/caddie/` (`Caddie`, `CaddieAdvice`, `CaddieNote`,
+`GolfBag`).
+
+## Golf buggy
+
+Settings > Golf buggy. When a person's next ball is more than 40 m from the
+buggy, they drive to it: Up/Down or W/S to drive and brake (and back up),
+Left/Right or A/D to steer. A yellow ring marks the ball and the controls
+line counts the yards. Stop within about 14 m (40 m if the ball is on the
+green) and play goes on. **Space or a click skips the drive** and leaves the
+buggy parked beside the ball, so a round with the buggy on is no slower
+than without it. Computer golfers never drive, and on a new hole the buggy
+waits beside the tee.
+
+Handling (`BuggyDrive`) is a planar rigid-body vehicle model stepped at
+120 Hz, with real electric-cart numbers:
+
+- 500 kg with the golfer aboard, 300 kg m^2 of yaw inertia, the centre of
+  gravity behind the middle (the batteries) and 0.55 m up, 1.66 m wheelbase.
+- A rear-drive 48 V motor: 1500 N at the wheels from a stand, then 3.7 kW,
+  and a governor at about 15.5 mph (5.5 mph in reverse) that also
+  regenerates to hold the speed downhill. Pedals take a moment to press,
+  and the automatic park brake holds it, even on a hill, once the pedals
+  are up and it has stopped.
+- Tyres with 9000 N/rad of cornering stiffness per axle, saturating
+  smoothly at the grip of the ground (0.85 on cart paths, 0.62 on grass,
+  0.55 in the rough, 0.45 in deep rough), inside a friction circle per
+  axle, so it understeers, wheelspins and slides. The steering ratio
+  slows at speed, as a game pad or keyboard needs.
+- Weight moves back under acceleration and forward under braking, which
+  changes the grip at each axle.
+- Rolling resistance by ground (0.015 on paths, 0.045 on grass, 0.14 in the
+  rough, 0.22 in deep rough), air drag, and gravity along and across the
+  slope.
+
+What comes out of that, checked in the tests: about 15 mph on grass and
+paths, 11 mph in the rough, 6.5 mph in deep rough, 8.5 mph up a 15% hill,
+held at the governor coming down, half a g of cornering grip, and a stop
+from full speed in about 1.4 s.
+
+It stops at the edge of greens, bunkers and water, as real course rules
+ask.
+
+The cart is our own model (CC0), built by `tools/buggy/build_golf_cart.py`
+into `game/assets/buggy/golf_cart.glb` (about 36k triangles for the body
+and 7k per wheel, 0.8 MB). It is true to size, using the published
+dimensions of a common two-seat electric cart: 2.39 m long, 1.19 m wide,
+1.76 m tall, a 1.66 m wheelbase, 0.88 m front and 0.98 m rear track, and
+18x8.5-8 tyres on 8 inch alloy rims. The golfer is about 1.77 m tall and the
+ball and hole are the Rules of Golf sizes; `_test_real_scale` checks all of
+these. The body is lofted from smooth curves, with a clearcoat paint, a
+curved windscreen, bench seats, a roof on struts, lights, bumpers and
+treaded tyres. If the file is missing, a simple box cart built in code
+stands in. The body squats, dives and leans on its springs (a damped spring
+per axis, about 1.3 Hz). It sits on the ground under its four wheels,
+pitching and rolling with the slopes, and a chase camera follows it.
+
+Code: `game/scripts/buggy/` (`BuggyDrive`, `GolfBuggy`).
