@@ -100,6 +100,13 @@ static func score_differential(adjusted: int, par: int, holes: int) -> int:
 	return div_round((adjusted - par) * 10 * 18, holes)
 
 
+## How many of the lowest differentials the index averages, with `n` rounds
+## among the most recent 20 (the WHS table); 0 below three.
+static func rounds_used(n: int) -> int:
+	const USED := [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 8]
+	return USED[clampi(n, 0, ROUNDS)]
+
+
 ## Handicap index in tenths from differentials, oldest first: the WHS table
 ## picks the lowest 1 to 8 of the most recent 20 and adjusts by up to -2.0.
 ## NONE with fewer than three rounds.
@@ -108,31 +115,12 @@ static func index(differentials: Array[int]) -> int:
 	var n := recent.size()
 	if n < 3:
 		return NONE
-	var use := 8
+	var use := rounds_used(n)
 	var adjust := 0
 	if n == 3:
-		use = 1
 		adjust = -20
-	elif n == 4:
-		use = 1
+	elif n == 4 or n == 6:
 		adjust = -10
-	elif n == 5:
-		use = 1
-	elif n == 6:
-		use = 2
-		adjust = -10
-	elif n <= 8:
-		use = 2
-	elif n <= 11:
-		use = 3
-	elif n <= 14:
-		use = 4
-	elif n <= 16:
-		use = 5
-	elif n <= 18:
-		use = 6
-	elif n == 19:
-		use = 7
 	recent.sort()
 	var sum := 0
 	for i in use:

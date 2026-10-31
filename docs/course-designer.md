@@ -48,13 +48,23 @@ The tools on the left:
   started. Brush size and strength are in the panel.
 - **Trees:** hold the left button to plant trees in the rough (never on
   fairways, greens, tees, sand or water); hold Shift to clear them.
+- **Objects:** click to place the object picked in the list, Shift+click to
+  remove the nearest. "Basic trees" are the two built-in trees. With the
+  player's game files loaded, every group in the game's own `OBJECT.LIB` is
+  listed too (trees, bushes, buildings, grandstands, crowds and the rest),
+  drawn from the player's files. Turn and size are set in the panel, or
+  randomised a little for natural planting. A course stores each object by
+  its catalog file name; on a machine without the game files those objects
+  aren't drawn, though the course still plays.
 - **Tee, Pin, Aim point:** place the current hole's back, middle and forward
   tees, its pin, and aim points for doglegs (the round's auto-aim uses them,
   and the hole is measured along them).
 
 **Add** in the hole section starts a new hole at the middle of the view,
 playing away from the camera, with a tee box, a fairway (for holes over
-200 m) and a green to reshape. The panel shows the hole's length and the par
+200 m) and a green to reshape. **Fly over the hole** previews it with the
+round's own flyover camera, from behind the back tee down to the green; a
+click or key stops it. The panel shows the hole's length and the par
 that length usually plays to.
 
 **Play this course** saves it and starts a one-player round on it. Designed
@@ -81,8 +91,11 @@ browser's own storage for the site). **Open** lists the saved courses.
   fairway, fringe, tee, green, sand, water (later layers cover earlier ones).
   Every green gets a 1.8 m fringe ring. Ground with no area is rough, and
   everything outside the course is out of bounds.
-- **Trees** are obstacles for the ball, a trunk and a canopy each, sized to
-  match the placeholder trees.
+- **Trees and objects** are obstacles for the ball (`DesignerObjects`): the
+  built-in trees get a trunk and a canopy sized to their meshes; catalog
+  models are solid columns and catalog billboards get a trunk and canopy,
+  sized from their height (guesses until the game's own collision shapes
+  are read).
 - **Meshes** are built in 64 m chunks and cached; the designer rebuilds only
   the chunks an edit touched. A sloping apron runs out from the course edge
   so the course doesn't end in a cliff.
@@ -117,6 +130,7 @@ game/scripts/designer/
   course_designer.gd     CourseDesigner: the scene (tools, picking, overlays, undo, files)
   designer_panel.gd      DesignerPanel: the side panel
   designer_camera.gd     DesignerCamera: the orbit camera
+  designer_objects.gd    DesignerObjects: what can be placed, and their obstacles
   designer_files.gd      DesignerFiles: export and import (browser download and picker, desktop dialog)
   designed_course.gd     DesignedCourse: the course data, sculpting, the .olc format
   designed_hole.gd       DesignedHole: par, tees, pin and aim points
@@ -132,7 +146,9 @@ game/tests/designer_tests.gd                    data checks; run_tests.gd also o
 
 - Crisper surface edges: the colours blend between 2 m vertices. A splat map
   sampled in the terrain shader would give sharp, Links-like cut lines.
-- More objects than the two tree kinds (bushes, rocks, buildings, the
-  player's own Links objects by catalog), with per-object sizes for the ball.
+- Collision shapes for catalog objects from `OBJECT.LIB` (`collision`,
+  `shape`) instead of guesses from their height.
+- Built-in (free) bushes, rocks and buildings for players without the game
+  files.
 - Bridges, cart paths, hazard stakes, and lateral hazards for the rules.
 - Per-course sky and horizon choices.

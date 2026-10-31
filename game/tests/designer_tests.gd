@@ -18,6 +18,7 @@ func run_all() -> Array[String]:
 	_test_edit_surfaces()
 	_test_trees()
 	_test_loader()
+	_test_objects()
 	_test_bad_files()
 	return failures
 
@@ -30,7 +31,7 @@ func check(cond: bool, what: String) -> void:
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/designer/course_designer.gd", "res://scripts/designer/designer_panel.gd",
 			"res://scripts/designer/designer_camera.gd", "res://scripts/designer/designer_files.gd",
-			"res://scripts/designer/designed_terrain.gd", "res://scripts/course/designed_course_loader.gd"]:
+			"res://scripts/designer/designed_terrain.gd", "res://scripts/designer/designer_objects.gd", "res://scripts/course/designed_course_loader.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -210,3 +211,14 @@ func _test_bad_files() -> void:
 	d.shapes = [{"surface": "Green", "points": [0, 0, 1]}, "junk"]
 	var c := DesignedCourse.from_dict(d)
 	check(c != null and c.shapes.is_empty(), "broken shapes are skipped")
+
+
+func _test_objects() -> void:
+	var cats := DesignerObjects.categories()
+	check(not cats.is_empty() and cats[0].items.size() == 2, "the built-in trees come first")
+	var field := ObstacleField.new()
+	DesignerObjects.add_obstacles(field, PlacedObject.new("tree_pine", Vector3(0, 0, 0)), 0.0)
+	DesignerObjects.add_obstacles(field, PlacedObject.new("Nothing like this.btx", Vector3(20, 0, 0)), 0.0)
+	field.finalize()
+	check(field.size() == 3, "a trunk and canopy for a tree, a post for an object the library doesn't know")
+	check(not field.segment_hit(Vector3(15, 1, 0), Vector3(25, 1, 0)).is_empty(), "the unknown object still stops the ball")

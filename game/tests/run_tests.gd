@@ -19,6 +19,8 @@ func _initialize() -> void:
 	# Rounds the tests finish go here, not into the player's own profiles.
 	PlayerProfiles.path = "user://test_profiles.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
+	SavedRound.path = "user://test_saved_round.cfg"
+	SavedRound.clear()
 	_run("physics_matches_olcore", _test_physics_matches_olcore)
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
@@ -29,6 +31,7 @@ func _initialize() -> void:
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
+	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
@@ -73,6 +76,9 @@ func _process(_delta: float) -> bool:
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("rounds_recorded", _test_rounds_recorded)
+	_run("saved_round", _test_saved_round)
+	_run("players_panel", _test_players_panel)
+	SavedRound.clear()
 	_run("broadcast_round", _test_broadcast_round)
 	_run("designer_scene", _test_designer_scene)
 	_run("designed_round", _test_designed_round)
@@ -148,6 +154,17 @@ func _test_designer_scene() -> void:
 	d._undo_step(d._redo, d._undo, "redo")
 	_check(d.course.holes.size() == 2, "redo puts it back")
 	_check(d._pick(Vector2(640, 360)) != null, "the middle of the view is on the ground")
+	var objects := d.course.objects.size()
+	d._place_or_remove_object(Vector2(0, 0), false)
+	_check(d.course.objects.size() == objects + 1 and d._tree_nodes.size() == objects + 1, "an object is placed")
+	d._place_or_remove_object(Vector2(0, 0), true)
+	_check(d.course.objects.size() == objects, "and removed again")
+	d._start_flyover()
+	_check(d._preview.current and d._preview.flying(), "the hole flyover starts")
+	for i in 3:
+		d._process(0.5)
+	d._stop_flyover()
+	_check(not d._preview.current and d.camera.current, "and hands back to the designer camera")
 	d.queue_free()
 
 
@@ -411,6 +428,8 @@ func _test_handicaps() -> void:
 	_check(Handicap.score_differential(42, 36, 9) == 120, "nine-hole differential")
 	_check(Handicap.score_differential(70, 72, 18) == -20, "under par")
 	_check(Handicap.score_differential(41, 35, 7) == 154, "seven holes")
+	_check(Handicap.rounds_used(2) == 0 and Handicap.rounds_used(6) == 2 and Handicap.rounds_used(19) == 7, "rounds used")
+	_check(Handicap.rounds_used(20) == 8 and Handicap.rounds_used(40) == 8, "rounds used tops out at 8")
 	_check(Handicap.index(_ints([130, 120])) == Handicap.NONE, "two rounds: no index")
 	_check(Handicap.index(_ints([130, 120, 150])) == 100, "three rounds")
 	_check(Handicap.index(_ints([130, 120, 150, 140])) == 110, "four rounds")
@@ -932,6 +951,44 @@ func _test_links_lie_matches_olcore() -> void:
 		_check_near(t.loft_scale, c[3], 1e-6, "sand loft %d" % c[0])
 
 
+func _test_links_swing_matches_olcore() -> void:
+	var r := LinksLaunch.Rand.new(1)
+	_check(r.next() == 41 and r.next() == 18467 and r.next() == 6334, "C runtime rand")
+	# snap units, skill, contact: as test_links_swing in libs/olcore/tests.
+	for c in [[16.0, 0, 0], [16.0, 1, 1], [16.0, 3, 0], [17.0, 3, 1], [-30.0, 3, -1], [10.0, 2, 0]]:
+		_check(LinksLaunch.meter_contact(c[0], c[1]) == c[2], "meter contact %s" % [c])
+	# class, club, skill, mouse, contact, power, seed, left-handed, teed up,
+	# then aim, power, face, path, spin, speed, loft.
+	var cases := [
+		[LinksGround.ROUGH, 13, 3, false, -1, 100.0, 12345, false, false, 0.073820061, 98.9875, 0.011343904, 0.006179939, 0.306505, 0.897315, 1.0],
+		[LinksGround.FAIRWAY, 0, 2, false, 1, 100.0, 777, false, false, 0.117637011, 98.105, 0.010139626, -0.037637011, 0.9, 0.902034979, 1.0],
+		[LinksGround.DIRT, 7, 1, false, 2, 90.0, 99, false, false, 0.148869219, 90.0, 0.01, -0.068869219, 0.92, 0.9728, 1.0],
+		[LinksGround.ROUGH, 11, 3, true, -2, 100.0, 5, false, false, 0.1, 100.0, 0.043633231, -0.06981317, 0.25, 0.927315, 0.95],
+		[LinksGround.SAND, 17, 3, false, -1, 100.0, 42, true, false, 0.1, 94.8025, 0.0, 0.0, 1.416666667, 0.393333333, 1.0],
+		[LinksGround.FAIRWAY, 0, 3, false, 1, 100.0, 2003, false, true, 0.116496095, 97.3625, 0.011466077, -0.036406095, 1.0, 1.0, 1.0],
+	]
+	for c in cases:
+		var s := LinksLaunch.Strike.new()
+		s.club = c[1]
+		s.power = c[5]
+		s.aim = 0.1
+		s.face_error = 0.01
+		s.path_error = -0.02
+		var w := LinksLaunch.SwingInput.new()
+		w.method = LinksLaunch.Method.MOUSE if c[3] else LinksLaunch.Method.POWERSTROKE
+		w.skill = c[2]
+		w.contact = c[4]
+		w.mouse_face_deg = 2.5
+		w.mouse_path_deg = -4.0
+		w.mouse_loft = 0.95
+		w.left_handed = c[7]
+		w.teed_up = c[8]
+		LinksLaunch.apply_swing(s, w, LinksGround.surface_for_class(c[0]), LinksLaunch.Rand.new(c[6]))
+		var got := [s.aim, s.power, s.face_error, s.path_error, s.spin_scale, s.speed_scale, s.loft_scale]
+		for i in got.size():
+			_check_near(got[i], c[9 + i], 1e-6, "swing case %d value %d" % [cases.find(c), i])
+
+
 func _test_links_launch_matches_olcore() -> void:
 	# The made-up club table of test_links_launch in libs/olcore/tests.
 	var exe := PackedByteArray()
@@ -1315,6 +1372,80 @@ func _test_rounds_recorded() -> void:
 	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
 	for r: Dictionary in p.rounds("Player 1"):
 		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
+
+
+## A round saved part way through carries on where it stopped.
+func _test_saved_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.handicaps = true
+	s.indexes = _ints([50, 120])
+	GolfRound.setup = s
+	game.start_round()
+	var steps := 0
+	while steps < 2000 and not (game.hole_index == 1 and game.state == GolfRound.State.AIM and game.players[game.current].strokes > 0):
+		game.auto_play_step()
+		steps += 1
+	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "part way through hole 2")
+	_check(SavedRound.exists(), "the round is saved as it goes")
+	var cards: Array = []
+	for c in game.scoring.cards:
+		cards.append(c.strokes.duplicate())
+	var balls: Array = []
+	for p in game.players:
+		balls.append([p.at, p.strokes, p.done()])
+	var current := game.current
+
+	var saved := SavedRound.load_setup()
+	_check(saved != null and saved.names == s.names and saved.handicaps and saved.indexes == s.indexes and saved.computer == _ints([RoundSetup.HUMAN, RoundSetup.HUMAN]), "setup saved")
+	_check(SavedRound.describe().contains("hole 2"), "describe: %s" % SavedRound.describe())
+	GolfRound.setup = saved
+	GolfRound.resume = SavedRound.load_state()
+	game.start_round()
+	_check(GolfRound.resume.is_empty(), "the saved state is used once")
+	_check(game.hole_index == 1, "resumed on hole 2")
+	_check(game.current == current, "same player to play")
+	for i in 2:
+		_check(game.scoring.cards[i].strokes == cards[i], "card %d restored: %s" % [i, game.scoring.cards[i].strokes])
+		var p := game.players[i]
+		_check(p.strokes == balls[i][1] and p.done() == balls[i][2], "ball %d strokes restored" % i)
+		_check(p.at.distance_to(balls[i][0]) < 0.01, "ball %d lies where it did" % i)
+	_check(game.scoring.playing == _ints([2, 6]), "handicaps restored: %s" % [game.scoring.playing])
+	steps = 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "resumed round finishes")
+	_check(not SavedRound.exists(), "a finished round is no longer saved")
+	GolfRound.setup = null
+
+
+func _test_players_panel() -> void:
+	var p := PlayerProfiles.load_saved()
+	var panel := PlayersPanel.new()
+	root.add_child(panel)
+	panel.open()
+	_check(panel.visible, "players page opens")
+	var played := p.rounds("Ann")
+	_check(played.size() >= 2, "Ann has rounds by now")
+	var used := panel._used_rounds(played)
+	_check(used.size() == Handicap.rounds_used(mini(played.size(), Handicap.ROUNDS)), "rounds used: %s" % [used])
+	if played.size() >= 3:
+		var diffs: Array[int] = []
+		for i in used:
+			diffs.append(int(played[i].differential))
+		var lowest := p.differentials("Ann").slice(maxi(0, played.size() - Handicap.ROUNDS))
+		lowest.sort()
+		_check(diffs.max() <= lowest[used.size() - 1], "the starred rounds are the lowest")
+	panel._on_delete("Ann")
+	_check(PlayerProfiles.load_saved().has_player("Ann"), "the first press only asks")
+	panel._on_delete("Ann")
+	_check(not PlayerProfiles.load_saved().has_player("Ann"), "the second press deletes")
+	panel.queue_free()
 
 
 ## The readers behind LinksGolfer, on synthetic data (no original files).

@@ -68,6 +68,9 @@ static var setup: RoundSetup
 ## Seeds the wind; 0 gives different conditions each round. Tests set it so
 ## their rounds play the same way every run.
 static var wind_seed := 0
+## A saved round to carry on with (SavedRound.load_state); start_round uses it
+## once and clears it.
+static var resume := {}
 
 var state: State = State.AIM
 var course: CourseData
@@ -163,6 +166,7 @@ func start_round() -> void:
 	if course_path.is_empty():
 		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
+	round_setup.course_name = course.course_name
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
@@ -213,7 +217,68 @@ func start_round() -> void:
 			add_child(ambience)
 	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
-	start_hole(0)
+	var saved := resume
+	resume = {}
+	if saved.is_empty():
+		start_hole(0)
+	else:
+		_restore(saved)
+
+
+## Carries on with a saved round: the cards, the honour, then the hole with
+## each ball where it lay.
+func _restore(saved: Dictionary) -> void:
+	var saved_cards: Array = saved.get("cards", [])
+	for i in mini(saved_cards.size(), scoring.cards.size()):
+		var row: Array = Array(saved_cards[i])
+		for h in mini(row.size(), holes.size()):
+			scoring.cards[i].record(h, int(row[h]))
+	var order: Array = Array(saved.get("honour", []))
+	var sorted := order.duplicate()
+	sorted.sort()
+	var expected := honour.duplicate()
+	expected.sort()
+	if sorted == expected:
+		honour.clear()
+		for i in order:
+			honour.append(int(i))
+	start_hole(clampi(int(saved.get("hole", 0)), 0, holes.size() - 1))
+	var balls: Array = saved.get("balls", [])
+	if balls.size() != players.size():
+		return
+	for i in players.size():
+		var b: Dictionary = balls[i]
+		players[i].at = b.get("at", hole.tee)
+		players[i].strokes = int(b.get("strokes", 0))
+		players[i].holed = b.get("holed", false) == true
+		players[i].picked_up = b.get("picked_up", false) == true
+		players[i].shots = int(b.get("shots", 0))
+		players[i].round_turn = int(b.get("round_turn", 0))
+		players[i].round_best = b.get("round_best", {})
+	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
+	var next := _next_player()
+	if next < 0:
+		_finish_hole()
+		return
+	_begin_turn(next, true)
+	hud.show_message("Round resumed: %s to play" % scoring.names[shooter], 2.5)
+
+
+## Saves where the round stands (SavedRound), so it can be resumed.
+func _save_progress() -> void:
+	if state == State.ROUND_DONE:
+		return
+	var saved_cards: Array = []
+	for c in scoring.cards:
+		saved_cards.append(PackedInt32Array(c.strokes))
+	var balls: Array = []
+	for p in players:
+		balls.append({"at": p.at, "strokes": p.strokes, "holed": p.holed, "picked_up": p.picked_up,
+			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best})
+	SavedRound.save(round_setup, {
+		"hole": hole_index, "number": hole.number, "current": current,
+		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
+	})
 
 
 func _round_name() -> String:
@@ -583,6 +648,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_update_hud()
 	_aim_camera(snap_camera)
 	_update_green_grid()
+	_save_progress()
 	if opponents[shooter] != null:
 		_start_computer_turn()
 
@@ -758,6 +824,7 @@ func _finish_hole() -> void:
 	hud.hint.text = HINT_WAIT
 	result_timer = COMPUTER_HOLE_PAUSE
 	_update_hud()
+	_save_progress()
 
 
 ## The lowest score on the hole tees off first on the next; ties keep their
@@ -780,6 +847,7 @@ func _next_hole() -> void:
 		start_hole(hole_index + 1)
 		return
 	state = State.ROUND_DONE
+	SavedRound.clear()
 	for p in players:
 		p.marker.visible = false
 	var text := "Round complete. " + scoring.winner_text()
@@ -796,7 +864,7 @@ func _next_hole() -> void:
 	hud.hint.text = HINT_DONE
 
 
-## Adds each finished card to the player's profile and says what it did to
+## Adds each person's finished card to their profile and says what it did to
 ## their handicap index. Rounds that stop early, or are shorter than nine
 ## holes, don't count.
 func _record_rounds() -> String:
@@ -806,6 +874,9 @@ func _record_rounds() -> String:
 	var date := Time.get_date_string_from_system()
 	var lines: Array[String] = []
 	for i in scoring.player_count():
+		# Computer golfers keep no profile.
+		if round_setup.is_computer(i):
+			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
 		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):

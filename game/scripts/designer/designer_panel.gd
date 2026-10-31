@@ -12,9 +12,9 @@ signal hole_action(action: String)  ## add, delete
 signal par_changed(par: int)
 signal name_changed(text: String)
 
-enum Tool { SELECT, SHAPE, RAISE, LOWER, SMOOTH, FLATTEN, TREES, TEE, PIN, AIM }
+enum Tool { SELECT, SHAPE, RAISE, LOWER, SMOOTH, FLATTEN, TREES, TEE, PIN, AIM, OBJECTS }
 
-const TOOL_NAMES := ["Select", "Draw area", "Raise", "Lower", "Smooth", "Flatten", "Trees", "Tee", "Pin", "Aim point"]
+const TOOL_NAMES := ["Select", "Draw area", "Raise", "Lower", "Smooth", "Flatten", "Trees", "Tee", "Pin", "Aim point", "Objects"]
 const TOOL_HELP := [
 	"Click an area to select it, then drag it or its points. Double-click its edge to add a point, right-click a point to remove it, Delete removes the area. Drag the current hole's tees, pin and aim points.",
 	"Click to place the outline's points. Click the first point, press Enter or right-click to finish; Esc cancels.",
@@ -26,6 +26,7 @@ const TOOL_HELP := [
 	"Click to put the chosen tee of the current hole.",
 	"Click to put the current hole's pin. Put it on a green.",
 	"Click to add an aim point along the hole (where the computer aims and the hole is measured). Right-click one to remove it.",
+	"Click to place the chosen object; Shift+click removes the nearest one. With your game files loaded, every object in the game's library is here: trees, bushes, buildings, grandstands and more.",
 ]
 ## Surfaces offered for painting, in menu order.
 const PAINTABLE := [
@@ -43,6 +44,11 @@ var holes: OptionButton
 var par: SpinBox
 var hole_info: Label
 var help: Label
+var object_category: OptionButton
+var object_list: ItemList
+var object_turn: HSlider
+var object_random: CheckBox
+var object_scale: HSlider
 var tool: int = Tool.SELECT
 
 var _tool_buttons: Array[Button] = []
@@ -114,6 +120,7 @@ func _ready() -> void:
 	for n in DesignedHole.TEE_NAMES:
 		tee_slot.add_item(n)
 	_option(box, "tee", "Tee", tee_slot)
+	_build_objects(box)
 	help = Label.new()
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.custom_minimum_size = Vector2(260, 0)
@@ -138,6 +145,10 @@ func _ready() -> void:
 	del.pressed.connect(func() -> void: hole_action.emit("delete"))
 	row.add_child(del)
 	box.add_child(row)
+	var fly := Button.new()
+	fly.text = "Fly over the hole"
+	fly.pressed.connect(func() -> void: hole_action.emit("flyover"))
+	box.add_child(fly)
 	par = SpinBox.new()
 	par.min_value = 3
 	par.max_value = 6
@@ -173,7 +184,16 @@ func select_tool(t: int) -> void:
 	_option_rows["strength"].visible = brush
 	_option_rows["trees"].visible = t == Tool.TREES
 	_option_rows["tee"].visible = t == Tool.TEE
+	for key in ["category", "objects", "turn", "random", "scale"]:
+		_option_rows[key].visible = t == Tool.OBJECTS
 	tool_changed.emit(t)
+
+
+## The id of the object picked in the Objects list.
+func chosen_object() -> String:
+	var picked := object_list.get_selected_items()
+	var i := picked[0] if not picked.is_empty() else 0
+	return str(object_list.get_item_metadata(i)) if i < object_list.item_count else DesignerObjects.BUILT_IN[0][0]
 
 
 func chosen_surface() -> int:
@@ -213,6 +233,40 @@ func show_holes(course: DesignedCourse, current: int) -> void:
 	else:
 		hole_info.text = "No holes yet: press Add."
 	_quiet = false
+
+
+func _build_objects(box: VBoxContainer) -> void:
+	var cats := DesignerObjects.categories()
+	object_category = OptionButton.new()
+	for c: Dictionary in cats:
+		object_category.add_item(str(c.name))
+	object_category.item_selected.connect(func(i: int) -> void: _fill_objects(cats[i].items))
+	_option(box, "category", "Group", object_category)
+	object_list = ItemList.new()
+	object_list.custom_minimum_size = Vector2(0, 150)
+	box.add_child(object_list)
+	_option_rows["objects"] = object_list
+	_fill_objects(cats[0].items)
+	object_turn = _slider(0.0, 355.0, 0.0)
+	object_turn.step = 5.0
+	_option(box, "turn", "Turn", object_turn)
+	object_random = CheckBox.new()
+	object_random.text = "Random turn and size"
+	object_random.button_pressed = true
+	box.add_child(object_random)
+	_option_rows["random"] = object_random
+	object_scale = _slider(0.5, 2.0, 1.0)
+	object_scale.step = 0.05
+	_option(box, "scale", "Size", object_scale)
+
+
+func _fill_objects(items: Array) -> void:
+	object_list.clear()
+	for item: Array in items:
+		object_list.add_item(str(item[1]))
+		object_list.set_item_metadata(object_list.item_count - 1, item[0])
+	if object_list.item_count > 0:
+		object_list.select(0)
 
 
 func _section(text: String) -> Label:

@@ -104,23 +104,11 @@ func update_surfaces(area: Rect2) -> void:
 	_invalidate(cells)
 
 
-## After placing or removing trees.
+## After placing or removing trees and other objects.
 func update_objects() -> void:
 	obstacles = ObstacleField.new()
 	for o in course.objects:
-		var x := o.position.x
-		var z := o.position.z
-		var y := height_at(x, z)
-		var s := o.scale
-		match o.id:
-			"tree_pine":
-				obstacles.add_cylinder(x, z, 0.28 * s, y - 1.0, y + 3.0 * s, ObstacleField.Kind.SOLID)
-				obstacles.add_cylinder(x, z, 2.0 * s, y + 2.5 * s, y + 11.5 * s, ObstacleField.Kind.CANOPY)
-			"tree_broadleaf":
-				obstacles.add_cylinder(x, z, 0.28 * s, y - 1.0, y + 3.5 * s, ObstacleField.Kind.SOLID)
-				obstacles.add_cylinder(x, z, 3.2 * s, y + 3.0 * s, y + 10.0 * s, ObstacleField.Kind.CANOPY)
-			_:
-				obstacles.add_cylinder(x, z, 0.3 * s, y - 1.0, y + 4.0 * s, ObstacleField.Kind.SOLID)
+		DesignerObjects.add_obstacles(obstacles, o, height_at(o.position.x, o.position.z))
 	obstacles.finalize()
 
 
