@@ -1758,6 +1758,7 @@ func _build_world() -> void:
 	ball = _make_ball_mesh()
 	add_child(ball)
 	_build_ball_details()
+	add_child(CourseLife.new())  # birds now and then
 
 	trail = MeshInstance3D.new()
 	trail.mesh = _trail_mesh

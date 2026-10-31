@@ -59,6 +59,7 @@ func _initialize() -> void:
 	_run("wind_gusts", _test_wind_gusts)
 	_run("course_marks", _test_course_marks)
 	_run("sound_over_distance", _test_sound_over_distance)
+	_run("course_life", _test_course_life)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1429,6 +1430,25 @@ func _test_course_marks() -> void:
 			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
 		_check(on_sand, "footprints only on sand")
 		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+
+
+func _test_course_life() -> void:
+	var life := CourseLife.new()
+	root.add_child(life)
+	life.set("_wait", 1e9)  # no flocks but the one this test starts
+	life.spawn(Vector3.ZERO)
+	_check(life.flock_count() == 1, "a flock of birds sets off")
+	var node := life.get_child(0) as MultiMeshInstance3D
+	var start := node.position
+	_check(start.y >= CourseLife.MIN_HEIGHT and start.y <= CourseLife.MAX_HEIGHT, "birds fly high over the course")
+	life.step(1.0, Vector3.ZERO)
+	_check_near(node.position.distance_to(start), CourseLife.SPEED, 1e-3, "birds fly at their speed")
+	var n := node.multimesh.instance_count
+	_check(n >= 3 and n <= 9, "a small flock (%d)" % n)
+	for i in ceili(CourseLife.CROSS_DIST / CourseLife.SPEED) + 1:
+		life.step(1.0, Vector3.ZERO)
+	_check(life.flock_count() == 0, "flocks leave once they've crossed")
+	life.free()
 
 
 func _test_sound_over_distance() -> void:
