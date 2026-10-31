@@ -1,7 +1,8 @@
-# free_golfer.glb
+# free_golfer.glb and free_golfer_parts.olg
 
-The golfer shown when the original game files aren't loaded. Nothing in it
-comes from Links 2003.
+The golfer shown when the original game files aren't loaded, and the body,
+outfits and hair the player creator offers (the `.olg` look pack). Nothing
+in them comes from Links 2003.
 
 Built by `tools/golfer/build_free_golfer.py` from these MakeHuman assets, all
 released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
@@ -10,17 +11,20 @@ Jonas Hauquier) in September 2020:
 
 | Part | MakeHuman asset | Source |
 | --- | --- | --- |
-| Body mesh, macro targets (male, about 35, 1.83 m) | hm08 base mesh, `targets/macrodetails` | MPFB 2.0.18 `data/` ([extensions.blender.org](https://extensions.blender.org/add-ons/mpfb/)) |
+| Body mesh, macro targets (male, about 35) | hm08 base mesh, `targets/macrodetails` | MPFB 2.0.18 `data/` ([extensions.blender.org](https://extensions.blender.org/add-ons/mpfb/)) |
+| Body and face shapes (blend shapes) | `targets/macrodetails` (female, build, muscle, age), `targets/head`, `chin`, `cheek`, `nose`, `eyes`, `mouth`, `eyebrows`, `ears` | MPFB 2.0.18 `data/` |
 | Skeleton and skin weights | `rigs/standard/rig.game_engine.json`, `weights.game_engine.json` | MPFB 2.0.18 `data/` |
-| Skin | `skins/middleage_caucasian_male` | [MakeHuman system assets](https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) |
-| Shirt and trousers | `clothes/male_casualsuit06`, recoloured to a navy shirt and stone chinos, logo removed | system assets |
+| Skin | `skins/middleage_caucasian_male`, `skins/middleage_caucasian_female`, turned into grey detail for tinting | [MakeHuman system assets](https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip) |
+| Outfits | `clothes/male_casualsuit06`, `male_casualsuit02`, `female_casualsuit02`, logos removed, turned into grey detail for tinting | system assets |
 | Shoes | `clothes/shoes05` | system assets |
-| Hair, eyes, eyebrows, eyelashes | `hair/short02`, `eyes/high-poly` (brown), `eyebrows/eyebrow001`, `eyelashes/eyelashes01` | system assets |
+| Hair | `hair/short02`, `short03`, `short04`, `ponytail01`, `bob01`, `long01`, `afro01`, turned into grey detail for tinting | system assets |
+| Eyes, eyebrows, eyelashes | `eyes/high-poly` with the `brown`, `brownlight`, `green`, `blue` and `grey` materials, `eyebrows/eyebrow001`, `eyelashes/eyelashes01` | system assets |
 
 Only MakeHuman's data files are read; no MakeHuman or MPFB code is used. The
-clubs and the reference address poses are this project's own work, keyed by
-hand in `tools/golfer/pose.py` and `tools/golfer/build_free_golfer.py`, and
-are released with the rest of the repository under its MIT licence.
+clubs, the golf cap and the reference address poses are this project's own
+work, keyed by hand in `tools/golfer/pose.py` and
+`tools/golfer/build_free_golfer.py`, and are released with the rest of the
+repository under its MIT licence.
 
 The animations are motion capture, retargeted onto the golfer by
 `tools/golfer/mocap_swing.py` (the wrist hinge, the club carry, the look at

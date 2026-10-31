@@ -65,6 +65,8 @@ class Glb:
         for mesh in doc["meshes"]:
             for prim in mesh["primitives"]:
                 used_acc.update(prim["attributes"].values())
+                for target in prim.get("targets", []):
+                    used_acc.update(target.values())
                 if "indices" in prim:
                     used_acc.add(prim["indices"])
         for skin in doc.get("skins", []):
@@ -73,7 +75,11 @@ class Glb:
         for anim in doc.get("animations", []):
             for s in anim["samplers"]:
                 used_acc.update((s["input"], s["output"]))
-        used_views = {doc["accessors"][i]["bufferView"] for i in used_acc}
+        used_views = {doc["accessors"][i]["bufferView"] for i in used_acc if "bufferView" in doc["accessors"][i]}
+        for i in used_acc:
+            sparse = doc["accessors"][i].get("sparse")
+            if sparse:
+                used_views.update((sparse["indices"]["bufferView"], sparse["values"]["bufferView"]))
         used_views.update(img["bufferView"] for img in doc.get("images", []) if "bufferView" in img)
         view_map, acc_map, blob, views, accs = {}, {}, bytearray(), [], []
         for i in sorted(used_views):
@@ -88,12 +94,20 @@ class Glb:
             views.append(v)
         for i in sorted(used_acc):
             a = dict(doc["accessors"][i])
-            a["bufferView"] = view_map[a["bufferView"]]
+            if "bufferView" in a:
+                a["bufferView"] = view_map[a["bufferView"]]
+            if "sparse" in a:
+                sp = a["sparse"]
+                a["sparse"] = {"count": sp["count"],
+                               "indices": dict(sp["indices"], bufferView=view_map[sp["indices"]["bufferView"]]),
+                               "values": dict(sp["values"], bufferView=view_map[sp["values"]["bufferView"]])}
             acc_map[i] = len(accs)
             accs.append(a)
         for mesh in doc["meshes"]:
             for prim in mesh["primitives"]:
                 prim["attributes"] = {k: acc_map[v] for k, v in prim["attributes"].items()}
+                if "targets" in prim:
+                    prim["targets"] = [{k: acc_map[v] for k, v in t.items()} for t in prim["targets"]]
                 if "indices" in prim:
                     prim["indices"] = acc_map[prim["indices"]]
         for skin in doc.get("skins", []):

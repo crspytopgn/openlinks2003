@@ -172,14 +172,17 @@ class Part:
     """A mesh ready for glTF: unique (position, uv) vertices, triangles."""
 
     def __init__(self, name, positions, uvs, faces, weights, material, keep=None):
+        """keep: which faces this part has. Normals are smoothed over all
+        of `faces`, so parts cut from one mesh shade without seams."""
         self.name = name
         self.material = material
         tris = []
+        all_tris = []
         for face in faces:
-            if keep is not None and not keep(face):
-                continue
-            for k in range(1, len(face) - 1):
-                tris.append((face[0], face[k], face[k + 1]))
+            fan = [(face[0], face[k], face[k + 1]) for k in range(1, len(face) - 1)]
+            all_tris += fan
+            if keep is None or keep(face):
+                tris += fan
         pairs = {}
         index = []
         for tri in tris:
@@ -190,20 +193,25 @@ class Part:
                 index.append(pairs[key])
         keys = np.array(list(pairs.keys()))
         self.vertex_ids = keys[:, 0]
-        self.positions = positions[keys[:, 0]]
         uv = uvs[np.maximum(keys[:, 1], 0)] if len(uvs) else np.zeros((len(keys), 2))
         self.uvs = np.column_stack([uv[:, 0], 1.0 - uv[:, 1]])
         self.indices = np.array(index, dtype=np.uint32).reshape(-1, 3)
+        self._tri_v = np.array([[v for v, _ in tri] for tri in all_tris])
+        self.positions, self.normals = self.at(positions)
+        self.joints, self.joint_weights = _top4(weights[keys[:, 0]])
+
+    def at(self, positions):
+        """This part's vertex positions and normals on another shape of the
+        same source mesh (`positions` indexed like the source)."""
         # Smooth normals per original position, so uv seams don't show.
         normals = np.zeros_like(positions)
-        tri_v = np.array([[v for v, _ in tri] for tri in tris])
+        tri_v = self._tri_v
         p0, p1, p2 = positions[tri_v[:, 0]], positions[tri_v[:, 1]], positions[tri_v[:, 2]]
         fn = np.cross(p1 - p0, p2 - p0)
         for c in range(3):
             np.add.at(normals, tri_v[:, c], fn)
-        n = normals[keys[:, 0]]
-        self.normals = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-        self.joints, self.joint_weights = _top4(weights[keys[:, 0]])
+        n = normals[self.vertex_ids]
+        return positions[self.vertex_ids], n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
 
 
 def _top4(w):
@@ -225,10 +233,24 @@ class Human:
         self.coords = self.base.copy()
 
     def morph(self, **macros):
+        self.coords = self.base + self.macro_offsets(**macros)
+
+    def macro_offsets(self, **macros):
+        """The base mesh's offsets (MakeHuman units) for these macro values."""
         root = os.path.join(self.data, "targets", "macrodetails")
+        out = np.zeros_like(self.base)
         for name, w in macro_targets(**macros).items():
             idx, delta = read_target(os.path.join(root, name + ".target.gz"))
-            self.coords[idx] += w * delta
+            out[idx] += w * delta
+        return out
+
+    def target_offsets(self, names):
+        """The summed offsets of detail targets (paths under targets/)."""
+        out = np.zeros_like(self.base)
+        for name in names:
+            idx, delta = read_target(os.path.join(self.data, "targets", name + ".target.gz"))
+            out[idx] += delta
+        return out
 
     def cube_centre(self, group):
         ids = {v for face, g in zip(self.base_faces, self.base_groups) if g == group for v, _ in face}
@@ -246,8 +268,7 @@ class Human:
 
     def build_rig(self, rig_name="game_engine"):
         rig = json.load(open(os.path.join(self.data, "rigs", "standard", f"rig.{rig_name}.json")))
-        self.ground = np.zeros(3)
-        self.ground = self.to_rig(self.cube_centre("joint-ground"))
+        self._rig = rig
         names = []
 
         def add(name):
@@ -262,6 +283,19 @@ class Human:
             add(name)
         self.bones = names
         self.parents = [names.index(rig[n]["parent"]) if rig[n]["parent"] else -1 for n in names]
+        self.measure()
+        weights = json.load(open(os.path.join(self.data, "rigs", "standard", f"weights.{rig_name}.json")))["weights"]
+        self.base_weights = np.zeros((len(self.base), len(names) + 2))  # + club joints
+        for b, rows in weights.items():
+            j = names.index(b)
+            for v, w in rows:
+                self.base_weights[int(v), j] = w
+
+    def measure(self):
+        """Places the ground and the joints on the current coords."""
+        rig = self._rig
+        self.ground = np.zeros(3)
+        self.ground = self.to_rig(self.cube_centre("joint-ground"))
 
         def point(spec):
             if spec["strategy"] == "CUBE":
@@ -272,25 +306,31 @@ class Human:
                 return self.coords[spec["vertex_index"]]
             raise ValueError(spec["strategy"])
 
-        self.heads = np.array([self.to_rig(point(rig[n]["head"])) for n in names])
-        self.tails = np.array([self.to_rig(point(rig[n]["tail"])) for n in names])
-        weights = json.load(open(os.path.join(self.data, "rigs", "standard", f"weights.{rig_name}.json")))["weights"]
-        self.base_weights = np.zeros((len(self.base), len(names) + 2))  # + club joints
-        for b, rows in weights.items():
-            j = names.index(b)
-            for v, w in rows:
-                self.base_weights[int(v), j] = w
+        self.heads = np.array([self.to_rig(point(rig[n]["head"])) for n in self.bones])
+        self.tails = np.array([self.to_rig(point(rig[n]["tail"])) for n in self.bones])
 
-    def body_part(self, skin_material, deleted):
+    def body_faces(self):
+        return [f for f, g in zip(self.base_faces, self.base_groups) if g == "body"]
+
+    def body_part(self, skin_material, deleted=frozenset(), name="Body", keep=None):
         coords = self.to_rig(self.coords)
-        keep = lambda face: all(v not in deleted for v, _ in face)
-        faces = [f for f, g in zip(self.base_faces, self.base_groups) if g == "body"]
-        return Part("Body", coords, self.base_uvs, faces, self.base_weights, skin_material, keep)
+        if keep is None:
+            keep = lambda face: all(v not in deleted for v, _ in face)
+        part = Part(name, coords, self.base_uvs, self.body_faces(), self.base_weights, skin_material, keep)
+        part.source = None
+        return part
 
-    def proxy_part(self, name, mhclo, material):
-        proxy = Proxy(mhclo)
+    def proxy_part(self, name, mhclo, material, keep=None):
+        proxy = Proxy(mhclo) if isinstance(mhclo, str) else mhclo
         verts, uvs, faces, _ = read_obj(os.path.join(proxy.folder, proxy.obj))
         fitted = proxy.fit(self.coords)
-        assert len(fitted) == len(verts), (mhclo, len(fitted), len(verts))
-        part = Part(name, self.to_rig(fitted), uvs, faces, proxy.bone_weights(self.base_weights), material)
+        assert len(fitted) == len(verts), (proxy.obj, len(fitted), len(verts))
+        part = Part(name, self.to_rig(fitted), uvs, faces, proxy.bone_weights(self.base_weights), material, keep)
+        part.source = proxy
         return part, proxy
+
+    def source_positions(self, part):
+        """Where the source mesh of `part` lies on the current coords."""
+        if part.source is None:
+            return self.to_rig(self.coords)
+        return self.to_rig(part.source.fit(self.coords))
