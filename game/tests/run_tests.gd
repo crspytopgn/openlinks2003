@@ -1393,11 +1393,17 @@ func _test_multiplayer_rounds() -> void:
 	game.start_round()
 	_check(game.players.size() == 3, "three players")
 	_check(game.honour == _ints([0, 1, 2]), "first hole in player order")
+	_check(not game.hud.hand_over.visible, "no hand-over before the first shot")
 	var steps := 0
+	var hand_overs := 0
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
+		if game.hud.hand_over.visible:
+			hand_overs += 1
+			_check(game.state == GolfRound.State.AIM, "the hand-over waits on a person's shot")
 	_check(game.state == GolfRound.State.ROUND_DONE, "skins round finishes")
+	_check(hand_overs >= game.holes.size() * 2, "the controls are handed over between people (%d)" % hand_overs)
 	var won := 0
 	var sk := GameModes.skins(game.scoring.strokes_table())
 	for i in 3:
@@ -1474,6 +1480,7 @@ func _test_computer_opponents() -> void:
 		if game.state == GolfRound.State.COMPUTER:
 			computer_turns += 1
 			_check(game.current == 1, "only the computer seat plays itself")
+		_check(not game.hud.hand_over.visible, "one person against the computer needs no hand-over")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE and computer_turns > 0, "match against the computer finishes")

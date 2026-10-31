@@ -72,7 +72,12 @@ names. The choice is a `RoundSetup`, saved under `[round]` in
 Players share the round in turn (hot seat). On each hole everyone tees off
 in order of the honour (the lowest score on the last hole goes first; ties
 keep their order), then whoever is furthest from the hole plays. The other
-balls stay on the ground where they lie. The modes:
+balls stay on the ground where they lie. When the next swing is a different
+person's from the last one, the screen dims and names who plays next, with
+the hole, shot and distance (`ui/hand_over_panel.gd`); Space, Enter or a
+click carries on, and Tab still shows the scorecard. Computer golfers'
+turns skip it, so one person against the computer never sees it. Online
+play is still a design: [online-play.md](online-play.md). The modes:
 
 | Mode | Players | Scoring |
 | --- | --- | --- |
@@ -250,6 +255,7 @@ game/scripts/
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
