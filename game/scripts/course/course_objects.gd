@@ -158,11 +158,11 @@ const SHADE_FLOOR := 0.55
 var plants: Sprites
 var crowds: Sprites
 var obstacles := ObstacleField.new()
-## Only the 3D objects of `obstacles` (walls, bridges): with the Links 2003
-## shot model the billboards are met through `links_objects` instead.
+## Obstacles the Links 2003 shot model still meets our own way: none now,
+## as it meets the billboards and the 3D objects through `links_objects`.
 var model_obstacles := ObstacleField.new()
-## The billboards as the Links 2003 model meets them, in its frame (feet,
-## z up); null when the course has none.
+## The billboards and 3D objects as the Links 2003 model meets them, in its
+## frame (feet, z up); null when the course has none.
 var links_objects: LinksObjects
 var _meshes: Array[ArrayMesh] = []
 var _mesh_bounds: Array[AABB] = []
@@ -406,6 +406,48 @@ static func _triangulate(b: PackedByteArray, base: int) -> Variant:
 	return out
 
 
+## `MasterObj3D` entry: per model, its mesh tables as the Links 2003 shot
+## model meets them (LinksObjects.Mesh3D, holes not yet set). Empty on error.
+static func parse_course_meshes(b: PackedByteArray) -> Array[LinksObjects.Mesh3D]:
+	var out: Array[LinksObjects.Mesh3D] = []
+	if b.size() < 12:
+		return out
+	var count := b.decode_u32(8)
+	var p := b.decode_u32(4)
+	if count > 10000:
+		return out
+	for k in count:
+		if p + 0x40 > b.size():
+			return [] as Array[LinksObjects.Mesh3D]
+		var size := b.decode_u32(p)
+		if size < 0x44 or p + size + 12 > b.size():
+			return [] as Array[LinksObjects.Mesh3D]
+		var counts := PackedInt32Array()
+		var offsets := PackedInt32Array()
+		for i in 4:
+			counts.append(b.decode_u32(p + 0x18 + 8 * i))
+			offsets.append(p + b.decode_u32(p + 0x1c + 8 * i))
+		var end := p + size
+		if offsets[0] + 12 * counts[0] > end or offsets[1] + 8 * counts[1] > end \
+				or offsets[2] + 12 * counts[2] > end or offsets[3] + 2 * counts[3] > end:
+			return [] as Array[LinksObjects.Mesh3D]
+		var m := LinksObjects.Mesh3D.new()
+		for i in counts[0]:
+			var o := offsets[0] + 12 * i
+			m.positions.append(Vector3(b.decode_float(o), b.decode_float(o + 4), b.decode_float(o + 8)))
+		for i in counts[1]:
+			var o := offsets[1] + 8 * i
+			m.uvs.append(Vector2(b.decode_float(o), b.decode_float(o + 4)))
+		for i in counts[3]:
+			m.corners.append(b.decode_u16(offsets[3] + 2 * i))
+		for f in counts[2]:
+			var o := offsets[2] + 12 * f
+			m.faces.append_array(PackedInt32Array([b.decode_u16(o + 2), b.decode_u16(o), b.decode_u16(o + 6)]))
+		out.append(m)
+		p += size + 12
+	return out
+
+
 ## `3DPlant` entry: the drawn placements as [{model, transform}], where the
 ## transform takes model units in Godot axes to Godot metres. Empty on error.
 static func parse_model_placements(b: PackedByteArray) -> Array[Dictionary]:
@@ -420,6 +462,7 @@ static func parse_model_placements(b: PackedByteArray) -> Array[Dictionary]:
 		var p := {
 			"position": Vector3(b.decode_float(o + 8), b.decode_float(o + 12), b.decode_float(o + 16)),
 			"z_offset": b.decode_float(o + 0x30),
+			"axis": Vector3(b.decode_float(o + 0x34), b.decode_float(o + 0x38), b.decode_float(o + 0x3C)),
 			"scale": Vector3(b.decode_float(o + 0x40), b.decode_float(o + 0x44), b.decode_float(o + 0x48)),
 			"yaw": b.decode_float(o + 0x4C),
 			"pitch": b.decode_float(o + 0x50),
@@ -435,21 +478,38 @@ static func parse_model_placements(b: PackedByteArray) -> Array[Dictionary]:
 	return out
 
 
-## A stored model point to course feet for one placement:
-## position + Rz(yaw) Ry(pitch) (scale * (v + (0, 0, z_offset))).
+## A stored model point to course feet for one placement, the game's way:
+## z_offset added to z, scaled, z raised by pitch * x, then turned by yaw
+## about the placement's axis (the turn made orthonormal) and moved to its
+## position. Reproduces the stored bounding boxes. Mirrors olcore::place_point.
 static func place_point(p: Dictionary, v: Vector3) -> Vector3:
+	var rows := turn_rows(p.get("axis", Vector3(0, 0, 1)), float(p.yaw))
 	var scale: Vector3 = p.scale
 	var x := scale.x * v.x
 	var y := scale.y * v.y
-	var z := scale.z * (v.z + float(p.z_offset))
-	var cp := cos(float(p.pitch))
-	var sp := sin(float(p.pitch))
-	var x1 := cp * x + sp * z
-	var z1 := -sp * x + cp * z
-	var cy := cos(float(p.yaw))
-	var sy := sin(float(p.yaw))
+	var z := scale.z * (v.z + float(p.z_offset)) + float(p.get("pitch", 0.0)) * x
 	var at: Vector3 = p.position
-	return Vector3(at.x + cy * x1 - sy * y, at.y + sy * x1 + cy * y, at.z + z1)
+	return at + rows[0] * x + rows[1] * y + rows[2] * z
+
+
+## The rows of a turn by `angle` about `axis` (Rodrigues' formula, the axis
+## taken as given), made orthonormal as the game does.
+static func turn_rows(axis: Vector3, angle: float) -> Array[Vector3]:
+	var s := sin(angle)
+	var c := cos(angle)
+	var k := 1.0 - c
+	var ax := axis.x
+	var ay := axis.y
+	var az := axis.z
+	var r0 := Vector3(ax * ax * k + c, ax * ay * k - az * s, ax * az * k + ay * s)
+	var r1 := Vector3(ax * ay * k + az * s, ay * ay * k + c, ay * az * k - ax * s)
+	var r2 := Vector3(ax * az * k - ay * s, ay * az * k + ax * s, az * az * k + c)
+	r0 = r0.normalized() if r0.length() != 0.0 else r0
+	r1 -= r0 * r1.dot(r0)
+	r1 = r1.normalized() if r1.length() != 0.0 else r1
+	r2 -= r0 * r2.dot(r0) + r1 * r2.dot(r1)
+	r2 = r2.normalized() if r2.length() != 0.0 else r2
+	return [r0, r1, r2]
 
 
 ## Course feet (z up) to Godot metres (y up).
@@ -458,7 +518,9 @@ static func _to_godot(v: Vector3) -> Vector3:
 
 
 ## `texture3dobj.t3l` entry: per model {maq: PackedStringArray, level:
-## PackedInt32Array}, one entry per texture. Empty on error.
+## PackedInt32Array, see_through: PackedByteArray}, one entry per texture
+## (see_through is 1 where the level's flags mark it so: the ball passes
+## where its alpha is zero). Empty on error.
 static func parse_object_textures(b: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if b.size() < 12:
@@ -477,14 +539,18 @@ static func parse_object_textures(b: PackedByteArray) -> Array[Dictionary]:
 		var maq := b.slice(levels, levels + 32).get_string_from_ascii()
 		var maqs := PackedStringArray()
 		var level := PackedInt32Array()
+		var see_through := PackedByteArray()
 		for _t in textures:
 			if list + 4 > b.size():
 				return [] as Array[Dictionary]
 			var n := b.decode_u32(list)
+			var l := b.decode_u32(list + 8) if n > 0 and list + 12 <= b.size() else 0
 			maqs.append(maq)
-			level.append(b.decode_u32(list + 8) if n > 0 and list + 12 <= b.size() else 0)
+			level.append(l)
+			var flags := levels + 64 * l + 0x28
+			see_through.append(1 if flags + 4 <= b.size() and (b.decode_u32(flags) & 0x80000000) != 0 else 0)
 			list += 8 + 4 * n
-		out.append({"maq": maqs, "level": level})
+		out.append({"maq": maqs, "level": level, "see_through": see_through})
 	return out
 
 
@@ -691,6 +757,7 @@ func _load_models(read: Callable) -> void:
 		_meshes.append(mesh)
 		_mesh_bounds.append(bounds)
 	_add_model_obstacles()
+	_add_links_models(read, refs, maqs)
 
 
 static func _maq_texture(read: Callable, maq: String, level: int, maqs: Dictionary, textures: Dictionary) -> Texture2D:
@@ -911,8 +978,49 @@ static func _has_footprint(m: int) -> bool:
 	return m < object_shapes.size() and object_shapes[m] != null
 
 
+## The 3D objects as the Links 2003 model meets them (LinksObjects), in its
+## frame (feet, as LinksGround._to_game() gives), with the pictures of their
+## see-through textures.
+func _add_links_models(read: Callable, refs: Array[Dictionary], maqs: Dictionary) -> void:
+	var meshes := parse_course_meshes(read.call("MasterObj3D"))
+	if meshes.is_empty():
+		return
+	if links_objects == null:
+		links_objects = LinksObjects.new()
+	var pictures := {}
+	for k in meshes.size():
+		var mesh := meshes[k]
+		if k < refs.size():
+			var see_through: PackedByteArray = refs[k].get("see_through", PackedByteArray())
+			for t in see_through.size():
+				var img: Image = null
+				if see_through[t] != 0:
+					var maq: String = refs[k].maq[t]
+					var level: int = refs[k].level[t]
+					var key := "%s#%d" % [maq.to_lower(), level]
+					if not pictures.has(key):
+						if not maqs.has(maq):
+							maqs[maq] = read.call(maq)
+						pictures[key] = decode_maq(maqs[maq], level)
+					img = pictures[key]
+				mesh.holes.append(img)
+		links_objects.meshes.append(mesh)
+	for p in _placements:
+		var m: int = p.model
+		if m >= meshes.size():
+			continue
+		var t: Transform3D = p.transform
+		var points := PackedVector3Array()
+		for v in meshes[m].positions:
+			# Model axes (z up) to the model's Godot axes, placed, then to
+			# the game's frame.
+			points.append(LinksGround._to_game(t * Vector3(v.x, v.z, -v.y)))
+		links_objects.add_model(m, points)
+
+
 ## 3D objects block the ball with their bounding box (in the model's own
-## axes), unless they are too flat to matter.
+## axes), unless they are too flat to matter. The Links 2003 model meets them
+## face by face instead (_add_links_models).
 func _add_model_obstacles() -> void:
 	for p in _placements:
 		var m: int = p.model
@@ -939,7 +1047,6 @@ func _add_model_obstacles() -> void:
 		if rise < 0.15:
 			continue
 		obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
-		model_obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
 
 
 # --- Drawing ------------------------------------------------------------------

@@ -11,8 +11,10 @@ extends RefCounted
 ## The cup has four modes of its own: CUP_AIR falling or bouncing inside the
 ## hole's circle above the rim, CUP_RIM rolling round the rim's edge,
 ## CUP_WALL sliding down the wall and CUP_DROP falling inside the cup below
-## the rim. HOLED is at rest in the cup.
-enum Mode { FLIGHT, SKID, ROLL, REST, CUP_AIR, CUP_RIM, CUP_WALL, CUP_DROP, HOLED }
+## the rim. HOLED is at rest in the cup. ON_OBJECT is rolling on a 3D object
+## (a bridge deck), which the game treats as rolling on ground of its own
+## (object_surface()).
+enum Mode { FLIGHT, SKID, ROLL, REST, CUP_AIR, CUP_RIM, CUP_WALL, CUP_DROP, HOLED, ON_OBJECT }
 
 const GREEN := 1
 const FAIRWAY := 2
@@ -85,6 +87,12 @@ const POLE_BOUNCE := 0.3
 const POLE_SPIN := 0.09
 const SOLID_KEPT := 0.5
 const STEP_BACK := 0.1
+# On a 3D object.
+const DECK_PROBE := 5.0  ## ft above the centre the ray down starts
+const NO_DECK := -100000.0
+const WALL_REACH := 2.0  ## ft; a face this near stops a climb
+const OBJECT_BOUNCE_SPEED := 2.0  ## ft/s into a face; slower and the ball rolls on
+const OBJECT_KEPT := 0.7
 const GRAVITY_VECTOR := Vector3(0, 0, -GRAVITY)
 
 ## class, restitution, impact friction, skid friction, impact drag, roll, stop, spin grip
@@ -131,6 +139,8 @@ class Ball:
 	var flagstick_out := false
 	## The billboard it last hit (an index into LinksObjects), or -1.
 	var last_object := -1
+	## In ON_OBJECT mode: the 3D object it rolls on (a LinksObjects model).
+	var on_object := -1
 
 	func copy() -> Ball:
 		var c := Ball.new()
@@ -144,6 +154,7 @@ class Ball:
 		c.ground_time = ground_time
 		c.flagstick_out = flagstick_out
 		c.last_object = last_object
+		c.on_object = on_object
 		return c
 
 	func assign(o: Ball) -> void:
@@ -157,6 +168,7 @@ class Ball:
 		ground_time = o.ground_time
 		flagstick_out = o.flagstick_out
 		last_object = o.last_object
+		on_object = o.on_object
 
 
 ## The hole round the pin's base. Mirrors olcore::LinksCup.
@@ -249,6 +261,23 @@ class StepInfo:
 	var landed := false
 	var contact := Vector3.ZERO
 	var contact_class := 0
+
+
+## The ground of every 3D object (class 0): the game's default record.
+## Mirrors olcore::links_object_surface.
+static func object_surface() -> Params:
+	var p := Params.new()
+	p.ground_class = 0
+	p.restitution = 0.27
+	p.impact_friction = 0.13
+	p.skid_friction = 0.13
+	p.impact_drag = 0.44
+	p.roll_resistance = 0.2
+	p.stop_speed = 5.0
+	p.spin_grip = 0.0
+	p.lie_spin = 0.0
+	p.lie_power = 1.0
+	return p
 
 
 static func surface_for_class(ground_class: int) -> Params:
@@ -457,7 +486,7 @@ static func _step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 		match b.mode:
 			Mode.FLIGHT:
 				info = _flight_step(c, b, dt)
-			Mode.SKID, Mode.ROLL:
+			Mode.SKID, Mode.ROLL, Mode.ON_OBJECT:
 				info = _ground_step(c, b, dt)
 			_:
 				if c.cup != null:
@@ -662,6 +691,8 @@ static func _flight_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 		w2 = moved.spin
 		b.flagstick_out = moved.flagstick_out
 		b.last_object = moved.last_object
+		b.mode = moved.mode
+		b.on_object = moved.on_object
 	var s := _ground_crossing(g, p, p2)
 	if s < 0.0:
 		b.position = p2
@@ -699,6 +730,25 @@ static func _ground_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 	var p1 := p + v * dt
 	var n1 := g.normal(p1.x, p1.y)
 	var surf := g.surface(p1.x, p1.y)
+
+	# On a 3D object the ground is its face under the ball, found by a ray
+	# down from above it, while that is higher than the terrain; once it is
+	# not, the ball is in the air again.
+	var on_object := b.mode == Mode.ON_OBJECT and c.objects != null and b.on_object >= 0 \
+			and b.on_object < c.objects.model_count()
+	if b.mode == Mode.ON_OBJECT and not on_object:
+		b.mode = Mode.ROLL
+	if on_object:
+		var under := _deck_under(c, b, p)
+		var deck := NO_DECK
+		if under != null and under.point.z > NO_DECK:
+			deck = under.point.z + RADIUS / under.normal.z
+		if not (deck > g.height(p1.x, p1.y)):
+			b.mode = Mode.FLIGHT
+			b.on_object = -1
+			return _flight_step(c, b, dt)
+		n1 = under.normal
+		surf = object_surface()
 	var cls := surf.ground_class
 
 	# Too steep to hold a ball on grass: look up to a foot ahead for a ledge
@@ -753,9 +803,37 @@ static func _ground_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 	var p2 := p + v2 * dt
 	var n2 := g.normal(p2.x, p2.y)
 	var z2 := g.height(p2.x, p2.y) + RADIUS / n2.z
+	if on_object:
+		var under := _deck_under(c, b, p2)
+		if under == null:
+			# Rolled off its edge (the game flies on from the new point; this
+			# flies the step from the old one, as for leaving the ground).
+			b.mode = Mode.FLIGHT
+			b.on_object = -1
+			return _flight_step(c, b, dt)
+		n2 = under.normal
+		z2 = under.point.z + RADIUS / n2.z
 
 	# The ground falls away (or rises) too fast to follow: take off.
 	if (z2 - p.z) * (z2 - p.z) > LEAVE_GROUND:
+		if on_object:
+			# On an object the game looks back and ahead from halfway up the
+			# step for a face within 2 ft: off a wall the ball bounces into
+			# the air, and with none it stops where it was.
+			var mid := Vector3(p2.x, p2.y, (z2 + p.z) * 0.5)
+			var landed := Vector3(p2.x, p2.y, z2)
+			var ahead := _unit_or_zero(v0)
+			var wall: LinksObjects.Hit = null
+			for d: Vector3 in [-ahead, ahead]:
+				var h := c.objects.hit_model(b.on_object, mid, d, -1.0)
+				if h != null and (h.point - landed).length() <= WALL_REACH:
+					wall = h
+					break
+			if wall == null:
+				_rest(b)
+				return StepInfo.new()
+			b.velocity = v0 - wall.normal * (2.0 * v0.dot(wall.normal))
+			return _flight_step(c, b, dt)
 		b.mode = Mode.FLIGHT
 		b.on_ground_started = false
 		return _flight_step(c, b, dt)
@@ -1184,8 +1262,13 @@ static func _hit_flagstick(c: Ctx, old: Ball, b: Ball) -> bool:
 	return true
 
 
-## Trees and other billboards, then the flagstick, as the game checks them
-## after each step. Mirrors hit_obstacles in links_ground.cpp.
+## The face of the ball's 3D object under `at`, by a ray down from above.
+static func _deck_under(c: Ctx, b: Ball, at: Vector3) -> LinksObjects.Hit:
+	return c.objects.hit_model(b.on_object, at + Vector3(0, 0, DECK_PROBE), Vector3(0, 0, -1), -1.0)
+
+
+## Trees and other billboards and 3D objects, then the flagstick, as the
+## game checks them after each step. Mirrors hit_obstacles in links_ground.cpp.
 static func _hit_obstacles(c: Ctx, old: Ball, b: Ball) -> bool:
 	if c.objects != null:
 		var hit := c.objects.hit(old.position, b.position, c.facing, b.last_object)
@@ -1195,6 +1278,23 @@ static func _hit_obstacles(c: Ctx, old: Ball, b: Ball) -> bool:
 			var bl: Array = _blend(old, b, (hit.point - old.position).length() / length)
 			var m: Ball = bl[0]
 			var v := b.velocity
+			if hit.kind == 8:
+				# A 3D object's face: off it with its velocity mirrored, keeping
+				# 70%; too slowly into it and the ball rolls on it instead,
+				# lifted off it by its radius.
+				var n := hit.normal
+				b.position = m.position
+				b.spin = m.spin
+				if absf(v.dot(n)) >= OBJECT_BOUNCE_SPEED:
+					b.velocity = (v - n * (2.0 * v.dot(n))) * OBJECT_KEPT
+				else:
+					var slowed := v * OBJECT_KEPT
+					b.velocity = slowed - n * slowed.dot(n)
+					b.position = m.position + n * RADIUS
+					b.mode = Mode.ON_OBJECT
+					b.on_object = hit.object
+				b.last_object = -1  # only billboards are skipped next time
+				return true
 			if hit.kind == 1:
 				var kept := hit.factor if (c.objects.type_of(hit.object).collision & 1) != 0 else SOLID_KEPT
 				b.velocity = (v - hit.normal * (2.0 * v.dot(hit.normal))) * kept

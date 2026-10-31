@@ -31,6 +31,7 @@ func _initialize() -> void:
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_cup_matches_olcore", _test_links_cup_matches_olcore)
 	_run("links_objects_match_olcore", _test_links_objects_match_olcore)
+	_run("links_models_match_olcore", _test_links_models_match_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
@@ -1556,6 +1557,91 @@ func _test_links_objects_match_olcore() -> void:
 	var turn := (3.0 / 5.0 - 0.5) * 2.09440565
 	_check_near(b.velocity.x, 0.5 * 60 * sin(2 * turn), 1e-3, "trunk turns the ball")
 	_check_near(b.velocity.y, -0.5 * 60 * cos(2 * turn), 1e-3, "trunk sends it back")
+
+
+## 3D objects for the tests: each quad is four corners, fanned from the
+## first; a face is met from the side its corners turn anticlockwise to.
+static func _test_models(quads: Array, holes := false) -> LinksObjects:
+	var objects := LinksObjects.new()
+	var mesh := LinksObjects.Mesh3D.new()
+	for q: Array in quads:
+		mesh.faces.append_array(PackedInt32Array([mesh.corners.size(), 4, 0]))
+		for v: Vector3 in q:
+			mesh.corners.append(mesh.positions.size())
+			mesh.positions.append(v)
+			mesh.uvs.append(Vector2(0.5, 0.5))
+	var picture: Image = null
+	if holes:
+		picture = Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		picture.fill(Color(0, 0, 0, 0))
+	mesh.holes.append(picture)
+	objects.meshes.append(mesh)
+	objects.add_model(0, mesh.positions)
+	return objects
+
+
+## Runs a ball for up to `steps` frames; `each` sees it after every step.
+static func _run_with_objects(b: LinksGround.Ball, objects: LinksObjects, steps: int, each: Callable) -> LinksGround.Ball:
+	var ground := TestLinksGround.new(LinksGround.FAIRWAY)
+	var air := _still_air()
+	var rng := LinksGround.Rng.new()
+	for k in steps:
+		if b.mode == LinksGround.Mode.REST:
+			break
+		LinksGround.step(b, ground, air, Vector3.ZERO, rng, LinksGround.FRAME_DT, null, objects, Vector3(0, -1, 0))
+		each.call(b)
+	return b
+
+
+## As test_links_models in the C++ core.
+func _test_links_models_match_olcore() -> void:
+	var wall := [Vector3(-5, 20, 0), Vector3(-5, 20, 10), Vector3(5, 20, 10), Vector3(5, 20, 0)]
+	var seen := {"hit": false}
+	var fly := _links_ball(Vector3(0, 0, 3), Vector3(0, 60, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	var on_wall := func(b: LinksGround.Ball) -> void:
+		if not seen.hit and b.velocity.y < 0.0:
+			seen.hit = true
+			seen.vy = b.velocity.y
+			seen.y = b.position.y
+			seen.last = b.last_object
+	_run_with_objects(fly, _test_models([wall]), 30, on_wall)
+	_check(seen.hit, "wall hit")
+	_check_near(seen.get("vy", 0.0), -0.7 * 60, 1e-3, "wall keeps 70%")
+	_check_near(seen.get("y", 0.0), 20, 1e-4, "met at the wall")
+	_check(seen.get("last", 0) < 0, "a 3D object is not skipped")
+	var noop := func(_b: LinksGround.Ball) -> void:
+		pass
+	var back := [wall[3], wall[2], wall[1], wall[0]]
+	fly = _links_ball(Vector3(0, 0, 3), Vector3(0, 60, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	_check(_run_with_objects(fly, _test_models([back]), 30, noop).position.y > 25, "a face's back lets it through")
+	fly = _links_ball(Vector3(0, 0, 3), Vector3(0, 60, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	_check(_run_with_objects(fly, _test_models([wall], true), 30, noop).position.y > 25, "clear texels let it through")
+
+	var deck := [Vector3(-5, 10, 2), Vector3(-5, 30, 2), Vector3(5, 30, 2), Vector3(5, 10, 2)]
+	var roll := {"rolled": false, "off": false, "z": 0.0}
+	var b := _links_ball(Vector3(0, 15, 2.05), Vector3(0, 30, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	var on_deck := func(x: LinksGround.Ball) -> void:
+		if x.mode == LinksGround.Mode.ON_OBJECT and x.position.y > 20 and not roll.rolled:
+			roll.rolled = true
+			roll.z = x.position.z
+		if roll.rolled and x.mode == LinksGround.Mode.FLIGHT:
+			roll.off = true
+	b = _run_with_objects(b, _test_models([deck]), 400, on_deck)
+	_check(roll.rolled, "rolls on the deck")
+	_check_near(roll.z, 2.07, 1e-4, "on the deck by its radius")
+	_check(roll.off, "rolls off the deck's end")
+	_check(b.mode == LinksGround.Mode.REST, "comes to rest")
+	_check_near(b.position.z, 0.07, 1e-4, "on the ground")
+	_check_near(b.position.y, 36.943, 2e-2, "where the C++ core stops it")
+
+	var low := [Vector3(-5, 10, 2), Vector3(-5, 20, 2), Vector3(5, 20, 2), Vector3(5, 10, 2)]
+	var high := [Vector3(-5, 20, 3), Vector3(-5, 30, 3), Vector3(5, 30, 3), Vector3(5, 20, 3)]
+	b = _links_ball(Vector3(0, 15, 2.07), Vector3(0, 10, 0), Vector3.ZERO, LinksGround.Mode.ON_OBJECT)
+	b.on_object = 0
+	b = _run_with_objects(b, _test_models([low, high]), 400, noop)
+	_check(b.mode == LinksGround.Mode.REST, "a step up stops it")
+	_check(b.position.y > 19 and b.position.y < 20, "stopped before the step")
+	_check_near(LinksGround.object_surface().roll_resistance, 0.2, 1e-9, "object ground")
 
 
 ## As test_links_cup in the C++ core; every case matches the game's own code.
