@@ -23,6 +23,7 @@
 #include "olcore/links_flight.hpp"
 #include "olcore/links_ground.hpp"
 #include "olcore/links_launch.hpp"
+#include "olcore/links_mouse.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
@@ -2161,36 +2162,69 @@ void test_links_computer_putt() {
 }
 
 void test_links_mouse_swing() {
-  // power, release, drift, height, skill, seed, then power, face, path, whiff.
+  // A steady stroke: `back` frames pulling `pull` pixels down, then pushing
+  // `push` pixels up and `across` right each frame until the club meets the
+  // ball. The numbers are run_tests.gd's too.
   struct Case {
-    double power, release, drift, height;
     int skill;
+    LinksMouseShot shot;
+    int club, width;
     unsigned seed;
-    double want_power, want_face, want_path;
-    bool whiff;
+    int back, pull, push, across;
+    double speed, drift, drift_before;
+    int down;
+    double backswing, power, face, path, loft;
+    int quality;
   };
   const Case cases[] = {
-      {100.0, 0.0, 0.0, 100.0, 3, 1u, 100.0, 0.0, 0.0, false},
-      {100.0, 4.0, 10.0, 200.0, 3, 7u, 95.0, 2.584, -1.67552598, false},
-      {90.0, -12.0, -20.0, 150.0, 2, 99u, 81.0, -13.9536, 12.7073864, false},
-      {120.0, 20.0, 0.0, 100.0, 0, 5u, 103.0, 28.10525, 0.0, false},
-      {100.0, 19.0, 0.0, 100.0, 3, 5u, 0.0, 0.0, 0.0, true},
-      {150.0, -3.0, 5.0, 80.0, 1, 42u, 150.51, -1.943, -7.58009526, false},
+      {3, LinksMouseShot::Full, 0, 1920, 11u, 20, 12, 90, 0, -4.772966, 0, 0, 90, 0.297828, 31.626182, 0, 0, 0.157841, 0},
+      {1, LinksMouseShot::Full, 9, 1100, 5u, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
+       0.068857, 0.071579, 0},
+      {2, LinksMouseShot::Putt, kLinksPutter, 1920, 7u, 12, 6, 40, -2, -0.592555, 0.24, 0, 40, 0.034813, 1.1, -0.360105,
+       0.398950, 0.033288, 0},
+      {0, LinksMouseShot::Chip, 16, 800, 3u, 10, 8, 50, 1, -0.884124, -0.04, 0, 50, 0.064996, 1.598884, 0, -0.029809,
+       0.064996, 0},
+      {3, LinksMouseShot::Full, 4, 1920, 9u, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
+       -0.825252, 0.517093, 1},
+      {2, LinksMouseShot::Full, 12, 1920, 21u, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
+       1.50984, 1.021502, 0.361243, 1},
   };
   for (const Case& c : cases) {
-    LinksMouseStroke m;
-    m.power = c.power;
-    m.release = c.release;
-    m.drift = c.drift;
-    m.height = c.height;
-    m.skill = c.skill;
+    LinksMouseClub club(c.skill, c.shot, c.club, links_mouse_meter(c.width));
     LinksRand rng(c.seed);
+    for (int i = 0; i < c.back; ++i) club.step(0, c.pull, rng);
+    for (int i = 0; i < 40 && !club.done(); ++i) club.step(c.across, -c.push, rng);
+    CHECK(club.phase() == LinksMouseClub::Phase::Impact);
+    const LinksMouseStroke& m = club.stroke();
+    CHECK_NEAR(m.speed, c.speed, 1e-5);
+    CHECK_NEAR(m.drift, c.drift, 1e-5);
+    CHECK_NEAR(m.drift_before, c.drift_before, 1e-5);
+    CHECK(m.down == c.down);
+    CHECK_NEAR(m.backswing, c.backswing, 1e-5);
     LinksMouseSwing w = links_mouse_swing(m, rng);
-    CHECK_NEAR(w.power, c.want_power, 1e-6);
-    CHECK_NEAR(w.face_deg, c.want_face, 1e-6);
-    CHECK_NEAR(w.path_deg, c.want_path, 1e-6);
-    CHECK(w.whiff == c.whiff);
+    CHECK_NEAR(w.power, c.power, 1e-5);
+    CHECK_NEAR(w.face_deg, c.face, 1e-5);
+    CHECK_NEAR(w.path_deg, c.path, 1e-5);
+    CHECK_NEAR(w.loft, c.loft, 1e-5);
+    CHECK(!w.whiff);
+    CHECK(w.quality == c.quality);
   }
+  // Pushing before pulling back does nothing; letting go early never hits.
+  LinksMouseClub idle(3, LinksMouseShot::Full, 0);
+  LinksRand rng(1);
+  for (int i = 0; i < 10; ++i) idle.step(0, -50, rng);
+  CHECK(idle.phase() == LinksMouseClub::Phase::Backswing);
+  CHECK_NEAR(idle.club_height(), 119, 1e-12);
+  // A big sideways drift misses the ball.
+  LinksMouseStroke wild;
+  wild.drift = -19;
+  wild.down = 80;
+  wild.speed = 8;
+  LinksMouseSwing miss = links_mouse_swing(wild, rng);
+  CHECK(miss.whiff);
+  CHECK(miss.power == 0);
+  CHECK(links_mouse_meter(800).height == 278 && links_mouse_meter(1024).ball_line == 96 &&
+        links_mouse_meter(2560).height == 442);
 }
 
 void test_links_putt() {

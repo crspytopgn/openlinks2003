@@ -32,7 +32,7 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 ## red.
 const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
-const HINT_MOUSE_SWING := "Keep holding: pull back, push smoothly up through the white line and let go on it"
+const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
@@ -125,8 +125,8 @@ var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
-## The mouse stroke for the shot being played, or null (play_shot uses it once).
-var _mouse_stroke: LinksLaunch.MouseStroke = null
+## The mouse swing for the shot being played, or null (play_shot uses it once).
+var _mouse_swing: LinksMouse.Outcome = null
 ## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
 var _drop_reason := -1
 var _drop_zones: Array[DropRules.Zone] = []
@@ -565,8 +565,8 @@ func play_shot(power: float, accuracy: float) -> void:
 		if links.computer and opponents[shooter] != null:
 			links.computer_ratings = LinksLaunch.GolferRatings.even(opponents[shooter].skill.links_rating)
 			links.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
-		links.mouse_stroke = null if links.computer else _mouse_stroke
-	_mouse_stroke = null
+		links.mouse_swing = null if links.computer else _mouse_swing
+	_mouse_swing = null
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
@@ -802,34 +802,38 @@ func open_pause_menu() -> void:
 ## it (with the mouse swing chosen); Space still uses the meter.
 func _mouse_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
-	var t := Time.get_ticks_usec() / 1e6
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var mb := event as InputEventMouseButton
 		if ms.is_swinging():
 			if not mb.pressed:
-				ms.release(mb.position, t)
+				ms.release()
 			return true
 		if mb.pressed and state == State.AIM and graphics.swing_method == 1 and not _replaying and not camera.flying():
 			hud.scorecard.visible = false
 			state = State.SWING
 			hud.hint.text = HINT_MOUSE_SWING
 			hud.meter.reset()
-			ms.skill = graphics.skill
-			ms.begin(mb.position, t)
+			var club := clubs[club_index]
+			var number := LinksMouse.PUTTER
+			if not club.is_putter:
+				number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
+			ms.begin(number, graphics.skill)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
-		ms.motion((event as InputEventMouseMotion).position, t)
+		ms.motion((event as InputEventMouseMotion).screen_relative)
 		return true
 	return false
 
 
-## A finished mouse stroke: the Links model makes the swing from it; the
-## standard model gets its power and an accuracy from the release.
-func _on_mouse_stroke(stroke: LinksLaunch.MouseStroke) -> void:
+## The club met the ball: Links 2003's mouse maths make the swing (the
+## LinksShotModel uses it; the standard model gets a power and an accuracy).
+func _on_mouse_stroke(stroke: LinksMouse.Stroke) -> void:
 	if state != State.SWING:
 		return
-	_mouse_stroke = stroke
-	play_shot(clampf(stroke.power / 100.0, 0.0, 1.0), clampf(-stroke.release / 18.0, -1.0, 1.0))
+	var mw := LinksMouse.swing(stroke, LinksLaunch.Rand.new(randi()))
+	_mouse_swing = mw
+	var full := LinksShotModel.PUTT_POWER_AT_FULL if stroke.shot == LinksMouse.Shot.PUTT else 100.0
+	play_shot(clampf(mw.power / full, 0.0, 1.0), clampf(-mw.face_deg / 10.0, -1.0, 1.0))
 
 
 func _on_mouse_stroke_cancelled() -> void:

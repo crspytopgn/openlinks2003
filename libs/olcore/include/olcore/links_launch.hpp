@@ -146,37 +146,6 @@ struct LinksSwing {
 // lie, and sand uses the contact as in links_apply_lie.
 void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& lie, LinksRand& rng);
 
-// The PowerStroke mouse swing (a full swing), as the game turns the stroke
-// into a swing. `release` is how far past the snap line the button came up,
-// in the game's units (negative is early); `drift` is how far the stroke
-// moved across (to the right on screen is positive) between the top of
-// the backswing and the snap line, over a stroke `height` long in the same
-// units. `power` is the percent the downswing's speed gives.
-struct LinksMouseStroke {
-  double power = 100;
-  double release = 0;
-  double drift = 0;
-  double height = 100;
-  int skill = 3;
-};
-
-struct LinksMouseSwing {
-  double power = 100;
-  double face_deg = 0;  // positive closes the face
-  double path_deg = 0;  // positive swings to the left
-  bool whiff = false;   // released so far off that the club misses the ball
-};
-
-// The swing's direction is the stroke's angle (drift magnified 1, 1.3, 1.7
-// or 2 times by skill), at most 20 degrees. Releasing within 10 units of the
-// line pulls or pushes: the path turns by the release and the face by two
-// thirds of it. From 10 to 18 units the face alone turns, by a tenth of the
-// release squared (a hook or slice), and past 18 the club misses (on the
-// easiest level the release is held to 17). Any release also costs power
-// (|1 - release / 120|, or / 80 on the hardest level). Power, face and path
-// then each get a random wobble of up to 5%, and power stays within 1..145.
-LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng);
-
 // A computer golfer's steadiness with each kind of shot, 0 to 100 (more is
 // steadier; the game keeps these in each golfer's definition). `max_power` is
 // the most power, in percent, the golfer swings with; a plan past it is

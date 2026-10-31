@@ -29,10 +29,9 @@ var computer := false
 ## miss generators (LinksLaunch.computer_miss and computer_putt_miss) with
 ## these ratings replace the accuracy.
 var computer_ratings: LinksLaunch.GolferRatings = null
-## A person's PowerStroke mouse stroke for this shot, or null for the meter:
-## LinksLaunch.mouse_swing makes the swing from it and the power comes from
-## it too.
-var mouse_stroke: LinksLaunch.MouseStroke = null
+## A person's PowerStroke mouse swing for this shot (LinksMouse.swing), or
+## null for the meter: its power, face and path replace the meter's.
+var mouse_swing: LinksMouse.Outcome = null
 ## From the ball to the hole, metres, for computer_ratings.
 var to_hole_m := 0.0
 var rng := LinksLaunch.Rand.new(randi())
@@ -80,12 +79,11 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	var w := LinksLaunch.SwingInput.new()
 	w.skill = skill
 	w.teed_up = lie == Surface.Type.TEE
-	if mouse_stroke != null:
-		var mw := LinksLaunch.mouse_swing(mouse_stroke, rng)
+	if mouse_swing != null:
 		w.method = LinksLaunch.Method.MOUSE
-		w.mouse_face_deg = mw.face_deg
-		w.mouse_path_deg = mw.path_deg
-		s.power = mw.power
+		w.mouse_face_deg = mouse_swing.face_deg
+		w.mouse_path_deg = mouse_swing.path_deg
+		s.power = mouse_swing.power
 	else:
 		w.contact = LinksLaunch.meter_contact(-METER_UNITS_AT_FULL_MISS * clampf(accuracy, -1.0, 1.0), skill)
 	LinksLaunch.apply_swing(s, w, lie_params, rng)
@@ -114,15 +112,13 @@ func _putt(power: float, accuracy: float, aim_deg: float, lie: int, from: Vector
 	else:
 		var w := LinksLaunch.SwingInput.new()
 		w.skill = skill
-		if mouse_stroke != null:
-			# Our own: the full-swing reading of the stroke (the game's putt
-			# branch of it is not decoded yet).
-			# A putter's face error turns the other way (LinksLaunch.putt).
-			var mw := LinksLaunch.mouse_swing(mouse_stroke, rng)
+		if mouse_swing != null:
+			# The mouse putt's power is the putter's own (about 15 at most);
+			# LinksMouse.swing has already turned the face for a putter.
 			w.method = LinksLaunch.Method.MOUSE
-			w.mouse_face_deg = -mw.face_deg
-			w.mouse_path_deg = -mw.path_deg
-			s.power = PUTT_POWER_AT_FULL * clampf(mw.power / 100.0, 0.0, 1.0)
+			w.mouse_face_deg = mouse_swing.face_deg
+			w.mouse_path_deg = mouse_swing.path_deg
+			s.power = mouse_swing.power
 		else:
 			w.contact = LinksLaunch.meter_contact(-METER_UNITS_AT_FULL_MISS * acc, skill)
 		LinksLaunch.apply_swing(s, w, LinksGround.surface_for_class(LinksGround.ground_class_for(lie)), rng)

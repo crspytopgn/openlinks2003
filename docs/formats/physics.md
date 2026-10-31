@@ -467,34 +467,104 @@ the golfer's level rating.
 
 ### The mouse swing
 
-In the PowerStroke mouse swing the player holds the button, pulls the mouse
-back, pushes it forward through the snap line and lets go there. The game
-turns the stroke into a swing like this (full swings):
+The PowerStroke mouse swing never looks at the mouse button or at a snap
+line. It moves a club up and down a swing meter from the mouse's movement,
+frame by frame, and the club strikes the ball when it comes back down to
+the ball line. (An earlier port read the sideways drift below as the timing
+of letting go of the button; that was wrong.)
 
-- **Path:** the stroke's angle, `atan2(drift x k, height)` with the
-  sideways drift magnified by k = 1, 1.3, 1.7 or 2 by level, at most 20
-  degrees either way.
-- **Release** (x, in the meter's units, positive late): within 10 units
-  the release pulls or pushes, turning the path by x degrees and the face
-  by two thirds of x. From 10 to 18 units the face alone turns, by `0.1 x
-  |x|` degrees, a big hook or slice. Past 18 the club misses the ball. On
-  the easiest level the release is held to 17, so it never misses.
-- **Power** comes from the speed through the line (with a random wobble of
-  up to 5%) and loses `|1 - x / 120|` (`/ 80` on the hardest level) for the
-  release. It is kept between 1 and 145 percent.
-- Face and path each get the same up-to-5% wobble: `j = (rand % 100 + 1) x
-  0.0005`, then `x (1 + j)` or `x - j x` as one of two further draws is
-  below the other.
+**Input.** Each frame the game reads how far the cursor has moved from the
+middle of the screen, in whole pixels, and puts it back. Down the screen
+(towards the player) is the backswing. Its arithmetic assumes 60 frames a
+second (16.6668 ms). Forward movement is ignored until the mouse has come
+back. A frame with no movement is skipped; the third still frame in a row
+counts, three frames long.
 
-Those face and path angles then go through the lie and strike model above
-(`links_apply_swing` with the mouse method). Ported as `links_mouse_swing`
-(olcore) and `LinksLaunch.mouse_swing`, read from the game's code (not yet
-checked in an emulator). The game shell's `MouseSwingControl` measures the
-stroke itself. One meter unit is 1/600 of the screen height. 100% power is
-1300 units a second through the line, and the release counts 5 ms of
-early or late as one unit, judged from where the button comes up at the
-stroke's speed. Those calibrations are ours. Putts use the full-swing
-reading of the stroke for now.
+**The mouse's speed.** The pull or push of the last frame is the club's
+driving speed. The game smooths it with the frame after: it caps it at 127
+pixels a frame, eases out spikes (a speed that jumps past 110, or past 125
+counting the acceleration, is held at 127 until the stroke settles, then
+blended two thirds from the frame before) and, if the push suddenly falls
+by more than 50 pixels a frame during the downswing, it takes 90 and grows
+it by a fifth each frame until the mouse stops.
+
+**The club.** On a full swing the club has momentum. Its speed `v` follows
+`a = speed x r - 10 v` (with the sign turned once the mouse has turned),
+so it chases the mouse with a tenth of a second's lag. `r` is 1.25 for
+clubs 0 to 7, 1.15 for the rest, 0.75 for the putter, times 0.75 on a chip.
+On a chip or putt the club follows the mouse directly (its step each frame
+is `speed x r`), with a speed wobbled by up to 5%. The club's travel moves
+the marker: one unit of travel is 800 x (backswing room) / 1000 meter
+pixels going back and 800 x (meter height) / 640 coming down, so the meter
+covers the same mouse travel at every size. In the top 65 pixels the
+backswing slows to a quarter (0.3 on a chip) and less again near the top.
+The club starts counting once its speed passes 0.2; before the downswing it
+cannot move backwards. When its speed changes sign, the backswing becomes
+the downswing (the reading at that moment, 0 to 1, is how far back the club
+went). If it turns again before reaching the ball, the swing goes back to
+being a backswing.
+
+**Drift.** Once the club is moving, the sideways movement adds up:
+`drift += -dx x s`, held within 50, with `s` 0.02 on the easiest level,
+0.03 on the next two and 0.05 on the hardest (0.04, 0.06 and 0.06 for
+putts).
+
+**The meter.** It is 278, 355 or 442 pixels tall on screens narrower than
+1024, narrower than 1280, or wider, with the ball line 75, 96 or 119 up
+from its bottom and the top of the backswing 10 below its end. Its reading
+is how far the club is from the ball line to the top, in percent; a putt
+shows `(2 + p) p / 3` of it instead.
+
+**The strike.** The club's speed is the mean of its last two speeds (the
+last three for chips and putts). A full swing whose speed would give more
+than 120% of the club's power rating is pulled back to 120% (90% after a
+sudden stop), wobbled. The ratings are the default club records' (112 for
+the driver down to 80 for the wedges). Then, with `x = -drift`, `f` the
+backswing and the stroke's angle `path = atan2((drift - drift two frames
+earlier) x k, push)` (k = 1, 1.3, 1.7 or 2 by level, at most 20 degrees):
+
+- *Full swing.* The speed is capped at `r x 8.4`. Power = speed x the
+  club's gain (10.5 for the driver and woods down to 8.4 for the wedge)
+  x `2f' - f'^2` with `f' = min(f + 0.05, 1)`, so a three-quarter backswing
+  loses little. A drift within 10 pulls or pushes (path + x, face + 2x/3);
+  from 10 to 18 the face turns by `0.1 x |x|` (hook or slice); past 18 the
+  club misses. On the easiest level x is held within 17, so it never misses.
+- *Putt.* The backswing asks for a speed `1 + 2.5 f`, give or take
+  `w = 0.5 - c f` (c = 0.3, 0.33, 0.36, 0.4 by level). Faster adds up to
+  `w / 15`; within the window the power scales from `1 - w/15` by a sixth
+  per unit; slower falls off in proportion. Power = `(f + 2) f / 3 x 14.6`
+  times that, wobbled 5%. The face is the stroke's angle times 0.5, 0.55,
+  0.6 or 0.65; past 18 of drift the putt misses.
+- *Chip.* The backswing asks for `(cap - 1) f + 0.1` give or take 0.2;
+  slower falls off in proportion. Power = `(f + 1) f / 2 x 14.6 x 3`.
+
+Full swings and putts lose `|1 - x / 120|` of their power for the drift
+(`/ 80` on the two harder levels). Power stays within 1 and 145. Face and
+path are wobbled by up to 5% (`j = (rand % 100 + 1) x 0.0005`, then `x (1 + j)`
+or `x - j x` as one of two further draws is below the other). A straight
+stroke then earns a bonus: with `n = |4x / 5| + |round(2 path) / 2|` (whole
+numbers, at most 15), power is multiplied by `1 + (15 - n)^2 / K` with
+K = 4500, 3000, 2250, 2250 by level: up to 5% more on the easiest level and
+10% on the hardest. Last, the path is eased to two thirds, a putter's face
+turns the other way, and on the two easier levels a full swing's face and
+path are cut to 40%. The face and path then go through the lie and strike
+model above (`links_apply_swing` with the mouse method).
+
+Ported as `LinksMouseClub` and `links_mouse_swing` (olcore,
+`links_mouse.cpp`) and `LinksMouse` (GDScript). A reference written from
+the game's code agreed with the game's own routines run in an emulator on
+1500 random strokes (every frame's club position and state, then the power,
+face, path, loft and bonus), and the C++ port agrees with that reference
+on 3000 more. The game shell's `MouseSwingControl` captures the mouse,
+feeds the screen-pixel movement to 60 frames a second and draws the meter
+the game's size for the window's width, at the same share (about 46%) of
+the screen's height.
+
+The game also works out a loft multiplier, `(f + 0.05) x power / (the most
+power that backswing could give)` (for putts and chips the speed share
+times f), and a second number for the shot that is 1 except on hooks
+(falling to 0 at a drift of 28) and any leftward drift (rising); where the
+shot uses them is not traced yet, so the shell leaves the club's loft alone.
 
 ### Not ported
 
@@ -502,11 +572,12 @@ reading of the stroke for now.
   what sets it is not known yet.
 - The screen geometry of the PowerStroke meter (where its perfect zone sits
   and how its speed depends on the level) and the meter's own face value.
-- How the mouse swing samples the mouse (the speed, sideways drift and
-  release are read from a ring of recent mouse positions, in screen units
-  set per level), the putt and chip branches of the mouse swing, and the
-  game's "you may be having trouble with your swing" help, which nudges the
-  path of a struggling player.
+- The mouse swing's "you may be having trouble with your swing" help (an
+  option that nudges the path by 2 to 5 degrees when three quarters of
+  strokes have no sideways movement at all), its Real Time variant, the
+  golfer animation that holds the club at the ball until the golfer is
+  ready, where its loft multiplier goes, and how a mouse putt reaches beyond
+  about 60 feet (its power tops out near 15.6).
 - Chips and one other shot type skip or flip parts of the swing model;
   full swings and putts are ported. A game option that doubles every
   PowerStroke miss is left out.
