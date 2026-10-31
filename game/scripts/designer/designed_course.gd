@@ -15,8 +15,10 @@ const HEIGHT_ENCODING := "cm-delta-s16-deflate-base64"
 ## Course sizes offered for a new course, in metres.
 const SIZES := [Vector2(600, 600), Vector2(1000, 800), Vector2(1400, 1000)]
 const SIZE_NAMES := ["Small (600 x 600 m)", "Medium (1000 x 800 m)", "Large (1400 x 1000 m)"]
-const TREE_IDS := ["tree_pine", "tree_broadleaf"]
-const TREE_NAMES := ["Pine", "Broadleaf"]
+const TREE_IDS := ["tree_pine", "tree_broadleaf", "bush"]
+const TREE_NAMES := ["Pine", "Broadleaf", "Bush"]
+## How many of TREE_IDS are trees, for a mixed planting.
+const TREE_KINDS := 2
 
 var course_name := "New course"
 var author := ""
@@ -92,7 +94,7 @@ static func starter(size := Vector2.ZERO) -> DesignedCourse:
 			clear = clear and s.signed_distance(p) > 14.0
 		if not clear:
 			continue
-		c.objects.append(PlacedObject.new(TREE_IDS[rng.randi() % 2], Vector3(x, 0, z), rng.randf_range(0, 360), rng.randf_range(0.8, 1.3)))
+		c.objects.append(PlacedObject.new(TREE_IDS[rng.randi() % TREE_KINDS], Vector3(x, 0, z), rng.randf_range(0, 360), rng.randf_range(0.8, 1.3)))
 		placed += 1
 	c.course_name = "My course"
 	return c

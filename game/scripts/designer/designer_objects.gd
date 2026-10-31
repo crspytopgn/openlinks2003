@@ -1,6 +1,6 @@
 class_name DesignerObjects
 extends RefCounted
-## What the course designer can place: the two built-in trees, plus every
+## What the course designer can place: the built-in trees and bush, plus every
 ## object in the player's own OBJECT.LIB (trees, bushes, buildings,
 ## grandstands, crowds...) when their game files are loaded. Courses store
 ## an object by its catalog file name and saves its measured size, so a
@@ -8,7 +8,7 @@ extends RefCounted
 ## the game files; elsewhere it still plays the same, with built-in trees
 ## standing in for the game's trees.
 
-const BUILT_IN := [["tree_pine", "Pine"], ["tree_broadleaf", "Broadleaf"]]
+const BUILT_IN := [["tree_pine", "Pine"], ["tree_broadleaf", "Broadleaf"], ["bush", "Bush"]]
 
 
 ## The player's decoded object library, or null without game files.
@@ -24,7 +24,7 @@ static func library() -> DecodedObjectLibrary:
 ## [{name: String, items: [[id, label], ...]}, ...]: the built-in trees
 ## first, then the catalog's own categories.
 static func categories() -> Array:
-	var out: Array = [{"name": "Basic trees", "items": BUILT_IN}]
+	var out: Array = [{"name": "Basic trees and bushes", "items": BUILT_IN}]
 	var lib := library()
 	if lib == null:
 		return out
@@ -124,6 +124,10 @@ static func add_obstacles(field: ObstacleField, o: PlacedObject, y: float, saved
 		"tree_broadleaf":
 			field.add_cylinder(x, z, 0.28 * s, y - 1.0, y + 3.5 * s, ObstacleField.Kind.SOLID)
 			field.add_cylinder(x, z, 3.2 * s, y + 3.0 * s, y + 10.0 * s, ObstacleField.Kind.CANOPY)
+			return
+		"bush":
+			# Leaves to the ground: it slows the ball like a canopy.
+			field.add_cylinder(x, z, 1.1 * s, y, y + 1.5 * s, ObstacleField.Kind.CANOPY)
 			return
 	var info := info_for(o.id, saved)
 	if info.is_empty():

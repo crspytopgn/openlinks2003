@@ -699,7 +699,7 @@ func _paint_trees(p2: Vector2, r: float, k: float, delta: float) -> void:
 			if not course.objects_near(q, 4.5).is_empty():
 				continue
 			var kind := panel.tree_kind.selected
-			var id: String = DesignedCourse.TREE_IDS[kind] if kind < DesignedCourse.TREE_IDS.size() else DesignedCourse.TREE_IDS[_rng.randi() % DesignedCourse.TREE_IDS.size()]
+			var id: String = DesignedCourse.TREE_IDS[kind] if kind < DesignedCourse.TREE_IDS.size() else DesignedCourse.TREE_IDS[_rng.randi() % DesignedCourse.TREE_KINDS]
 			var o := PlacedObject.new(id, Vector3(q.x, 0, q.y), _rng.randf_range(0, 360), _rng.randf_range(0.8, 1.3))
 			course.objects.append(o)
 			_tree_nodes.append(_make_tree(o))
