@@ -66,7 +66,7 @@ feel) still need a working install.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
-  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, with a motion-captured swing and putt (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)) and a hand-keyed celebration ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
+  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, a walk up to each ball, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
   - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
@@ -96,7 +96,8 @@ feel) still need a working install.
   - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
   - [x] Real courses: greens, tees, fairways and bunkers the map lacks drawn at typical sizes along each hole (marked as guessed)
   - [x] Real courses: find missing greens and bunkers in the photos (and bunkers in the lidar) before guessing
-  - [ ] Real courses: find missing fairways in the photos, and greens in the lidar
+  - [x] Real courses: find missing fairways in the photos (clear photos; low-contrast ones fall back)
+  - [ ] Real courses: greens in the lidar where there is no photo
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
@@ -107,7 +108,7 @@ feel) still need a working install.
 
 - [ ] Optional extras, off by default so Classic Links plays as the original ([caddie-and-buggy.md](docs/caddie-and-buggy.md))
   - [x] Caddie (Settings > Caddie): yardage, plays-like, club, line and green reads planned through the real physics, saying less at the harder swing skill levels
-  - [ ] Drivable golf buggy between shots, with a skip
+  - [x] Drivable golf buggy between shots (Settings > Golf buggy), with a skip
   - [ ] Caddie animations (walking, handing over the club)
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order

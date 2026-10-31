@@ -18,6 +18,7 @@ const PUTT_UP := 1.2
 ## The aim view looks at a point this far down the line, this high.
 const AIM_LOOK_AHEAD := 70.0
 const AIM_LOOK_UP := 2.0
+const AIM_MAX_LIFT := 14.0  ## highest the aim camera climbs to see over a rise
 const PUTT_LOOK_AHEAD := 6.0
 ## Shots that carry further than this get the landing view.
 const LANDING_VIEW_MIN_CARRY := 70.0
@@ -55,7 +56,7 @@ const FLYOVER_UP := 38.0
 
 
 ## Snaps behind the ball, looking down the aim line `dir` (flat, unit).
-func aim(ball: Vector3, dir: Vector3, putting: bool) -> void:
+func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 	_shot = null
 	var back := PUTT_BACK if putting else AIM_BACK
 	var up := PUTT_UP if putting else AIM_UP
@@ -65,6 +66,17 @@ func aim(ball: Vector3, dir: Vector3, putting: bool) -> void:
 	else:
 		var ahead := ball + dir * AIM_LOOK_AHEAD
 		_look = Vector3(ahead.x, maxf(ball.y, _ground(ahead)) + AIM_LOOK_UP, ahead.z)
+		# A rise in front can hide where the shot is going: lift the camera
+		# until it can see the target, and look at the target.
+		if reach > AIM_LOOK_AHEAD and terrain != null:
+			var far := ball + dir * reach
+			var target := Vector3(far.x, _ground(far) + 1.0, far.z)
+			if not sight_clear(terrain, pos, target):
+				var lift := 0.0
+				while lift < AIM_MAX_LIFT and not sight_clear(terrain, pos + Vector3.UP * lift, target):
+					lift += 1.0
+				pos += Vector3.UP * lift
+				_look = Vector3(far.x, _ground(far) + AIM_LOOK_UP, far.z)
 	_aim_pos = pos
 	_aim_look = _look
 	if flying():
@@ -210,6 +222,16 @@ func _place_for_landing() -> void:
 	dir = dir.normalized() if dir.length() > 0.1 else Vector3.FORWARD
 	var right := dir.cross(Vector3.UP)
 	position = _above_ground(land - dir * LANDING_SHORT + right * LANDING_SIDE + Vector3.UP * LANDING_UP)
+
+
+## True if no ground lies between `from` and `to`.
+static func sight_clear(t: CourseTerrain, from: Vector3, to: Vector3) -> bool:
+	const STEPS := 40
+	for i in range(2, STEPS):
+		var p := from.lerp(to, float(i) / STEPS)
+		if t.height_at(p.x, p.z) > p.y:
+			return false
+	return true
 
 
 func _above_ground(p: Vector3) -> Vector3:

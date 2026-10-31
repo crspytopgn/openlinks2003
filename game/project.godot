@@ -19,6 +19,13 @@ window/size/window_width_override=1600
 window/size/window_height_override=900
 window/stretch/aspect="expand"
 
+[importer_defaults]
+
+texture={
+"compress/lossy_quality": 0.85,
+"compress/mode": 1
+}
+
 [input]
 
 swing={

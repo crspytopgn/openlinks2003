@@ -105,7 +105,7 @@ photo**), to check and trace the course against.
 | France | IGN BD ORTHO via the Geoplateforme | Licence Ouverte 2.0 |
 | Spain | PNOA (IGN Espana) | CC BY 4.0 |
 | Japan | GSI seamless photo | GSI terms (credit) |
-| United States | USGS The National Map orthoimagery (NAIP) | Public domain |
+| United States | USGS The National Map orthoimagery (NAIP), zoom 16 at most | Public domain |
 
 WMS services are asked for each web mercator tile's box. Services answer
 white or empty tiles outside their country; those don't count, and the next
@@ -203,17 +203,25 @@ OpenStreetMap from the club's own published scorecard.
   missing. First it looks for the real thing (`CourseDetector`,
   `course_detector.gd`):
   - **Greens in the photo:** the evenly coloured grass grown out from the
-    pin, with the loosest colour match that doesn't yet leak 26 m out
-    (into the fringe and fairway), 150 to 1200 m2.
+    pin (its colour the median within 4 m of the pin), with the loosest
+    colour match that doesn't yet leak 26 m out (into the fringe and
+    fairway), 150 to 1200 m2.
   - **Bunkers in the photo:** compact patches of bright, whitish or pale
     yellow sand by the green and at the driving distance, 15 to 600 m2, at
-    least 3 m thick and not on a mapped path (sandy tracks).
+    least 3 m wide in every direction and not on a mapped path (sandy
+    tracks).
+  - **Fairways in the photo:** on a softened copy (about 2.5 m a pixel),
+    cross-sections every 10 m along the line find the band of grass of the
+    line's own colour that crosses it; the longest run of 15 to 60 m wide
+    sections, at least half the hole, with steady widths (spread under a
+    quarter of the mean), becomes the fairway. Ragged bands (rough,
+    heather, a winter photo) are left to the fallback.
   - **Bunkers in lidar:** without a photo, hollows at least 0.3 m below
     the ground 6 to 8 m round them.
   On Hilversum (greens and bunkers removed from the map, then found
-  again), 14 of 20 greens were found, 9 of them within half their mapped
-  size; most bunkers were found, plus some unmapped ones and a few pieces
-  of sandy track.
+  again), 13 of 20 greens were found, 10 of them within half their mapped
+  size; most bunkers were found, plus some unmapped ones. Its winter
+  photo is too low in contrast for fairways, so they fall back.
   Whatever isn't found is drawn at typical sizes along the line: a green
   round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
   longer than wide), a tee box at each tee, on par 4s and 5s a fairway
@@ -264,8 +272,8 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
-- Finding fairways in the photo (mown stripes) rather than guessing them,
-  and greens in the lidar (smooth, raised) where there is no photo.
+- Greens in the lidar (smooth, raised) where there is no photo, and
+  fairways in low-contrast photos.
 - More lidar and photo services (above); reprojecting from national
   grids would open most of the rest.
 - Buildings (`building=*`, already read to keep trees off them) as

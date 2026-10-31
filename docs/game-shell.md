@@ -480,9 +480,11 @@ Nothing in the round needs to change.
   folder is configured: the original skinned, textured golfer and clubs as a
   `Skeleton3D`, driven by the original clips. Without a game folder,
   `PlaceholderGolferAssets` gives `FreeGolfer`: a realistic man built from
-  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with a
-  motion-captured swing and putt (CMU mocap, retargeted by
-  `tools/golfer/mocap_swing.py`) and a hand-keyed celebration, baked into
+  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, moving
+  with motion capture (CMU mocap, retargeted by
+  `tools/golfer/mocap_swing.py`): address with a look at the target, swing,
+  putt, a walk up to each new ball, and `celebrate` and `upset` reactions,
+  baked into
   `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
   If that file is missing it falls back to `PlaceholderGolfer`, the figure
   built from primitives.
