@@ -99,8 +99,12 @@ at Medium and grass at Low.
 - **Photo ground on disc courses** (`CrzTerrain.photo_ground`,
   `shaders/course_ground.gdshader`): with Photoreal lighting (every look
   but Classic), grass, fairway, green, rough, deep rough and sand draw the
-  free photographed texture of their surface instead of the disc's 2003
-  texture. The photo's detail sits on the course's own colour for that
+  free photoscanned set of their surface (albedo, normal and roughness:
+  ambientCG's short lawn for mown grass and dense long grass for rough,
+  Poly Haven sand) instead of the disc's 2003 texture. The lawn scan's
+  light and dark is boosted (`PHOTO_GAINS`), since it is shot in soft light
+  and would read flat at playing distance; its roughness map gives glossy
+  and matt blades near the camera. The photo's detail sits on the course's own colour for that
   material (the mean of its disc texture), made darker and deeper as real
   turf is (`realistic()`; pale disc rough becomes straw and olive). It is
   sampled at two scales, fades to its mean colour with distance, and has

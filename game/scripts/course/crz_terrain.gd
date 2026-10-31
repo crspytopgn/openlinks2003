@@ -18,6 +18,14 @@ const GROUND_SHADER := preload("res://shaders/course_ground.gdshader")
 ## Set from the graphics settings: the Photoreal lighting draws the ground
 ## with the free photo textures (COURSE_GROUND shader), Classic with the
 ## disc's own. Takes effect on the next hole.
+## Metres per repeat of each photo ground: the turf scans cover about a
+## metre and a half of lawn.
+const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.5}
+## How strongly each scan's light and dark blades show: the lawn scan is
+## shot in soft light and reads flat at playing distance.
+const PHOTO_GAINS := {"grass": 2.2, "rough": 1.4, "sand": 1.0}
+## Hue of healthy, watered turf (HSV, 0..1).
+const MOWN_HUE := 0.27
 static var photo_ground := false
 static var _means := {}  ## Texture2D -> mean colour
 
@@ -316,9 +324,15 @@ static func _photo_material(surface: Surface.Type, info: Dictionary) -> ShaderMa
 	var normal := FreeAssets.ground(slot, "normal")
 	mat.set_shader_parameter("normal_tex", normal)
 	mat.set_shader_parameter("has_normal", normal != null)
+	var rough := FreeAssets.ground(slot, "roughness")
+	mat.set_shader_parameter("roughness_tex", rough)
+	mat.set_shader_parameter("has_roughness", rough != null)
 	mat.set_shader_parameter("photo_mean", mean)
 	mat.set_shader_parameter("far_color", target)
-	mat.set_shader_parameter("tile", CrzCourseLoader.FREE_TILE_METRES * (1.6 if slot == "rough" else 1.0))
+	mat.set_shader_parameter("tile", PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES))
+	mat.set_shader_parameter("detail_gain", PHOTO_GAINS.get(slot, 1.0))
+	# The lawn scan's yellow tips would turn the course's greens lime.
+	mat.set_shader_parameter("photo_hue", 0.1 if slot == "grass" else 0.3)
 	match surface:
 		Surface.Type.GREEN:
 			mat.set_shader_parameter("stripes", 0.07)
@@ -346,6 +360,10 @@ static func realistic(c: Color, surface: Surface.Type) -> Color:
 		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.62)
 	elif surface == Surface.Type.SAND:
 		out = Color.from_hsv(c.h, clampf(c.s * 0.9, 0.0, 0.5), minf(c.v * 0.92, 0.85))
+	elif c.h > 0.12 and c.h < 0.45:
+		# Mown grass: the disc's yellowish greens pulled towards the deep
+		# green of watered turf.
+		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s, c.v * 0.62)
 	return out
 
 

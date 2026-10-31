@@ -1,5 +1,5 @@
 // Ground of a disc course in the Photoreal and Natural looks (CrzTerrain):
-// a free photographed ground texture per surface instead of the disc's
+// a free photoscanned ground set (albedo, normal, roughness) per surface instead of the disc's
 // 2003 texture, tinted to the course's own colour for that surface, so the
 // course keeps its character with real grass, rough and sand detail. The
 // photo is sampled at two scales so its repeat is hard to see, fades to
@@ -13,9 +13,13 @@ shader_type spatial;
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool has_normal = false;
+uniform sampler2D roughness_tex : hint_roughness_g, filter_linear_mipmap, repeat_enable;
+uniform bool has_roughness = false;
 uniform vec3 photo_mean : source_color = vec3(0.5); // the photo's average colour
 uniform vec3 far_color : source_color = vec3(0.3, 0.45, 0.2); // the ground's colour
 uniform float tile = 2.5; // metres per repeat
+uniform float photo_hue = 0.3; // how much of the photo's own colour shifts show
+uniform float detail_gain = 1.0; // how strongly the photo's light and dark show
 uniform float variation = 0.14; // large lighter and darker patches
 uniform float stripes = 0.0; // mowing stripe contrast (0 = none)
 uniform float stripe_width = 9.0;
@@ -61,7 +65,8 @@ void fragment() {
 	// The photo's detail (mostly its light and dark) on the ground's colour,
 	// so its own hue doesn't shift the course's.
 	const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
-	vec3 detail = mix(vec3(dot(raw, LUMA) / max(dot(photo_mean, LUMA), 0.02)), raw / max(photo_mean, vec3(0.02)), 0.3);
+	vec3 detail = mix(vec3(dot(raw, LUMA) / max(dot(photo_mean, LUMA), 0.02)), raw / max(photo_mean, vec3(0.02)), photo_hue);
+	detail = max(vec3(1.0) + (detail - vec3(1.0)) * detail_gain, vec3(0.0));
 	vec3 photo = far_color * detail;
 	vec3 col = mix(photo, far_color, smoothstep(60.0, 400.0, dist));
 	col *= 1.0 + (fbm(p * 0.02) - 0.5) * variation * 2.0 + (value_noise(p * 0.3) - 0.5) * variation * 0.6;
@@ -76,6 +81,13 @@ void fragment() {
 		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, n.y, 0.0)).xyz * normal_strength * near);
 	}
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, dist);
-	ROUGHNESS = roughness_value;
+	float rough = roughness_value;
+	if (has_roughness) {
+		// The scan's own glossy and matt blades near the camera, centred on
+		// the surface's roughness.
+		float r = texture(roughness_tex, uv).g - 0.5;
+		rough = clamp(roughness_value + r * 0.35 * (1.0 - smoothstep(20.0, 120.0, dist)), 0.3, 1.0);
+	}
+	ROUGHNESS = rough;
 	SPECULAR = 0.3;
 }
