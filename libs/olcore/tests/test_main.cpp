@@ -1720,6 +1720,67 @@ void test_links_landing() {
   CHECK_NEAR(b.position.y, 2.761, 2e-3);
 }
 
+// Steps a ball near a hole at the origin until it is holed or stops; returns
+// the step, or -1. `seen` gets the state after step `at`.
+int run_cup_ball(LinksBall& b, LinksBall* seen = nullptr, int at = -1) {
+  TestGround green(kLinksGreen);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  LinksCup cup;
+  for (int k = 0; k < 600; ++k) {
+    links_step(b, green, air, {}, rng, LinksConstants::kFrameDt, &cup);
+    if (k == at && seen != nullptr) *seen = b;
+    if (b.mode == LinksMode::Rest || b.mode == LinksMode::Holed) return k;
+  }
+  return -1;
+}
+
+// The cup and flagstick. Every case was run through the game's own code (see
+// docs/formats/physics.md) and matches it step for step; game/tests/run_tests.gd
+// checks the GDScript port against the same numbers.
+void test_links_cup() {
+  CHECK_NEAR(links_cup_radius(1), 0.17708, 1e-9);
+  CHECK_NEAR(links_cup_radius(0), 0.1875, 1e-9);
+  CHECK_NEAR(links_cup_radius(2), 0.29167, 1e-9);
+  // A putt slightly off line, flagstick in: over the rim, into the hole's
+  // air, off the flagstick and down.
+  LinksBall seen;
+  LinksBall b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b, &seen, 18) == 35);
+  CHECK(b.mode == LinksMode::Holed);
+  CHECK(seen.mode == LinksMode::CupRim);
+  b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  run_cup_ball(b, &seen, 21);
+  CHECK(seen.mode == LinksMode::CupAir);
+  CHECK(seen.flagstick_out);
+  CHECK_NEAR(seen.velocity.x, 0.9429, 1e-4);
+  CHECK_NEAR(seen.velocity.y, -0.6037, 1e-4);
+  CHECK_NEAR(seen.velocity.z, -0.7611, 1e-4);
+  // The same putt with the flagstick out.
+  b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  b.flagstick_out = true;
+  CHECK(run_cup_ball(b) == 34);
+  CHECK(b.mode == LinksMode::Holed);
+  // Firm, nearer the edge: in.
+  b = links_ball({0.12, -1, 0.07}, {0, 5, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 31);
+  CHECK(b.mode == LinksMode::Holed);
+  // Near the edge at 4 ft/s: round the rim and out.
+  b = links_ball({0.16, -1, 0.07}, {0, 4, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 63);
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK_NEAR(b.position.x, -0.08464, 2e-5);
+  CHECK_NEAR(b.position.y, 0.64145, 2e-5);
+  // Outside the hole's circle: it passes by.
+  b = links_ball({0.19, -1, 0.07}, {0, 3.5, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 47);
+  CHECK(b.mode == LinksMode::Rest);
+  // Dropping in from above.
+  b = links_ball({0.05, -0.05, 0.06}, {0, 1, -3}, {}, LinksMode::CupAir);
+  CHECK(run_cup_ball(b) == 10);
+  CHECK(b.mode == LinksMode::Holed);
+}
+
 void test_links_shot() {
   std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
   if (!aero) {
@@ -2421,6 +2482,7 @@ int main() {
       {"links_roll", test_links_roll},
       {"links_green", test_links_green},
       {"links_landing", test_links_landing},
+      {"links_cup", test_links_cup},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},

@@ -778,20 +778,71 @@ water. Bit 3 marks free-drop ground (cart paths, concrete, asphalt, walls).
 
 ### The cup
 
-The cup's radius is set at launch from one of the launch routine's
+The cup's radius R is set at launch from one of the launch routine's
 arguments: 0.1875 ft (a 4.5 inch hole), 0.17708 ft (4.25 inches, the
 regulation size) or 0.29167 ft (7 inches), then multiplied by the hole size
-option (1 normally). On the ground the ball is in the hole when its centre
-is within that radius plus 0.0007 ft of the pin, horizontally; with a
-bigger hole option a ball within the radius but not 0.07 ft (one ball
-radius) inside it is on the lip. What the ground step then does (dropping
-in, lipping out, hitting the flagstick) is not ported yet.
+option (1 normally). The game's "is it in the hole" test answers 2 when the
+ball's centre is within R − 0.07 ft of the pin horizontally (well inside),
+1 within R + 0.0007 ft (over the hole), and 0 otherwise.
+
+The game models the hole as a circle of radius R round the pin's base: a
+rim edge at the green's level that the ball (radius 0.07 ft) can roll on,
+and a cup below it. In the cup the ball has four modes of its own, and the
+game runs them in sub-steps of 1/1200 s (20 a frame, counted down in single
+precision). Positions below are relative to the pin's base.
+
+- **Getting in.** On a green, after the ground step's checkpoint, a ball
+  whose path crosses the circle is moved to the crossing (position by the
+  fraction of the path, velocity and spin by the matching fraction of time)
+  and starts rolling on the rim. A ball coming down from the air whose
+  contact point is within R + 0.0007 ft does not bounce: it falls into the
+  hole's air and plays the rest of its step there.
+- **On the rim.** The edge holds the ball against it: it is pulled round
+  the edge by gravity's component along the axis that tips it over, its
+  velocity into the edge is cancelled, and it is put back 0.07 ft from the
+  edge along the line from the edge to its centre, with spin to match its
+  rolling. The earliest of three events ends the sub-step: rolling back out
+  past R + 0.0007 ft (it rolls on, on the green), coming away from the edge
+  because the edge would have to pull it to keep it there (found by
+  halving the sub-step until the step is under 1/4096; it falls into the
+  hole's air), or its centre dropping below the green's level (it slides
+  down the wall).
+- **In the hole's air.** Gravity alone. Events: touching the edge (it is
+  placed against it; slower than 0.2 ft/s into the edge it rolls on the
+  rim, faster it bounces off with half its speed into the edge), rising
+  above 0.071 ft (back into normal flight, set on the green), or dropping
+  below the green's level (it falls into the cup).
+- **On the wall.** It keeps only its speed round the circle and falls,
+  held on the circle.
+- **Falling in the cup.** Gravity alone; reaching the circle it is put on
+  it and either slides down the wall (slower than 0.2 ft/s into it) or
+  bounces off it with 0.3 of that speed.
+
+In every mode, once the centre is 1 ft below the green the ball is holed.
+After an event the rest of the sub-step is played through the normal step
+again (unless under 5% of it is left). Steps can nest this way, and the
+game caps them at five deep; past that it sets a ball near the hole down
+just outside it (olcore puts it at 1.06 R and stops it).
+
+**The flagstick** is a pole of radius 1/24 ft (half an inch) on the pin.
+The launch takes it out when the shot is struck from the hole's green (or
+when its caller asks; that case is not identified). Otherwise, while
+flying, rolling or in the hole's air, the first time the ball's centre
+crosses the pole's circle anywhere from 0.5 ft below the pin's base to 8 ft
+above it, the ball is moved to the crossing and sent off with its velocity
+mirrored about the line from the pole's axis, times 0.3, and 0.09 of its
+spin. It can only be hit once a shot.
+
+olcore (`links_step` with a `LinksCup`) and the GDScript port follow all of
+this, and match the game's code step for step in an emulator on putts that
+drop, lip out round the rim, hit the flagstick or miss, and on balls
+dropped into the hole's air.
 
 ### Not ported
 
-- The cup: the routines after the test above; olcore uses its own.
-- Trees and other objects in flight and while rolling, and balls rolling
-  on objects such as bridges.
+- Hole size options other than 1 (the game uses a different cup routine).
+- Trees and other objects in flight and while rolling (the same routine as
+  the flagstick, before it), and balls rolling on objects such as bridges.
 
 ## Open questions
 
