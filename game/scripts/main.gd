@@ -24,7 +24,9 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard%s    Esc: menu"
+## The object viewer needs the game folder, which browsers can't read.
+const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
 const HINT_AIM_MOUSE := "Hold the left button: mouse swing    Space: meter"
 const HINT_FREE_DROP := "    F: free drop"
@@ -38,7 +40,7 @@ const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the whi
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
-const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
+const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
 const REPLAY_SLOW := 0.35
@@ -169,6 +171,7 @@ var _voice_flight := ""
 var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
+var caddie: Caddie  ## Settings > Caddie; null when off
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
 
@@ -245,6 +248,10 @@ func start_round() -> void:
 	course = AssetProviders.load_course(course_path)
 	round_setup.course_name = course.course_name
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
+	# A friend's round: the same wind, shot for shot.
+	var versus := round_setup.challenge
+	if versus != null:
+		round_seed = versus.round_seed
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
@@ -301,10 +308,12 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	wind = Wind.new(graphics.wind, round_seed)
+	var wind_level := graphics.wind if versus == null else versus.wind_level
+	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
-	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", graphics.wind)
+	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
 	record.course_hash = RoundRecord.file_hash(course_path)
+	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
 	round_stats.clear()
 	for _i in scoring.player_count():
@@ -574,6 +583,8 @@ func _store_turn() -> void:
 ## tests call it directly.
 func play_shot(power: float, accuracy: float) -> void:
 	var club := clubs[club_index]
+	if caddie != null:
+		caddie.quiet()
 	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
@@ -755,8 +766,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.ROUND_DONE:
 						_quit_to_menu()
 						return
+				KEY_X:
+					if state == State.ROUND_DONE:
+						DisplayServer.clipboard_set(record.to_code())
+						hud.show_message("Result code copied. Send it to a friend: their game checks it and can play the same course and wind.", 4.0)
+						return
 				KEY_O:
-					_visit("res://scenes/object_viewer.tscn")
+					if _objects_viewable():
+						_visit("res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -898,6 +915,8 @@ func _on_mouse_stroke_cancelled() -> void:
 
 
 func _on_backswing_started() -> void:
+	if caddie != null:
+		caddie.quiet()
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
 
@@ -948,13 +967,45 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_aim_camera(snap_camera)
 	_update_green_grid()
 	_save_progress()
+	_caddie_read()
 	if opponents[shooter] != null:
 		_start_computer_turn()
 
 
+## The caddie (if on) reads the player's shot; computer golfers go without.
+func _caddie_read() -> void:
+	if caddie == null:
+		return
+	if opponents[shooter] != null or state != State.AIM:
+		caddie.step_aside()
+		return
+	caddie.advise(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill, _aim_dir())
+
+
+## Settings > Caddie switched on or off.
+func _set_caddie(on: bool) -> void:
+	if on == (caddie != null):
+		return
+	if not on:
+		caddie.note.queue_free()
+		caddie.queue_free()
+		caddie = null
+		return
+	caddie = Caddie.new()
+	add_child(caddie)
+	hud.add_child(caddie.note)
+	if hole != null and state == State.AIM:
+		_caddie_read()
+
+
 ## The aiming keys, with the swing the settings chose.
 func _aim_hint() -> String:
-	return HINT_AIM % (HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER)
+	var swing := HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER
+	return HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+
+
+static func _objects_viewable() -> bool:
+	return not OS.has_feature("web")
 
 
 func _process_aim(delta: float) -> void:
@@ -1230,6 +1281,8 @@ func _next_hole() -> void:
 			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
 	var records := _record_rounds()
 	_save_record()
+	if round_setup.challenge != null:
+		text += "\nTheir round: " + round_setup.challenge.summary()
 	if not records.is_empty():
 		text += "\n" + records
 	hud.show_message(text)
@@ -1299,6 +1352,8 @@ func _start_drop(reason: int) -> void:
 
 
 func _begin_drop(reason: int) -> void:
+	if caddie != null:
+		caddie.quiet()
 	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
 	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
 	_drop_reason = reason
@@ -1699,6 +1754,7 @@ func _apply_graphics() -> void:
 		camera.end_flyover()
 	if hole != null and state == State.AIM:
 		_update_green_grid()
+	_set_caddie(graphics.caddie)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()

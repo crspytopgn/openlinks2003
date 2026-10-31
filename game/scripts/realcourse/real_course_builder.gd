@@ -60,6 +60,10 @@ var photo_trees := PackedVector2Array()
 ## Trees from the land cover (LandCover.tree_points), used when there are
 ## no lidar or photo trees, outside the mapped woods.
 var land_trees := PackedVector2Array()
+## The course photo (AerialPhotos.course_photo) and whether the heights
+## came from lidar, for finding greens and bunkers the map lacks.
+var photo: Image
+var lidar_heights := false
 var _guessed: Array[Dictionary] = []  ## CourseGuesser's shapes: {"ring", "box"}
 ## With several courses at one club (golf:course:name on the holes),
 ## build only this one; empty builds every hole.
@@ -146,16 +150,20 @@ func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	_fill_heights(c, height, fallback)
 	_add_shapes(c)
 	_add_holes(c)
+	# Paths first: sandy tracks found in the photo aren't bunkers.
+	_add_paths(c)
 	_guessed.clear()
-	for s in CourseGuesser.fill(c, hash(c.course_name)):
+	var detected := 0
+	for s in CourseGuesser.fill(c, hash(c.course_name), photo, lidar_heights):
+		if s.has_meta("detected"):
+			detected += 1
 		var ring := s.outline()
 		var r := Rect2(ring[0], Vector2.ZERO)
 		for p in ring:
 			r = r.expand(p)
 		_guessed.append({"ring": ring, "box": r})
-	_add_paths(c)
 	_add_trees(c)
-	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size()}
+	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size() - detected, "detected": detected}
 	return c
 
 

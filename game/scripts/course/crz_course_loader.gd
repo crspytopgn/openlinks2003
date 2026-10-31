@@ -439,6 +439,8 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		course.read_entry = archive.read_named
 		course.objects = CourseObjects.build(archive.read_named, data.get("objects", {}), CourseObjects.find_crowd_library())
 		terrain.obstacles = course.objects.obstacles
+		terrain.links_objects = course.objects.links_objects
+		terrain.model_obstacles = course.objects.model_obstacles
 	var number := 0
 	for h in data.holes as Array:
 		number += 1

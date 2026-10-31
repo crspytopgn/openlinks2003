@@ -1,5 +1,5 @@
 // Ground of a disc course in the Photoreal and Natural looks (CrzTerrain):
-// a free photoscanned ground set (albedo, normal, roughness) per surface instead of the disc's
+// a free photoscanned ground set (albedo, normal, roughness, height) per surface instead of the disc's
 // 2003 texture, tinted to the course's own colour for that surface, so the
 // course keeps its character with real grass, rough and sand detail. The
 // photo is sampled at two scales so its repeat is hard to see, fades to
@@ -30,7 +30,16 @@ uniform float stripes = 0.0; // mowing stripe contrast (0 = none)
 uniform float stripe_width = 9.0;
 uniform float stripe_angle = 0.6; // radians from +x
 uniform float roughness_value = 0.92;
-uniform float normal_strength = 0.6;
+uniform float normal_strength = 1.0;
+// The scan's height map: near the camera it shifts the texture with the
+// view (parallax, so blades and grains stand up) and darkens the low
+// parts (cavities between blades, pebbles and footprints), which is most
+// of what makes real ground look deep rather than printed on.
+uniform sampler2D height_tex : filter_linear_mipmap, repeat_enable;
+uniform bool has_height = false;
+uniform float parallax_depth = 0.02; // metres of relief
+uniform float cavity = 0.5; // how much darker the lowest parts are
+uniform float height_mean = 0.5; // the height map's average, so cavities keep the mean brightness
 
 uniform bool blended = false;
 uniform sampler2D mask_tex : filter_linear_mipmap, repeat_enable;
@@ -48,6 +57,11 @@ uniform float variation_b = 0.14;
 uniform float stripes_b = 0.0;
 uniform float stripe_width_b = 9.0;
 uniform float roughness_value_b = 0.92;
+uniform sampler2D height_tex_b : filter_linear_mipmap, repeat_enable;
+uniform bool has_height_b = false;
+uniform float parallax_depth_b = 0.02;
+uniform float cavity_b = 0.5;
+uniform float height_mean_b = 0.5;
 
 varying vec3 world_pos;
 varying vec2 mask_uv;
@@ -93,6 +107,23 @@ vec3 layer_color(vec3 raw, vec3 mean, vec3 far, float hue, float gain, float var
 	return col;
 }
 
+// `uv` shifted along the view by the height map (two steps), so relief
+// near the camera keeps its depth as the view moves.
+vec2 parallax(sampler2D h_tex, vec2 uv, vec3 view, float depth_uv) {
+	vec2 shift = view.xz / max(view.y, 0.3) * depth_uv;
+	float h = texture(h_tex, uv).r;
+	vec2 at = uv - shift * (h - 0.5);
+	h = texture(h_tex, at).r;
+	return uv - shift * (h - 0.5);
+}
+
+// Darkening of the scan's low parts and lightening of its tops, 1 at the
+// map's average height.
+float cavity_shade(sampler2D h_tex, vec2 uv, float amount, float mean) {
+	float h = texture(h_tex, uv).r;
+	return clamp(1.0 + (h - mean) * 2.0 * amount, 0.25, 1.4);
+}
+
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	mask_uv = blended ? CUSTOM0.xy : vec2(0.0);
@@ -104,8 +135,20 @@ void fragment() {
 	float near = 1.0 - smoothstep(30.0, 150.0, dist);
 	float near_rough = 1.0 - smoothstep(20.0, 120.0, dist);
 	vec2 uv = p / tile;
+	vec3 view = normalize(CAMERA_POSITION_WORLD - world_pos);
+	float near_relief = 1.0 - smoothstep(10.0, 35.0, dist);
+	// Cavities fade out before their repeat shows: sooner on finely tiled
+	// ground such as greens.
+	float near_cavity = 1.0 - smoothstep(10.0, clamp(tile * 40.0, 20.0, 110.0), dist);
+	float near_cavity_b = 1.0 - smoothstep(10.0, clamp(tile_b * 40.0, 20.0, 110.0), dist);
+	if (has_height && near_relief > 0.0) {
+		uv = parallax(height_tex, uv, view, parallax_depth / tile * near_relief);
+	}
 	vec3 raw = mix(texture(albedo_tex, uv).rgb, texture(albedo_tex, uv * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
 	vec3 col = layer_color(raw, photo_mean, far_color, photo_hue, detail_gain, variation, stripes, stripe_width, p, dist);
+	if (has_height && near_cavity > 0.0) {
+		col *= mix(1.0, cavity_shade(height_tex, uv, cavity, height_mean), near_cavity);
+	}
 	vec3 n = vec3(0.0);
 	if (has_normal) {
 		n = mix(texture(normal_tex, uv).rgb, texture(normal_tex, uv * 0.137 + vec2(0.31, 0.71)).rgb, 0.35) * 2.0 - 1.0;
@@ -120,8 +163,14 @@ void fragment() {
 		// The mask runs 0 to 1 across the edge; keep off its border texels.
 		float w = texture(mask_tex, vec2(clamp(mask_uv.x, 0.02, 0.98), mask_uv.y)).a;
 		vec2 uv_b = p / tile_b;
+		if (has_height_b && near_relief > 0.0) {
+			uv_b = parallax(height_tex_b, uv_b, view, parallax_depth_b / tile_b * near_relief);
+		}
 		vec3 raw_b = mix(texture(albedo_tex_b, uv_b).rgb, texture(albedo_tex_b, uv_b * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
 		vec3 col_b = layer_color(raw_b, photo_mean_b, far_color_b, photo_hue_b, detail_gain_b, variation_b, stripes_b, stripe_width_b, p, dist);
+		if (has_height_b && near_cavity_b > 0.0) {
+			col_b *= mix(1.0, cavity_shade(height_tex_b, uv_b, cavity_b, height_mean_b), near_cavity_b);
+		}
 		col = mix(col, col_b, w);
 		vec3 n_b = vec3(0.0);
 		if (has_normal_b) {
@@ -134,8 +183,10 @@ void fragment() {
 		}
 		rough = mix(rough, rough_b, w);
 	}
-	NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, n.y, 0.0)).xyz * normal_strength * near);
+	// The scan's normals (OpenGL: x right, y up the image, which is -z).
+	NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, -n.y, 0.0)).xyz * normal_strength * near);
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, dist);
-	ROUGHNESS = clamp(rough, 0.3, 1.0);
-	SPECULAR = 0.3;
+	// Turf, sand and paths are matt: no sheen from the sun or the sky.
+	ROUGHNESS = clamp(rough, 0.9, 1.0);
+	SPECULAR = 0.1;
 }

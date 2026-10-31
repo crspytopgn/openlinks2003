@@ -36,5 +36,6 @@ void fragment() {
 	} else {
 		ALBEDO = col;
 	}
-	ROUGHNESS = 0.92;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.1;
 }

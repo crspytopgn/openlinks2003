@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. The three-click meter runs at the game's own positions and speeds, and chips are picked and played as the game does (its chip meter, chip power and chip misses). The cup (rim, lip-outs, the drop into the hole) and the flagstick match the game's code step for step. Still to do: the game's own tree and object collisions. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. The three-click meter runs at the game's own positions and speeds, and chips are picked and played as the game does (its chip meter, chip power and chip misses). The cup (rim, lip-outs, the drop into the hole) and the flagstick match the game's code step for step. Trees, bushes, grasses and rocks (the course's billboards) stop, turn and slow the ball as the game's code does. Still to do: the game's own test for 3D objects (walls, bridges), which still use their boxes. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -95,7 +95,8 @@ feel) still need a working install.
   - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
   - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
   - [x] Real courses: greens, tees, fairways and bunkers the map lacks drawn at typical sizes along each hole (marked as guessed)
-  - [ ] Real courses: find missing greens, fairways and bunkers in the lidar and photos instead of guessing
+  - [x] Real courses: find missing greens and bunkers in the photos (and bunkers in the lidar) before guessing
+  - [ ] Real courses: find missing fairways in the photos, and greens in the lidar
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
@@ -104,11 +105,15 @@ feel) still need a working install.
 
 ## Phase 5: later
 
+- [ ] Optional extras, off by default so Classic Links plays as the original ([caddie-and-buggy.md](docs/caddie-and-buggy.md))
+  - [x] Caddie (Settings > Caddie): yardage, plays-like, club, line and green reads planned through the real physics, saying less at the harder swing skill levels
+  - [ ] Drivable golf buggy between shots, with a skip
+  - [ ] Caddie animations (walking, handing over the club)
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
   - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
   - [ ] Online play, leaderboards and fair play ([online-play.md](docs/online-play.md))
-    - [ ] Phase 1: replayable rounds (round seed, shot records, replay checker in CI), challenge and result codes
+    - [x] Phase 1: replayable rounds (round seed, shot records, replay checker in CI), challenge and result codes
     - [ ] Phase 2: server (Cloudflare Worker), rooms by code over WebSocket, every client checks every shot, rounds in your own time
     - [ ] Phase 3: olcore in wasm, server-checked leaderboards on open courses, daily and weekly challenges, replays and ghosts
     - [ ] Phase 4: simultaneous play, GitHub or Discord sign-in, handicap boards, swing plausibility checks, reports

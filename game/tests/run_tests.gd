@@ -30,6 +30,7 @@ func _initialize() -> void:
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_cup_matches_olcore", _test_links_cup_matches_olcore)
+	_run("links_objects_match_olcore", _test_links_objects_match_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
@@ -47,6 +48,7 @@ func _initialize() -> void:
 	_run("rest_out_of_bounds", _test_rest_out_of_bounds)
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
+	_run("caddie", _test_caddie)
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
@@ -212,6 +214,18 @@ func _test_designed_round() -> void:
 	print("  designed course: %d strokes on a par %d" % [game.card.total_strokes(), game.holes[0].par])
 	GolfRound.setup = null
 	DirAccess.remove_absolute(path)
+
+	# Saving never writes over a different course with the same name.
+	var a := DesignedCourse.starter()
+	a.course_name = "Save path test"
+	var own := a.save_path()
+	_check(own == a.default_path(), "a new course saves under its name")
+	_check(a.save_file(own) == OK, "save path test course saves")
+	_check(a.save_path(own) == own, "a course saves over its own file")
+	var b := DesignedCourse.starter()
+	b.course_name = "Save path test"
+	_check(b.save_path().get_file() == "Save path test 2.olc", "a second course with the name gets its own file: %s" % b.save_path())
+	DirAccess.remove_absolute(own)
 
 
 func _test_format_readers() -> void:
@@ -929,6 +943,68 @@ func _test_computer_golfer_plans() -> void:
 	_check(weak.power <= weak.skill.strength + 1e-6, "never swings harder than its strength")
 
 
+func _test_caddie() -> void:
+	# Rules of thumb: a yard per yard of rise, 1% per mph into the wind, half that helping.
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, 0.0), 100.0, 1e-6, "flat and calm plays its length")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 10.0, 0.0), 110.0, 1e-6, "10 m uphill")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, -10.0 * CaddieAdvice.MPS_PER_MPH), 110.0, 1e-4, "10 mph into the wind")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, 10.0 * CaddieAdvice.MPS_PER_MPH), 95.0, 1e-4, "10 mph helping")
+	_check(CaddieAdvice.detail_for_skill(0) == CaddieAdvice.Detail.FULL, "easiest skill hears everything")
+	_check(CaddieAdvice.detail_for_skill(3) == CaddieAdvice.Detail.SPARSE, "hardest skill hears the numbers only")
+
+	var info := {"to_pin_m": 140.0, "rise_m": 6.0, "wind_along_mps": 0.0, "wind_cross_mps": 3.0,
+		"club": "7 Iron", "power": 1.0, "aim_off_m": 5.0, "in_range": true, "lie": Surface.Type.FAIRWAY}
+	var full := CaddieAdvice.shot_text(CaddieAdvice.Detail.FULL, info)
+	var sparse := CaddieAdvice.shot_text(CaddieAdvice.Detail.SPARSE, info)
+	print("  full: " + full)
+	print("  sparse: " + sparse)
+	_check(full.begins_with("153 to the pin, playing 160 uphill."), "yardage and plays-like (%s)" % full)
+	_check(full.contains("Start it 5 yards left for the wind"), "full read gives the line (%s)" % full)
+	_check(sparse.contains("7 Iron") and not sparse.contains("left"), "sparse read gives the club, not the line (%s)" % sparse)
+	_check(CaddieAdvice.shot_text(CaddieAdvice.Detail.STANDARD, info).contains("Favour the left side"), "standard read names the side")
+	var putt := CaddieAdvice.putt_text(CaddieAdvice.Detail.FULL, 4.0, 0.1, 0.15)
+	print("  putt: " + putt)
+	_check(putt.contains("13 feet") and putt.contains("left to right") and putt.contains("6\" left"), "full putt read (%s)" % putt)
+	var hard_putt := CaddieAdvice.putt_text(CaddieAdvice.Detail.SPARSE, 4.0, 0.1, 0.15)
+	_check(hard_putt.contains("left to right") and not hard_putt.contains("\""), "sparse putt read has no inches (%s)" % hard_putt)
+	_check(CaddieAdvice.putt_text(CaddieAdvice.Detail.FULL, 0.5, 0.0, 0.0).contains("tap-in"), "tap-in")
+
+	# A real read, planned through the physics.
+	var model := StandardShotModel.new()
+	var clubs := Club.standard_set()
+	var hole := HoleData.new()
+	hole.terrain = FlatTerrain.new(Surface.Type.FAIRWAY)
+	hole.pin = Vector3(10.0, 0.0, 140.0)
+	var advice := CaddieAdvice.new()
+	advice.start(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0), 0)
+	advice.finish()
+	print("  approach: " + advice.text)
+	_check(advice.is_ready() and not clubs[advice.club_index].is_putter, "a full club for an approach")
+	_check(advice.text.to_lower().contains(clubs[advice.club_index].full_name.to_lower()), "names the club it planned")
+	_check(clubs[advice.club_index].short_name in ["8i", "9i"], "a full 8 or 9 iron for 140 m, as a caddie would (%s)" % clubs[advice.club_index].short_name)
+	_check(CaddieAdvice.club_for(clubs, 150.0, Surface.Type.FAIRWAY) == 8, "8 iron reaches 150 m")
+	hole.terrain = FlatTerrain.new(Surface.Type.GREEN)
+	hole.pin = Vector3(0.0, 0.0, 6.0)
+	advice.start(model, clubs, hole, Vector3.ZERO, Surface.Type.GREEN, Vector3.ZERO, 3)
+	advice.finish()
+	print("  green: " + advice.text)
+	_check(advice.text.begins_with("20 feet"), "putt read gives the length (%s)" % advice.text)
+
+	_check(GolfBag.shared_mesh().get_surface_count() == 3, "bag is one mesh of three materials")
+	var figure := Caddie.make_figure()
+	_check(figure != null, "caddie figure from the free golfer")
+	if figure != null:
+		_check(not figure.find_children("*", "Skeleton3D", true, false).is_empty(), "caddie figure has a skeleton")
+		figure.free()
+	var path := "user://test_caddie_settings.cfg"
+	var gs := GraphicsSettings.new()
+	_check(not gs.caddie, "caddie is off by default")
+	gs.caddie = true
+	gs.save(path)
+	_check(GraphicsSettings.load_saved(path).caddie, "caddie setting is saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
 func _test_placeholder_course() -> void:
 	var course := AssetProviders.load_course("")
 	_check(course.holes.size() == 9, "nine holes")
@@ -1277,6 +1353,59 @@ static func _run_cup_ball(b: LinksGround.Ball, seen: LinksGround.Ball = null, at
 		if b.mode == LinksGround.Mode.REST or b.mode == LinksGround.Mode.HOLED:
 			return k
 	return -1
+
+
+## A 20 x 20 billboard type; `opaque` takes (x, y from the bottom).
+static func _object_type(collision: int, shape: Array, opaque: Callable) -> LinksObjects.ObjType:
+	var t := LinksObjects.ObjType.new()
+	t.collision = collision
+	t.shape = PackedFloat32Array(shape)
+	var img := Image.create(20, 20, false, Image.FORMAT_RGBA8)
+	for y in 20:
+		for x in 20:
+			img.set_pixel(x, 19 - y, Color(1, 1, 1, 1) if opaque.call(x, y) else Color(0, 0, 0, 0))
+	t.mask = img
+	return t
+
+
+## Flies a ball at a 10 ft billboard 20 ft away until it hits something.
+static func _fly_at_billboard(type: LinksObjects.ObjType) -> LinksGround.Ball:
+	var objects := LinksObjects.new()
+	objects.types.append(type)
+	objects.add(Vector3(0, 20, 0), 10.0, 0)
+	var ball := _links_ball(Vector3(0, 0, 3), Vector3(0, 60, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	var ground := TestLinksGround.new(LinksGround.FAIRWAY)
+	var air := _still_air()
+	var rng := LinksGround.Rng.new()
+	for k in 30:
+		if ball.last_object >= 0 or ball.mode != LinksGround.Mode.FLIGHT:
+			break
+		LinksGround.step(ball, ground, air, Vector3.ZERO, rng, LinksGround.FRAME_DT, null, objects, Vector3(0, -1, 0))
+	return ball
+
+
+## As test_links_objects in the C++ core.
+func _test_links_objects_match_olcore() -> void:
+	_check_near(LinksObjects.anchor_x(-1), 0.5, 1e-12, "default anchor")
+	_check_near(LinksObjects.anchor_x(0xf6), 0.5 - 10 / 128.0, 1e-12, "anchor from the extra byte")
+	_check_near(LinksObjects.anchor_z(58), 58 / 256.0, 1e-12, "anchor from the extra word")
+	var all := func(_x: int, _y: int) -> bool: return true
+	var none := func(_x: int, _y: int) -> bool: return false
+	var b := _fly_at_billboard(_object_type(1, [0.8, 1, 0, 0, 1, 1], all))
+	_check(b.last_object == 0, "rock hit")
+	_check_near(b.velocity.y, -0.8 * 60, 1e-4, "rock restitution")
+	_check(b.position.y < 20 - 0.09 and b.position.y > 20 - 0.11, "put back 0.1 ft")
+	b = _fly_at_billboard(_object_type(2, [0.5, 1, 0, 0, 1, 1], all))
+	_check(b.last_object == 0, "canopy met")
+	_check_near(b.velocity.y, 0.9 * 60, 1e-4, "canopy keeps 0.9")
+	b = _fly_at_billboard(_object_type(1, [0.8, 1, 0, 0, 1, 1], none))
+	_check(b.last_object < 0, "transparent parts let the ball by")
+	var trunk := func(x: int, y: int) -> bool: return y >= 12 or (x >= 8 and x <= 11)
+	b = _fly_at_billboard(_object_type(0, [0.7, 1, 0.35, 0, 0.65, 0.6], trunk))
+	_check(b.last_object == 0, "trunk hit")
+	var turn := (3.0 / 5.0 - 0.5) * 2.09440565
+	_check_near(b.velocity.x, 0.5 * 60 * sin(2 * turn), 1e-3, "trunk turns the ball")
+	_check_near(b.velocity.y, -0.5 * 60 * cos(2 * turn), 1e-3, "trunk sends it back")
 
 
 ## As test_links_cup in the C++ core; every case matches the game's own code.
@@ -1820,6 +1949,45 @@ func _test_round_replay() -> void:
 	_check(RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 3, 2) and RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 4, 1), "shot seeds differ by shot and source")
 	for f in files:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(RoundRecord.folder + "/" + f))
+	_test_result_codes(game, rec)
+
+
+## A result code carries the round to a friend, whose game checks it and plays
+## the same course and wind.
+func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
+	var code := rec.to_code()
+	print("  result code: %d characters" % code.length())
+	_check(code.begins_with(RoundRecord.CODE_PREFIX) and code.length() < 12000, "a result code is short enough to paste")
+	var back := RoundRecord.from_code(" " + code.substr(0, 40) + "\n" + code.substr(40) + " ")
+	_check(back != null and back.shots.size() == rec.shots.size() and back.round_seed == rec.round_seed, "the code survives spaces and line breaks")
+	_check(RoundRecord.from_code("hello") == null and RoundRecord.from_code(RoundRecord.CODE_PREFIX + "!!!") == null, "junk isn't a code")
+	_check(rec.summary().begins_with("Player 1 "), "summary names the player: %s" % rec.summary())
+	if back != null:
+		var answer := RoundReplay.check(back, game.course_path)
+		_check(answer.ok and answer.course_ok, "a friend's game checks the code: %s" % [answer.errors])
+	# The setup page reads the code and plays against it.
+	var panel := RoundSetupPanel.new()
+	root.add_child(panel)
+	panel.open(PackedStringArray(["Placeholder Nine (built in)"]), 0, RoundSetup.new())
+	panel._code.text = code
+	panel._open_code()
+	_check(panel.current_setup().challenge != null, "the setup page takes the code")
+	_check(panel._challenge_info.text.contains("Checked"), "the setup page checks it: %s" % panel._challenge_info.text)
+	panel._code.text = "not a code"
+	panel._open_code()
+	_check(panel.current_setup().challenge == null and panel._challenge_info.visible, "the setup page refuses junk")
+	panel.queue_free()
+	# Playing against it: their seed and wind level, whatever the settings say.
+	var versus := RoundRecord.from_json(rec.to_json())
+	versus.round_seed = 4243
+	versus.wind_level = Wind.Level.STRONG
+	var setup := RoundSetup.single("")
+	setup.challenge = versus
+	GolfRound.setup = setup
+	game.start_round()
+	_check(game.round_seed == 4243 and game.wind.level == Wind.Level.STRONG and game.record.wind_level == Wind.Level.STRONG,
+		"a challenge round plays the friend's seed and wind")
+	GolfRound.setup = null
 
 
 ## The free recordings: every event has takes, the ambience loops, and clubs
@@ -2118,6 +2286,8 @@ func _test_pause_stops_play() -> void:
 	_check("mouse swing" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
 	game.graphics.swing_method = 0
 	_check("Space or click: swing" in game._aim_hint(), "aim hint names the meter")
+	var desktop := not OS.has_feature("web")
+	_check(("O: objects" in game._aim_hint()) == desktop, "aim hint offers the object viewer only off the web")
 	game.graphics.swing_method = method
 	game.open_pause_menu()
 	game._process(0.1)

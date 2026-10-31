@@ -73,6 +73,9 @@ var swing_method := 1
 ## strokes have had no sideways movement at all, strokes are nudged a few
 ## degrees off line (LinksMouse.Help).
 var swing_help := false
+## A caddie at the players' shots with a read scaled to the swing skill
+## (Caddie, CaddieAdvice). Off by default, as in Links 2003.
+var caddie := false
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -193,6 +196,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.green_speed = clampi(int(cfg.get_value(GAME_SECTION, "green_speed", s.green_speed)), 0, 2)
 	s.swing_method = clampi(int(cfg.get_value(GAME_SECTION, "swing_method", s.swing_method)), 0, 1)
 	s.swing_help = bool(cfg.get_value(GAME_SECTION, "swing_help", s.swing_help))
+	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -235,6 +239,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
 	cfg.set_value(GAME_SECTION, "swing_method", swing_method)
 	cfg.set_value(GAME_SECTION, "swing_help", swing_help)
+	cfg.set_value(GAME_SECTION, "caddie", caddie)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

@@ -36,6 +36,15 @@ std::vector<BillboardType> parse_billboard_types(const std::vector<std::uint8_t>
     std::uint32_t bits = u32_at(data, rec + 0x18);
     std::memcpy(&t.aspect, &bits, 4);
     t.id = u32_at(data, rec + 0x34);
+    // The collision record: a u32 and six floats.
+    const std::uint32_t phys = u32_at(data, rec + 0x14);
+    if (phys != 0 && std::size_t(phys) + 28 <= data.size()) {
+      t.collision = u32_at(data, phys);
+      for (std::size_t i = 0; i < 6; ++i) {
+        std::uint32_t v = u32_at(data, phys + 4 + 4 * i);
+        std::memcpy(&t.shape[i], &v, 4);
+      }
+    }
     if (lods > 0) {
       // First level: its sprite descriptor, then the sprite's first tile
       // record, which starts with the sprite's file name.

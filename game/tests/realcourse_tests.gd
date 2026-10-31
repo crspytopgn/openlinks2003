@@ -19,6 +19,7 @@ func run_all() -> Array[String]:
 	_test_photo_ground()
 	_test_land_cover()
 	_test_guesser()
+	_test_detector()
 	return failures
 
 
@@ -522,3 +523,54 @@ static func _ring_area_of(ring: PackedVector2Array) -> float:
 		var q := ring[(k + 1) % ring.size()]
 		a += p.x * q.y - q.x * p.y
 	return a * 0.5
+
+
+## Greens and bunkers found in a photo, and bunkers as lidar hollows, take
+## the place of guesses.
+func _test_detector() -> void:
+	var c := DesignedCourse.blank(Vector2(600, 600))
+	var h := DesignedHole.new()
+	h.tees = PackedVector2Array([Vector2(0, -150)])
+	h.pin = Vector2(0, 180)
+	h.par = 4
+	c.holes.append(h)
+	# 1 m photo: rough, a lighter round green of 13 m radius at the pin
+	# (pixel (300 - x, 300 - z)), a bunker to its +x side, and a long sandy
+	# track that isn't a bunker.
+	var photo := Image.create(600, 600, false, Image.FORMAT_RGB8)
+	photo.fill(Color(0.25, 0.4, 0.17))
+	for j in 600:
+		for i in 600:
+			var p := Vector2(300 - i, 300 - j)
+			if p.distance_to(h.pin) < 13.0:
+				photo.set_pixel(i, j, Color(0.36, 0.6, 0.3))
+			elif Rect2(16, 176, 8, 6).has_point(p):
+				photo.set_pixel(i, j, Color(0.86, 0.8, 0.64))
+	photo.fill_rect(Rect2i(250, 80, 3, 100), Color(0.8, 0.76, 0.66))
+	var added := CourseGuesser.fill(c, 5, photo, false)
+	var green: CourseShape = null
+	var sand: Array[CourseShape] = []
+	for s in added:
+		if s.surface == Surface.Type.GREEN:
+			green = s
+		elif s.surface == Surface.Type.SAND:
+			sand.append(s)
+	check(green != null and green.has_meta("detected"), "the green is found in the photo")
+	if green != null:
+		var a := absf(_ring_area_of(green.outline()))
+		check(a > 420.0 and a < 650.0, "found green size: %.0f m2" % a)
+	check(sand.size() == 1 and sand[0].has_meta("detected"), "one bunker found, the track left out (%d)" % sand.size())
+	if sand.size() == 1:
+		check(sand[0].bounds().get_center().distance_to(Vector2(20, 179)) < 2.0, "bunker in place: %s" % sand[0].bounds().get_center())
+	# Lidar: flat ground with a 0.8 m hollow beside the pin, no photo.
+	var c2 := DesignedCourse.blank(Vector2(600, 600))
+	c2.holes.append(h)
+	for j in c2.rows:
+		for i in c2.cols:
+			var p := c2.sample_pos(i, j)
+			c2.heights[j * c2.cols + i] = -0.8 if Rect2(-26, 176, 7, 5).has_point(p) else 0.0
+	var sand2: Array[CourseShape] = []
+	for s in CourseGuesser.fill(c2, 5, null, true):
+		if s.surface == Surface.Type.SAND:
+			sand2.append(s)
+	check(sand2.size() == 1 and sand2[0].has_meta("detected"), "one bunker found as a lidar hollow (%d)" % sand2.size())
