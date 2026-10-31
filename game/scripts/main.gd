@@ -169,6 +169,18 @@ var _analog: AnalogSwing.Tracker = null
 ## The finger that touched down while aiming (-1 none) and where.
 var _touch_index := -1
 var _touch_from := Vector2.ZERO
+## That finger's touch started the PowerStroke meter; dragging it back
+## instead turns the meter off and swings with the swipe.
+var _touch_started_meter := false
+## When a finger last touched the screen (Time msec). The mouse clicks the
+## engine and the browser make up from a touch arrive just after it.
+var _touch_ms := -100000
+## Mouse clicks this soon after a touch are taken as made up from it.
+const TOUCH_MOUSE_IGNORE_MS := 800
+## A shot's flight can't be skipped this early, so the tap or click that
+## struck the ball (or a made-up copy of it) doesn't skip straight to the
+## landing.
+const FLIGHT_SKIP_GRACE_S := 0.8
 ## The right stick as the last motion events left it, and its pad.
 var _stick_raw := Vector2.ZERO
 var _stick_device := -1
@@ -994,7 +1006,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.AIM and opponents[shooter] == null and practice == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
-	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
+	if _stick_swing_input(event) or _pad_button(event):
 		get_viewport().set_input_as_handled()
 		return
 	if _click_aim_input(event):
@@ -1031,7 +1043,8 @@ func _on_swing_pressed() -> void:
 			if not hud.mouse_swing.is_swinging():
 				hud.meter.click()
 		State.FLIGHT:
-			_complete_flight()
+			if shot_time >= FLIGHT_SKIP_GRACE_S:
+				_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
 		State.DROP:
@@ -1079,11 +1092,13 @@ func open_pause_menu() -> void:
 ## it (with the mouse swing chosen); Space still uses the meter.
 func _mouse_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
-	if event is InputEventMouse and (event as InputEventMouse).device == InputEvent.DEVICE_ID_EMULATION:
-		# The mouse events a touch screen makes up: the finger has its own
-		# swing (and a tap its own meter), so while aiming or swinging only
-		# the touch counts.
-		return state == State.AIM or ms.is_swinging() or _touch_index >= 0
+	if event is InputEventMouse and _made_from_touch(event as InputEventMouse):
+		# The mouse events a touch screen makes up (the engine's, and on
+		# iPad Safari's own): the finger has its own swing and meter taps,
+		# so while aiming, swinging or watching the flight only the touch
+		# counts. Otherwise one tap would click the meter twice.
+		return state == State.AIM or state == State.SWING or state == State.FLIGHT \
+			or ms.is_swinging() or _touch_index >= 0
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var mb := event as InputEventMouseButton
 		if ms.is_swinging():
@@ -1194,27 +1209,73 @@ func _begin_mouse_swing(source: SwingInput) -> void:
 			hud.hint.text = HINT_MOUSE_SWING
 
 
-## A finger on a touch screen: touching down while aiming and dragging it
-## back starts the mouse swing (AnalogSwing turns the drag into the mouse's
-## movement); a tap without dragging starts the PowerStroke meter, whose
-## later clicks are taps as before.
+## Whether a mouse event was made up from a touch: by the engine, or by the
+## browser just after a touch ended.
+func _made_from_touch(e: InputEventMouse) -> bool:
+	if e.device == InputEvent.DEVICE_ID_EMULATION:
+		return true
+	return e is InputEventMouseButton and Time.get_ticks_msec() - _touch_ms < TOUCH_MOUSE_IGNORE_MS
+
+
+## Touches reach the swing before the HUD does, so a tap anywhere but on a
+## button counts at once: over the info panels or the meter as well.
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventScreenTouch or event is InputEventScreenDrag):
+		return
+	_touch_ms = Time.get_ticks_msec()
+	if settings_panel.visible or pause_menu.visible or hud.hand_over.visible:
+		return
+	if _touch_swing_input(event):
+		get_viewport().set_input_as_handled()
+
+
+## Whether `at` is on a button (the touch pad's, the putting panel's...),
+## which takes the tap instead of the swing.
+func _over_button(at: Vector2) -> bool:
+	if hud.touch_pad.covers(at):
+		return true
+	for n: Node in hud.find_children("*", "BaseButton", true, false):
+		var c := n as Control
+		if c.is_visible_in_tree() and c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(at):
+			return true
+	return false
+
+
+## A finger on a touch screen. Each tap is a PowerStroke click the moment the
+## finger lands: the first starts the meter, the second sets the power and
+## the third the accuracy, as Links 2003's clicks. Dragging back from the
+## first touch instead turns it into the mouse swing (AnalogSwing turns the
+## drag into the mouse's movement). While the ball flies, a tap skips to the
+## landing, but not straight after the strike.
 func _touch_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
 	if event is InputEventScreenTouch:
 		var t := event as InputEventScreenTouch
 		if t.pressed:
-			if _touch_index < 0 and state == State.AIM and not ms.is_swinging() and not hud.touch_pad.covers(t.position):
-				_touch_index = t.index
-				_touch_from = t.position
-				return true
+			if _touch_index >= 0 or _over_button(t.position):
+				return false
+			match state:
+				State.AIM:
+					if _can_start_swing():
+						_touch_index = t.index
+						_touch_from = t.position
+					_on_swing_pressed()  # or ends a flyover or replay
+					_touch_started_meter = _touch_index >= 0 and hud.meter.is_swinging()
+					return true
+				State.SWING:
+					if not ms.is_swinging():
+						hud.meter.click()
+					return true
+				State.FLIGHT:
+					_on_swing_pressed()
+					return true
 			return false
 		if t.index != _touch_index:
 			return false
 		_touch_index = -1
+		_touch_started_meter = false
 		if ms.is_swinging() and _swing_input == SwingInput.TOUCH:
 			ms.release()  # before the downswing this calls the swing off
-		elif state == State.AIM and _tap(t.position):
-			_on_swing_pressed()
 		return true
 	if event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
@@ -1222,18 +1283,22 @@ func _touch_swing_input(event: InputEvent) -> bool:
 			return false
 		var at := AnalogSwing.touch(_touch_from, d.position, get_viewport().get_visible_rect().size.y)
 		if not ms.is_swinging():
-			if at.y <= AnalogSwing.START or not _can_start_swing():
+			if not _touch_started_meter or at.y <= AnalogSwing.START:
+				return true
+			# Dragged back, not tapped: the meter the touch started gives
+			# way to the swipe swing, before the power is set.
+			_touch_started_meter = false
+			if hud.meter.phase != SwingMeter.Phase.BACKSWING or hud.meter.power_position != 0:
+				return true
+			hud.meter.reset()
+			state = State.AIM
+			if not _can_start_swing():
 				return true
 			_begin_mouse_swing(SwingInput.TOUCH)
 		if _swing_input == SwingInput.TOUCH:
 			ms.motion(_analog.feed(at))
 		return true
 	return false
-
-
-## Whether a finger lifted at `at` barely moved since it touched down.
-func _tap(at: Vector2) -> bool:
-	return AnalogSwing.touch(_touch_from, at, get_viewport().get_visible_rect().size.y).length() < AnalogSwing.START
 
 
 ## The right stick on a game pad: pulling it back while aiming starts the
@@ -2818,7 +2883,26 @@ func _place_ball(p: Vector3) -> void:
 	_update_ball_size()
 
 
-## Draws the balls bigger with distance so they stay visible, as Links does.
+## Links 2003 draws the ball this much bigger per metre away (Settings >
+## Ball size > Bigger far away): about 1% of the screen's height across.
+const LINKS_BALL_GROWTH := 0.0045
+## At true size the ball is never drawn smaller than this share of the
+## view's height across (about 3 pixels on a 1080p screen), so it doesn't
+## flicker out of sight in the air.
+const BALL_MIN_SCREEN := 0.003
+
+
+## The radius the ball is drawn at `distance` metres from a camera with this
+## vertical field of view: its real 42.67 mm, kept from shrinking below
+## BALL_MIN_SCREEN of the view; or Links 2003's bigger-far-away ball.
+static func ball_radius(distance: float, fov_deg: float, true_size: bool) -> float:
+	if not true_size:
+		return maxf(BallPhysics.RADIUS, distance * LINKS_BALL_GROWTH)
+	var half_view := distance * tan(deg_to_rad(fov_deg) * 0.5)
+	return maxf(BallPhysics.RADIUS, half_view * BALL_MIN_SCREEN)
+
+
+## Draws the balls at their size for the camera (ball_radius).
 func _update_ball_size() -> void:
 	if ball.visible:
 		_size_ball(ball, _ball_base)
@@ -2828,9 +2912,10 @@ func _update_ball_size() -> void:
 
 
 func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
-	var d := camera.position.distance_to(base)
-	var r := BallPhysics.RADIUS if graphics != null and graphics.true_size_ball \
-		else maxf(BallPhysics.RADIUS, d * 0.0045)
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		cam = camera
+	var r := ball_radius(cam.global_position.distance_to(base), cam.fov, graphics == null or graphics.true_size_ball)
 	m.scale = Vector3.ONE * r
 	var gap := _tee_gap() if m == ball else 0.0
 	m.position = base + Vector3.UP * (r + gap)
