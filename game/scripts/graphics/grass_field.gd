@@ -143,6 +143,8 @@ static func build_chunk(t: CourseTerrain, key: Vector2i, density: float) -> Mult
 	mm.mesh = _shared_mesh()
 	mm.instance_count = n
 	mm.buffer = buffer
+	# The headless renderer keeps no MultiMesh data, so tests read this.
+	mm.set_meta("buffer", buffer)
 	return mm
 
 

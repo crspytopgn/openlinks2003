@@ -512,8 +512,9 @@ func _test_grass() -> void:
 		if mm == null:
 			continue
 		tufts += mm.instance_count
+		var buffer: PackedFloat32Array = mm.get_meta("buffer")
 		for k in mini(mm.instance_count, 50):
-			var at := mm.get_instance_transform(k).origin
+			var at := Vector3(buffer[16 * k + 3], buffer[16 * k + 7], buffer[16 * k + 11])
 			if not GrassField.HEIGHTS.has(t.surface_at(at.x, at.z)):
 				outside += 1
 		var again := GrassField.build_chunk(t, key, 4.0)
