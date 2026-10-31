@@ -30,6 +30,7 @@ var _tabs: TabContainer
 ## a photo): look field -> setter Callable taking the look.
 var _refreshers: Array[Callable] = []
 var _cap_note: Label
+var _photo: FaceFromPhoto
 
 
 func _ready() -> void:
@@ -99,6 +100,7 @@ func _ready() -> void:
 	box.add_child(_tabs)
 	_build_body_tab()
 	_build_face_tab()
+	_build_photo_tab()
 	_build_hair_tab()
 	_build_clothes_tab()
 	_build_equipment_tab()
@@ -140,6 +142,7 @@ func open(player_name: String) -> void:
 
 func close() -> void:
 	visible = false
+	_photo.clear()
 
 
 func _set_look(l: PlayerLook) -> void:
@@ -230,6 +233,21 @@ func _build_face_tab() -> void:
 		look.face.clear()
 		_set_look(look))
 	box.add_child(reset)
+
+
+func _build_photo_tab() -> void:
+	var box := _tab("Photo")
+	_photo = FaceFromPhoto.new()
+	_photo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_photo.fitted.connect(func(face: Dictionary, skin: Color, hair: Color) -> void:
+		for key: String in face:
+			look.face[key] = face[key]
+		if skin.a > 0.0:
+			look.skin = skin
+		if hair.a > 0.0:
+			look.hair_colour = hair
+		_set_look(look))
+	box.add_child(_photo)
 
 
 func _build_hair_tab() -> void:

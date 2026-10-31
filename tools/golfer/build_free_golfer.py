@@ -34,6 +34,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import face_landmarks  # noqa: E402
 import gltf  # noqa: E402
 import look_pack  # noqa: E402
 import mhuman  # noqa: E402
@@ -637,6 +638,15 @@ def main():
     for slider, (minus, plus) in FACE_SHAPES.items():
         shape_offsets[slider + "_minus"] = human.target_offsets(minus)
         shape_offsets[slider + "_plus"] = human.target_offsets(plus)
+    # The face landmarks a photo is fitted to, seen from the front (x to
+    # the person's left, y up, metres), and how each shape moves them.
+    marks = [v for v in face_landmarks.find(human, A(EYEBROWS)).values()]
+    face_fit = {
+        "points": face_landmarks.POINTS,
+        "base": [[round(float(x) * mhuman.DM_TO_M, 5) for x in base_coords[v, :2]] for v in marks],
+        "shapes": {name: [[round(float(x) * mhuman.DM_TO_M, 5) for x in off[v, :2]] for v in marks]
+                   for name, off in shape_offsets.items()},
+    }
     targets = {part.name: [] for part in parts}
     targets["Cap"] = []
     shapes = {}
@@ -711,7 +721,8 @@ def main():
               skin_female=female_skin,
               body_chunks=body_chunks,
               defaults={k: [round(float(x), 4) for x in v] for k, v in defaults.items()},
-              shapes=shapes)
+              shapes=shapes,
+              face_fit=face_fit)
     print(f"wrote {parts_path} ({os.path.getsize(parts_path) / 1e6:.1f} MB)")
 
 

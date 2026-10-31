@@ -69,6 +69,7 @@ func _initialize() -> void:
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
 	_run("player_looks", _test_player_looks)
+	_run("face_from_photo", _test_face_from_photo)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
@@ -2390,6 +2391,79 @@ func _test_free_golfer() -> void:
 
 ## The player creator's looks: saved and read back, mapped to blend shapes,
 ## kept with the player's profile, and dressing the free golfer.
+## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
+## fit finds known sliders again from the golfer's own landmarks; colours are
+## read from the right patches.
+func _test_face_from_photo() -> void:
+	var parts := GolferParts.shared()
+	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")
+	if parts == null or not parts.info.has("face_fit"):
+		return
+	var face_fit: Dictionary = parts.info.face_fit
+	_check(face_fit.points == PlayerFaceFit.POINTS, "face points match the pack's")
+	_check(PlayerFaceFit.MEDIAPIPE.size() == PlayerFaceFit.POINTS.size() and PlayerFaceFit.POINT_LABELS.size() == PlayerFaceFit.POINTS.size(), "every point has a MediaPipe index and a label")
+	var n := PlayerFaceFit.FEATURE_NAMES.size()
+	_check(PlayerFaceFit.OFFSET.size() == n and PlayerFaceFit.GAIN.size() == n and PlayerFaceFit.WEIGHT.size() == n, "calibration for every measurement")
+	var base := PlayerFaceFit.model_points(face_fit, PlayerLook.new().shape_weights())
+	var f0 := PlayerFaceFit.features(base)
+	_check(f0.size() == n, "measurements")
+	# The same face scaled, moved and tilted measures the same.
+	var moved := PackedVector2Array()
+	for p in base:
+		moved.append(p.rotated(0.2) * 37.0 + Vector2(120, -40))
+	var f1 := PlayerFaceFit.features(moved)
+	var worst := 0.0
+	for i in n:
+		worst = maxf(worst, absf(f1[i] - f0[i]))
+	_check(worst < 1e-4, "measurements don't depend on size or tilt (%.6f)" % worst)
+	# Image pixels (y down) flip to the face frame.
+	_check(PlayerFaceFit.from_image(PackedVector2Array([Vector2(3, 4)]))[0] == Vector2(3, -4), "pixels to the face frame")
+	var marks := PackedVector2Array()
+	for i in 478:
+		marks.append(Vector2(i, 0))
+	var picked := PlayerFaceFit.from_mediapipe(marks)
+	_check(picked.size() == PlayerFaceFit.POINTS.size() and picked[0] == Vector2(33, 0) and picked[4] == Vector2((105 + 52) / 2.0, 0), "MediaPipe indices picked and averaged")
+	_check(PlayerFaceFit.from_mediapipe(PackedVector2Array([Vector2.ZERO])).is_empty(), "too few MediaPipe landmarks is no face")
+	# A known face, measured straight from the golfer (no photo error), fits
+	# back close to its sliders; its body is kept.
+	var truth := PlayerLook.new()
+	truth.sex = 1.0
+	var want := {"face_width": 0.5, "face_full": -0.4, "nose_width": 0.6, "nose_length": -0.5, "eye_size": 0.3, "eye_spacing": -0.6, "brows": 0.7, "mouth_width": -0.5}
+	for key: String in want:
+		truth.face[key] = want[key]
+	var exact := {"offset": [], "gain": [], "weight": [], "regularise": 1e-6}
+	for i in n:
+		exact.offset.append(0.0)
+		exact.gain.append(1.0)
+		exact.weight.append(1.0)
+	var start := PlayerLook.new()
+	start.sex = 1.0
+	start.face["chin"] = 0.4
+	var got := PlayerFaceFit.fit(face_fit, start, PlayerFaceFit.model_points(face_fit, truth.shape_weights()), exact)
+	var err := 0.0
+	for key: String in want:
+		err = maxf(err, absf(float(got.get(key, 9.0)) - float(want[key])))
+	_check(err < 0.1, "fit finds a known face again (worst slider off by %.2f)" % err)
+	_check(not got.has("chin") and start.face_value("chin") == 0.4, "sliders a photo can't show are left alone")
+	_check(PlayerFaceFit.fit(face_fit, start, PackedVector2Array()).is_empty(), "no points, no fit")
+	# Colours: a photo with skin-coloured cheeks and forehead and dark hair above.
+	var img := Image.create(200, 200, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.1, 0.08, 0.06))
+	img.fill_rect(Rect2i(40, 60, 120, 140), Color(0.8, 0.6, 0.5))
+	var pts := PackedVector2Array([
+		Vector2(70, 110), Vector2(90, 110), Vector2(110, 110), Vector2(130, 110),
+		Vector2(80, 98), Vector2(120, 98),
+		Vector2(100, 135), Vector2(90, 138), Vector2(110, 138),
+		Vector2(85, 155), Vector2(115, 155), Vector2(100, 150), Vector2(100, 160),
+		Vector2(100, 185), Vector2(60, 155), Vector2(140, 155), Vector2(50, 125), Vector2(150, 125),
+		Vector2(65, 170), Vector2(135, 170),
+	])
+	var skin := PlayerFaceFit.skin_colour(img, pts)
+	_check(skin.is_equal_approx(Color(0.8, 0.6, 0.5)) or skin.r > 0.78, "skin colour from the cheeks and forehead")
+	var hair := PlayerFaceFit.hair_colour(img, pts)
+	_check(hair.r < 0.15, "hair colour from above the forehead")
+
+
 func _test_player_looks() -> void:
 	var look := PlayerLook.new()
 	look.sex = 1.0

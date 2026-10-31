@@ -213,6 +213,8 @@ a swing) and tabs for
 - **Face:** sixteen shape sliders (face width and length, cheeks,
   cheekbones, jaw, chin, nose width, length and bridge, eye size and
   spacing, brows, mouth, lips, ears);
+- **Photo:** the face, skin and hair colour from a photo of the player
+  (see below);
 - **Hair:** seven styles or bald, any colour;
 - **Clothes:** polo and trousers, long sleeves and trousers, or polo and
   shorts, with shirt, trousers, shoe and cap colours;
@@ -240,6 +242,46 @@ height. The GPU then draws plain skinned meshes with no blend shapes, the
 same cost as the standard golfer, in both renderers. Colours multiply the
 pack's grey detail textures, so any colour costs nothing extra.
 
+#### Face from a photo
+
+The Photo tab (`ui/face_from_photo.gd`, `FaceFromPhoto`) fits the face
+sliders to a photo of the player. The photo stays on the device: it is
+scaled down, held only while the creator is open, and never uploaded or
+saved.
+
+- **Web:** **Choose a photo** or **Take a selfie** (the front camera on
+  phones). MediaPipe's Face Landmarker finds the face in the browser
+  (`web/face_photo.js` through `scripts/web/web_face_photo.gd`). Its code
+  and model (Apache-2.0, about 4 MB) are fetched from jsDelivr and Google's
+  model storage the first time; they are not part of the build. The points
+  can then be dragged.
+- **Desktop:** **Choose a photo** opens a file dialog and the player taps
+  20 points (eye corners, brows, nose, mouth, chin and the face's edges),
+  prompted one at a time; scroll zooms and right-drag pans. There is no
+  face finder on desktop yet: MediaPipe has no build Godot can load without
+  a GDExtension, and running a model in GDScript would be slow.
+
+`PlayerFaceFit` (`player_face_fit.gd`) turns the points into twelve
+measurements that don't depend on the photo's size, position or tilt (eye
+width and gap, brow height, nose length and width, mouth width and drop,
+lip height, chin length, three face widths). The same 20 points on the
+golfer's head, with how every body and face shape moves them, are in the
+look pack's `face_fit` header (`tools/golfer/face_landmarks.py` finds them
+on the MakeHuman mesh). A regularised Gauss-Newton fit (about 15 ms) then
+sets the sliders a photo can show: face width and fullness, nose width and
+length, eye size and spacing, brows and mouth width. The player's body
+(sex, build, age) is kept, and so are the sliders a front view can't show
+(jaw, chin, cheekbones, lips, nose bridge, ears, face length). Skin and hair
+colours are the median of patches on the cheeks and forehead and above
+it, divided by the detail textures' mean.
+
+MediaPipe leans towards an average face, so a photo's measurements are
+mapped back with a per-measurement offset and gain, and weighted by how
+well MediaPipe follows each one. `tools/golfer/face_calibration.sh` measures
+these on 48 renders of golfers with random faces, and picks the sliders
+worth fitting. On the renders held out, the fitted sliders end up about
+half as far from the truth as leaving them in the middle.
+
 ### Saved rounds
 
 The round in progress is saved before every shot and at the end of each hole
@@ -259,6 +301,7 @@ stroke so both sides round the same way.
 ```
 game/scripts/
   boot.gd                       Game files, main menu and round setup
+  player_face_fit.gd            PlayerFaceFit: face sliders and colours from a photo's face points
   main.gd                       GolfRound: the round state machine, turns, camera, HUD wiring
   scorecard.gd                  Scorecard (mirrors olcore/scoring)
   game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
@@ -304,6 +347,7 @@ game/scripts/
     hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
     player_creator.gd, golfer_preview.gd   PlayerCreator: the player creator and its 3D preview
+    face_from_photo.gd            FaceFromPhoto: the creator's Photo tab (photo, face points, fit)
     hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
