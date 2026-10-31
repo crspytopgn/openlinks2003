@@ -1,7 +1,7 @@
 class_name RoundSetup
 extends RefCounted
-## What the setup menu chose for a round: course, tees, holes, game mode and
-## players. The last setup is saved under [round] in user://settings.cfg.
+## What the setup menu chose for a round: course, tees, holes, game mode,
+## players and whether handicaps count. The last setup is saved under [round] in user://settings.cfg.
 
 enum Holes { ALL, FRONT_NINE, BACK_NINE }
 enum Tees { BACK, MIDDLE, FORWARD }
@@ -19,6 +19,11 @@ var tees: Tees = Tees.BACK
 var names: Array[String] = ["Player 1"]
 ## Best ball: the team (0 or 1) of each player.
 var teams: Array[int] = [0]
+## Play off handicaps: everyone's net scores decide the game.
+var handicaps := false
+## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
+## from their profile. Not saved with the setup.
+var indexes: Array[int] = []
 
 
 static func single(path: String) -> RoundSetup:
@@ -29,6 +34,10 @@ static func single(path: String) -> RoundSetup:
 
 func player_count() -> int:
 	return names.size()
+
+
+func index_of(player: int) -> int:
+	return indexes[player] if player < indexes.size() else Handicap.NONE
 
 
 ## Why this setup can't be played, or "" if it can.
@@ -79,6 +88,7 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "tees", tees)
 	cfg.set_value("round", "names", PackedStringArray(names))
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
+	cfg.set_value("round", "handicaps", handicaps)
 	cfg.save(path)
 
 
@@ -91,6 +101,7 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.mode = clampi(cfg.get_value("round", "mode", 0), 0, GameModes.MODE_NAMES.size() - 1) as GameModes.Mode
 	s.holes = clampi(cfg.get_value("round", "holes", 0), 0, HOLES_NAMES.size() - 1) as Holes
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
+	s.handicaps = cfg.get_value("round", "handicaps", false) == true
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	if saved_names.size() >= 1 and saved_names.size() <= MAX_PLAYERS:

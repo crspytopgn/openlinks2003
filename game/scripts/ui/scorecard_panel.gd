@@ -1,7 +1,8 @@
 class_name ScorecardPanel
 extends PanelContainer
 ## The scorecard: holes across, par and each player's score down, like the
-## card in Links, plus the game mode's own rows (points, skins, match, teams).
+## card in Links, plus the game mode's own rows (points, skins, match, teams)
+## and, with handicaps, each player's net row.
 
 const INK := Color(0.1, 0.1, 0.1)
 const UNDER := Color(0.75, 0.1, 0.1)
@@ -83,13 +84,16 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 	_cell(str(total_par), true)
 	for n in scoring.player_count():
 		var card := scoring.cards[n]
-		_score_row(scoring.names[n], card)
+		_score_row(scoring.label(n), card)
+		var scored := scoring.scored_card(n)
+		if scoring.handicaps:
+			_score_row("  net", scored)
 		if mode == GameModes.Mode.STABLEFORD:
 			_cell("  points", false, INK, true)
 			for i in holes:
-				var s := card.strokes[i]
+				var s := scored.strokes[i]
 				_cell(str(GameModes.stableford_points(s, pars[i])) if s > 0 else "", false)
-			_cell(str(GameModes.stableford_total(card)), true)
+			_cell(str(GameModes.stableford_total(scored)), true)
 	match mode:
 		GameModes.Mode.BEST_BALL:
 			for t in 2:
@@ -103,8 +107,8 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 			_cell("", false)
 		GameModes.Mode.MATCH:
 			_cell("Hole won", true, INK, true)
-			var a := scoring.cards[0].strokes
-			var b := scoring.cards[1].strokes
+			var a := scoring.scores(0)
+			var b := scoring.scores(1)
 			for i in holes:
 				if a[i] <= 0 or b[i] <= 0:
 					_cell("", false)

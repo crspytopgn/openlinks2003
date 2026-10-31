@@ -115,6 +115,7 @@ func start_round() -> void:
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
+	var stroke_index: Array[int] = []
 	for i in round_setup.hole_indices(course.holes.size()):
 		var h := course.holes[i]
 		if h.tees.size() > 1:
@@ -122,7 +123,8 @@ func start_round() -> void:
 		holes.append(h)
 		pars.append(h.par)
 		numbers.append(h.number)
-	scoring = RoundScoring.new(round_setup, pars, numbers)
+		stroke_index.append(h.stroke_index)
+	scoring = RoundScoring.new(round_setup, pars, numbers, stroke_index)
 	for p in players:
 		if p.marker:
 			p.marker.queue_free()
@@ -572,12 +574,43 @@ func _next_hole() -> void:
 	state = State.ROUND_DONE
 	for p in players:
 		p.marker.visible = false
+	var text := "Round complete. " + scoring.winner_text()
 	if players.size() == 1 and round_setup.mode == GameModes.Mode.STROKE:
-		hud.show_message("Round complete: %d (%s)." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())])
-	else:
-		hud.show_message("Round complete. " + scoring.winner_text())
+		text = "Round complete: %d (%s)." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())]
+		if scoring.handicaps:
+			var net := scoring.scored_card(0)
+			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
+	var records := _record_rounds()
+	if not records.is_empty():
+		text += "\n" + records
+	hud.show_message(text)
 	hud.scorecard.show_round(scoring, _round_name(), "Final")
 	hud.hint.text = HINT_DONE
+
+
+## Adds each finished card to the player's profile and says what it did to
+## their handicap index. Rounds that stop early, or are shorter than nine
+## holes, don't count.
+func _record_rounds() -> String:
+	var profiles := PlayerProfiles.load_saved()
+	var date := Time.get_date_string_from_system()
+	var lines: Array[String] = []
+	for i in scoring.player_count():
+		var player := scoring.names[i]
+		var before := profiles.index_of(player)
+		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):
+			continue
+		var after := profiles.index_of(player)
+		if after == Handicap.NONE:
+			var left := 3 - profiles.rounds(player).size()
+			lines.append("%s: %d more round%s for a handicap index." % [player, left, "" if left == 1 else "s"])
+		elif before == Handicap.NONE or before == after:
+			lines.append("%s's handicap index: %s." % [player, Handicap.format(after)])
+		else:
+			lines.append("%s's handicap index: %s (was %s)." % [player, Handicap.format(after), Handicap.format(before)])
+	if not lines.is_empty():
+		profiles.save()
+	return "\n".join(lines)
 
 
 func _quit_to_menu() -> void:

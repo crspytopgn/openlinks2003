@@ -1,6 +1,8 @@
 class_name RoundSetupPanel
 extends PanelContainer
-## The "Play a round" page: course, tees, holes, game mode and players.
+## The "Play a round" page: course, tees, holes, game mode, handicaps and
+## players. Each player's handicap index comes from their profile
+## (PlayerProfiles); a player with fewer than three rounds can type one in.
 ## Emits start_pressed with the chosen RoundSetup and the index of the chosen
 ## course in the list it was opened with (its course_path is left for the
 ## caller to fill in).
@@ -16,6 +18,10 @@ var _mode_help: Label
 var _count: OptionButton
 var _names: Array[LineEdit] = []
 var _teams: Array[OptionButton] = []
+var _handicaps: OptionButton
+var _indexes: Array[LineEdit] = []
+var _records: Array[Label] = []
+var _profiles := PlayerProfiles.new()
 var _rows: Array[HBoxContainer] = []
 var _problem: Label
 var _start: Button
@@ -40,6 +46,8 @@ func _ready() -> void:
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
 	_mode.item_selected.connect(_on_mode_selected.unbind(1))
+	_handicaps = _row(grid, "Handicaps", ["Off: gross scores", "On: net scores"])
+	_handicaps.item_selected.connect(_refresh.unbind(1))
 	_mode_help = Label.new()
 	_mode_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_mode_help.custom_minimum_size = Vector2(600, 0)
@@ -63,7 +71,21 @@ func _ready() -> void:
 		edit.max_length = 16
 		edit.custom_minimum_size = Vector2(260, 34)
 		edit.placeholder_text = RoundSetup.DEFAULT_NAMES[i]
+		edit.text_changed.connect(func(_text: String) -> void: _on_name_changed(i))
 		row.add_child(edit)
+		var index := LineEdit.new()
+		index.max_length = 5
+		index.custom_minimum_size = Vector2(80, 34)
+		index.placeholder_text = "Index"
+		index.tooltip_text = "Handicap index, such as 12.3, or +1.4 for a plus handicap. Set by the player's rounds once they have three."
+		index.text_changed.connect(_refresh.unbind(1))
+		row.add_child(index)
+		var record := Label.new()
+		record.add_theme_font_size_override("font_size", 15)
+		record.modulate = Color(1, 1, 1, 0.75)
+		row.add_child(record)
+		_indexes.append(index)
+		_records.append(record)
 		var team := OptionButton.new()
 		team.add_item("Team A")
 		team.add_item("Team B")
@@ -99,11 +121,14 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_tees.select(saved.tees)
 	_holes.select(saved.holes)
 	_mode.select(saved.mode)
+	_handicaps.select(1 if saved.handicaps else 0)
+	_profiles = PlayerProfiles.load_saved()
 	_count.select(saved.player_count() - 1)
 	for i in RoundSetup.MAX_PLAYERS:
 		var named: bool = i < saved.names.size() and saved.names[i] != RoundSetup.DEFAULT_NAMES[i]
 		_names[i].text = saved.names[i] if named else ""
 		_teams[i].select(saved.teams[i] if i < saved.teams.size() else i % 2)
+		_fill_index(i)
 	_refresh()
 	visible = true
 	_start.grab_focus.call_deferred()
@@ -115,13 +140,45 @@ func current_setup() -> RoundSetup:
 	s.tees = _tees.selected as RoundSetup.Tees
 	s.holes = _holes.selected as RoundSetup.Holes
 	s.mode = _mode.selected as GameModes.Mode
+	s.handicaps = _handicaps.selected == 1
 	s.names.clear()
 	s.teams.clear()
 	for i in _count.selected + 1:
-		var n := _names[i].text.strip_edges()
-		s.names.append(n if not n.is_empty() else RoundSetup.DEFAULT_NAMES[i])
+		s.names.append(_player_name(i))
 		s.teams.append(_teams[i].selected)
+		s.indexes.append(_index_of(i))
 	return s
+
+
+func _player_name(i: int) -> String:
+	var n := _names[i].text.strip_edges()
+	return n if not n.is_empty() else RoundSetup.DEFAULT_NAMES[i]
+
+
+## The profile's index once it has a record, otherwise what was typed.
+func _index_of(i: int) -> int:
+	var player := _player_name(i)
+	if _profiles.has_record(player):
+		return _profiles.index_of(player)
+	return Handicap.parse(_indexes[i].text)
+
+
+## Shows player `i`'s index and how many rounds it comes from.
+func _fill_index(i: int) -> void:
+	var player := _player_name(i)
+	var index := _profiles.index_of(player)
+	var played := _profiles.rounds(player).size()
+	_indexes[i].text = Handicap.format(index) if index != Handicap.NONE else ""
+	_indexes[i].editable = not _profiles.has_record(player)
+	if played == 0:
+		_records[i].text = "new player" if not _profiles.has_player(player) else "no rounds yet"
+	else:
+		_records[i].text = "%d round%s" % [played, "" if played == 1 else "s"]
+
+
+func _on_name_changed(i: int) -> void:
+	_fill_index(i)
+	_refresh()
 
 
 ## Moves the player count into what the mode allows.
@@ -141,7 +198,15 @@ func _refresh() -> void:
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
 		_teams[i].visible = best_ball
+		_indexes[i].visible = _handicaps.selected == 1
+		_records[i].visible = _handicaps.selected == 1
 	var problem := current_setup().problem()
+	if problem.is_empty() and _handicaps.selected == 1:
+		for i in _count.selected + 1:
+			var t := _indexes[i].text.strip_edges()
+			if not t.is_empty() and Handicap.parse(t) == Handicap.NONE:
+				problem = "%s's handicap index should be a number such as 12.3." % _player_name(i)
+				break
 	_problem.text = problem
 	_problem.visible = not problem.is_empty()
 	_start.disabled = not problem.is_empty()
@@ -149,8 +214,15 @@ func _refresh() -> void:
 
 func _on_start() -> void:
 	var s := current_setup()
-	if s.problem().is_empty():
-		start_pressed.emit(s, _course.selected)
+	if _start.disabled or not s.problem().is_empty():
+		return
+	# A typed index becomes the starting index of a player without a record.
+	if s.handicaps:
+		for i in s.player_count():
+			if not _profiles.has_record(s.names[i]):
+				_profiles.set_start_index(s.names[i], s.indexes[i])
+		_profiles.save()
+	start_pressed.emit(s, _course.selected)
 
 
 func _row(grid: GridContainer, label: String, items: Array) -> OptionButton:
