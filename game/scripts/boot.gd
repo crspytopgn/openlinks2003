@@ -58,9 +58,17 @@ func _build_ui() -> void:
 	bg.color = Color(0.07, 0.16, 0.10)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	# The menus scroll when they are taller than the window: a 720p screen
+	# at a bigger Settings > Interface size, or a phone held sideways.
+	var scroll := ScrollContainer.new()
+	scroll.name = "MenuScroll"
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
 	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(720, 0)
 	box.add_theme_constant_override("separation", 16)
