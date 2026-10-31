@@ -1069,6 +1069,8 @@ func _play() -> void:
 	if not _save():
 		return
 	GolfRound.setup = RoundSetup.single(path)
+	# The key lets the main menu resume the round on this course.
+	GolfRound.setup.course_key = path
 	GolfRound.chosen_course = path
 	SceneFade.change_scene(get_tree(), ROUND_SCENE)
 
