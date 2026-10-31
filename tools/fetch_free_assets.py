@@ -61,7 +61,9 @@ SLOTS = {
 }
 
 # Import settings Godot would otherwise guess: compressed with mipmaps, as
-# 3D textures need. Written next to each file before the project is imported.
+# 3D textures need (the sky panorama goes without: it is only ever magnified,
+# and the mip levels were a quarter of its size). Written next to each file
+# before the project is imported.
 TEXTURE_IMPORT = """[remap]
 
 importer="texture"
@@ -71,7 +73,7 @@ type="CompressedTexture2D"
 
 compress/mode={mode}
 compress/lossy_quality=0.85
-mipmaps/generate=true
+mipmaps/generate={mipmaps}
 process/size_limit={limit}
 """
 
@@ -124,7 +126,7 @@ def fetch_slot(out_dir, slot, spec):
                 f.write(data)
         # Lossless for the HDR sky (lossy would clip it), lossy for the rest.
         with open(path + ".import", "w") as f:
-            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1, limit=size_limit(out_name)))
+            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1, limit=size_limit(out_name), mipmaps=str(fmt != "hdr").lower()))
     authors = ", ".join(info.get("authors", {}).keys())
     return f"- **{slot}**: [{info.get('name', asset_id)}](https://polyhaven.com/a/{asset_id}) by {authors or 'Poly Haven'}, CC0"
 
@@ -151,7 +153,7 @@ def fetch_ambient_ground(out_dir, slot):
                 open(marker, "w").close()
             for name, p in paths.items():
                 with open(p + ".import", "w") as f:
-                    f.write(TEXTURE_IMPORT.format(mode=1, limit=size_limit(name)))
+                    f.write(TEXTURE_IMPORT.format(mode=1, limit=size_limit(name), mipmaps="true"))
             return f"- **{slot}**: [{asset_id}]({AMBIENTCG}/view?id={asset_id}) by ambientCG, CC0"
         except Exception as e:  # noqa: BLE001 - try the next set, then Poly Haven
             print(f"  {slot}: {asset_id} failed: {e}")
@@ -174,7 +176,7 @@ def fetch_leaves(out_dir):
             # transparent pixels, which then show as bright leaf edges.
             for p in paths.values():
                 with open(p + ".import", "w") as f:
-                    f.write(TEXTURE_IMPORT.format(mode=0, limit=0))
+                    f.write(TEXTURE_IMPORT.format(mode=0, limit=0, mipmaps="true"))
             return f"- **leaves**: [{asset_id}]({AMBIENTCG}/view?id={asset_id}) by ambientCG, CC0"
         except Exception as e:  # noqa: BLE001 - try the next set
             print(f"  leaves: {asset_id} failed: {e}")

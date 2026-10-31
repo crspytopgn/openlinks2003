@@ -127,6 +127,11 @@ jobs:
           test -s export/web/index.html
           test -s export/web/index.wasm
 
+      # Download size per build and the biggest files in each pack, on the
+      # job summary; fails when a build goes over tools/size_budget.json.
+      - name: Size budget
+        run: python3 tools/size_report.py --export game/export --summary "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: OpenLinks2003-linux
