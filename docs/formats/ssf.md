@@ -69,6 +69,43 @@ then one wave chunk per wave.
 Effect events in `predefined.ssf` map one event to one wave. Voice events
 list one to four takes of the same line.
 
+## The tournament bank
+
+`GAME/TOURNA_1.SSF` (about 80 MB, 132 events, 253 waves) holds the
+tournament crowd, not an announcer. Its waves are applause, cheers, groans
+and "oohs" (`app2-*`, `app8-*`, `appmiss*`), a few spectator shouts while a
+putt rolls (`GoInTheHole*`), and one background murmur (`WALLALOW.wav`).
+It repeats the effect events of `predefined.ssf` (types 0 to 7 and 16 to
+34) with no waves, and adds:
+
+| Type | Events | When (from the names) |
+|------|--------|------------------------|
+| 8 | `Putt On It's Way` | while a putt is rolling |
+| 9 | `Hole in one!`, `Short Bird` to `Long Par`, `Chip In`, `Hole Out (>100)`, `Shot OB or Water`, applause events | when the ball stops or drops, by score and putt length |
+| 10 | `Great Shot lands < 15`, `Lip Out >8`, `Bad Drive`, chip, wedge, iron and putt grades | the reaction to how good the shot was |
+| 14 | `Tee Shot`, `Tee Shot Par 3` | applause from the tee gallery |
+| 15 | `Background Crowd` | a looping murmur |
+
+### Conditions (partly understood)
+
+The first 16 bytes of the condition block look like a distance test,
+judging by how they change across events whose names give a distance:
+
+| Offset | Type | Meaning (inferred) |
+|--------|------|--------------------|
+| 0xc1 | u8 | Comparison: 1 less than A, 2 between A and B, 0 at least A, 0xff no distance test |
+| 0xc4 | u32 | Flags, probably lie, club or shot kind (0x35c on chips and pitches, 0x10 on sand shots) |
+| 0xc8 | u32 | A |
+| 0xcc | u32 | B |
+
+On putts, A and B read as feet: `Short Bird` is under 3, `Med Bird` is
+3 to 5, `Med-Long bird` is 5 to 8 and `Long Bird` is 8 or more. On full
+shots they read as yards of shot length (120, 200, 220, 225, 240, 275).
+The bytes after 0xd0 (0xff runs) are still unknown.
+
+The game (OpenLinks) maps its crowd reactions onto groups of these events
+in `LinksSoundBank.CROWD_EVENTS` and doesn't evaluate the conditions yet.
+
 ## Open questions
 
 - The condition block at 0xc0 on voice events, and how the game picks

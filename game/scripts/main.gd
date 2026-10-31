@@ -1126,6 +1126,10 @@ func _report_shot() -> void:
 			sounds.play(&"crowd_groan")
 		Commentary.Crowd.OOH:
 			sounds.play(&"crowd_ooh")
+		_:
+			# Spectators round the tee applaud a tee shot that finds the short grass.
+			if strokes == 1 and not putting and (surface == Surface.Type.FAIRWAY or surface == Surface.Type.GREEN):
+				sounds.play(&"crowd_tee")
 	if not str(line[0]).is_empty():
 		hud.show_message(line[0], 4.0)
 	var where := "In the hole" if shot.outcome == ShotResult.Outcome.HOLED else Surface.name_of(surface)
