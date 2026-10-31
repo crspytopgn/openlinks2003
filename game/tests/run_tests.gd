@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_run("free_golfer", _test_free_golfer)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
+	_run("course_designer", _test_course_designer)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
@@ -72,6 +73,8 @@ func _process(_delta: float) -> bool:
 	_run("computer_opponents", _test_computer_opponents)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("broadcast_round", _test_broadcast_round)
+	_run("designer_scene", _test_designer_scene)
+	_run("designed_round", _test_designed_round)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
@@ -110,6 +113,64 @@ func _test_course_reader() -> void:
 	var tests: RefCounted = load("res://tests/course_tests.gd").new()
 	for failure: String in tests.call("run_all"):
 		_check(false, failure)
+
+
+func _test_course_designer() -> void:
+	var tests: RefCounted = load("res://tests/designer_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
+
+
+## Opens the designer on a fresh starter course, adds a hole and undoes it.
+func _test_designer_scene() -> void:
+	CourseDesigner.last_path = ""
+	var scene: PackedScene = load("res://scenes/course_designer.tscn")
+	var d := scene.instantiate() as CourseDesigner
+	root.add_child(d)
+	_check(d.is_node_ready() and d.course != null and d.course.holes.size() == 1, "the designer opens on a starter course")
+	if d.course == null:
+		d.queue_free()
+		return
+	d._process(0.016)
+	var built := 0
+	for c: Vector2i in d._chunks:
+		if (d._chunks[c] as MeshInstance3D).mesh != null:
+			built += 1
+	_check(built > 0 and built == d._chunks.size(), "every ground chunk has a mesh (%d of %d)" % [built, d._chunks.size()])
+	var shapes := d.course.shapes.size()
+	d._add_hole()
+	d._process(0.016)
+	_check(d.course.holes.size() == 2 and d.hole_index == 1, "a hole is added")
+	_check(d.course.shapes.size() > shapes, "with its tee box and green")
+	d._undo_step(d._undo, d._redo, "undo")
+	_check(d.course.holes.size() == 1 and d.course.shapes.size() == shapes, "undo takes it away again")
+	d._undo_step(d._redo, d._undo, "redo")
+	_check(d.course.holes.size() == 2, "redo puts it back")
+	_check(d._pick(Vector2(640, 360)) != null, "the middle of the view is on the ground")
+	d.queue_free()
+
+
+## A whole round on the designer's starter course.
+func _test_designed_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var path := "user://designed_round_test.olc"
+	var c := DesignedCourse.starter()
+	c.course_name = "Designed test"
+	_check(c.save_file(path) == OK, "the course saves")
+	GolfRound.setup = RoundSetup.single(path)
+	game.course_path = ""
+	game.start_round()
+	_check(game.course.course_name == "Designed test", "the round plays the designed course")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 400:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "the designed round finishes")
+	print("  designed course: %d strokes on a par %d" % [game.card.total_strokes(), game.holes[0].par])
+	GolfRound.setup = null
+	DirAccess.remove_absolute(path)
 
 
 func _test_format_readers() -> void:
