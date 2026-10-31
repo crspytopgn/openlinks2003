@@ -286,11 +286,13 @@ func _open_setup() -> void:
 	_main_box.visible = false
 	_settings.close()
 	_setup.open(names, selected, saved)
+	SceneFade.pop_in(_setup)
 
 
 func _close_setup() -> void:
 	_setup.visible = false
 	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
 	if _play:
 		_play.grab_focus.call_deferred()
 
@@ -298,6 +300,7 @@ func _close_setup() -> void:
 func _open_settings() -> void:
 	_main_box.visible = false
 	_settings.open(_graphics)
+	SceneFade.pop_in(_settings)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -305,6 +308,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _settings.visible:
 			_settings.close()
 			_main_box.visible = true
+			SceneFade.pop_in(_main_box)
 		elif _setup.visible:
 			_close_setup()
 
@@ -412,4 +416,4 @@ static func _folder_ok(path: String) -> bool:
 
 
 func _start() -> void:
-	get_tree().change_scene_to_file(MAIN_SCENE)
+	SceneFade.change_scene(get_tree(), MAIN_SCENE)

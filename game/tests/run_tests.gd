@@ -1023,6 +1023,11 @@ func _test_broadcast_round() -> void:
 	var game := _game
 	if not game.is_node_ready():
 		return
+	var panel := Control.new()
+	root.add_child(panel)
+	SceneFade.pop_in(panel)
+	_check(panel.modulate.a == 0.0, "panels fade in from transparent")
+	panel.free()
 	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
 	game._apply_graphics()
 	game.start_round()
