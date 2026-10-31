@@ -35,6 +35,9 @@ var _skill: OptionButton
 var _swing: OptionButton
 var _swing_help: OptionButton
 var _firmness: OptionButton
+var _putting_grid: OptionButton
+var _breakline: OptionButton
+var _assistant: OptionButton
 var _speed: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
@@ -101,6 +104,12 @@ func _ready() -> void:
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
+	_putting_grid = _row(grid, "Putting grid", GraphicsSettings.PUTTING_GRID_NAMES)
+	_putting_grid.tooltip_text = "Not at Elite skill, as in Links 2003 (Broadcast still shows the TV grid). G: show or hide, Ctrl+G: change the look."
+	_breakline = _row(grid, "Breakline indicator", ["Off", "On"])
+	_breakline.tooltip_text = "A yellow line at the aiming marker: it leans the way the green falls and is taller the steeper it is."
+	_assistant = _row(grid, "Putting assistant", ["Off", "On (Amateur and Professional)"])
+	_assistant.tooltip_text = "Amateur skill: the line and a red dot on the meter for the power. Professional: a band round the line."
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -139,6 +148,9 @@ func open(s: GraphicsSettings) -> void:
 	_swing_help.select(1 if s.swing_help else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
+	_putting_grid.select(s.putting_grid)
+	_breakline.select(1 if s.breakline else 0)
+	_assistant.select(1 if s.putting_assistant else 0)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -348,6 +360,9 @@ func _on_selected() -> void:
 	settings.swing_help = _swing_help.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
+	settings.putting_grid = _putting_grid.selected
+	settings.breakline = _breakline.selected == 1
+	settings.putting_assistant = _assistant.selected == 1
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

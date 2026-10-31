@@ -85,6 +85,40 @@ func show_read(r: Dictionary, from: Vector3) -> void:
 	_ribbon(path, PATH_COLOR, 0.7, true)
 
 
+## Links 2003's Professional Putting Assistant: a wider, fainter band round
+## the ball's path instead of the exact line, so where in it the ball rolls
+## is still up to the putt. The band widens from `start_m` at the ball by
+## `spread` metres per metre rolled. Our widths; the game's aren't known.
+func show_band(r: Dictionary, start_m := 0.12, spread := 0.08) -> void:
+	_mesh.clear_surfaces()
+	if r.is_empty():
+		visible = false
+		return
+	visible = true
+	var path: PackedVector3Array = r.path
+	if path.size() < 2:
+		return
+	var c := Color(AIM_COLOR, 0.35)
+	var rolled := 0.0
+	_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in path.size() - 1:
+		var a := path[k] + Vector3.UP * LIFT
+		var b := path[k + 1] + Vector3.UP * LIFT
+		var d := b - a
+		d.y = 0.0
+		var seg := d.length()
+		if seg < 1e-5:
+			continue
+		var side := Vector3(d.z, 0.0, -d.x) / seg
+		var wa := start_m + spread * rolled
+		rolled += seg
+		var wb := start_m + spread * rolled
+		for v: Vector3 in [a - side * wa, b - side * wb, b + side * wb, a - side * wa, b + side * wb, a + side * wa]:
+			_mesh.surface_set_color(c)
+			_mesh.surface_add_vertex(v)
+	_mesh.surface_end()
+
+
 func clear() -> void:
 	_mesh.clear_surfaces()
 	visible = false

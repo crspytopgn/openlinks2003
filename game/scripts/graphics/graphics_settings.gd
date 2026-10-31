@@ -33,6 +33,7 @@ const LIGHTING_NAMES := ["Classic Links", "Photoreal"]
 const UPSCALER_NAMES := ["Off", "FSR 1", "FSR 2"]
 const GRADE_NAMES := ["Neutral", "Vivid", "Warm afternoon", "Cool morning", "Film"]
 const LEVEL_NAMES := ["Off", "Low", "Medium", "High"]
+const PUTTING_GRID_NAMES := ["Off", "Yellow (Links)", "Coloured by height (Links)", "Coloured by slope (TV)"]
 ## Trees: the course's own (classic) or 3D, by how far out they stay 3D
 ## before turning into impostors (TreeFactory.IMPOSTOR_DISTANCE).
 const TREE_NAMES := ["Classic", "3D near", "3D", "3D far"]
@@ -73,6 +74,16 @@ var swing_method := 1
 ## strokes have had no sideways movement at all, strokes are nudged a few
 ## degrees off line (LinksMouse.Help).
 var swing_help := false
+## Green reading (GreenRead): the putting grid, 0 off, 1 Links 2003's yellow
+## grid, 2 its grid coloured by height, 3 the TV grid coloured by slope
+## (GreenGrid.Style + 1). As in the game, the grid isn't there at Elite
+## skill, except as the Broadcast presentation's TV graphic.
+var putting_grid := 3
+## Links 2003's Breakline Indicator at the foot of the aiming marker.
+var breakline := false
+## Links 2003's Putting Assistant: the line and power at Amateur skill, a
+## band round the line at Professional, nothing harder.
+var putting_assistant := false
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -193,6 +204,9 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.green_speed = clampi(int(cfg.get_value(GAME_SECTION, "green_speed", s.green_speed)), 0, 2)
 	s.swing_method = clampi(int(cfg.get_value(GAME_SECTION, "swing_method", s.swing_method)), 0, 1)
 	s.swing_help = bool(cfg.get_value(GAME_SECTION, "swing_help", s.swing_help))
+	s.putting_grid = clampi(int(cfg.get_value(GAME_SECTION, "putting_grid", s.putting_grid)), 0, PUTTING_GRID_NAMES.size() - 1)
+	s.breakline = bool(cfg.get_value(GAME_SECTION, "breakline", s.breakline))
+	s.putting_assistant = bool(cfg.get_value(GAME_SECTION, "putting_assistant", s.putting_assistant))
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -235,6 +249,9 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
 	cfg.set_value(GAME_SECTION, "swing_method", swing_method)
 	cfg.set_value(GAME_SECTION, "swing_help", swing_help)
+	cfg.set_value(GAME_SECTION, "putting_grid", putting_grid)
+	cfg.set_value(GAME_SECTION, "breakline", breakline)
+	cfg.set_value(GAME_SECTION, "putting_assistant", putting_assistant)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

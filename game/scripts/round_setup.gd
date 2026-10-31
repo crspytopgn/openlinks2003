@@ -6,9 +6,13 @@ extends RefCounted
 
 enum Holes { ALL, FRONT_NINE, BACK_NINE }
 enum Tees { BACK, MIDDLE, FORWARD }
+## Off plays the round; PUTTING is the practice green (PuttingPractice) on
+## each chosen hole's green, for the first player only.
+enum Practice { OFF, PUTTING }
 
 const HOLES_NAMES := ["All holes", "Front nine", "Back nine"]
 const TEES_NAMES := ["Back tees", "Middle tees", "Forward tees"]
+const PRACTICE_NAMES := ["Off: play the round", "Putting practice"]
 const MAX_PLAYERS := 4
 const DEFAULT_NAMES := ["Player 1", "Player 2", "Player 3", "Player 4"]
 const HUMAN := -1
@@ -30,6 +34,7 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
+var practice: Practice = Practice.OFF
 ## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
 ## from their profile. Not saved with the setup.
 var indexes: Array[int] = []
@@ -74,8 +79,20 @@ static func computer_index(level: int) -> int:
 	return INDEX[clampi(level, 0, INDEX.size() - 1)]
 
 
+## Practice is played alone: keeps the first player, as a person, in a
+## stroke game without handicaps.
+func trim_for_practice() -> void:
+	names = [names[0] if not names.is_empty() else DEFAULT_NAMES[0]]
+	teams = [0]
+	computer = [HUMAN]
+	mode = GameModes.Mode.STROKE
+	handicaps = false
+
+
 ## Why this setup can't be played, or "" if it can.
 func problem() -> String:
+	if practice != Practice.OFF:
+		return ""
 	var r := GameModes.player_range(mode)
 	var n := player_count()
 	if n < r.x or n > r.y:
@@ -131,6 +148,7 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
 	cfg.set_value("round", "computer", PackedInt32Array(computer))
 	cfg.set_value("round", "handicaps", handicaps)
+	cfg.set_value("round", "practice", practice)
 	cfg.save(path)
 
 
@@ -144,6 +162,7 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.holes = clampi(cfg.get_value("round", "holes", 0), 0, HOLES_NAMES.size() - 1) as Holes
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
 	s.handicaps = cfg.get_value("round", "handicaps", false) == true
+	s.practice = clampi(int(cfg.get_value("round", "practice", 0)), 0, PRACTICE_NAMES.size() - 1) as Practice
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	var saved_computer: PackedInt32Array = cfg.get_value("round", "computer", PackedInt32Array())

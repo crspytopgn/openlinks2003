@@ -74,6 +74,17 @@ func aim(ball: Vector3, dir: Vector3, putting: bool) -> void:
 	look_at(_look_now)
 
 
+## Stands at `pos` looking at `look`, for reading a putt (GreenRead.View).
+func look_from(pos: Vector3, look: Vector3) -> void:
+	_shot = null
+	if flying():
+		end_flyover()
+	position = pos
+	_look = look
+	_look_now = look
+	look_at(look)
+
+
 ## Starts following a shot. `pin` and `putting` steer the broadcast cameras;
 ## `variant` picks between their alternatives (replays pass a new one).
 func follow(shot: ShotResult, pin := Vector3.ZERO, putting := false, variant := -1) -> void:

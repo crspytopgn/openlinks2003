@@ -413,6 +413,38 @@ next start) and the light placeholder sounds play otherwise.
 In every presentation, scene changes fade through black and menu panels fade
 in (`scripts/ui/scene_fade.gd`).
 
+## Putting practice and green reading
+
+Links 2003's own green-reading aids and practice options are written up in
+[formats/green-reading.md](formats/green-reading.md). In the round:
+
+- `scripts/putting/green_read.gd` (`GreenRead`): the slope along and across
+  a putt's line, the slope at the ball, the greens' speed as a stimpmeter
+  reading from the physics, which aids each skill level gets, and the read
+  views.
+- Settings > Putting grid: Links 2003's yellow grid, its grid coloured by
+  height, or the TV grid coloured by slope (`GreenGrid.Style`). Not at
+  Elite skill, as in the game, except as the Broadcast presentation's TV
+  graphic. G shows or hides it, Ctrl+G changes the look.
+- Settings > Breakline indicator (`BreaklineIndicator`): a yellow line at
+  the aiming marker leaning the way the green falls, taller where steeper.
+- Settings > Putting assistant: at Amateur skill the line (`PuttRead`) and a
+  red dot on the meter for the power; at Professional a band round the line.
+- V (or the Read the green button): crouch behind the ball, look from behind
+  the hole, from the low side, and from above (the Green Analyzer's stand-in,
+  not at Elite). Aiming still works in these views.
+- The putting panel on the right (`scripts/ui/putting_panel.gd`) shows the
+  greens' firmness, speed and stimp and the slope at the ball.
+
+Round setup > Practice > Putting practice plays a practice green
+(`scripts/putting/putting_practice.gd`, `practice_cups.gd`) on each chosen
+hole's green, for the first player, with nothing scored or saved. Keys (and
+buttons on the panel, for a mouse or a finger): N new spot, [ and ] the
+distance, L the slope (any, uphill, downhill, left to right, right to left),
+P the drill (free putting, around the clock, lag ladder), T the next cup, H
+the next green. Free putting brings the ball back to the same spot after
+each putt, like the original's Auto-Mulligan.
+
 ## Plugging in decoded data
 
 Each decoder implements one small interface and registers it with

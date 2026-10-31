@@ -14,6 +14,7 @@ var _course: OptionButton
 var _tees: OptionButton
 var _holes: OptionButton
 var _mode: OptionButton
+var _practice: OptionButton
 var _mode_help: Label
 var _count: OptionButton
 var _names: Array[LineEdit] = []
@@ -45,6 +46,9 @@ func _ready() -> void:
 	_course.custom_minimum_size = Vector2(380, 36)
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
+	_practice = _row(grid, "Practice", RoundSetup.PRACTICE_NAMES)
+	_practice.tooltip_text = "Putting practice: a practice green with several cups on each hole's green, for the first player."
+	_practice.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
 	_mode.item_selected.connect(_on_mode_selected.unbind(1))
 	_handicaps = _row(grid, "Handicaps", ["Off: gross scores", "On: net scores"])
@@ -130,6 +134,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_tees.select(saved.tees)
 	_holes.select(saved.holes)
 	_mode.select(saved.mode)
+	_practice.select(saved.practice)
 	_handicaps.select(1 if saved.handicaps else 0)
 	_profiles = PlayerProfiles.load_saved()
 	_count.select(saved.player_count() - 1)
@@ -151,6 +156,7 @@ func current_setup() -> RoundSetup:
 	s.tees = _tees.selected as RoundSetup.Tees
 	s.holes = _holes.selected as RoundSetup.Holes
 	s.mode = _mode.selected as GameModes.Mode
+	s.practice = _practice.selected as RoundSetup.Practice
 	s.handicaps = _handicaps.selected == 1
 	s.names.clear()
 	s.teams.clear()
@@ -229,6 +235,10 @@ func _on_count_selected() -> void:
 func _refresh() -> void:
 	var best_ball := GameModes.is_team(_mode.selected as GameModes.Mode)
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
+	var practising := _practice.selected != RoundSetup.Practice.OFF
+	if practising:
+		_mode_help.text = PuttingPractice.SETUP_HELP
+	_start.text = "Start practice" if practising else "Start round"
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
 		var level := _who[i].selected - 1
@@ -253,7 +263,7 @@ func _on_start() -> void:
 	if _start.disabled or not s.problem().is_empty():
 		return
 	# A typed index becomes the starting index of a player without a record.
-	if s.handicaps:
+	if s.handicaps and s.practice == RoundSetup.Practice.OFF:
 		for i in s.player_count():
 			if not s.is_computer(i) and not _profiles.has_record(s.names[i]):
 				_profiles.set_start_index(s.names[i], s.indexes[i])
