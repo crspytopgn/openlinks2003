@@ -59,11 +59,16 @@ inline std::uint32_t mapping_index(const TerrainTriangle& t) { return t.mapping 
 // A terrain material as texture layers. A plain material has one layer; a
 // blended one has a mask (black for the first layer, white for the second)
 // and two layers. Each layer is a base texture followed by up to two detail
-// variants of it, which are skipped here.
+// variants of it: the same ground with a coarser grain for farther away
+// ("Dry Grass 02 32.tga", "Dry Grass 02 128.tga"; the stock library's
+// "Rough02.tga" and "Rough03.tga"). Bit 2k of the material's detail bits
+// says layer k has the middle one, bit 2k + 1 the far one, in that order.
 struct MaterialLayers {
   bool blended = false;
   std::int32_t mask = -1;  // texture index, or -1
   std::vector<std::int32_t> layers;  // base texture index per layer
+  // Per layer (as `layers`): the middle and far variants, -1 for none.
+  std::vector<std::array<std::int32_t, 2>> details;
 };
 
 MaterialLayers material_layers(const TerrainMaterial& m);

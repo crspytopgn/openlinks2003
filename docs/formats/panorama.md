@@ -14,7 +14,8 @@ panorama; sky01 is clear and sky12 overcast, so the twelve form a weather
 scale. In front of it, the **horizon** shows the land round the course
 (hills, tree lines, fields) with the sky part transparent. A course ships
 its own horizon in `Panorama`; the `PanNN.btc` horizons are stock ones for
-courses that have none.
+courses that have none. Which sky and horizon a course uses is stored in
+its `header` entry ([crz.md](crz.md#the-header-trailer-sky-and-horizon)).
 
 Both use the same container: a small header, then square tiles of DXT5
 block runs, the same runs as [BTCV textures](btcv.md). Unlike BTCV, tiles
@@ -66,12 +67,37 @@ The file ends right after the last tile.
   the lower part, with alpha cut round tree lines and hills.
 - Skies: fully opaque, haze at the bottom edge, clouds above.
 
+## Custom skies in the 1.07 patch
+
+The 1.07 patch installs a `skies` folder of `.sky` files named after the
+weather (`Clear.sky`, `Mostly Sunny 1.sky`, ..., `Overcast.sky`, plus
+`Mojave_Sunset`, `Mostly Cloudy`, `Ominous`, `Stormy` and `Sunrise`) and
+lets the player pick one or a random one instead of the course's own. A
+`.sky` file is an [ARC0](arc0.md) archive of the sky as 94 TGA tiles
+(`_s_k_y_1.tga` to `_s_k_y_94.tga`: 19 of 256 pixels across the top, then
+75 of 64 pixels, 4800 x 320 in all, the same grid as the `skyNN.btc`
+tiles) and a `sky.prv` preview. The first twelve, in the order above, are
+the same pictures as `sky01` to `sky12`, which gives the disc skies their
+names: Clear, Mostly Sunny 1 to 3, Scattered Clouds 1 to 3, Partly Cloudy 1
+and 2, Broken Clouds, Cloudy and Overcast.
+
+Implemented by `olcore::decode_sky_archive` and
+`LinksPanorama.decode_sky_archive`; `oldump pano` reads `.sky` files too.
+
 ## How the game shows them
 
-Not yet measured from the running game. `CourseBackdrop`
+Not yet measured from the running game; the game's code that draws them
+wasn't worked out. `CourseBackdrop`
 (`game/scripts/graphics/course_backdrop.gd`) draws each image on a cylinder
 round the camera with square pixels, so a horizon spans 33.75 degrees and a
 sky 24 degrees. Column 0 faces north (course +y) and columns run clockwise
 seen from above. The sky's bottom row sits at eye level; for the horizon,
 row 450 of 720 (where distant land meets the sky in the six courses) is
 put at eye level. Both of those are guesses to check against the game.
+
+OpenLinks2003 shows the course's own sky by default. The settings offer
+the twelve disc skies, random, and any of the patch's `.sky` files found in
+the player's `skies` folder. In the Photoreal look a picked sky also sets
+the light: the sun dims and its shadows soften under cloud, and Sunrise and
+Mojave Sunset warm it. Left on the course's own, Photoreal keeps its
+photographed sky.

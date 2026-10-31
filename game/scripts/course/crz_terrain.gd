@@ -60,7 +60,9 @@ var surfaces: Array[LinksGround.Params] = []
 var material_flags := PackedInt32Array()
 ## The hole outlines and out-of-bounds areas; null for none.
 var bounds: CourseAreas.HoleBounds
-## Per material: {"texture": Texture2D or null, "colour": Color}, and for a
+## Per material: {"texture": Texture2D or null, "colour": Color}, the
+## disc texture's coarser variants for farther away ("mid", "far"; the
+## blend's "mid_b", "far_b") where the course has them, and for a
 ## free stand-in texture also "normal" (Texture2D or null), "tint" (Color)
 ## and "tile" (metres per repeat). A blended material also has "blend":
 ## {mask, texture_b (Texture2D), ground_a, ground_b (ground classes)}.
@@ -469,6 +471,7 @@ static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Var
 	mat.shader = MAPPED_SHADER
 	mat.set_shader_parameter("texture_a", info.texture)
 	mat.set_shader_parameter("roughness_a", _disc_roughness(surface))
+	_set_variants(mat, info, "_a")
 	var normal := FreeAssets.ground(FreeAssets.slot_for(surface), "normal")
 	mat.set_shader_parameter("normal_tex", normal)
 	mat.set_shader_parameter("has_normal", normal != null)
@@ -480,7 +483,17 @@ static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Var
 		mat.set_shader_parameter("mask_tex", b.mask)
 		mat.set_shader_parameter("roughness_a", _disc_roughness(CLASS_SURFACE.get(b.ground_a, surface)))
 		mat.set_shader_parameter("roughness_b", _disc_roughness(surface_b))
+		_set_variants(mat, {"mid": b.get("mid_b"), "far": b.get("far_b")}, "_b")
 	return mat
+
+
+## A layer's coarser variants for farther away (info "mid" and "far",
+## Texture2D or null; see CrzCourseLoader._add_detail_variants).
+static func _set_variants(mat: ShaderMaterial, info: Dictionary, suffix: String) -> void:
+	for slot in ["mid", "far"]:
+		var tex: Texture2D = info.get(slot)
+		mat.set_shader_parameter(slot + suffix, tex)
+		mat.set_shader_parameter("has_" + slot + suffix, tex != null)
 
 
 ## The photo ground for a material: the free texture of its surface,

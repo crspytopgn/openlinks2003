@@ -79,3 +79,45 @@ static func decode(bytes: PackedByteArray) -> Image:
 	if pos != bytes.size():
 		return null
 	return img
+
+
+## A custom sky from the 1.07 patch (`skies/<name>.sky`, an ARC0 archive of
+## square TGA tiles `_s_k_y_1.tga`, `_s_k_y_2.tga`, ... laid out like a sky
+## panorama's), assembled to RGBA8: as tall as its tile rows and as wide as
+## the narrowest row. Mirrors olcore::decode_sky_archive. Null on error.
+static func decode_sky_archive(sky: Arc0) -> Image:
+	if sky == null:
+		return null
+	var tiles: Array[Image] = []
+	while true:
+		var entry := "_s_k_y_%d.tga" % (tiles.size() + 1)
+		if sky.find(entry) < 0:
+			break
+		var tile := Image.new()
+		if tile.load_tga_from_buffer(sky.read_named(entry)) != OK or tile.get_width() != tile.get_height() or tile.get_width() < 4:
+			return null
+		tile.convert(Image.FORMAT_RGBA8)
+		tiles.append(tile)
+	if tiles.is_empty():
+		return null
+	# Rows: runs of tiles with the same edge, as [first, count, edge].
+	var rows: Array[PackedInt32Array] = []
+	for i in tiles.size():
+		var edge := tiles[i].get_width()
+		if rows.is_empty() or rows.back()[2] != edge:
+			rows.append(PackedInt32Array([i, 0, edge]))
+		rows.back()[1] += 1
+	var width := 0
+	var height := 0
+	for r in rows:
+		width = r[1] * r[2] if width == 0 else mini(width, r[1] * r[2])
+		height += r[2]
+	var img := Image.create_empty(width, height, false, Image.FORMAT_RGBA8)
+	var top := 0
+	for r in rows:
+		for c in r[1]:
+			var x := c * r[2]
+			if x < width:
+				img.blit_rect(tiles[r[0] + c], Rect2i(0, 0, mini(r[2], width - x), r[2]), Vector2i(x, top))
+		top += r[2]
+	return img

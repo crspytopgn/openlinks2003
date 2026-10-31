@@ -86,6 +86,52 @@ func make_arc0(entry_name: String, payload: PackedByteArray) -> PackedByteArray:
 	return b
 
 
+## ARC0 archive of several entries.
+func make_arc0_entries(names: PackedStringArray, payloads: Array[PackedByteArray]) -> PackedByteArray:
+	var b := PackedByteArray()
+	b.append_array("ARC0".to_ascii_buffer())
+	put_u32(b, 0)  # file size, set below
+	put_u32(b, names.size())
+	put_u32(b, 0)  # directory offset, set below
+	var offsets := PackedInt32Array()
+	var packed_sizes := PackedInt32Array()
+	for p in payloads:
+		var packed := p.compress(FileAccess.COMPRESSION_DEFLATE)
+		offsets.append(b.size())
+		packed_sizes.append(packed.size())
+		b.append_array(packed)
+	var dir := b.size()
+	for i in names.size():
+		put_u32(b, 0)
+		var n := names[i].to_ascii_buffer()
+		n.resize(32)
+		b.append_array(n)
+		put_u32(b, offsets[i])
+		put_u32(b, packed_sizes[i])
+		put_u32(b, payloads[i].size())
+		put_u32(b, 2)
+		put_u32(b, 0)
+		put_u32(b, 0)
+		put_u32(b, 0)
+	b.encode_u32(4, b.size())
+	b.encode_u32(12, dir)
+	return b
+
+
+## Uncompressed 32-bit TGA of one colour.
+func flat_tga(edge: int, colour: Color) -> PackedByteArray:
+	var t := PackedByteArray()
+	t.resize(18)
+	t[2] = 2
+	t[12] = edge
+	t[14] = edge
+	t[16] = 32
+	t[17] = 8
+	for i in edge * edge:
+		t.append_array(PackedByteArray([colour.b8, colour.g8, colour.r8, 255]))
+	return t
+
+
 ## Block runs filling `blocks` blocks with one flat colour (B, G, R, A).
 func flat_runs(blocks: int, bgra: Array) -> PackedByteArray:
 	var b := PackedByteArray()
@@ -449,6 +495,27 @@ func _test_course_objects() -> void:
 		check(world.distance_to(Vector3(10 * f, 0, 0)) < 1e-3, "objects: chunk offset restored")
 	root.free()
 
+	# With the course's billboard light (one value per placement) each
+	# instance also carries a colour: 1 in the open, darker in the shade.
+	CourseObjects.billboard_light = PackedFloat32Array([0.0, 1.0, NAN])
+	var shaded := CourseObjects.build(read, decoded)
+	CourseObjects.billboard_light = PackedFloat32Array()
+	check(shaded.plants.light.size() == 3, "objects: billboard light per placement")
+	root = shaded.build_visual(hole)
+	var strides := []
+	var colours := []
+	for child in root.get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null:
+			var buffer: PackedFloat32Array = mmi.multimesh.get_meta("buffer")
+			strides.append(buffer.size() / mmi.multimesh.instance_count)
+			for k in mmi.multimesh.instance_count:
+				colours.append(snappedf(buffer[20 * k + 12], 0.01))
+	check(strides.all(func(x: int) -> bool: return x == 20), "objects: 20 floats per instance with light")
+	colours.sort()
+	check(colours == [snappedf(CourseObjects.SHADE_FLOOR, 0.01), 1.0, 1.0], "objects: shade colours %s" % [colours])
+	root.free()
+
 	# With 3D trees on, the two trees taller than 3 m become 3D trees (full
 	# and impostor) and the small plant stays a billboard.
 	check(CourseObjects.tree_species("Tall Trees212") == TreeFactory.Species.BROADLEAF and CourseObjects.tree_species("Evergreens004") == TreeFactory.Species.PINE, "objects: tree species")
@@ -524,6 +591,21 @@ func _test_panorama() -> void:
 		check(img.get_pixel(4, 258).a < 0.01, "panorama empty tile")
 	d.append(0)
 	check(LinksPanorama.decode(d) == null, "panorama with trailing bytes")
+	# A custom sky: two 8-pixel tiles (red, green), then five 4-pixel ones
+	# (blue), 16 x 12 (the narrowest row's width).
+	var names := PackedStringArray()
+	var payloads: Array[PackedByteArray] = []
+	for i in 7:
+		names.append("_s_k_y_%d.tga" % (i + 1))
+		payloads.append(flat_tga(8, Color.RED if i == 0 else Color.GREEN) if i < 2 else flat_tga(4, Color.BLUE))
+	names.append("sky.prv")
+	payloads.append("preview".to_ascii_buffer())
+	var sky := LinksPanorama.decode_sky_archive(Arc0.from_bytes(make_arc0_entries(names, payloads)))
+	check(sky != null and sky.get_width() == 16 and sky.get_height() == 12, "custom sky size")
+	if sky != null:
+		check(sky.get_pixel(0, 0).r > 0.99 and sky.get_pixel(15, 7).g > 0.99, "custom sky big tiles")
+		check(sky.get_pixel(15, 11).b > 0.99 and sky.get_pixel(15, 11).a > 0.99, "custom sky small tiles")
+	check(LinksPanorama.decode_sky_archive(Arc0.from_bytes(make_arc0("sky.prv", "preview".to_ascii_buffer()))) == null, "custom sky without tiles")
 
 
 ## LZW codes for `data` as plain literals, with a clear code often enough

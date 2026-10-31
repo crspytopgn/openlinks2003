@@ -1,19 +1,23 @@
 # Course shadow file (`.SHA`)
 
-Status: partial (header and tree shadow shapes)
+Status: layout complete (every byte of the six CD2 files is accounted for);
+the cell lists' meaning is only partly known
 Seen in: `COURSES/` on CD2, one beside each `.CRZ` (`GEAGLES.SHA` and so on)
 
 ## Overview
 
-Shading the game works out ahead of time for a course's objects: light
-maps for the 3D objects, a shade value per billboard, and, for each
-billboard type (trees, bushes), the shadow it casts on the ground seen from
-above. The file names the course it belongs to and that course file's size,
-so a stale `.SHA` can be spotted.
+Shading the game works out ahead of time for a course's objects. For each
+3D object mesh and each billboard type (trees, bushes) the file holds its
+shape seen from above, which the game uses for the shadow it casts on the
+ground. For each billboard placement it holds how much light reaches that
+billboard, which is lower for trees standing among other trees. The file
+names the course it belongs to and that course file's size, so a stale
+`.SHA` can be spotted.
 
 ## Layout
 
-All numbers are little-endian. Offsets in hex.
+All numbers are little-endian. Offsets in hex. The file is read straight
+through; nothing after the header has a fixed offset.
 
 | Offset | Type | Name | Notes |
 |--------|------|------|-------|
@@ -21,34 +25,64 @@ All numbers are little-endian. Offsets in hex.
 | 0x0E | char[256] | course | The course file, e.g. `geagles.CRZ`, NUL-padded |
 | 0x10E | u32 | course_size | Size of that course file in bytes (matches all six CD2 courses) |
 | 0x112 | u64 | time | A Windows FILETIME in 2002, probably when it was built |
-| 0x11A | u32 | | Not decoded (about the same in every file) |
+| 0x11A | u32 | stamp | A Unix time, also in 2002 |
 | 0x11E | u32 | model_count | Meshes in the course's `MasterObj3D` |
 | 0x122 | u32 | billboard_type_count | Types in `MasterObj` |
 | 0x126 | u32 | model_placement_count | Records in `3DPlant` |
 | 0x12A | u32 | billboard_count | Placements in `2DPlant` |
-| 0x12E | u32 | light_map_width | 256 so far |
-| 0x132 | u32 | light_map_height | 256 so far |
-| 0x136 | | light maps | `model_count` 8-bit maps of width x height (0xFE lit, darker in shade, 0 unused). They look like the 3D objects' surfaces unwrapped: castle walls with their windows, a gazebo's octagon |
-| | | | Not decoded: in some files a run of zeros and then one u32 count per model placement followed by that many u32 (multiples of 8, perhaps triangle or offset lists); then floats between 0 and 1, mostly 1.0, about one per billboard (exactly `billboard_count` at Gleneagles, Skeleton Coast and Tribute, fewer elsewhere), which look like how much light each billboard gets |
-| | | shapes | `billboard_type_count` records: `u32 width`, `u32 height`, then width x height bytes. 0 x 0 for types that cast none (grasses, flowers); otherwise square, 128 or 64 so far. 0 is no shadow, 255 full shadow. They are round crowns seen from above, not stretched along a sun, so the game presumably projects them itself |
-| | | | Not decoded: about 2 to 4 MB more, starting with small counts |
+| 0x12E | | object shapes | `model_count` shape records (below) |
+| | | placement cells | `model_placement_count` cell lists (below) |
+| | f32[billboard_count] | billboard light | Per `2DPlant` placement, in order |
+| | | billboard shapes | `billboard_type_count` shape records |
+| | | billboard cells | `billboard_count` cell lists |
 
-The shapes' start isn't stored. The readers (olcore::parse_shadow_file and
-the GDScript `ShadowFile`) take it to be the first run of
-`billboard_type_count` well-formed shape records after the light maps,
-backing up over 0 x 0 records that come before the first real shape. That
-finds them in all six CD2 courses.
+The file ends right after the last cell list.
+
+### Shape record
+
+`u32 width`, `u32 height`, then `width x height` bytes, row by row. 0 x 0
+for a mesh or type that casts nothing (grasses, flowers).
+
+- **Billboard types**: square, 128 or 64 a side. 0 is no shadow, 255 full
+  shadow. They are round crowns seen from above, not stretched along a sun,
+  so the game projects them itself.
+- **3D object meshes**: the mesh's footprint seen from straight above,
+  covering the box of the mesh's own x and y (the game's models have z up),
+  row 0 at the smallest y. Each byte is 0xFE where the object stands and 0
+  elsewhere. Rasterising the meshes from above matches them closely (about
+  97% overlap). Sizes vary with the object, up to 256.
+
+### Cell lists
+
+A run of `count` u32 list lengths, one per caster, followed by all the
+lists, one after another. Each entry is a u32 byte offset into an 8-byte
+entry table inside the game (so offset / 8 is an index into a table of 9128
+entries, the same for every course), which belongs to the game's ray
+tracing code. They are probably the cells of a spatial grid the caster
+touches. They aren't needed to draw anything, so the readers skip them
+unless asked.
+
+### Billboard light
+
+One float per billboard placement: 1.0 for a billboard in the open and
+lower, down to nearly 0, the more it is surrounded by others. The values
+follow the number of neighbouring billboards closely, so they are most
+likely the share of the sky each billboard sees. Cabo San Lucas has one
+NaN value; treat it as 1.
 
 ## In the game
 
-GroundShade stamps each tree's and bush's own shape (in place of a soft
-ellipse) into the baked ground shade, stretched away from the sun.
+- GroundShade stamps each tree's and bush's own shape (in place of a soft
+  ellipse) into the baked ground shade, stretched away from the sun.
+- 3D objects with a footprint stamp it (turned and scaled with the object)
+  both as a shadow, shifted away from the sun by half the object's height,
+  and as a soft darkening right underneath. Objects without one keep the
+  box shadow.
+- Billboards are darkened by their light value, from 1 in the open down to
+  `CourseObjects.SHADE_FLOOR` (0.55) for none. The sprites are photographs
+  lit already, so the floor is a guess at how far the game deepens them.
 
 ## Open questions
 
-- The section between the light maps and the per-billboard values, and the
-  rule for how many values there are.
-- How the light maps are laid on the 3D objects (they don't share the
-  objects' texture coordinates).
-- How the game sizes and places a shape under a billboard.
-- The tail after the shapes.
+- What the 9128-entry table is, and so what the cell lists say exactly.
+- How the game itself turns the light value into a sprite's brightness.

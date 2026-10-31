@@ -1073,6 +1073,22 @@ func _test_ground_shade() -> void:
 		var img := atlas.get_image()
 		_check(img.get_pixel(GroundShade.SHAPE_CELL + 5, 5).r > 0.9 and img.get_pixel(5, 5).r < 0.1, "a type's shape sits in its own cell")
 	_check(GroundShade.shape_atlas([]) == null, "no atlas without shapes")
+	# A 3D object's footprint: its top rows (least y) are set; in the atlas,
+	# after the billboard shapes, it is flipped so v runs along Godot +z.
+	var footprint := Image.create(16, 16, false, Image.FORMAT_L8)
+	footprint.fill_rect(Rect2i(0, 0, 16, 4), Color.WHITE)
+	var both := GroundShade.shape_atlas([null, shape], [footprint])
+	if both != null:
+		var img := both.get_image()
+		var cell := 2 * GroundShade.SHAPE_CELL
+		_check(img.get_pixel(cell + 5, GroundShade.SHAPE_CELL - 3).r > 0.9 and img.get_pixel(cell + 5, 3).r < 0.1, "footprints go in flipped after the shapes")
+	# A 10 m tall object 4 x 6 m, turned a quarter, under the same sun.
+	var fs := GroundShade.footprint_stamps(PackedFloat32Array([1, 2, 2, 3, 0.5, 10, 7]), sun)
+	_check(fs.size() == 16, "a shadow and an occlusion stamp per footprint")
+	_check(is_equal_approx(fs[0], 1.0) and is_equal_approx(fs[1], 7.0), "footprint shadow moved along the sun by half the height")
+	_check(is_equal_approx(fs[2], 3.0) and is_equal_approx(fs[3], 2.0) and is_equal_approx(fs[4], 0.5), "footprint keeps its size and turn")
+	_check(is_equal_approx(fs[7], 7.0) and is_equal_approx(fs[15], 7.0), "both stamps take the footprint's shape")
+	_check(is_equal_approx(fs[8], 1.0) and is_equal_approx(fs[9], 2.0) and fs[14] > 0.0, "footprint occlusion at the object")
 	var low := GroundShade.stamps(casters, Vector3(0, -0.01, 1).normalized())
 	_check(Vector2(low[0], low[1]).length() <= GroundShade.MAX_SLANT * 7.0 + 1e-3, "low sun shadows stay bounded")
 	var course := AssetProviders.load_course("")

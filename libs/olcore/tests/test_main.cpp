@@ -621,6 +621,55 @@ void test_arc0_reads_entries() {
   CHECK(!a.find("missing"));
 }
 
+// An ARC0 archive of stored zlib entries.
+std::vector<std::uint8_t> make_arc0(const std::vector<std::string>& names, const std::vector<std::string>& bodies) {
+  std::vector<std::uint8_t> blob(16, 0);
+  std::vector<std::uint32_t> offs, sizes;
+  for (auto& b : bodies) {
+    auto z = stored_zlib(b);
+    offs.push_back(static_cast<std::uint32_t>(blob.size()));
+    sizes.push_back(static_cast<std::uint32_t>(z.size()));
+    blob.insert(blob.end(), z.begin(), z.end());
+  }
+  auto dir = static_cast<std::uint32_t>(blob.size());
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    put_u32(blob, 0);
+    std::string n = names[i];
+    n.resize(32, '\0');
+    blob.insert(blob.end(), n.begin(), n.end());
+    put_u32(blob, offs[i]);
+    put_u32(blob, sizes[i]);
+    put_u32(blob, static_cast<std::uint32_t>(bodies[i].size()));
+    put_u32(blob, 2);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+  }
+  std::vector<std::uint8_t> head = {'A', 'R', 'C', '0'};
+  put_u32(head, static_cast<std::uint32_t>(blob.size()));
+  put_u32(head, static_cast<std::uint32_t>(names.size()));
+  put_u32(head, dir);
+  std::copy(head.begin(), head.end(), blob.begin());
+  return blob;
+}
+
+// Uncompressed 32-bit TGA (bottom-up rows) of one colour.
+std::string flat_tga(int edge, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+  std::string t(18, '\0');
+  t[2] = 2;
+  t[12] = static_cast<char>(edge);
+  t[14] = static_cast<char>(edge);
+  t[16] = 32;
+  t[17] = 8;
+  for (int i = 0; i < edge * edge; ++i) {
+    t.push_back(static_cast<char>(b));
+    t.push_back(static_cast<char>(g));
+    t.push_back(static_cast<char>(r));
+    t.push_back(static_cast<char>(255));
+  }
+  return t;
+}
+
 void put_u16(std::vector<std::uint8_t>& v, std::uint16_t x) {
   v.push_back(static_cast<std::uint8_t>(x & 0xff));
   v.push_back(static_cast<std::uint8_t>(x >> 8));
@@ -776,6 +825,29 @@ void test_btcv_places_tiles_from_bottom() {
   CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 0, 0)[3] == 255);  // tile row 58
   CHECK(pixel(img, 10, 5)[0] < 140 && pixel(img, 10, 5)[0] > 120);  // tile row 63, grey
   CHECK(pixel(img, 66, 3)[3] == 0);
+}
+
+void test_sky_archive() {
+  // Two 8-pixel tiles (red, green), then five 4-pixel ones (blue): 16 x 12,
+  // the narrowest row's width.
+  std::vector<std::string> names, bodies;
+  for (int i = 0; i < 7; ++i) {
+    names.push_back("_s_k_y_" + std::to_string(i + 1) + ".tga");
+    bodies.push_back(i < 2 ? flat_tga(8, i == 0 ? 255 : 0, i == 1 ? 255 : 0, 0) : flat_tga(4, 0, 0, 255));
+  }
+  names.push_back("sky.prv");
+  bodies.push_back("preview");
+  RgbaImage img = decode_sky_archive(Arc0Archive(make_arc0(names, bodies)));
+  CHECK(img.width == 16 && img.height == 12);
+  CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 15, 7)[1] == 255);
+  CHECK(pixel(img, 15, 11)[2] == 255 && pixel(img, 15, 11)[3] == 255);
+  bool threw = false;
+  try {
+    decode_sky_archive(Arc0Archive(make_arc0({"sky.prv"}, {"preview"})));
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
 }
 
 void test_panorama_tiles() {
@@ -2381,6 +2453,7 @@ int main() {
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"panorama_tiles", test_panorama_tiles},
+      {"sky_archive", test_sky_archive},
       {"tga_rle_bottom_up", test_tga_rle_bottom_up},
       {"png_round_trip", test_png_round_trip},
       {"pad_and_bleed", test_pad_and_bleed},
