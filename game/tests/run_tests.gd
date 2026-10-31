@@ -19,6 +19,8 @@ func _initialize() -> void:
 	# Rounds the tests finish go here, not into the player's own profiles.
 	PlayerProfiles.path = "user://test_profiles.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
+	SavedRound.path = "user://test_saved_round.cfg"
+	SavedRound.clear()
 	_run("physics_matches_olcore", _test_physics_matches_olcore)
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
@@ -72,6 +74,9 @@ func _process(_delta: float) -> bool:
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("rounds_recorded", _test_rounds_recorded)
+	_run("saved_round", _test_saved_round)
+	_run("players_panel", _test_players_panel)
+	SavedRound.clear()
 	_run("broadcast_round", _test_broadcast_round)
 	_run("designer_scene", _test_designer_scene)
 	_run("designed_round", _test_designed_round)
@@ -410,6 +415,8 @@ func _test_handicaps() -> void:
 	_check(Handicap.score_differential(42, 36, 9) == 120, "nine-hole differential")
 	_check(Handicap.score_differential(70, 72, 18) == -20, "under par")
 	_check(Handicap.score_differential(41, 35, 7) == 154, "seven holes")
+	_check(Handicap.rounds_used(2) == 0 and Handicap.rounds_used(6) == 2 and Handicap.rounds_used(19) == 7, "rounds used")
+	_check(Handicap.rounds_used(20) == 8 and Handicap.rounds_used(40) == 8, "rounds used tops out at 8")
 	_check(Handicap.index(_ints([130, 120])) == Handicap.NONE, "two rounds: no index")
 	_check(Handicap.index(_ints([130, 120, 150])) == 100, "three rounds")
 	_check(Handicap.index(_ints([130, 120, 150, 140])) == 110, "four rounds")
@@ -1271,6 +1278,80 @@ func _test_rounds_recorded() -> void:
 	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
 	for r: Dictionary in p.rounds("Player 1"):
 		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
+
+
+## A round saved part way through carries on where it stopped.
+func _test_saved_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.handicaps = true
+	s.indexes = _ints([50, 120])
+	GolfRound.setup = s
+	game.start_round()
+	var steps := 0
+	while steps < 2000 and not (game.hole_index == 1 and game.state == GolfRound.State.AIM and game.players[game.current].strokes > 0):
+		game.auto_play_step()
+		steps += 1
+	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "part way through hole 2")
+	_check(SavedRound.exists(), "the round is saved as it goes")
+	var cards: Array = []
+	for c in game.scoring.cards:
+		cards.append(c.strokes.duplicate())
+	var balls: Array = []
+	for p in game.players:
+		balls.append([p.at, p.strokes, p.done()])
+	var current := game.current
+
+	var saved := SavedRound.load_setup()
+	_check(saved != null and saved.names == s.names and saved.handicaps and saved.indexes == s.indexes and saved.computer == _ints([RoundSetup.HUMAN, RoundSetup.HUMAN]), "setup saved")
+	_check(SavedRound.describe().contains("hole 2"), "describe: %s" % SavedRound.describe())
+	GolfRound.setup = saved
+	GolfRound.resume = SavedRound.load_state()
+	game.start_round()
+	_check(GolfRound.resume.is_empty(), "the saved state is used once")
+	_check(game.hole_index == 1, "resumed on hole 2")
+	_check(game.current == current, "same player to play")
+	for i in 2:
+		_check(game.scoring.cards[i].strokes == cards[i], "card %d restored: %s" % [i, game.scoring.cards[i].strokes])
+		var p := game.players[i]
+		_check(p.strokes == balls[i][1] and p.done() == balls[i][2], "ball %d strokes restored" % i)
+		_check(p.at.distance_to(balls[i][0]) < 0.01, "ball %d lies where it did" % i)
+	_check(game.scoring.playing == _ints([2, 6]), "handicaps restored: %s" % [game.scoring.playing])
+	steps = 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "resumed round finishes")
+	_check(not SavedRound.exists(), "a finished round is no longer saved")
+	GolfRound.setup = null
+
+
+func _test_players_panel() -> void:
+	var p := PlayerProfiles.load_saved()
+	var panel := PlayersPanel.new()
+	root.add_child(panel)
+	panel.open()
+	_check(panel.visible, "players page opens")
+	var played := p.rounds("Ann")
+	_check(played.size() >= 2, "Ann has rounds by now")
+	var used := panel._used_rounds(played)
+	_check(used.size() == Handicap.rounds_used(mini(played.size(), Handicap.ROUNDS)), "rounds used: %s" % [used])
+	if played.size() >= 3:
+		var diffs: Array[int] = []
+		for i in used:
+			diffs.append(int(played[i].differential))
+		var lowest := p.differentials("Ann").slice(maxi(0, played.size() - Handicap.ROUNDS))
+		lowest.sort()
+		_check(diffs.max() <= lowest[used.size() - 1], "the starred rounds are the lowest")
+	panel._on_delete("Ann")
+	_check(PlayerProfiles.load_saved().has_player("Ann"), "the first press only asks")
+	panel._on_delete("Ann")
+	_check(not PlayerProfiles.load_saved().has_player("Ann"), "the second press deletes")
+	panel.queue_free()
 
 
 ## The readers behind LinksGolfer, on synthetic data (no original files).

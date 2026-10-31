@@ -240,6 +240,11 @@ int score_differential(int adjusted_gross, int par, int holes) {
   return div_round((adjusted_gross - par) * 10 * 18, holes);
 }
 
+std::size_t handicap_rounds_used(std::size_t rounds) {
+  static const std::size_t kUsed[] = {0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 8};
+  return kUsed[std::min(rounds, kHandicapRounds)];
+}
+
 int handicap_index(const std::vector<int>& differentials) {
   std::size_t first = differentials.size() > kHandicapRounds ? differentials.size() - kHandicapRounds : 0;
   std::vector<int> recent(differentials.begin() + static_cast<std::ptrdiff_t>(first), differentials.end());
@@ -247,20 +252,8 @@ int handicap_index(const std::vector<int>& differentials) {
   if (n < 3) {
     return kNoHandicap;
   }
-  // WHS: how many of the lowest count, and the adjustment, by rounds on record.
-  std::size_t use = 1;
-  int adjust = 0;
-  if (n == 3) { use = 1; adjust = -20; }
-  else if (n == 4) { use = 1; adjust = -10; }
-  else if (n == 5) { use = 1; }
-  else if (n == 6) { use = 2; adjust = -10; }
-  else if (n <= 8) { use = 2; }
-  else if (n <= 11) { use = 3; }
-  else if (n <= 14) { use = 4; }
-  else if (n <= 16) { use = 5; }
-  else if (n <= 18) { use = 6; }
-  else if (n == 19) { use = 7; }
-  else { use = 8; }
+  std::size_t use = handicap_rounds_used(n);
+  int adjust = n == 3 ? -20 : (n == 4 || n == 6) ? -10 : 0;
   std::sort(recent.begin(), recent.end());
   int sum = 0;
   for (std::size_t i = 0; i < use; ++i) {
