@@ -242,6 +242,7 @@ func _choose_fallback() -> void:
 func _simulate(club: int, p: float, aim: float, accuracy := 0.0) -> ShotResult:
 	if _model is LinksShotModel:
 		(_model as LinksShotModel).computer = true  # plan without the human miss model
+		(_model as LinksShotModel).computer_ratings = null  # nor the computer's own
 	var start := _model.launch(_clubs[club], p, accuracy, aim, _lie, _from)
 	return _model.simulate(start, _hole.terrain, _hole.pin, _wind)
 

@@ -130,7 +130,11 @@ exactly the same physics as everyone else:
    `libs/olcore/src/opponent.cpp`). The plan becomes swing-meter inputs, and
    the level's mistakes go on those inputs, never on the ball: power, timing
    (hook and slice), line-up, putt pace and putt line errors, the odd duff or
-   top, and a strength cap on how hard it can swing.
+   top, and a strength cap on how hard it can swing. With the Links 2003
+   physics, full swings instead get the game's own computer misses
+   (`LinksLaunch.computer_miss`, see
+   [physics.md](formats/physics.md#computer-golfers-misses)) from the level's
+   steadiness rating; putts keep the errors here.
 
 | Level | Driver spread (sd) | 7 iron spread | 8 ft putts holed | Duffs |
 | --- | --- | --- | --- | --- |
