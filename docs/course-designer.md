@@ -99,6 +99,12 @@ browser's own storage for the site). **Open** lists the saved courses.
   fairway, fringe, tee, green, sand, water (later layers cover earlier ones).
   Every green gets a 1.8 m fringe ring. Ground with no area is rough, and
   everything outside the course is out of bounds.
+  The ground is drawn from the same raster (a splat map, `material()`):
+  the terrain shader looks up each pixel's surface there, with a slightly
+  wandering line, so edges are crisp at 0.5 m instead of blended across a
+  2 m grid cell, and mowing stripes are cut on the fairways, tees and
+  greens only. Under a pond's water line the bank is dark turf. Courses
+  over 2 km across get a coarser map (at most 4096 texels a side).
 - **Trees and objects** are obstacles for the ball (`DesignerObjects`): the
   built-in trees get a trunk and a canopy sized to their meshes. Catalog
   objects are measured from the node the player's object library builds for
