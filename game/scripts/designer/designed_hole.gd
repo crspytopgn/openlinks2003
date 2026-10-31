@@ -8,6 +8,8 @@ const MAX_TEES := 3
 const TEE_NAMES := ["Back tee", "Middle tee", "Forward tee"]
 
 var par := 4
+## Stroke index (handicap rank, 1 hardest); 0 when the course doesn't say.
+var stroke_index := 0
 var tees := PackedVector2Array()
 var pin := Vector2.ZERO
 var route := PackedVector2Array()  ## aim points between the tee and the pin
@@ -36,12 +38,16 @@ static func par_for_length(metres: float) -> int:
 
 
 func to_dict() -> Dictionary:
-	return {"par": par, "tees": _flat(tees), "pin": [snappedf(pin.x, 0.01), snappedf(pin.y, 0.01)], "route": _flat(route)}
+	var d := {"par": par, "tees": _flat(tees), "pin": [snappedf(pin.x, 0.01), snappedf(pin.y, 0.01)], "route": _flat(route)}
+	if stroke_index > 0:
+		d["stroke_index"] = stroke_index
+	return d
 
 
 static func from_dict(d: Dictionary) -> DesignedHole:
 	var h := DesignedHole.new()
 	h.par = clampi(int(d.get("par", 4)), 3, 6)
+	h.stroke_index = clampi(int(d.get("stroke_index", 0)), 0, 36)
 	h.tees = _points(d.get("tees", []))
 	var p: Array = d.get("pin", [0, 0])
 	if p.size() >= 2:

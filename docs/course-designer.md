@@ -76,6 +76,9 @@ that length usually plays to.
 courses are also listed on the round setup page (marked "your design"), so
 they can be played with every game mode and up to four players.
 
+**Real course...** builds a real golf course from its name, from
+OpenStreetMap and open elevation data; see [real-courses.md](real-courses.md).
+
 **Save** writes `user://courses/<course name>.olc` (in the browser, the
 browser's own storage for the site). **Open** lists the saved courses.
 **Export** downloads the course file (browser) or saves it anywhere
@@ -129,9 +132,10 @@ A UTF-8 JSON object:
 | `cell` | Metres between height samples: `2.0` |
 | `heights` | `{"encoding": "cm-delta-s16-deflate-base64", "count": n, "data": "..."}`: the grid row by row (z then x), `cols = width / cell + 1` by `rows = depth / cell + 1`. Each height is in centimetres, stored as the difference from the previous one as a little-endian int16; the bytes are deflated and base64-encoded. Heights are kept within +-150 m. |
 | `shapes` | `[{"surface": "Fairway", "points": [x0, z0, x1, z1, ...]}, ...]`: surface names as in `Surface.NAMES` |
-| `holes` | `[{"par": 4, "tees": [x, z, ...], "pin": [x, z], "route": [x, z, ...]}, ...]`: tees back to forward, route is the aim points |
+| `holes` | `[{"par": 4, "tees": [x, z, ...], "pin": [x, z], "route": [x, z, ...]}, ...]`: tees back to forward, route is the aim points; an optional `stroke_index` (1 to 18) |
 | `objects` | `[{"id": "tree_pine", "x": 0, "z": 0, "yaw": 90, "scale": 1}, ...]` |
 | `paths` | `[{"points": [x0, z0, x1, z1, ...], "width": 2.5, "bridge": false}, ...]` (width 1 to 8 m) |
+| `credits`, `source` | Optional: data credits to keep, and where a real course came from ([real-courses.md](real-courses.md)) |
 | `object_info` | `{"<catalog file name>": {"kind": "model", "size": [x, y, z], "centre": [x, y, z]}, ...}`: the measured size of every catalog object the course uses, in metres at scale 1, with `kind` one of `model`, `tree`, `solid`, `soft`. Only sizes, never the objects themselves, so a shared file carries no game data. |
 
 A medium course (1000 x 800 m) with a few holes is a few hundred kilobytes.

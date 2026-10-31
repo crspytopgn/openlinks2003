@@ -36,6 +36,12 @@ var paths: Array[CoursePath] = []
 ## measures them when the player's files are there), so a course shared with
 ## someone without the files still has the right obstacles and stand-ins.
 var object_info := {}
+## Data credits a course made from real-world data must keep (the
+## OpenStreetMap licence asks for its attribution), shown in the designer.
+var credits := ""
+## Where a real course came from: {"kind": "openstreetmap", "lat", "lon",
+## "base_height"} (see docs/real-courses.md). Empty for hand-made courses.
+var source := {}
 
 
 ## A flat course of the given size, centred on the origin.
@@ -193,6 +199,7 @@ func to_course_data() -> CourseData:
 		var h := HoleData.new()
 		h.number = data.holes.size() + 1
 		h.par = dh.par
+		h.stroke_index = dh.stroke_index
 		h.terrain = terrain
 		for t in dh.tees:
 			h.tees.append(Vector3(t.x, terrain.height_at(t.x, t.y), t.y))
@@ -256,6 +263,8 @@ func to_dict(with_heights := true) -> Dictionary:
 		"objects": object_list,
 		"paths": path_list,
 		"object_info": object_info.duplicate(true),
+		"credits": credits,
+		"source": source.duplicate(true),
 	}
 
 
@@ -273,6 +282,9 @@ static func from_dict(d: Dictionary) -> DesignedCourse:
 	var c := DesignedCourse.new()
 	c.course_name = str(d.get("name", "Untitled"))
 	c.author = str(d.get("author", ""))
+	c.credits = str(d.get("credits", ""))
+	if d.get("source", {}) is Dictionary:
+		c.source = d.get("source", {})
 	c.area = Rect2(float(a[0]), float(a[1]), float(a[2]), float(a[3]))
 	if c.area.size.x < CELL * 4 or c.area.size.y < CELL * 4 or c.area.size.x > 4000 or c.area.size.y > 4000:
 		return null
