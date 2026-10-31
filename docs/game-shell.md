@@ -58,9 +58,50 @@ balls stay on the ground where they lie. The modes:
 functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
 cards and turns them into the HUD status line, the end-of-hole result and the
 final standings. The scorecard shows a row per player plus the mode's rows
-(points, skin winners, match holes, team best balls). Computer opponents are
-not done yet.
+(points, skin winners, match holes, team best balls).
 
+### Computer opponents
+
+Any seat can be a computer golfer instead of a person ("Who" on the setup
+page), so one person can play a match, skins or best ball against the
+computer, or watch four computer golfers play. A computer golfer plays through
+exactly the same physics as everyone else:
+
+1. **Plan** (`ai/computer_golfer.gd`, `ComputerGolfer`). It tries clubs, aims
+   and power through the round's own `ShotModel`, on the real hole, with the
+   wind of that shot. Full shots aim at the pin when it is in range (with the
+   power to get there) or down the hole's route, then correct twice for wind
+   and curve. Putts aim at the hole, paced to finish 35 cm past, and read the
+   green from where each try stops (up to eight tries). Where a try ends is
+   scored by the strokes still to play from there (`expected_strokes`, rounded
+   from published tour "strokes gained" baselines), with a stroke added for
+   water and stroke and distance for out of bounds. Golfers with course
+   management re-try their three best plans pulled and hooked, pushed and
+   sliced, long and short, and take the best average, so they play away from
+   water and bunkers. The weekend golfer just goes for the best-looking shot.
+2. **Swing** (`ai/opponent_skill.gd`, `OpponentSkill`, ported from
+   `libs/olcore/src/opponent.cpp`). The plan becomes swing-meter inputs, and
+   the level's mistakes go on those inputs, never on the ball: power, timing
+   (hook and slice), line-up, putt pace and putt line errors, the odd duff or
+   top, and a strength cap on how hard it can swing.
+
+| Level | Driver spread (sd) | 7 iron spread | 8 ft putts holed | Duffs |
+| --- | --- | --- | --- | --- |
+| Weekend golfer | about 30 m, 80% strength | 12 m | about 35% | 6% |
+| Club golfer | 24 m, 88% | 10 m | 47% | 2.5% |
+| Scratch golfer | 17 m, 95% | 8 m | 59% | 0.8% |
+| Tour pro | 14 m, full | 5 m | 74% | 0.2% |
+
+The spreads are from the stand-in physics on flat ground. The numbers are our
+own, set so the levels score roughly like their names; the original game's
+computer golfers haven't been measured.
+
+Planning runs as small jobs over a few frames (about 6 ms of work a frame),
+so the browser build doesn't stall. The computer spends at least 0.8 s
+"thinking", shows its club and line for 1.2 s, then swings; a click hurries it
+up. When every seat is a computer, holes move on by themselves after 4 s.
+Seeded rounds (`GolfRound.wind_seed`) seed the computer golfers too, so the
+tests play the same way every run.
 ### Handicaps and player profiles
 
 Every finished round of nine holes or more goes on the player's profile,
@@ -102,6 +143,10 @@ game/scripts/
   scorecard.gd                  Scorecard (mirrors olcore/scoring)
   game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
   round_setup.gd                RoundSetup: course, tees, holes, mode and players for a round
+  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode
+  ai/
+    computer_golfer.gd          ComputerGolfer: plans a computer opponent's shots through the ShotModel
+    opponent_skill.gd           OpponentSkill: skill levels and swing mistakes (port of olcore/opponent)
   round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
   handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
   player_profiles.gd            PlayerProfiles: each player's rounds and handicap index

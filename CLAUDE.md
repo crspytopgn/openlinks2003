@@ -23,6 +23,7 @@ and don't start a "(needs data)" item on guesses.
   `links_launch.cpp` the same way, and
   `game/scripts/game_modes.gd` ports the game-mode half of `scoring.cpp`
   and `game/scripts/handicap.gd` its handicap functions.
+  `game/scripts/ai/opponent_skill.gd` ports `opponent.cpp`.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
   (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
   `ShotModel`), registered with `AssetProviders`.

@@ -27,6 +27,7 @@
 #include "olcore/model.hpp"
 #include "olcore/obstacles.hpp"
 #include "olcore/object_library.hpp"
+#include "olcore/opponent.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
 #include "olcore/scoring.hpp"
@@ -1739,6 +1740,86 @@ void test_links_lie() {
   }
 }
 
+// Computer opponents. The printed numbers are checked by the GDScript port
+// (game/tests/run_tests.gd, _test_opponent_skill_matches_olcore).
+void test_opponent_rng_and_swings() {
+  OpponentRng r(2003);
+  CHECK(r.next() == 532058734u);
+  CHECK(r.next() == 1922934515u);
+  OpponentRng q(7);
+  double u = q.uniform();
+  double g = q.normal();
+  std::printf("  rng: uniform %.9f normal %.9f\n", u, g);
+  OpponentRng s(42);
+  for (int level = 0; level < kSkillLevelCount; ++level) {
+    const SkillProfile& skill = skill_profile(static_cast<SkillLevel>(level));
+    SwingInput full = execute_swing({0.9, 0.0, 10.0}, false, skill, s);
+    SwingInput putt = execute_swing({0.4, 0.0, -5.0}, true, skill, s);
+    std::printf("  %s: full %.6f %.6f %.6f, putt %.6f %.6f\n", skill.name, full.power, full.accuracy, full.aim_deg,
+                putt.power, putt.aim_deg);
+    CHECK(putt.accuracy == 0.0);
+  }
+}
+
+void test_opponent_levels_are_ordered() {
+  for (int level = 1; level < kSkillLevelCount; ++level) {
+    const SkillProfile& a = skill_profile(static_cast<SkillLevel>(level - 1));
+    const SkillProfile& b = skill_profile(static_cast<SkillLevel>(level));
+    CHECK(b.power_sd < a.power_sd);
+    CHECK(b.accuracy_sd < a.accuracy_sd);
+    CHECK(b.putt_aim_sd_deg < a.putt_aim_sd_deg);
+    CHECK(b.mishit_chance < a.mishit_chance);
+    CHECK(b.strength > a.strength);
+  }
+  // Through the physics: the better golfer is straighter off the tee and
+  // holes more eight-footers.
+  BallParams p;
+  FlatTerrain fairway(Surface::Fairway);
+  FlatTerrain green(Surface::Green);
+  ShotOptions opt;
+  opt.has_cup = true;
+  opt.cup = {0, 0, 2.4};
+  double pace = std::sqrt(2.0 * surface_params(Surface::Green).rolling_resistance * 9.81 * 2.8) / club("Pt").ball_speed_mps;
+  double spread[2] = {0, 0};
+  int holed[2] = {0, 0};
+  const SkillLevel levels[2] = {SkillLevel::Beginner, SkillLevel::Tour};
+  for (int k = 0; k < 2; ++k) {
+    const SkillProfile& skill = skill_profile(levels[k]);
+    OpponentRng rng(99);
+    for (int i = 0; i < 200; ++i) {
+      SwingInput drive = execute_swing({skill.strength, 0, 0}, false, skill, rng);
+      spread[k] += std::fabs(simulate_shot(launch_from_swing(club("Dr"), drive, Surface::Tee), p, fairway).rest.x);
+      SwingInput putt = execute_swing({pace, 0, 0}, true, skill, rng);
+      if (simulate_shot(launch_from_swing(club("Pt"), putt, Surface::Green), p, green, opt).outcome == ShotOutcome::Holed) {
+        ++holed[k];
+      }
+    }
+  }
+  std::printf("  drive spread %.1f / %.1f m, 8 ft putts %d / %d of 200\n", spread[0] / 200, spread[1] / 200, holed[0],
+              holed[1]);
+  CHECK(spread[1] < spread[0] * 0.7);
+  CHECK(holed[1] > holed[0] + 30);
+}
+
+void test_expected_strokes() {
+  CHECK_NEAR(expected_strokes(0.0, Surface::Green), 1.0, 1e-9);
+  CHECK_NEAR(expected_strokes(8 / 3.2808399, Surface::Green), 1.5, 1e-6);
+  CHECK_NEAR(expected_strokes(150 / 1.0936133, Surface::Fairway), 2.98, 1e-6);
+  CHECK(expected_strokes(100, Surface::Rough) > expected_strokes(100, Surface::Fairway));
+  CHECK(expected_strokes(100, Surface::Sand) > expected_strokes(100, Surface::Rough));
+  CHECK(expected_strokes(100, Surface::DeepRough) > expected_strokes(100, Surface::Sand));
+  double last = 0;
+  for (double d = 0; d < 600; d += 5) {
+    double e = expected_strokes(d, Surface::Fairway);
+    CHECK(e >= last);
+    last = e;
+  }
+  for (double d : {0.5, 6.0, 30.0, 140.0, 600.0}) {
+    std::printf("  expected strokes %.1f m: green %.6f fringe %.6f sand %.6f\n", d, expected_strokes(d, Surface::Green),
+                expected_strokes(d, Surface::Fringe), expected_strokes(d, Surface::Sand));
+  }
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1774,6 +1855,9 @@ int main() {
       {"wedge_checks_on_green", test_wedge_checks_on_green},
       {"rough_and_sand_cost_distance", test_rough_and_sand_cost_distance},
       {"swing_accuracy_curves_ball", test_swing_accuracy_curves_ball},
+      {"opponent_rng_and_swings", test_opponent_rng_and_swings},
+      {"opponent_levels_are_ordered", test_opponent_levels_are_ordered},
+      {"expected_strokes", test_expected_strokes},
       {"putt_drops_at_holing_speed", test_putt_drops_at_holing_speed},
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
       {"ball_rolls_downhill", test_ball_rolls_downhill},

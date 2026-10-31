@@ -3,13 +3,15 @@ extends Node3D
 ## One round of golf: aim, swing, watch the ball, hole out, next hole.
 ## Up to four players share the round (hot seat): everyone tees off in order
 ## of the honour, then whoever is furthest from the hole plays next. The game
-## mode (RoundSetup, RoundScoring) decides what the cards mean.
+## mode (RoundSetup, RoundScoring) decides what the cards mean. Any player can
+## be a computer golfer (ComputerGolfer), which plans through the same
+## ShotModel and swings with the mistakes of its level.
 ##
 ## Courses, objects, the golfer and sounds come from AssetProviders
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -17,8 +19,12 @@ const MAX_STROKES := 10  ## pick up after this many on a hole
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
+const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
+const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
+const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
 const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: menu"
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
+const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
@@ -62,6 +68,8 @@ var hole_index := 0
 var round_setup: RoundSetup
 var scoring: RoundScoring
 var players: Array[PlayerBall] = []
+## Each player's computer golfer, or null for a person.
+var opponents: Array[ComputerGolfer] = []
 var current := 0  ## whose turn it is
 var honour: Array[int] = []  ## tee-off order for this hole
 ## The current player's card.
@@ -77,6 +85,12 @@ var shot_from := Vector3.ZERO
 var shot_time := 0.0
 var result_timer := 0.0
 var _land_time := INF  ## when the ball first lands; INF once the sound has played
+## One line per shot on the current hole (who, club, lie, distances and
+## outcome), for the tests and for tuning.
+var shot_log := PackedStringArray()
+var _computer_timer := 0.0
+var _computer_ready := false  ## the computer has its plan and is addressing the ball
+var _computer_backswing := false
 
 var shot_model: ShotModel
 var wind: Wind
@@ -153,8 +167,13 @@ func start_round() -> void:
 		if p.marker:
 			p.marker.queue_free()
 	players.clear()
+	opponents.clear()
 	honour.clear()
 	for i in scoring.player_count():
+		var cpu: ComputerGolfer = null
+		if round_setup.is_computer(i):
+			cpu = ComputerGolfer.new(round_setup.computer_level(i), wind_seed * 31 + i + 1 if wind_seed != 0 else 0)
+		opponents.append(cpu)
 		var p := PlayerBall.new()
 		p.marker = _make_ball_mesh()
 		p.marker.visible = false
@@ -187,6 +206,7 @@ func _round_name() -> String:
 
 func start_hole(index: int) -> void:
 	hole_index = index
+	shot_log.clear()
 	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
@@ -321,6 +341,10 @@ func play_shot(power: float, accuracy: float) -> void:
 ## the headless tests to play a whole round.
 func auto_play_step() -> void:
 	match state:
+		State.COMPUTER:
+			opponents[current].finish()
+			_show_computer_plan()
+			_computer_swing()
 		State.AIM, State.SWING:
 			var club := clubs[club_index]
 			var target := _aim_target()
@@ -354,6 +378,13 @@ func _process(delta: float) -> void:
 				result_timer -= delta
 				if result_timer <= 0.0:
 					_after_result()
+			State.COMPUTER:
+				_process_computer(delta)
+			State.HOLE_DONE:
+				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
+					result_timer -= delta
+					if result_timer <= 0.0:
+						_next_hole()
 	if _replay_delay >= 0.0 and not _replaying:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
@@ -451,6 +482,11 @@ func _on_swing_pressed() -> void:
 			_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
+		State.COMPUTER:
+			# Hurry up: finish the plan and swing now.
+			opponents[current].finish()
+			_show_computer_plan()
+			_computer_swing()
 		State.HOLE_DONE:
 			_next_hole()
 		State.ROUND_DONE:
@@ -497,6 +533,8 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_update_hud()
 	_aim_camera(snap_camera)
 	_update_green_grid()
+	if opponents[current] != null:
+		_start_computer_turn()
 
 
 func _process_aim(delta: float) -> void:
@@ -534,6 +572,10 @@ func _complete_flight() -> void:
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
 	strokes += 1
+	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
+		scoring.names[current], strokes, clubs[club_index].short_name, Surface.name_of(lie),
+		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
+		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
 	if broadcast:
 		_report_shot()
 	var msg := ""
@@ -634,6 +676,7 @@ func _finish_hole() -> void:
 	_update_markers()
 	hud.scorecard.show_round(scoring, _round_name())
 	hud.hint.text = HINT_WAIT
+	result_timer = COMPUTER_HOLE_PAUSE
 	_update_hud()
 
 
@@ -724,6 +767,55 @@ func _water_drop(entry: Vector3, from: Vector3) -> Vector3:
 	var drop := entry + dir * travelled
 	drop.y = t.height_at(drop.x, drop.z)
 	return drop
+
+
+# --- Computer golfers --------------------------------------------------------
+
+func _start_computer_turn() -> void:
+	state = State.COMPUTER
+	_computer_timer = 0.0
+	_computer_ready = false
+	_computer_backswing = false
+	opponents[current].plan(shot_model, clubs, hole, ball_at, lie, wind.velocity())
+	hud.hint.text = HINT_COMPUTER % scoring.names[current]
+
+
+## Plans over a few frames, lines up, then swings.
+func _process_computer(delta: float) -> void:
+	if pause_menu.visible or settings_panel.visible:
+		return
+	_computer_timer += delta
+	var cpu := opponents[current]
+	if not _computer_ready:
+		if cpu.step() and _computer_timer >= COMPUTER_THINK:
+			_show_computer_plan()
+		return
+	if not _computer_backswing and _computer_timer >= COMPUTER_ADDRESS - 0.5:
+		_computer_backswing = true
+		if golfer and not cpu.is_putt():
+			golfer.play(&"backswing")
+	if _computer_timer >= COMPUTER_ADDRESS:
+		_computer_swing()
+
+
+## Takes the club and line the computer chose and shows them.
+func _show_computer_plan() -> void:
+	var cpu := opponents[current]
+	_computer_ready = true
+	_computer_timer = 0.0
+	club_index = cpu.club_index
+	aim_deg = cpu.aim_deg
+	_place_golfer()
+	_update_aim_marker()
+	_update_hud()
+	_aim_camera(false)
+
+
+func _computer_swing() -> void:
+	var made := opponents[current].swing()
+	aim_deg = made[2]
+	hud.meter.reset()
+	play_shot(made[0], made[1])
 
 
 # --- Clubs and aim -----------------------------------------------------------
@@ -1018,8 +1110,8 @@ func _update_hud() -> void:
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
 	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
-	if players.size() > 1:
-		text += "%s    " % scoring.names[current]
+	if players.size() > 1 or opponents[current] != null:
+		text += "%s    " % _player_label(current)
 	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
 		strokes + 1, pin_text, Surface.name_of(lie), club_text, wind.describe(aim_deg), total, thru]
 	var status := scoring.status_text()
@@ -1029,6 +1121,16 @@ func _update_hud() -> void:
 	hud.wind.show_wind(wind, aim_deg)
 	if broadcast:
 		hud.overlay.set_status(_status(state == State.AIM or state == State.SWING))
+
+
+## The player's name, with the level of a computer golfer unless the name
+## already says it.
+func _player_label(i: int) -> String:
+	var cpu := opponents[i]
+	var label := scoring.names[i]
+	if cpu != null and not label.begins_with(cpu.skill.level_name()):
+		label += " (%s)" % cpu.skill.level_name()
+	return label
 
 
 func _clear_trail() -> void:
