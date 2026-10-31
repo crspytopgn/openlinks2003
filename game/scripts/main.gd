@@ -713,11 +713,11 @@ func _unhandled_input(event: InputEvent) -> void:
 					_update_green_grid()
 					return
 				KEY_D:
-					if state == State.AIM and opponents[current] == null:
+					if state == State.AIM and opponents[shooter] == null:
 						_start_drop(DropRules.Reason.UNPLAYABLE)
 					return
 				KEY_F:
-					if state == State.AIM and opponents[current] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+					if state == State.AIM and opponents[shooter] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
 	if _mouse_swing_input(event):
@@ -984,6 +984,14 @@ func _count_stats(strokes_before: int) -> void:
 ## penalty, if it had one).
 func _scramble_shot(strokes_before: int, msg: String) -> String:
 	var p := players[current]
+	# A shot in the water is dropped where the rules put it best, so the team
+	# compares (and may play) a ball on dry land. The drop is never taken
+	# from a spot the team doesn't keep.
+	if _drop_pending:
+		_drop_pending = false
+		var zones := _drop_zones_for(DropRules.Reason.WATER, _water_entry, false)
+		ball_at = zones[DropRules.best(zones, hole.pin)].spot
+		msg = "Water hazard. One-stroke penalty, dropped."
 	var add := strokes - strokes_before
 	var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
 	var score := add + OpponentSkill.expected_strokes(_flat_distance(ball_at, hole.pin), s)
@@ -1183,16 +1191,14 @@ func _begin_drop(reason: int) -> void:
 	_drop_reason = reason
 	_drop_from = ball_at
 	_drop_note = ""
-	_drop_zones.clear()
-	for option in DropRules.options(reason, LATERAL_WATER):
-		_drop_zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	_drop_zones = _drop_zones_for(reason, reference, in_sand)
 	if reason == DropRules.Reason.FREE_RELIEF and not _drop_zones[0].found:
 		_drop_reason = -1
 		hud.show_message("There's no relief from the path near here.", 2.0)
 		return
 	_drop_choice = DropRules.best(_drop_zones, hole.pin)
 	_drop_spot = _drop_zones[_drop_choice].spot
-	if opponents[current] != null:
+	if opponents[shooter] != null:
 		_finish_drop()
 		return
 	state = State.DROP
@@ -1205,6 +1211,13 @@ func _begin_drop(reason: int) -> void:
 	if reason != DropRules.Reason.WATER:
 		hud.hint.text += HINT_DROP_CANCEL
 	_show_drop()
+
+
+func _drop_zones_for(reason: int, reference: Vector3, in_sand: bool) -> Array[DropRules.Zone]:
+	var zones: Array[DropRules.Zone] = []
+	for option in DropRules.options(reason, LATERAL_WATER):
+		zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	return zones
 
 
 func _select_drop(i: int) -> void:
@@ -1227,7 +1240,7 @@ func _show_drop() -> void:
 	var titles := ["Water hazard: one-stroke penalty.", "Unplayable lie: one-stroke penalty.", "Free drop from the path."]
 	var lines: Array[String] = []
 	if players.size() > 1:
-		lines.append(scoring.names[current])
+		lines.append(scoring.names[shooter])
 	lines.append(titles[_drop_reason])
 	for i in _drop_zones.size():
 		lines.append("%s %d  %s" % [">" if i == _drop_choice else " ", i + 1, DropRules.OPTION_NAMES[_drop_zones[i].option]])
@@ -1305,13 +1318,13 @@ func _finish_drop() -> void:
 	var what := DropRules.OPTION_NAMES[z.option]
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()
-	shot_log.append("%s: %s, %.0f m left" % [scoring.names[current], what, _flat_distance(ball_at, hole.pin)])
+	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
 	if strokes >= MAX_STROKES:
 		_hole_out(true)
 		return
 	var msg := what + "."
 	if players.size() > 1:
-		msg = scoring.names[current] + ": " + msg
+		msg = scoring.names[shooter] + ": " + msg
 	if reason == DropRules.Reason.WATER:
 		_pass_turn()
 	else:

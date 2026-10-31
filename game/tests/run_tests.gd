@@ -82,6 +82,7 @@ func _process(_delta: float) -> bool:
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
+	_run("team_drops", _test_team_drops)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("players_panel", _test_players_panel)
@@ -1780,6 +1781,57 @@ func _test_team_ball_modes() -> void:
 			_check(game.scoring.cards[members[0]].strokes == game.scoring.cards[members[1]].strokes, "%s: partners share the team score" % mode_name)
 			_check(game.scoring.cards[members[0]].holes_played() == game.holes.size(), "%s: team %d played every hole" % [mode_name, t])
 		print("  %s: %s" % [mode_name.to_lower(), game.scoring.winner_text()])
+	GolfRound.setup = null
+
+
+## Drops in the team modes: a partner's water ball in a scramble doesn't move
+## the team's ball, and a person choosing the drop is asked even when the
+## team's ball belongs to a computer partner.
+func _test_team_drops() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob", "Cy", "Di"])
+	s.teams = _ints([0, 1, 0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, OpponentSkill.Level.TOUR, OpponentSkill.Level.CLUB])
+	s.mode = GameModes.Mode.SCRAMBLE
+	GolfRound.setup = s
+	game.start_round()
+	var tee := game.ball_at
+	_check(game.state == GolfRound.State.AIM and game.current == 0 and game.shooter == 0, "scramble: Ann tees off first")
+	var wet := ShotResult.new()
+	wet.outcome = ShotResult.Outcome.WATER
+	wet.rest = tee + Vector3(0.0, -1.0, 150.0)
+	wet.first_landing = wet.rest
+	wet.time_s = 5.0
+	wet.add_sample(0.0, tee)
+	wet.add_sample(5.0, wet.rest)
+	game.shot = wet
+	game.shot_from = tee
+	game.players[0].shots += 1
+	game._complete_flight()
+	_check(not game._drop_pending, "scramble: no drop left pending for a partner's water ball")
+	_check(game.ball_at.distance_to(tee) < 0.01, "scramble: the partner plays from the tee")
+	var best: Dictionary = game.players[0].round_best
+	_check(int(best.get("add", 0)) == 2, "scramble: the water ball counts its penalty")
+	_check((best.get("at", wet.rest) as Vector3).distance_to(wet.rest) > 1.0, "scramble: the water ball is kept where it was dropped")
+	game._after_result()
+	_check(game.state == GolfRound.State.COMPUTER and game.shooter == 2 and game.ball_at.distance_to(tee) < 0.01, "scramble: Cy hits from the tee next")
+
+	# A computer owns the team ball; its human partner chooses their own drop.
+	s.computer = _ints([OpponentSkill.Level.TOUR, RoundSetup.HUMAN, RoundSetup.HUMAN, OpponentSkill.Level.CLUB])
+	GolfRound.setup = s
+	game.start_round()
+	var steps := 0
+	while not (game.state == GolfRound.State.AIM and game.shooter == 2) and steps < 20:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.AIM and game.current == 0 and game.shooter == 2, "scramble: Cy aims the computer-owned team ball")
+	game._water_entry = game.ball_at
+	game._begin_drop(DropRules.Reason.WATER)
+	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
+	game._finish_drop()
 	GolfRound.setup = null
 
 
