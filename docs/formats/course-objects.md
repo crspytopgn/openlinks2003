@@ -54,6 +54,7 @@ Type record, at the offset given by the type table:
 | 0x04 | u32 | height | |
 | 0x08 | u32 | level_count | 5 (sizes A to E) |
 | 0x0C | u32 | levels | Offset of `level_count` 20-byte level records |
+| 0x14 | u32 | collision | Offset of the type's collision record: a u32 and six f32, the Course Designer library's `collision` and `shape` values (see [physics.md](physics.md#trees-and-other-objects)) |
 | 0x18 | f32 | aspect | width / height |
 | 0x34 | u32 | id | Object id; Course Designer ids look the same (0x84......) but these course-local ones differ |
 
@@ -91,8 +92,8 @@ Then placements until the next marker:
 |------|------|-------|
 | u16 | type | Index into the `MasterObj` types |
 | u32 | instance | Low 29 bits: a number unique to the placement. Bit 29: an extra byte follows. Bit 30: an extra word follows |
-| u8 | extra_byte | Only with bit 29. Signed, between about -55 and 56; meaning unknown (rotation or tint are candidates) |
-| u16 | extra_word | Only with bit 30. 1 to 235; meaning unknown |
+| u8 | extra_byte | Only with bit 29. Signed: the horizontal anchor, 0.5 + byte / 128 of the width lies left of the base (0.5 without it) |
+| u16 | extra_word | Only with bit 30. Signed: the vertical anchor, word / 256 of the height lies below the base (0 without it) |
 | u16 | x | Offset from the cell corner, in 1/16 ft (0 to 1023) |
 | u16 | y | Offset from the cell corner, in 1/16 ft |
 | i16 | z | Offset from the cell's base height, in 1/16 ft |

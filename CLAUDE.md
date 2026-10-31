@@ -20,7 +20,8 @@ and don't start a "(needs data)" item on guesses.
   numbers printed by the C++ tests. `obstacle_field.gd` ports
   `obstacles.cpp`, `links_aero.gd` ports `links_flight.cpp` and
   `links_ground.gd` ports `links_ground.cpp`, `links_launch.gd` ports
-  `links_launch.cpp` the same way, `links_mouse.gd` ports `links_mouse.cpp`, and
+  `links_launch.cpp` the same way, `links_mouse.gd` ports `links_mouse.cpp`, `links_objects.gd` ports
+  `links_objects.cpp`, and
   `game/scripts/game_modes.gd` ports the game-mode half of `scoring.cpp`
   and `game/scripts/handicap.gd` its handicap functions.
   `game/scripts/ai/opponent_skill.gd` ports `opponent.cpp`, and

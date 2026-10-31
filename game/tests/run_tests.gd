@@ -30,6 +30,7 @@ func _initialize() -> void:
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_cup_matches_olcore", _test_links_cup_matches_olcore)
+	_run("links_objects_match_olcore", _test_links_objects_match_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
@@ -1352,6 +1353,59 @@ static func _run_cup_ball(b: LinksGround.Ball, seen: LinksGround.Ball = null, at
 		if b.mode == LinksGround.Mode.REST or b.mode == LinksGround.Mode.HOLED:
 			return k
 	return -1
+
+
+## A 20 x 20 billboard type; `opaque` takes (x, y from the bottom).
+static func _object_type(collision: int, shape: Array, opaque: Callable) -> LinksObjects.ObjType:
+	var t := LinksObjects.ObjType.new()
+	t.collision = collision
+	t.shape = PackedFloat32Array(shape)
+	var img := Image.create(20, 20, false, Image.FORMAT_RGBA8)
+	for y in 20:
+		for x in 20:
+			img.set_pixel(x, 19 - y, Color(1, 1, 1, 1) if opaque.call(x, y) else Color(0, 0, 0, 0))
+	t.mask = img
+	return t
+
+
+## Flies a ball at a 10 ft billboard 20 ft away until it hits something.
+static func _fly_at_billboard(type: LinksObjects.ObjType) -> LinksGround.Ball:
+	var objects := LinksObjects.new()
+	objects.types.append(type)
+	objects.add(Vector3(0, 20, 0), 10.0, 0)
+	var ball := _links_ball(Vector3(0, 0, 3), Vector3(0, 60, 0), Vector3.ZERO, LinksGround.Mode.FLIGHT)
+	var ground := TestLinksGround.new(LinksGround.FAIRWAY)
+	var air := _still_air()
+	var rng := LinksGround.Rng.new()
+	for k in 30:
+		if ball.last_object >= 0 or ball.mode != LinksGround.Mode.FLIGHT:
+			break
+		LinksGround.step(ball, ground, air, Vector3.ZERO, rng, LinksGround.FRAME_DT, null, objects, Vector3(0, -1, 0))
+	return ball
+
+
+## As test_links_objects in the C++ core.
+func _test_links_objects_match_olcore() -> void:
+	_check_near(LinksObjects.anchor_x(-1), 0.5, 1e-12, "default anchor")
+	_check_near(LinksObjects.anchor_x(0xf6), 0.5 - 10 / 128.0, 1e-12, "anchor from the extra byte")
+	_check_near(LinksObjects.anchor_z(58), 58 / 256.0, 1e-12, "anchor from the extra word")
+	var all := func(_x: int, _y: int) -> bool: return true
+	var none := func(_x: int, _y: int) -> bool: return false
+	var b := _fly_at_billboard(_object_type(1, [0.8, 1, 0, 0, 1, 1], all))
+	_check(b.last_object == 0, "rock hit")
+	_check_near(b.velocity.y, -0.8 * 60, 1e-4, "rock restitution")
+	_check(b.position.y < 20 - 0.09 and b.position.y > 20 - 0.11, "put back 0.1 ft")
+	b = _fly_at_billboard(_object_type(2, [0.5, 1, 0, 0, 1, 1], all))
+	_check(b.last_object == 0, "canopy met")
+	_check_near(b.velocity.y, 0.9 * 60, 1e-4, "canopy keeps 0.9")
+	b = _fly_at_billboard(_object_type(1, [0.8, 1, 0, 0, 1, 1], none))
+	_check(b.last_object < 0, "transparent parts let the ball by")
+	var trunk := func(x: int, y: int) -> bool: return y >= 12 or (x >= 8 and x <= 11)
+	b = _fly_at_billboard(_object_type(0, [0.7, 1, 0.35, 0, 0.65, 0.6], trunk))
+	_check(b.last_object == 0, "trunk hit")
+	var turn := (3.0 / 5.0 - 0.5) * 2.09440565
+	_check_near(b.velocity.x, 0.5 * 60 * sin(2 * turn), 1e-3, "trunk turns the ball")
+	_check_near(b.velocity.y, -0.5 * 60 * cos(2 * turn), 1e-3, "trunk sends it back")
 
 
 ## As test_links_cup in the C++ core; every case matches the game's own code.

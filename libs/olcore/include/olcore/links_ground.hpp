@@ -4,6 +4,7 @@
 
 #include "olcore/ball_physics.hpp"
 #include "olcore/links_flight.hpp"
+#include "olcore/links_objects.hpp"
 #include "olcore/shot.hpp"
 #include "olcore/terrain.hpp"
 
@@ -86,6 +87,8 @@ struct LinksBall {
   // The flagstick is out: the shot was struck from the green, or the ball
   // has already hit it once.
   bool flagstick_out = false;
+  // The billboard it last hit (an index into LinksObjects), or -1.
+  int last_object = -1;
 };
 
 // The game's random numbers: a 32-bit shift register, seeded at launch from
@@ -142,13 +145,18 @@ struct LinksStepInfo {
 // Advances the ball one step of dt seconds (the game always uses 1/60 s).
 // `wind` is in ft/s before the game's 0.5 factor. With a cup, a ball that
 // crosses the hole's circle on the green, or lands inside it, plays out the
-// game's cup model; it ends in Holed or comes back out.
+// game's cup model; it ends in Holed or comes back out. With objects, the
+// ball meets trees and other billboards as the game's does; they face
+// `facing` (see LinksObjects::hit).
 LinksStepInfo links_step(LinksBall& b, const LinksGround& ground, const LinksAero& aero, Vec3 wind,
-                         LinksRandom& rng, double dt = LinksConstants::kFrameDt, const LinksCup* cup = nullptr);
+                         LinksRandom& rng, double dt = LinksConstants::kFrameDt, const LinksCup* cup = nullptr,
+                         const LinksObjects* objects = nullptr, Vec3 facing = Vec3{0, -1, 0});
 
-// A whole shot with the Links 2003 flight, bounce, roll and cup (used by
-// simulate_shot when p.links is set). Trees and walls, water and out of
-// bounds use our own handling, as the game's are not decoded yet.
+// A whole shot with the Links 2003 flight, bounce, roll, cup and flagstick
+// (used by simulate_shot when p.links is set), and the course's billboards
+// when opt.links_objects has them. The terrain's own obstacles (walls,
+// bridges, and trees without billboards), water and out of bounds use our
+// own handling.
 ShotResult simulate_links_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                                const ShotOptions& opt = {});
 

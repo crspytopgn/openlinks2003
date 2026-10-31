@@ -848,11 +848,63 @@ this, and match the game's code step for step in an emulator on putts that
 drop, lip out round the rim, hit the flagstick or miss, and on balls
 dropped into the hole's air.
 
+### Trees and other objects
+
+After each step (in flight, on the ground and in the hole's air) the game
+checks the ball's path from its old centre to its new one against the
+objects near it, then against the flagstick, and acts on the first hit.
+
+Billboards (trees, bushes, grasses, rocks and other pictures) are flat
+pictures standing on the ground and turned to face the viewer: the game
+uses its view direction, so the picture's plane is upright and square to
+it. olcore turns them to face back along the shot. A billboard is `height`
+tall and `height * aspect` wide; the placement's two `2DPlant` extra fields
+anchor it (see [course-objects.md](course-objects.md)), so it spans from
+`anchor_x` of its width left of its base to the rest on the right, and from
+`anchor_z` of its height below its base to the rest above.
+
+- **Candidates.** Only a billboard whose plane the path crosses is tried,
+  and not the one hit last (one shot can't hit the same object twice in a
+  row).
+- **Where.** The path is cut with the plane. Off the picture's rectangle
+  there is no hit. Otherwise u (across, from its left edge) and v (up, from
+  its bottom) are the fractions of the picture at that point, and the
+  game looks at that pixel of the largest picture: a transparent pixel is
+  no hit.
+- **Solid or canopy.** Each type has the Course Designer library's
+  `collision` value and six `shape` values (the course repeats them in
+  its `MasterObj` types). Unless bit 1 of `collision` is set, the hit is
+  solid when (u, v) is inside the rectangle `shape[2..5]` (u0, v0, u1, v1;
+  a tree's trunk) or, one time in ten, anywhere else (the game decides by
+  whether the bit pattern of v as a float divides by 10). Otherwise the
+  canopy catches the ball when `shape[1] * 10` is more than the bit
+  pattern of u modulo 10 (signed), so `shape[1]` is about the chance it
+  does.
+- **Solid hit.** The ball is moved to the hit, then 0.1 ft back along its
+  path, keeps its spin, and its velocity (as at the end of the step) is
+  mirrored off the picture's plane and scaled by the type's `shape[0]` when
+  bit 0 of `collision` is set (solid objects: rocks, benches), else by 0.5
+  (trees). Off a tree the plane's normal is first turned about the
+  vertical by up to 60 degrees either way: by (where the hit is across the
+  opaque run of pixels in that row, from 0 to 1, minus 0.5) times 2 pi / 3.
+- **Canopy.** The ball stays where it met the picture and its velocity and
+  spin are scaled by `(alpha / 255 * (1 - shape[0]) + shape[0]) * 0.9`.
+
+Kauri's types: 78 trees (`collision` 0, e.g. shape 0.7, 0.92 and a trunk
+rectangle), 39 solid objects (1; 0.8 to 0.91, 1, then the whole picture)
+and 64 that only slow the ball (2; grasses and flowers, 0.91, 1).
+
+olcore (`LinksObjects`, given to `links_step` or `ShotOptions::links_objects`)
+and the GDScript port follow this. The game reads the full-size picture;
+the Godot course loader keeps a copy reduced to 128 pixels on its longest
+side, which moves the edges of the opaque parts by up to a few percent.
+
 ### Not ported
 
 - Hole size options other than 1 (the game uses a different cup routine).
-- Trees and other objects in flight and while rolling (the same routine as
-  the flagstick, before it), and balls rolling on objects such as bridges.
+- 3D objects (walls, bridges, buildings): the game asks them through the
+  same routine, but their own test is not decoded; olcore and the game use
+  their boxes. Balls rolling on objects such as bridges.
 
 ## Open questions
 

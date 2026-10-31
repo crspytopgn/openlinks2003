@@ -64,6 +64,8 @@ struct StepContext {
   Vec3 wind;
   LinksRandom& rng;
   const LinksCup* cup;
+  const LinksObjects* objects = nullptr;
+  Vec3 facing{0, -1, 0};
   int depth = 0;
 };
 
@@ -74,6 +76,7 @@ bool enter_cup_from_air(StepContext& c, LinksBall& b, double tau, double dt);
 void enter_cup_from_green(StepContext& c, LinksBall& b, const LinksBall& before);
 void cup_frame(StepContext& c, LinksBall& b, double dt);
 bool hit_flagstick(const StepContext& c, const LinksBall& old, LinksBall& b);
+bool hit_obstacles(const StepContext& c, const LinksBall& old, LinksBall& b);
 
 // Straight path p -> q: fraction where the centre first meets the ground,
 // or a negative number if it stays above.
@@ -127,15 +130,18 @@ LinksStepInfo flight_step(StepContext& c, LinksBall& b, double dt) {
   Vec3 v2 = v + game_acceleration(v, w, c.aero, c.wind) * dt;
   Vec3 p2 = p + (v + v2) * (0.5 * dt);
   Vec3 w2 = w * std::pow(LinksFlightConstants::kSpinKeptPerFrame, LinksFlightConstants::kFrameRate * dt);
-  // The flagstick can turn the ball before it comes down.
+  // Trees, other objects and the flagstick can turn the ball before it
+  // comes down.
   LinksBall moved = b;
   moved.position = p2;
   moved.velocity = v2;
   moved.spin = w2;
-  if (hit_flagstick(c, b, moved)) {
+  if (hit_obstacles(c, b, moved)) {
     p2 = moved.position;
     v2 = moved.velocity;
     w2 = moved.spin;
+    b.flagstick_out = moved.flagstick_out;
+    b.last_object = moved.last_object;
   }
   double s = ground_crossing(g, p, p2);
   if (s < 0) {
@@ -310,7 +316,7 @@ LinksStepInfo ground_step(StepContext& c, LinksBall& b, double dt) {
       b.ground_time = 0;
     }
   }
-  hit_flagstick(c, before, b);
+  hit_obstacles(c, before, b);
   // Rolling across the hole's circle on the green.
   if (cls == kLinksGreen) {
     enter_cup_from_green(c, b, before);
@@ -374,6 +380,8 @@ constexpr double kPoleTop = 8.0;                  // ft above the pin's base
 constexpr double kPoleBottom = 0.5;               // ft below it
 constexpr double kPoleBounce = 0.3;               // speed kept off the flagstick
 constexpr double kPoleSpin = 0.09;                // spin kept
+constexpr double kSolidKept = 0.5;               // speed kept off a tree's trunk
+constexpr double kStepBack = 0.1;                // ft back along the path after a solid hit
 constexpr double kCupTop = 0.071;                // ft; above this the ball is out of the cup
 const Vec3 kGravityVector{0, 0, -C::kGravity};
 
@@ -613,11 +621,11 @@ void cup_air(StepContext& c, LinksBall& b, double dt) {
       break;
   }
   if (event >= 0) finish_substep(c, b, tau, dt);
-  // The flagstick stands in the middle of the cup.
+  // The flagstick stands in the middle of the cup (and objects may be near).
   LinksBall from = old, to = b;
   from.position = from.position + c.cup->pin;
   to.position = to.position + c.cup->pin;
-  if (hit_flagstick(c, from, to)) {
+  if (hit_obstacles(c, from, to)) {
     b = to;
     b.position = b.position - c.cup->pin;
   }
@@ -730,6 +738,38 @@ bool hit_flagstick(const StepContext& c, const LinksBall& old, LinksBall& b) {
   m.flagstick_out = true;
   b = m;
   return true;
+}
+
+// Trees and other billboards (see links_objects.hpp), then the flagstick:
+// the game checks them in that order after each step and stops at the first
+// hit. A solid hit puts the ball 0.1 ft back along its path from the
+// billboard with its velocity mirrored off it, keeping half its speed (or
+// the object's restitution when the whole object is solid); a canopy keeps
+// the ball where it met it and slows it and its spin. The billboard just hit
+// is skipped next time.
+bool hit_obstacles(const StepContext& c, const LinksBall& old, LinksBall& b) {
+  LinksObjects::Hit hit;
+  if (c.objects != nullptr && c.objects->hit(old.position, b.position, c.facing, b.last_object, hit)) {
+    Vec3 path = b.position - old.position;
+    double len = length(path);
+    double tau = 0;
+    LinksBall m = blend(old, b, length(hit.point - old.position) / len, tau);
+    Vec3 v = b.velocity;
+    if (hit.kind == 1) {
+      const LinksObjectType& type = c.objects->types[std::size_t(c.objects->billboards()[std::size_t(hit.object)].type)];
+      double kept = (type.collision & 1u) ? hit.factor : kSolidKept;
+      b.velocity = (v - hit.normal * (2 * dot(v, hit.normal))) * kept;
+      b.position = m.position - path * (kStepBack / len);
+      b.spin = m.spin;
+    } else {
+      b.velocity = v * hit.factor;
+      b.position = m.position;
+      b.spin = m.spin * hit.factor;
+    }
+    b.last_object = hit.object;
+    return true;
+  }
+  return hit_flagstick(c, old, b);
 }
 
 // The game caps how deeply steps nest; past that a ball near the hole is
@@ -962,8 +1002,9 @@ double links_cup_radius(int option) {
 }
 
 LinksStepInfo links_step(LinksBall& b, const LinksGround& ground, const LinksAero& aero, Vec3 wind,
-                         LinksRandom& rng, double dt, const LinksCup* cup) {
-  StepContext c{ground, aero, wind, rng, cup};
+                         LinksRandom& rng, double dt, const LinksCup* cup, const LinksObjects* objects,
+                         Vec3 facing) {
+  StepContext c{ground, aero, wind, rng, cup, objects, facing};
   return step(c, b, dt);
 }
 
@@ -997,6 +1038,9 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
   b.flagstick_out = ground.surface(b.position.x, b.position.y).ground_class == kLinksGreen;
   LinksRandom rng(LinksRandom::seed_for(b.position.x, b.position.y));
   Vec3 wind = to_game(p.wind);
+  // Billboards face the camera behind the ball: back along the shot.
+  Vec3 facing = Vec3{-b.velocity.x, -b.velocity.y, 0};
+  facing = length(facing) > 0 ? facing * (1 / length(facing)) : Vec3{0, -1, 0};
   LinksCup cup;
   cup.pin = to_game(opt.cup);
   cup.radius = opt.cup_radius * kFeetPerMetre;
@@ -1025,13 +1069,15 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
     Vec3 before = bottom(b);
     BallState before_si{before, from_game(b.velocity), spin_from_game(b.spin)};
     bool was_flying = b.mode == LinksMode::Flight;
-    LinksStepInfo info = links_step(b, ground, *p.links, wind, rng, dt, opt.has_cup ? &cup : nullptr);
+    LinksStepInfo info =
+        links_step(b, ground, *p.links, wind, rng, dt, opt.has_cup ? &cup : nullptr, opt.links_objects, facing);
     t += dt;
     ++step;
     Vec3 after = bottom(b);
     r.apex_m = std::max(r.apex_m, after.y - start.position.y);
 
-    // Trees and walls: our own handling, as in simulate_shot.
+    // Walls and the like (and trees, when no billboards are given for the
+    // game's own model): our own handling, as in simulate_shot.
     ObstacleHit hit;
     if (terrain.obstacle_hit(before, after, hit) && (was_flying || hit.kind == ObstacleKind::Solid)) {
       Vec3 pos = before + (after - before) * hit.fraction;
