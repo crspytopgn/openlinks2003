@@ -284,6 +284,10 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 
 
 static func _finish(r: ShotResult, outcome: ShotResult.Outcome, pos: Vector3, t: float, landed: bool, start: BallState, terrain: CourseTerrain) -> ShotResult:
+	# A course can limit each hole to an outline; it is judged where the ball
+	# stops.
+	if outcome == ShotResult.Outcome.REST and not terrain.in_bounds(pos.x, pos.z):
+		outcome = ShotResult.Outcome.OUT_OF_BOUNDS
 	r.outcome = outcome
 	r.rest = pos
 	r.time_s = t

@@ -12,7 +12,7 @@ extends CourseLoader
 const FEET := 0.3048
 const KEYS_PATH := "user://crz_keys.cfg"
 const CACHE_DIR := "user://course_cache"
-const CACHE_VERSION := 3
+const CACHE_VERSION := 4
 const EXE_NAMES := ["LINKSM_1.EXE", "LinksMMIII.exe", "LinksM~1.exe"]
 const TEXTURE_LIBRARIES := ["STDTER_1.LIB", "StdTerrain.lib", "StdTer~1.lib"]
 ## How far one repeat of a free ground texture spans.
@@ -135,8 +135,8 @@ static func _store_cache(path: String, data: Dictionary) -> void:
 
 ## Everything the game needs from an open archive, as plain data (so it can
 ## be cached): {version, name, holes, positions, triangles, triangle_material,
-## ground_classes, material_textures, material_layers, triangle_mapping,
-## mappings, objects}. Empty on error.
+## ground_classes, terrain_types, hole_shapes, ob_shapes, material_textures,
+## material_layers, triangle_mapping, mappings, objects}. Empty on error.
 static func decode(archive: CrzArchive) -> Dictionary:
 	var holes := parse_holes(archive.read_named("header"))
 	var terrain := parse_terrain(archive.read_named("vertex"))
@@ -177,6 +177,9 @@ static func decode(archive: CrzArchive) -> Dictionary:
 		"triangles": terrain.triangles,
 		"triangle_material": terrain.triangle_material,
 		"ground_classes": parse_ground_classes(archive.read_named("TerrainTypes")),
+		"terrain_types": CourseAreas.parse_terrain_types(archive.read_named("TerrainTypes")),
+		"hole_shapes": CourseAreas.parse_id_shapes(archive.read_named("HoleIDShapes")),
+		"ob_shapes": CourseAreas.parse_id_shapes(archive.read_named("OBIDShapes")),
 		"material_textures": material_textures,
 		"material_layers": material_layers,
 		"triangle_mapping": terrain.triangle_mapping,
@@ -355,6 +358,18 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 	terrain.triangles = data.triangles
 	terrain.triangle_material = data.triangle_material
 	terrain.ground_classes = data.ground_classes
+	# The course's own surface values and flags, one record per material.
+	var types: Array = data.get("terrain_types", [])
+	if types.size() == terrain.ground_classes.size():
+		for t: Dictionary in types:
+			terrain.surfaces.append(CourseAreas.links_surface(t))
+			terrain.material_flags.append(int(t.flags))
+	var hole_shapes: Array[Dictionary] = []
+	hole_shapes.assign(data.get("hole_shapes", []))
+	var ob_shapes: Array[Dictionary] = []
+	ob_shapes.assign(data.get("ob_shapes", []))
+	if not hole_shapes.is_empty() or not ob_shapes.is_empty():
+		terrain.bounds = CourseAreas.HoleBounds.new(hole_shapes, ob_shapes)
 	terrain.normals = _vertex_normals(terrain.positions, terrain.triangles)
 	terrain.finalize()
 	if archive == null:

@@ -53,6 +53,13 @@ var triangles := PackedInt32Array()
 var triangle_material := PackedInt32Array()
 ## Ground class per material.
 var ground_classes := PackedByteArray()
+## Per material, from its TerrainTypes record: the course's own bounce and
+## roll values (LinksGround.Params) and its flags (hazard, free drop). Empty
+## when the course's records could not be read.
+var surfaces: Array[LinksGround.Params] = []
+var material_flags := PackedInt32Array()
+## The hole outlines and out-of-bounds areas; null for none.
+var bounds: CourseAreas.HoleBounds
 ## Per material: {"texture": Texture2D or null, "colour": Color}, and for a
 ## free stand-in texture also "normal" (Texture2D or null), "tint" (Color)
 ## and "tile" (metres per repeat). A blended material also has "blend":
@@ -183,14 +190,40 @@ func surface_at(x: float, z: float) -> int:
 	return CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
 
 
-## Paths, concrete and asphalt (ground class 6) give a free drop, as in
-## Links 2003.
+## Paths, concrete, asphalt and walls give a free drop, as in Links 2003:
+## the records flagged for it, or ground class 6 without records.
 func free_drop_at(x: float, z: float) -> bool:
 	var t := triangle_at(x, z)
 	if t < 0:
 		return false
 	var m := triangle_material[t]
+	if m < material_flags.size():
+		return material_flags[m] & CourseAreas.FREE_DROP != 0
 	return m < ground_classes.size() and ground_classes[m] == 6
+
+
+## The records the course flags as hazards (water, mud, some dry brush).
+func hazard_at(x: float, z: float) -> bool:
+	var t := triangle_at(x, z)
+	if t < 0:
+		return false
+	var m := triangle_material[t]
+	return m < material_flags.size() and material_flags[m] & CourseAreas.HAZARD != 0
+
+
+## Inside the hole's outline and outside its out-of-bounds areas.
+func in_bounds(x: float, z: float) -> bool:
+	if bounds == null:
+		return true
+	return bounds.in_bounds(hole_number, x / CrzCourseLoader.FEET, -z / CrzCourseLoader.FEET)
+
+
+func links_surface_at(x: float, z: float) -> LinksGround.Params:
+	var t := triangle_at(x, z)
+	if t < 0:
+		return null
+	var m := triangle_material[t]
+	return surfaces[m] if m < surfaces.size() else null
 
 
 ## The mean colour of the material's texture times its tint, or its flat

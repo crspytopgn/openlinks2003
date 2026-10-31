@@ -300,6 +300,9 @@ class TerrainGround : public LinksGround {
     return {-n.x, n.z, n.y};
   }
   LinksSurface surface(double x, double y) const override {
+    const LinksSurface* own = t_.links_surface_at(-x / kFeetPerMetre, y / kFeetPerMetre);
+    // The game's green options replace every green record on the course.
+    if (own != nullptr && own->ground_class != kLinksGreen) return *own;
     return links_surface(links_ground_class(t_.surface(-x / kFeetPerMetre, y / kFeetPerMetre)));
   }
 
@@ -544,6 +547,8 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
   r.path.push_back({0, start.position});
 
   auto finish = [&](ShotOutcome o, Vec3 pos) {
+    // The game judges the hole's bounds where the ball stops.
+    if (o == ShotOutcome::Rest && !terrain.in_bounds(pos.x, pos.z)) o = ShotOutcome::OutOfBounds;
     r.outcome = o;
     r.rest = pos;
     r.time_s = t;

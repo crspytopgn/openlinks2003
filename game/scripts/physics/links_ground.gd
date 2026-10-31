@@ -163,6 +163,10 @@ class TerrainGround extends Ground:
 		return Vector3(-n.x, n.z, n.y)
 
 	func surface(x: float, y: float) -> LinksGround.Params:
+		var own := terrain.links_surface_at(-x / LinksGround.FEET_PER_METRE, y / LinksGround.FEET_PER_METRE)
+		# The game's green options replace every green record on the course.
+		if own != null and own.ground_class != LinksGround.GREEN:
+			return own
 		var s := terrain.surface_at(-x / LinksGround.FEET_PER_METRE, y / LinksGround.FEET_PER_METRE)
 		return LinksGround.surface_for_class(LinksGround.ground_class_for(s))
 

@@ -129,7 +129,7 @@ different textures and sounds.
 | `Flag.tga`, `Logo.tga`, `Tee0..4.tga` | Flag, course logo and tee marker textures | Standard TGA |
 | `Splash0.jpg`, `Splash1.jpg`, `Holprv00..17.jpg` | Loading screens and the 298 x 500 hole preview cards | Standard JPEG |
 | `*.wav` | Ambient sounds (MS ADPCM WAV, 44.1 kHz stereo) | Standard |
-| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Ground class decoded, below |
+| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Decoded, below |
 | `LieIcons` | 4 bytes | |
 | `Materials` | Terrain materials and their texture layers (below) | Decoded |
 | `txtrdesc` | Terrain texture list (below) | Decoded |
@@ -139,8 +139,9 @@ different textures and sounds.
 | `Water` | 104 bytes | Not decoded |
 | `RayEngine` | Spatial index over the terrain for ray casts: a header, a bounding box, one min corner and one max corner per node (129,123 nodes), then node lists | Partly understood |
 | `Mappings` | Texture projections: planar, cylindrical, per-corner strips (cart paths, blended edges) and blends | Decoded (below) |
-| `Shapes` | The course's area outlines as closed cubic Bezier splines (below) | Decoded, not yet used |
-| `HoleIDShapes` | One outline per hole: the hole's boundary | Same format as `Shapes` |
+| `Shapes` | The course's area outlines as closed cubic Bezier splines (below) | Decoded |
+| `HoleIDShapes` | One outline per hole: the hole's boundary, which sets out of bounds | Decoded, used |
+| `OBIDShapes` | Out-of-bounds areas (some courses) | Decoded, used |
 | `BugIDShapes` | A few outlines | Same format as `Shapes` |
 | `EnvSound` | Ambient sound kinds, their WAV names, and emitters placed round the course | Decoded (below) |
 | `MasterObj`, `MasterObj3D` | The course's billboard types and 3D object meshes | Decoded ([course-objects.md](course-objects.md)) |
@@ -266,12 +267,40 @@ its mapping and blends the edges.
 ### `Shapes`: area outlines
 
 A u32 version (1) and three f32 (the same three values in every outline
-entry; meaning unknown). `HoleIDShapes` and `BugIDShapes` put a u32 count and
-another u32 before them. Then outlines run to the end of the entry:
-`u32 id`, `u32 segments`, `u8 closed`, `f32 min[3]`, `f32 max[3]`,
-`u32 attributes`, then `3 x segments` points of `f32 x, y, z` (two control
-points and an end point per cubic segment, z = 0). The low bits of
-`attributes` look like a surface type, and 0x800000 is a flag.
+entry; meaning unknown). `HoleIDShapes`, `OBIDShapes` and `BugIDShapes` put a
+u32 count before the version. Then outlines run to the end of the entry:
+`u32 id`, `u32 nodes`, `u8 closed`, `f32 min[3]`, `f32 max[3]` (a box round
+every point, handles included), `u32 attributes`, then per node three points
+of `f32 x, y, z`: the handle coming in, the node itself and the handle going
+out. Consecutive nodes make a cubic Bezier segment (node, its out handle, the
+next node's in handle, the next node); a closed outline also joins the last
+node to the first. The z values are heights and play no part in the tests
+below.
+
+The game tests a point against an outline in two dimensions. It first turns
+the curve into a polygon: starting from the last node of a closed outline
+(the first of an open one), it emits each node and then cuts the segment to
+the next node in half three times (de Casteljau), emitting the seven
+in-between points in order, and ends with the final node again. An outline
+with more than 624 nodes is cut fewer times so the polygon stays under 5,000
+points. A point is inside when a ray towards +x crosses the polygon an odd
+number of times (edges count when one end is at or above the point's y and
+the other below it). Ported as `olcore::shape_outline` and
+`outline_contains` (`CourseAreas` in the game).
+
+- `HoleIDShapes`: one outline per hole, the hole's boundary. The hole number
+  is `attributes >> 27`. A ball that stops outside its hole's outline is out
+  of bounds.
+- `OBIDShapes` (only on some courses, such as Cabo and Cambrian): areas that
+  are out of bounds. Bits 0 to 17 of `attributes` say which holes (bit 0 for
+  the first); every area on the disc courses applies to all 18.
+- `BugIDShapes`: not used here.
+- `Shapes`: the designer's area outlines. The low bits of `attributes` look
+  like a terrain type and 0x800000 is a flag; the game does not read them
+  during play.
+
+On all six disc courses every tee and pin lies inside its own hole's outline
+and outside the next hole's.
 
 ### `TerrainTypes`: ground classes
 
@@ -298,9 +327,29 @@ ball plays off it:
 | 10 | Deep grass, dry grass, tall grass |
 | 0 | A few records with no type name |
 
-These were matched against the type names in all six CD2 courses. The
-physics values are not decoded yet; the game maps the classes onto its own
-surface table for now.
+These were matched against the type names in all six CD2 courses.
+
+The whole record, as the game reads it:
+
+| Offset | Type | Field |
+|--------|------|-------|
+| 0x00 | u32 | index |
+| 0x04 | f32[20] | values: the 14 named in [physics.md](physics.md#per-surface-values-terraintypes), then six the game never reads |
+| 0x54 | u32 | ground class (above) |
+| 0x58 | u32 | terrain category, as scripts see it (`Course_GetTerrainFromPos`) |
+| 0x5C | u32 | flags; the game reads bit 0 (hazard: "In Hazard", no drops) and bit 3 (free drop: "In Free Drop Zone"). The upper bytes often hold leftover memory |
+| 0x60 | u8[3] | map colour |
+| 0x63 | u8[3] | |
+| 0x66 | u8 | |
+| 0x67 | char16[32] | display name ("GE_Fairway") |
+| 0xA7 | char16[32] | type name ("Fairway") |
+| 0xE7 | u32[3] | a zero, then for blended edges the two records being blended (by index) |
+
+Water and running water are flagged as hazards, and so are a few others
+(Auburn mud, Aviara dry red grass). Concrete, asphalt, cart paths and wood
+walls are flagged as free drops. `olcore::parse_crz_terrain_types` reads the
+records (`CourseAreas.parse_terrain_types` in the game), and a course's own
+values now drive the bounce and roll instead of the class defaults.
 
 ### `EnvSound`: ambient sounds
 
@@ -322,8 +371,7 @@ nearest loop for each hole.
 ## Open questions
 
 - `RayEngine`, `ttypetrans`, `textrans` and `Water` layouts, the 40 bytes
-  after the `Mappings` count, how the game uses the detail variants,
-  and the physics values in `TerrainTypes`.
+  after the `Mappings` count, and how the game uses the detail variants.
 - What the per-vertex and per-triangle unknown fields mean (likely lighting
   or shadow data and texture mapping).
 - The 136-byte trailer of `header` and the 6 flag bytes of each hole.
