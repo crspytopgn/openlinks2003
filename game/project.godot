@@ -37,6 +37,18 @@ foliage_sway={
 "type": "float",
 "value": 0.0
 }
+ground_shade={
+"type": "sampler2D",
+"value": ""
+}
+ground_shade_rect={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+ground_shade_near={
+"type": "float",
+"value": 0.0
+}
 tree_impostor_distance={
 "type": "float",
 "value": 1e+06

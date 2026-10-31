@@ -469,6 +469,11 @@ func _test_course_objects() -> void:
 			billboards += mmi.multimesh.instance_count
 	check(billboards == 1 and full == 2 and impostors == 2, "objects: 3D trees in place of tree billboards (%d, %d, %d)" % [billboards, full, impostors])
 	check(objects.obstacles.size() == 4, "objects: 3D trees keep the billboards' obstacles")
+	var casters := objects.shade_casters(Rect2(-1000, -1000, 2000, 2000))
+	check(casters.size() == 12, "objects: the two trees cast ground shade (%d)" % casters.size())
+	if casters.size() == 12:
+		check(casters[3] > 0.0 and casters[4] > casters[3] and casters[5] > 0.0, "objects: a crown above the ground")
+	check(objects.shade_casters(Rect2(5000, 5000, 10, 10)).is_empty(), "objects: no casters outside the rectangle")
 	root.free()
 	TreeFactory.level = 0
 	root = objects.build_visual(hole)

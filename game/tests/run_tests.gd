@@ -49,6 +49,7 @@ func _initialize() -> void:
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
 	_run("trees", _test_trees)
+	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
@@ -894,6 +895,28 @@ func _test_trees() -> void:
 	tree.free()
 	for which in ["bark", "leaves", "needles", "bake_leaves"]:
 		_check(TreeFactory.material(which).shader != null, "%s shader loads" % which)
+
+
+func _test_ground_shade() -> void:
+	# A 10 m tree at the origin with its crown from 4 to 10 m, radius 3 m,
+	# and a sun 45 degrees up shining towards +z.
+	var casters := PackedFloat32Array([0, 0, 0, 4, 10, 3])
+	var sun := Vector3(0, -1, 1).normalized()
+	var st := GroundShade.stamps(casters, sun)
+	_check(st.size() == 14, "a shadow and an occlusion stamp per caster")
+	_check(is_equal_approx(st[0], 0.0) and is_equal_approx(st[1], 7.0), "shadow falls away from the sun, under the crown's middle")
+	_check(is_equal_approx(st[2], 6.0) and is_equal_approx(st[3], 3.0), "shadow stretched along the sun")
+	_check(st[5] > 0.0 and is_zero_approx(st[6]), "shadow stamp darkens R only")
+	_check(is_zero_approx(st[7]) and is_zero_approx(st[8]) and is_zero_approx(st[12]) and st[13] > 0.0, "occlusion at the foot, in G")
+	var low := GroundShade.stamps(casters, Vector3(0, -0.01, 1).normalized())
+	_check(Vector2(low[0], low[1]).length() <= GroundShade.MAX_SLANT * 7.0 + 1e-3, "low sun shadows stay bounded")
+	var course := AssetProviders.load_course("")
+	var hole: HoleData = course.holes[0]
+	var rect := GroundShade.hole_rect(hole)
+	_check(rect.has_point(Vector2(hole.tee.x, hole.tee.z)) and rect.has_point(Vector2(hole.pin.x, hole.pin.z)), "bake covers the hole")
+	var placed := GroundShade.placed_casters(hole)
+	_check(placed.size() % 6 == 0, "placed objects give whole casters")
+	GroundShade.bake(hole, null, sun)  # headless: nothing to draw, no error
 
 
 func _test_grass() -> void:

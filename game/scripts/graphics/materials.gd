@@ -9,6 +9,7 @@ const WATER_SHADER := preload("res://shaders/water.gdshader")
 static var _terrain: ShaderMaterial
 static var _water: ShaderMaterial
 static var _water_surface: ShaderMaterial
+static var _ground_shade: ShaderMaterial
 
 
 ## For meshes whose vertex colours hold the surface colour, and whose UV2
@@ -38,6 +39,15 @@ static func terrain_weights(surface: Surface.Type) -> Vector2:
 		"rough":
 			return Vector2(1.0, 0.0)
 	return Vector2.ZERO
+
+
+## A next pass for ground with a standard material that adds the baked
+## ground shade (GroundShade); the ground shader does it itself.
+static func ground_shade_pass() -> ShaderMaterial:
+	if _ground_shade == null:
+		_ground_shade = ShaderMaterial.new()
+		_ground_shade.shader = preload("res://shaders/ground_shade_overlay.gdshader")
+	return _ground_shade
 
 
 static func water() -> ShaderMaterial:

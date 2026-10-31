@@ -104,6 +104,8 @@ class Sprites:
 	## Per sprite: the TreeFactory.Species it is drawn as with 3D trees on,
 	## or -1. Empty for spectators.
 	var species := PackedInt32Array()
+	## Per sprite: plant_shape() of its name. Empty for spectators.
+	var shape := PackedInt32Array()
 
 
 var plants: Sprites
@@ -645,6 +647,7 @@ func _add_plant_obstacles(types: Array) -> void:
 	var shape := PackedInt32Array()  # per type: 0 none, 1 tree, 2 conifer, 3 bush, 4 rock
 	for t: Dictionary in types:
 		shape.append(plant_shape(str(t.name)))
+	plants.shape = shape
 	var xyzh := plants.xyzh
 	var type := plants.sprite
 	var aspect := plants.aspect
@@ -702,6 +705,59 @@ static func tree_species(type_name: String) -> int:
 		2:
 			return TreeFactory.Species.PINE
 	return -1
+
+
+## What casts the baked ground shade (GroundShade) inside `rect` (x, z):
+## per caster base x, y, z, crown bottom and top above the base, and crown
+## radius. Trees, bushes and rocks from the billboards (shaped like their
+## obstacles), and the 3D models by their bounds.
+func shade_casters(rect: Rect2) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var s := plants
+	if s != null and s.cols > 0:
+		var xyzh := s.xyzh
+		var sprite := s.sprite
+		var aspect := s.aspect
+		var shape := s.shape
+		var c0 := clampi(floori((rect.position.x - s.origin.x) / CHUNK), 0, s.cols - 1)
+		var c1 := clampi(floori((rect.end.x - s.origin.x) / CHUNK), 0, s.cols - 1)
+		var r0 := clampi(floori((rect.position.y - s.origin.y) / CHUNK), 0, s.rows - 1)
+		var r1 := clampi(floori((rect.end.y - s.origin.y) / CHUNK), 0, s.rows - 1)
+		for row in range(r0, r1 + 1):
+			for col in range(c0, c1 + 1):
+				var chunk := row * s.cols + col
+				for k in range(s.start[chunk * CLASSES], s.start[(chunk + 1) * CLASSES]):
+					var i := s.order[k]
+					var t := sprite[i]
+					var kind := shape[t] if t < shape.size() else 0
+					var h := xyzh[4 * i + 3]
+					if kind == 0 or h < 0.8:
+						continue
+					var x := xyzh[4 * i]
+					var z := xyzh[4 * i + 2]
+					if not rect.has_point(Vector2(x, z)):
+						continue
+					var r := 0.4 * h * aspect[t]
+					var bottom := 0.0
+					match kind:
+						1:
+							bottom = 0.35 * h
+						2:
+							bottom = 0.15 * h
+							r *= 0.85
+					out.append_array(PackedFloat32Array([x, xyzh[4 * i + 1], z, bottom, h * 0.97, r]))
+	for p in _placements:
+		var m: int = p.model
+		if m >= _mesh_bounds.size():
+			continue
+		var t: Transform3D = p.transform
+		var box: AABB = t * _mesh_bounds[m]
+		var centre := box.get_center()
+		if box.size.y < 0.5 or not rect.has_point(Vector2(centre.x, centre.z)):
+			continue
+		var r := 0.5 * minf(box.size.x, box.size.z)
+		out.append_array(PackedFloat32Array([centre.x, box.position.y, centre.z, 0.0, box.size.y, r]))
+	return out
 
 
 ## 3D objects block the ball with their bounding box (in the model's own

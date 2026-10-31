@@ -14,6 +14,8 @@ uniform float grain_fade_start = 15.0;
 uniform float grain_fade_end = 70.0;
 uniform float bump = 0.35; // strength of the close-up normal detail
 
+#include "res://shaders/ground_shade.gdshaderinc"
+
 uniform bool textured = false;
 uniform sampler2D grass_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D grass_normal : filter_linear_mipmap, repeat_enable;
@@ -117,5 +119,5 @@ void fragment() {
 		vec3 tilt = (VIEW_MATRIX * vec4(-hx, 0.0, -hz, 0.0)).xyz;
 		NORMAL = normalize(NORMAL + tilt * bump * close_up);
 	}
-	ALBEDO = clamp(col, vec3(0.0), vec3(1.0));
+	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
 }
