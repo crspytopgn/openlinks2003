@@ -18,6 +18,12 @@ func surface_at(_x: float, _z: float) -> int:
 	return Surface.Type.FAIRWAY
 
 
+## Ground the rules give a free drop from (cart paths). Mirrors
+## olcore::Terrain::free_drop().
+func free_drop_at(_x: float, _z: float) -> bool:
+	return false
+
+
 func normal_at(x: float, z: float) -> Vector3:
 	var e := 0.25
 	var dx := height_at(x + e, z) - height_at(x - e, z)

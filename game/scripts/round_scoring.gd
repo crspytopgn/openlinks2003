@@ -112,7 +112,7 @@ func team_card(team: int) -> Scorecard:
 
 
 func match_status() -> Dictionary:
-	if mode == GameModes.Mode.BEST_BALL:
+	if GameModes.is_team(mode):
 		return GameModes.match_status(team_scores(0), team_scores(1))
 	return GameModes.match_status(scores(0), scores(1))
 
@@ -140,8 +140,8 @@ func status_text() -> String:
 			if sk.carried > 0:
 				text += "  (%d carried)" % sk.carried
 			return text
-		GameModes.Mode.BEST_BALL:
-			return "Best ball: %s %s, %s %s" % [
+		GameModes.Mode.BEST_BALL, GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT:
+			return "%s: %s %s, %s %s" % [GameModes.MODE_NAMES[mode],
 				team_name(0), Scorecard.format_to_par(team_card(0).to_par()),
 				team_name(1), Scorecard.format_to_par(team_card(1).to_par())]
 		GameModes.Mode.STABLEFORD:
@@ -178,7 +178,7 @@ func hole_result(h: int) -> String:
 				return "%s wins %s." % [names[w], "the skin" if won == 1 else "%d skins" % won]
 			if w == -1:
 				return "Tied: the skin carries over."
-		GameModes.Mode.BEST_BALL:
+		GameModes.Mode.BEST_BALL, GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT:
 			var a := team_scores(0)[h]
 			var b := team_scores(1)[h]
 			if a == b:
@@ -198,7 +198,7 @@ func standings() -> Array:
 				return [["Match halved", text]]
 			var won := 0 if m.up > 0 else 1
 			return [[names[won] + " wins", text], [names[1 - won], ""]]
-		GameModes.Mode.BEST_BALL:
+		GameModes.Mode.BEST_BALL, GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT:
 			for t in 2:
 				var card := team_card(t)
 				rows.append([team_name(t), card.total_strokes(), "%s%d (%s)" % ["net " if handicaps else "", card.total_strokes(), Scorecard.format_to_par(card.to_par())]])

@@ -216,7 +216,8 @@ ground under the ball and sets the strike's spin and speed multipliers to
 the lie's LieAngular and LiePower: from rough the ball keeps 41 percent of
 its spin and 93 percent of its speed, from deep grass 20 and 84 percent.
 This replaces whatever multipliers the swing gave. Computer players and one
-unidentified player setting skip this step.
+unidentified player setting skip this step (human players go through the
+swing model below, which starts from the same values).
 
 Sand works differently. The face error is dropped, so only the path shapes
 a bunker shot, and the multipliers come from how much sand the club takes,
@@ -234,14 +235,101 @@ keeps 90 percent. Both are then scaled by the sand's own lie values (1).
 Ported as `links_apply_lie` (olcore) and `LinksLaunch.apply_lie`, checked
 against the game's code on 32 lies and contacts.
 
+### The swing: how a miss reaches the strike
+
+For a human player the same routine then applies the swing. Its inputs are
+the swing method, the skill level (0, the easiest, to 3), and the meter's
+accuracy as a whole number of steps, the contact c (positive is a hook, and
+for sand a heavier strike). Each lie has three more values for this:
+
+| Class | LieAngularSnap | LiePowerSnap | Snap |
+|-------|----------------|--------------|------|
+| Green, fairway, water | 0.1 | 0 | 1 |
+| Rough | 0.1 | 0.03 | 1.5 |
+| Deep grass | 0.1 | 0.05 | 2 |
+| Sand | 0.2 | 0.2 | 2 |
+| Path | 0.1 | 0 | 4 |
+| Dirt, rocks | 0.1 | 0 | 3 |
+| Bushes | 0.1 | 0 | 1.5 |
+
+**PowerStroke.** On levels 1 to 3 the contact becomes a miss m:
+
+1. An overswing (power above the golfer's full power P) multiplies it by
+   (power - P) / 2 when that is above 1.
+2. It is multiplied by 2, 5 or 6 for levels 1, 2 and 3, then by the lie's
+   Snap (whole numbers, truncated at each step).
+3. A non-zero miss is scattered: m = int(m (0.35 + 0.001 (r1 + r2 + r3)))
+   with three draws of 0 to 100, so between 0.35 and 0.65 of itself. It is
+   capped at +/-60.
+4. The turn is m (75 + r) / 100 degrees with r from 0 to 24, times 2/3, 1/1.9
+   or 1/2 for levels 1, 2 and 3. The aim turns left by it and the path right
+   by it (path_error falls), so the face stays where it was but the club
+   swings across it: positive m is a pull-hook, negative a push-slice. In
+   sand the aim is left alone.
+5. On levels 2 and 3 a miss also costs 1 to |m| percent of power (a random
+   draw, never the whole swing), and every swing has a little scatter: power
+   moves up to 0.25 percent and the face up to 0.1 degree, either way.
+
+Level 0 skips all of this.
+
+**Mouse swing.** The swing brings its own face and path angles in degrees
+and its loft multiplier; nothing above applies.
+
+**The strike.** Unless the ball is on the tee, the contact then decides how
+cleanly the ball comes off. With n = |c| (on level 1 n = |c| - 1 and on
+level 0 n = |c| - 2, never below 0, and a factor k of 0.8 or 0.6, else 1):
+
+- spin multiplier = LieAngular - k n LieAngularSnap, at least 0.25;
+- speed multiplier = LiePower - k n LiePowerSnap (the mouse swing leaves out
+  the LiePowerSnap term except in sand), at least 0.25, and no more than a
+  quality limit q.
+
+q is 1 on the green, 0.6 - 0.03 |c| in rough, 0.4 - 0.03 |c| in sand, 0.95 -
+0.06 |c| on path, dirt, bushes and rocks, and 0.9 - 0.01 |c| plus up to
++/-0.005 of noise elsewhere (fairway, deep grass), never below 0.3. Only the
+driver feels all of it: the 3-wood feels half, the two longest irons a fifth
+and a twentieth, and every other club none. Levels 0, 1 and 2 soften q to
+(q + 1) / 2, 0.8 q + 0.2 and 0.9 q + 0.1. So a driver off the fairway comes
+off at about 90 percent of the speed it has off the tee, and from rough at 60
+percent.
+
+Sand then replaces both multipliers by the table above (the contact is
+mirrored for a left-handed PowerStroke player), and both the face and path
+errors are dropped. A ball on the tee skips the strike step; with PowerStroke
+its power moves up to 1 percent and its aim up to 0.06 degree either way.
+
+The random draws are the C runtime's rand(), in the order given. Ported as
+`links_apply_swing` (olcore) and `LinksLaunch.apply_swing`, checked against
+the game's code on 270 random swings across every class, club, level and
+method.
+
+### The PowerStroke meter
+
+The meter turns where the third click lands into the contact. The game
+measures the click in meter units past a perfect zone, clamps it at 25 units
+either way, then
+
+    t = int(x * steps / int(width * scale)),  c = int(int(0.2 t) / 2)
+
+where width is the meter size (150, 192 or 238) and, for levels 0 to 3,
+scale is 2, 1.5, 1.5 and 1.4 and steps 225, 180, 180 and 165. So the meter
+gives at most one step either way: a full miss is c = +/-1, which the swing
+model above magnifies. The levels also change how fast the meter runs.
+Ported as `links_meter_contact`; the game shell maps an accuracy of +/-1 on
+our meter to 25 units (late is a push-slice) and plays skill level 3 until
+the skill level setting lands.
+
 ### Not ported
 
 - A flag from the caller that adds 10 degrees of loft and removes all spin;
   what sets it is not known yet.
-- How the swing meters (PowerStroke and the mouse swing) fill the power,
-  the face and path errors and the sand contact. Until then the game shell
-  maps the meter's accuracy to a face error of up to 4 degrees and a sand
-  contact of up to 10 steps heavy.
+- The screen geometry of the PowerStroke meter (where its perfect zone sits
+  and how its speed depends on the level), the meter's own face value, and
+  the mouse swing's maths that produce its face and path. The game shell
+  has no mouse swing yet.
+- Chips, putts and one other shot type skip or flip parts of the swing
+  model; only full swings are ported. A game option that doubles every
+  PowerStroke miss is left out.
 - Per-course lie values: olcore uses the class defaults above (every
   course checked so far uses them).
 

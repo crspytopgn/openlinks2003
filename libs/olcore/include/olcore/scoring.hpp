@@ -102,6 +102,10 @@ int adjusted_gross(const Scorecard& card, const std::vector<int>& received, bool
 // holes for a nine.
 int score_differential(int adjusted_gross, int par, int holes);
 
+// How many of the lowest differentials the index averages, with `rounds`
+// rounds among the most recent 20 (the WHS table); 0 below three.
+std::size_t handicap_rounds_used(std::size_t rounds);
+
 // Handicap index in tenths from score differentials, oldest first: the WHS
 // table picks the lowest 1 to 8 of the most recent 20 and adjusts by up to
 // -2.0. kNoHandicap with fewer than three rounds. Capped at 54.0.

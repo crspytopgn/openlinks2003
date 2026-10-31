@@ -75,6 +75,70 @@ LinksLaunch links_launch(const LinksClubTable& clubs, const LinksStrike& s);
 // cleaner, and below -5 thin, which also takes loft off.
 void links_apply_lie(LinksStrike& s, const LinksSurface& lie, int sand_contact = 0);
 
+// The C runtime's rand(), which the game's swing code draws from: a linear
+// congruential generator returning 0..32767.
+class LinksRand {
+ public:
+  explicit LinksRand(std::uint32_t seed = 1) : state_(seed) {}
+  int next();
+  std::uint32_t state() const { return state_; }
+
+ private:
+  std::uint32_t state_;
+};
+
+// How much a mishit costs from each lie (TerrainTypes LieAngularSnap,
+// LiePowerSnap and Snap): spin and ball speed lost per step of the meter's
+// miss, and how far a miss is magnified into a pull or push.
+struct LinksLieSnap {
+  double spin_snap = 0.1;
+  double power_snap = 0;
+  double snap = 1;
+};
+LinksLieSnap links_lie_snap(int ground_class);
+
+enum class LinksSwingMethod { PowerStroke, Mouse };
+
+// The skill levels, 0 (easiest) to 3. `meter_scale` widens the PowerStroke
+// accuracy window and `meter_steps` is how many accuracy steps it holds.
+struct LinksSkill {
+  double meter_scale;
+  int meter_steps;
+};
+constexpr int kLinksSkillCount = 4;
+LinksSkill links_skill(int level);
+
+// The PowerStroke meter's accuracy in whole steps, `contact`, for a snap that
+// lands `miss` meter units past the perfect zone (positive is late). The
+// window is clamped at 25 units. `meter_width` is the meter's size in the
+// game's units: 150, 192 (the default) or 238.
+int links_meter_contact(double miss, int skill, int meter_width = 192);
+
+// One human swing, as it reaches the shot.
+struct LinksSwing {
+  LinksSwingMethod method = LinksSwingMethod::PowerStroke;
+  int skill = 3;          // 0..3, see links_skill
+  int contact = 0;        // the meter's accuracy in whole steps (links_meter_contact)
+  double full_power = 100;  // power above this is an overswing
+  // The mouse swing's own face and path angles (degrees, positive closes the
+  // face or swings to the left) and loft multiplier.
+  double mouse_face_deg = 0;
+  double mouse_path_deg = 0;
+  double mouse_loft = 1;
+  bool left_handed = false;
+  // A ball on the tee peg strikes cleanly whatever the meter says; a
+  // PowerStroke swing only wobbles its power and aim a little.
+  bool teed_up = false;
+};
+
+// What the swing and the lie do to a human player's strike, replacing
+// links_apply_lie. With PowerStroke a miss of the meter becomes a pull or push
+// (aim and path turned apart, so the ball curves), lost power and, on the
+// harder levels, a little random scatter; the mouse swing brings its own face
+// and path. Either way a miss takes spin and ball speed off according to the
+// lie, and sand uses the contact as in links_apply_lie.
+void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& lie, LinksRand& rng);
+
 // The same launch in olcore's SI frame (see ball_physics.hpp), with the ball
 // at the origin.
 BallState links_launch_state(const LinksClubTable& clubs, const LinksStrike& s);

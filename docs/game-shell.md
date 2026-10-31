@@ -26,9 +26,37 @@ as it crosses the white snap line at the bottom. Early (above the line) pulls
 and hooks the ball left, late pushes and slices it right.
 
 The yellow ring shows where a full swing would land (for putts, the hole
-distance). Holes run tee to cup, then on to the next. Water costs a stroke
-and a drop on the line of flight; out of bounds is stroke and distance. A
-hole is picked up at 10 strokes.
+distance). Holes run tee to cup, then on to the next. Out of bounds is
+stroke and distance. A hole is picked up at 10 strokes.
+
+### Drops
+
+Water costs a stroke and a drop. **D** while aiming declares the ball
+unplayable (one stroke; not on the tee or the green), and on a cart path
+**F** takes a free drop. The drop menu lists the options (keys 1 to 3), the
+ball sits on the default spot, a white ring marks the zone, and the arrow
+keys move the ball inside it (Up: towards the pin, Shift: fine, Page Down:
+back 10 m). Space or a click drops; Backspace cancels a voluntary drop.
+Computer golfers, and a player who just confirms, take the legal drop that
+leaves the shortest way to the pin.
+
+| Reason | Penalty | Options |
+| --- | --- | --- |
+| Water | 1 | Back on the line from the pin through where the ball last crossed into the water; within two club lengths of that point; replay from the last spot |
+| Unplayable | 1 | Back on the line from the pin through the ball; within two club lengths of the ball; replay from the last spot. In a bunker the drop stays in the sand |
+| Cart path | 0 | Within a club length of the nearest point off the path |
+
+A drop may never be nearer the pin than its reference point, in water, out
+of bounds or on the green. This is what Links 2003 enforces (its drop menu,
+the free drop on paths, and the "you cannot drop..." refusals); the zone
+shapes come from the Rules of Golf (rules 16, 17 and 19), since how Links
+draws its own drop corridor isn't known. Courses don't mark water as yellow
+or red, so every water hazard offers lateral relief (`LATERAL_WATER` in
+`main.gd`). Not done: Links actually drops the ball and lets it roll (and
+re-drops when it rolls out of the zone); here it is placed. Links 2003 has
+no lost balls, and out of bounds is known at once, so there are no
+provisional balls. The rules are `olcore/rules.cpp`, ported to
+`game/scripts/rules/drop_rules.gd`.
 
 ## Menus and game modes
 
@@ -53,6 +81,20 @@ balls stay on the ground where they lie. The modes:
 | Skins | 2 to 4 | One skin a hole for the outright lowest score; ties carry over |
 | Best ball | 3 or 4, two teams | Each team counts its best score per hole |
 | Stableford | 1 to 4 | 2 points for par, one more per stroke under, one fewer per stroke over |
+| Scramble | 2 to 4, two teams | Everyone on the team hits; the team plays on from the best shot, one stroke per round of shots |
+| Alternate shot | 2 to 4, two teams | One ball per team; partners take turns hitting it and take turns on the tee |
+
+In scramble and alternate shot each team plays one ball (its first member's;
+the partners' own balls sit out), and every member's card carries the team's
+score, so the team rows of the scorecard show it. In a scramble the team
+plays on from the shot that leaves the fewest expected strokes
+(`OpponentSkill.expected_strokes`), so a person doesn't have to pick; a holed
+shot ends the hole at once. Alternate shot counts swings, not penalty
+strokes, when deciding whose turn it is. Team rounds don't go on the players'
+handicap records. With handicaps, scramble uses 25% and alternate shot 50% of
+each player's handicap, off the low, and the team counts its better net
+score (a simplification of the WHS team allowances). Computer golfers play
+both, taking their turns like anyone else.
 
 `GameModes` (`game_modes.gd`) does the scoring and mirrors the game-mode
 functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
@@ -130,6 +172,21 @@ go on the hardest holes first, by the course's stroke index (a nine keeps
 the order of the 18). Net scores then decide every mode, and the scorecard
 adds a net row under each player, whose label shows their playing handicap.
 
+The main menu's **Players** page (`PlayersPanel`) lists every profile with
+its index, rounds and last date. Picking a player shows their recent rounds
+and stars the ones the index counts. Delete asks once more, then removes
+the profile.
+
+### Saved rounds
+
+The round in progress is saved before every shot and at the end of each hole
+(`SavedRound`, `user://saved_round.cfg`): the setup, everyone's card, the
+hole, the honour, whose turn it is and where each ball lies. After quitting
+(or closing the game, or the browser tab), the main menu offers **Resume
+round** while the saved round's course is among the player's files, and the
+round carries on from that shot. The wind is drawn again. Finishing the round
+clears the save, and starting a new round replaces it.
+
 `Handicap` (`handicap.gd`) mirrors the handicap functions in
 `libs/olcore/src/scoring.cpp`; indexes and differentials are in tenths of a
 stroke so both sides round the same way.
@@ -150,6 +207,7 @@ game/scripts/
   round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
   handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
   player_profiles.gd            PlayerProfiles: each player's rounds and handicap index
+  saved_round.gd                SavedRound: the round in progress, for Resume round
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
@@ -178,7 +236,7 @@ game/scripts/
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
-    round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```

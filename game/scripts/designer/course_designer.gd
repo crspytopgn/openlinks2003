@@ -63,6 +63,8 @@ var _flatten_level := 0.0
 var _tree_budget := 0.0
 var _right_press := Vector2.ZERO
 var _rng := RandomNumberGenerator.new()
+var _preview: RoundCamera  ## flies over a hole the way the round does
+var _preview_tee := Vector3.ZERO
 
 var _surface_dirty := false
 var _surface_rect := Rect2()
@@ -93,6 +95,9 @@ func _ready() -> void:
 	camera = DesignerCamera.new()
 	add_child(camera)
 	camera.current = true
+	_preview = RoundCamera.new()
+	_preview.far = 6000.0
+	add_child(_preview)
 
 	_line_material = StandardMaterial3D.new()
 	_line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -128,6 +133,7 @@ func _set_course(c: DesignedCourse, p_path: String) -> void:
 	path = p_path
 	terrain = DesignedTerrain.new(course)
 	camera.terrain = terrain
+	_preview.terrain = terrain
 	camera.bounds = course.area
 	hole_index = 0 if not course.holes.is_empty() else -1
 	selected = -1
@@ -285,6 +291,11 @@ func _undo_step(from: Array[Dictionary], to: Array[Dictionary], what: String) ->
 # --- Frame ----------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	if _preview.current:
+		_preview.update(delta, 0.0, _preview_tee)
+		if not _preview.flying():
+			_stop_flyover()
+		return
 	if not get_viewport().gui_get_focus_owner() is LineEdit:
 		camera.process_keys(delta)
 	if _painting:
@@ -307,6 +318,12 @@ func _process(delta: float) -> void:
 # --- Input ----------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _preview.current:
+		# Any click or key ends the flyover.
+		if (event is InputEventMouseButton or event is InputEventKey) and event.is_pressed():
+			_stop_flyover()
+			get_viewport().set_input_as_handled()
+		return
 	if camera.handle_input(event):
 		_cursor = _pick(_mouse)
 		return
@@ -405,6 +422,9 @@ func _on_left_press(mb: InputEventMouseButton) -> void:
 				h.route.append(p2)
 				_sort_route(h)
 				_holes_changed()
+		DesignerPanel.Tool.OBJECTS:
+			if p2 != null:
+				_place_or_remove_object(p2, mb.shift_pressed)
 
 
 func _on_left_release() -> void:
@@ -603,6 +623,62 @@ func _paint_trees(p2: Vector2, r: float, k: float, delta: float) -> void:
 			_stroke_changed = true
 			_changed()
 			break
+
+
+# --- Objects and the flyover ----------------------------------------------------
+
+## Places the object picked in the panel at `p2`, or with `remove` takes away
+## the nearest one.
+func _place_or_remove_object(p2: Vector2, remove: bool) -> void:
+	if remove:
+		var near := course.objects_near(p2, maxf(3.0, camera.distance * 0.01))
+		if near.is_empty():
+			return
+		_push_undo()
+		var i := near[0]
+		course.objects.remove_at(i)
+		_tree_nodes[i].queue_free()
+		_tree_nodes.remove_at(i)
+	else:
+		_push_undo()
+		var yaw := panel.object_turn.value
+		var size := panel.object_scale.value
+		if panel.object_random.button_pressed:
+			yaw = _rng.randf_range(0.0, 360.0)
+			size *= _rng.randf_range(0.85, 1.15)
+		var o := PlacedObject.new(panel.chosen_object(), Vector3(p2.x, 0, p2.y), yaw, size)
+		course.objects.append(o)
+		_tree_nodes.append(_make_tree(o))
+	terrain.update_objects()
+	_changed()
+
+
+## Flies over the current hole from its back tee to the green, as the round
+## does before the first shot. A click or key ends it early.
+func _start_flyover() -> void:
+	if hole_index < 0 or course.holes[hole_index].tees.is_empty():
+		_set_status("The hole needs a tee for a flyover.")
+		return
+	var dh := course.holes[hole_index]
+	var h := HoleData.new()
+	h.terrain = terrain
+	h.tee = _ground_point(dh.tees[0], 0.0)
+	h.pin = _ground_point(dh.pin, 0.0)
+	h.route = dh.route.duplicate()
+	_preview_tee = h.tee
+	var first := dh.route[0] if not dh.route.is_empty() else dh.pin
+	var dir := Vector3(first.x - h.tee.x, 0.0, first.y - h.tee.z).normalized()
+	_preview.aim(h.tee, dir, false)
+	_preview.start_flyover(h)
+	_preview.current = true
+	_cursor_lines.clear_surfaces()
+	_set_status("Flying over hole %d. Click or press a key to stop." % (hole_index + 1))
+
+
+func _stop_flyover() -> void:
+	_preview.end_flyover()
+	camera.current = true
+	_set_status("")
 
 
 # --- Holes ----------------------------------------------------------------------
@@ -999,8 +1075,10 @@ func _build_ui() -> void:
 	panel.hole_action.connect(func(a: String) -> void:
 		if a == "add":
 			_add_hole()
+		elif a == "delete":
+			_delete_hole()
 		else:
-			_delete_hole())
+			_start_flyover())
 	panel.par_changed.connect(func(v: int) -> void:
 		if hole_index >= 0:
 			_push_undo()

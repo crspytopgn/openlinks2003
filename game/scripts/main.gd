@@ -11,7 +11,7 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -22,7 +22,14 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_FREE_DROP := "    F: free drop"
+const HINT_DROP := "%s: option    Arrows: move the ball (Shift: fine, Page Down: back 10 m)    Space or click: drop here"
+const HINT_DROP_CANCEL := "    Backspace: cancel"
+## Courses don't say which water is a lateral (red) hazard, so every water
+## hazard offers lateral relief; the Rules of Golf let a course mark them all
+## red.
+const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
@@ -38,15 +45,25 @@ const AUTO_REPLAY_DELAY := 1.4
 
 
 ## One player's ball on the current hole.
+## In scramble and alternate shot a team shares one: its first member's, and
+## the partners' own balls sit out the hole.
 class PlayerBall:
 	var at := Vector3.ZERO
 	var strokes := 0
 	var holed := false
 	var picked_up := false
 	var marker: MeshInstance3D
+	var inactive := false  ## a partner's ball in a shared-ball mode
+	## Who plays this ball: the player, or the team in a shared-ball mode.
+	var members: Array[int] = []
+	var shots := 0  ## swings on this hole, for alternate shot's turns
+	## Scramble: members who have hit from here this round of shots, and the
+	## best of their shots so far ({at, add, score, by}).
+	var round_turn := 0
+	var round_best := {}
 
 	func done() -> bool:
-		return holed or picked_up
+		return holed or picked_up or inactive
 
 ## Course to load; empty plays the placeholder course.
 @export var course_path := ""
@@ -58,6 +75,9 @@ static var setup: RoundSetup
 ## Seeds the wind; 0 gives different conditions each round. Tests set it so
 ## their rounds play the same way every run.
 static var wind_seed := 0
+## A saved round to carry on with (SavedRound.load_state); start_round uses it
+## once and clears it.
+static var resume := {}
 
 var state: State = State.AIM
 var course: CourseData
@@ -70,7 +90,10 @@ var scoring: RoundScoring
 var players: Array[PlayerBall] = []
 ## Each player's computer golfer, or null for a person.
 var opponents: Array[ComputerGolfer] = []
-var current := 0  ## whose turn it is
+var current := 0  ## whose ball is being played
+var shooter := 0  ## who is hitting it (a partner, in a shared-ball mode)
+## The ball each player plays: their own, or their team's in a shared-ball mode.
+var ball_of: Array[int] = []
 var honour: Array[int] = []  ## tee-off order for this hole
 ## The current player's card.
 var card: Scorecard
@@ -91,6 +114,15 @@ var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
+## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
+var _drop_reason := -1
+var _drop_zones: Array[DropRules.Zone] = []
+var _drop_choice := 0
+var _drop_spot := Vector3.ZERO
+var _drop_from := Vector3.ZERO  ## where the ball was, to cancel
+var _drop_note := ""  ## why the last move was refused
+var _drop_pending := false  ## the ball is in the water; drop before play moves on
+var _water_entry := Vector3.ZERO
 
 var shot_model: ShotModel
 var wind: Wind
@@ -100,6 +132,7 @@ var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
+var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig
 var hole_root: Node3D
 var graphics: GraphicsSettings
@@ -150,6 +183,7 @@ func start_round() -> void:
 	if course_path.is_empty():
 		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
+	round_setup.course_name = course.course_name
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
@@ -169,6 +203,10 @@ func start_round() -> void:
 	players.clear()
 	opponents.clear()
 	honour.clear()
+	ball_of.clear()
+	var shared := GameModes.shared_ball(round_setup.mode)
+	for i in scoring.player_count():
+		ball_of.append(scoring.team_members(scoring.teams[i])[0] if shared else i)
 	for i in scoring.player_count():
 		var cpu: ComputerGolfer = null
 		if round_setup.is_computer(i):
@@ -179,8 +217,12 @@ func start_round() -> void:
 		p.marker.visible = false
 		add_child(p.marker)
 		players.append(p)
-		honour.append(i)
+		if ball_of[i] == i:
+			honour.append(i)
+	for i in scoring.player_count():
+		players[ball_of[i]].members.append(i)
 	current = 0
+	shooter = 0
 	card = scoring.cards[0]
 	scenery.set_backdrop(course.horizon)
 	if ambience != null:
@@ -192,7 +234,68 @@ func start_round() -> void:
 			add_child(ambience)
 	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
-	start_hole(0)
+	var saved := resume
+	resume = {}
+	if saved.is_empty():
+		start_hole(0)
+	else:
+		_restore(saved)
+
+
+## Carries on with a saved round: the cards, the honour, then the hole with
+## each ball where it lay.
+func _restore(saved: Dictionary) -> void:
+	var saved_cards: Array = saved.get("cards", [])
+	for i in mini(saved_cards.size(), scoring.cards.size()):
+		var row: Array = Array(saved_cards[i])
+		for h in mini(row.size(), holes.size()):
+			scoring.cards[i].record(h, int(row[h]))
+	var order: Array = Array(saved.get("honour", []))
+	var sorted := order.duplicate()
+	sorted.sort()
+	var expected := honour.duplicate()
+	expected.sort()
+	if sorted == expected:
+		honour.clear()
+		for i in order:
+			honour.append(int(i))
+	start_hole(clampi(int(saved.get("hole", 0)), 0, holes.size() - 1))
+	var balls: Array = saved.get("balls", [])
+	if balls.size() != players.size():
+		return
+	for i in players.size():
+		var b: Dictionary = balls[i]
+		players[i].at = b.get("at", hole.tee)
+		players[i].strokes = int(b.get("strokes", 0))
+		players[i].holed = b.get("holed", false) == true
+		players[i].picked_up = b.get("picked_up", false) == true
+		players[i].shots = int(b.get("shots", 0))
+		players[i].round_turn = int(b.get("round_turn", 0))
+		players[i].round_best = b.get("round_best", {})
+	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
+	var next := _next_player()
+	if next < 0:
+		_finish_hole()
+		return
+	_begin_turn(next, true)
+	hud.show_message("Round resumed: %s to play" % scoring.names[shooter], 2.5)
+
+
+## Saves where the round stands (SavedRound), so it can be resumed.
+func _save_progress() -> void:
+	if state == State.ROUND_DONE:
+		return
+	var saved_cards: Array = []
+	for c in scoring.cards:
+		saved_cards.append(PackedInt32Array(c.strokes))
+	var balls: Array = []
+	for p in players:
+		balls.append({"at": p.at, "strokes": p.strokes, "holed": p.holed, "picked_up": p.picked_up,
+			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best})
+	SavedRound.save(round_setup, {
+		"hole": hole_index, "number": hole.number, "current": current,
+		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
+	})
 
 
 func _round_name() -> String:
@@ -207,6 +310,9 @@ func _round_name() -> String:
 func start_hole(index: int) -> void:
 	hole_index = index
 	shot_log.clear()
+	_drop_pending = false
+	_drop_reason = -1
+	drop_marker.visible = false
 	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
@@ -236,11 +342,16 @@ func start_hole(index: int) -> void:
 
 	wind.start_hole()
 	_update_wind_shaders()
-	for p in players:
+	for i in players.size():
+		var p := players[i]
 		p.at = hole.tee
 		p.strokes = 0
 		p.holed = false
 		p.picked_up = false
+		p.inactive = ball_of[i] != i
+		p.shots = 0
+		p.round_turn = 0
+		p.round_best = {}
 	_clear_trail()
 	hud.scorecard.visible = false
 	_begin_turn(_next_player(), true)
@@ -252,13 +363,16 @@ func start_hole(index: int) -> void:
 			"yards": roundi(hole.length_m() * YARDS_PER_METRE), "name": course.course_name}, HoleMap.make(hole))
 		camera.start_flyover(hole)
 	if players.size() > 1:
-		text += ("\n" if not text.is_empty() else "") + "%s has the honour" % scoring.names[current]
+		text += ("\n" if not text.is_empty() else "") + "%s has the honour" % _side_name(current)
 	hud.show_message(text, 3.0)
 
 
 ## Who plays next: tee shots in order of the honour, then whoever is furthest
 ## from the hole. -1 once everyone has holed out or picked up.
 func _next_player() -> int:
+	# Scramble: the rest of the team hits from the same spot first.
+	if current < players.size() and players[current].round_turn > 0 and not players[current].done():
+		return current
 	for i in honour:
 		if players[i].strokes == 0 and not players[i].done():
 			return i
@@ -276,16 +390,17 @@ func _next_player() -> int:
 
 func _begin_turn(index: int, snap_camera: bool) -> void:
 	current = index
+	shooter = _shooter_of(index)
 	var p := players[index]
 	ball_at = p.at
 	strokes = p.strokes
-	card = scoring.cards[index]
+	card = scoring.cards[shooter]
 	ball.visible = true
 	_update_markers()
 	_prepare_shot(snap_camera)
 	if broadcast:
 		var thru := card.holes_played()
-		hud.overlay.lower_third(scoring.names[current], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
+		hud.overlay.lower_third(scoring.names[shooter], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
 			"E" if thru == 0 else Scorecard.format_to_par(card.to_par()), thru, strokes + 1, _pin_text().to_upper()])
 
 
@@ -298,6 +413,25 @@ func _update_markers() -> void:
 			_size_ball(p.marker, p.at)
 
 
+## Who hits ball `b` next: its player, or in a shared-ball mode the partner
+## whose turn it is (alternate shot swaps every swing and on each tee).
+func _shooter_of(b: int) -> int:
+	var p := players[b]
+	var n := p.members.size()
+	if n <= 1:
+		return b
+	if round_setup.mode == GameModes.Mode.SCRAMBLE:
+		return p.members[p.round_turn % n]
+	return p.members[(p.shots + hole_index) % n]
+
+
+## The player, or the team in a shared-ball mode, playing ball `b`.
+func _side_name(b: int) -> String:
+	if players[b].members.size() > 1:
+		return scoring.team_name(scoring.teams[b])
+	return scoring.names[b]
+
+
 ## Keeps the current player's ball and strokes in their PlayerBall.
 func _store_turn() -> void:
 	players[current].at = ball_at
@@ -308,6 +442,7 @@ func _store_turn() -> void:
 ## tests call it directly.
 func play_shot(power: float, accuracy: float) -> void:
 	var club := clubs[club_index]
+	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
@@ -342,7 +477,7 @@ func play_shot(power: float, accuracy: float) -> void:
 func auto_play_step() -> void:
 	match state:
 		State.COMPUTER:
-			opponents[current].finish()
+			opponents[shooter].finish()
 			_show_computer_plan()
 			_computer_swing()
 		State.AIM, State.SWING:
@@ -361,6 +496,8 @@ func auto_play_step() -> void:
 			_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
+		State.DROP:
+			_finish_drop()
 		State.HOLE_DONE:
 			_next_hole()
 
@@ -421,6 +558,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					return
 	if settings_panel.visible or pause_menu.visible:
 		return
+	if state == State.DROP and event is InputEventKey and (event as InputEventKey).pressed:
+		if _drop_key(event as InputEventKey):
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
@@ -454,6 +595,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					grid_on = not grid_on
 					_update_green_grid()
 					return
+				KEY_D:
+					if state == State.AIM and opponents[current] == null:
+						_start_drop(DropRules.Reason.UNPLAYABLE)
+					return
+				KEY_F:
+					if state == State.AIM and opponents[current] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+						_start_drop(DropRules.Reason.FREE_RELIEF)
+					return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -482,9 +631,11 @@ func _on_swing_pressed() -> void:
 			_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
+		State.DROP:
+			_finish_drop()
 		State.COMPUTER:
 			# Hurry up: finish the plan and swing now.
-			opponents[current].finish()
+			opponents[shooter].finish()
 			_show_computer_plan()
 			_computer_swing()
 		State.HOLE_DONE:
@@ -527,13 +678,16 @@ func _prepare_shot(snap_camera: bool) -> void:
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
 	hud.meter.reset()
 	hud.hint.text = HINT_AIM
+	if hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
 	_update_green_grid()
-	if opponents[current] != null:
+	_save_progress()
+	if opponents[shooter] != null:
 		_start_computer_turn()
 
 
@@ -571,9 +725,10 @@ func _complete_flight() -> void:
 	shot_time = shot.time_s
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
+	var strokes_before := strokes
 	strokes += 1
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
-		scoring.names[current], strokes, clubs[club_index].short_name, Surface.name_of(lie),
+		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
 		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
 	if broadcast:
@@ -588,7 +743,9 @@ func _complete_flight() -> void:
 		ShotResult.Outcome.WATER:
 			sounds.play(&"splash")
 			strokes += 1
-			ball_at = _water_drop(shot.rest, shot_from)
+			ball_at = shot.rest
+			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
+			_drop_pending = true
 			msg = "Water hazard. One-stroke penalty, take a drop."
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			strokes += 1
@@ -603,11 +760,13 @@ func _complete_flight() -> void:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
+	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
+		msg = _scramble_shot(strokes_before, msg)
 	if strokes >= MAX_STROKES:
 		_hole_out(true)
 		return
 	if players.size() > 1 and not msg.is_empty():
-		msg = scoring.names[current] + ": " + msg
+		msg = scoring.names[shooter] + ": " + msg
 	if not msg.is_empty() or not broadcast:
 		hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
@@ -615,27 +774,62 @@ func _complete_flight() -> void:
 	result_timer = RESULT_PAUSE
 
 
+## Scramble: keeps this shot if it is the team's best so far. Until everyone
+## has hit, the next partner plays from the same spot; then the team moves to
+## the best ball and the round of shots counts once (with that shot's
+## penalty, if it had one).
+func _scramble_shot(strokes_before: int, msg: String) -> String:
+	var p := players[current]
+	var add := strokes - strokes_before
+	var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
+	var score := add + OpponentSkill.expected_strokes(_flat_distance(ball_at, hole.pin), s)
+	if p.round_best.is_empty() or score < float(p.round_best.score):
+		p.round_best = {"at": ball_at, "add": add, "score": score, "by": shooter}
+	p.round_turn += 1
+	if p.round_turn < p.members.size():
+		strokes = strokes_before
+		ball_at = shot_from
+		return msg
+	strokes = strokes_before + int(p.round_best.add)
+	ball_at = p.round_best.at
+	var by: int = p.round_best.by
+	p.round_turn = 0
+	p.round_best = {}
+	var pick := "The team plays %s's ball." % scoring.names[by]
+	return pick if msg.is_empty() else msg + "\n" + pick
+
+
 func _after_result() -> void:
 	_stop_replay()
 	hud.show_message("")
 	_clear_trail()
+	if _drop_pending:
+		_drop_pending = false
+		_begin_drop(DropRules.Reason.WATER)
+		return
+	_pass_turn()
+
+
+## The current player's shot is over: whoever plays next takes over.
+func _pass_turn() -> void:
 	_store_turn()
 	var next := _next_player()
 	if next < 0:
 		_finish_hole()
 		return
-	if next == current:
+	if next == current and _shooter_of(next) == shooter:
 		_prepare_shot(false)
 	else:
 		_begin_turn(next, true)
 		if players.size() > 1:
-			hud.show_message("%s to play" % scoring.names[current], 1.5)
+			hud.show_message("%s to play" % scoring.names[shooter], 1.5)
 
 
 ## The current player is done with the hole: holed, or picked up after
 ## MAX_STROKES. The hole ends when everyone is.
 func _hole_out(picked_up: bool) -> void:
 	_store_turn()
+	_drop_pending = false
 	var p := players[current]
 	p.holed = not picked_up
 	p.picked_up = picked_up
@@ -648,7 +842,7 @@ func _hole_out(picked_up: bool) -> void:
 		_finish_hole()
 		return
 	_update_markers()
-	hud.show_message("%s: %s!   %d on the par %d." % [scoring.names[current], title, strokes, hole.par])
+	hud.show_message("%s: %s!   %d on the par %d." % [_side_name(current), title, strokes, hole.par])
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
@@ -656,7 +850,7 @@ func _hole_out(picked_up: bool) -> void:
 
 func _finish_hole() -> void:
 	for i in players.size():
-		scoring.cards[i].record(hole_index, players[i].strokes)
+		scoring.cards[i].record(hole_index, players[ball_of[i]].strokes)
 	state = State.HOLE_DONE
 	if players.size() == 1:
 		var p := players[0]
@@ -666,7 +860,9 @@ func _finish_hole() -> void:
 		var parts: Array[String] = []
 		for i in players.size():
 			var p := players[i]
-			parts.append("%s %d%s" % [scoring.names[i], p.strokes, " (picked up)" if p.picked_up else ""])
+			if p.inactive:
+				continue
+			parts.append("%s %d%s" % [_side_name(i), p.strokes, " (picked up)" if p.picked_up else ""])
 		var text := "   ".join(parts)
 		var result := scoring.hole_result(hole_index)
 		if not result.is_empty():
@@ -678,6 +874,7 @@ func _finish_hole() -> void:
 	hud.hint.text = HINT_WAIT
 	result_timer = COMPUTER_HOLE_PAUSE
 	_update_hud()
+	_save_progress()
 
 
 ## The lowest score on the hole tees off first on the next; ties keep their
@@ -700,6 +897,7 @@ func _next_hole() -> void:
 		start_hole(hole_index + 1)
 		return
 	state = State.ROUND_DONE
+	SavedRound.clear()
 	for p in players:
 		p.marker.visible = false
 	var text := "Round complete. " + scoring.winner_text()
@@ -716,14 +914,19 @@ func _next_hole() -> void:
 	hud.hint.text = HINT_DONE
 
 
-## Adds each finished card to the player's profile and says what it did to
+## Adds each person's finished card to their profile and says what it did to
 ## their handicap index. Rounds that stop early, or are shorter than nine
 ## holes, don't count.
 func _record_rounds() -> String:
+	if GameModes.shared_ball(round_setup.mode):
+		return ""  # team scores, not the players' own
 	var profiles := PlayerProfiles.load_saved()
 	var date := Time.get_date_string_from_system()
 	var lines: Array[String] = []
 	for i in scoring.player_count():
+		# Computer golfers keep no profile.
+		if round_setup.is_computer(i):
+			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
 		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):
@@ -745,28 +948,164 @@ func _quit_to_menu() -> void:
 	SceneFade.change_scene(get_tree(), MENU_SCENE)
 
 
-## Drop point for a ball in water: back along the line of flight to dry land,
-## then two more metres, never further back than where the shot started.
-func _water_drop(entry: Vector3, from: Vector3) -> Vector3:
-	var dir := Vector3(from.x - entry.x, 0.0, from.z - entry.z)
-	var span := dir.length()
-	if span < 0.5:
-		return from
-	dir /= span
-	var t := hole.terrain
-	var travelled := 0.0
-	while travelled < span:
-		var p := entry + dir * travelled
-		var s := t.surface_at(p.x, p.z)
-		if s != Surface.Type.WATER and s != Surface.Type.OUT_OF_BOUNDS:
-			break
-		travelled += 1.0
-	travelled += 2.0
-	if travelled >= span:
-		return from
-	var drop := entry + dir * travelled
-	drop.y = t.height_at(drop.x, drop.z)
-	return drop
+# --- Drops -------------------------------------------------------------------
+# Water, an unplayable lie (D) and free relief from a cart path (F), with the
+# options and zones of DropRules. The player picks an option, can move the
+# ball inside the zone and drops; computer golfers take the default.
+
+## A drop the player asks for while aiming.
+func _start_drop(reason: int) -> void:
+	if reason == DropRules.Reason.UNPLAYABLE:
+		if lie == Surface.Type.TEE:
+			hud.show_message("You can't drop on the tee.", 2.0)
+			return
+		if lie == Surface.Type.GREEN:
+			hud.show_message("The ball is never unplayable on the green.", 2.0)
+			return
+	_begin_drop(reason)
+
+
+func _begin_drop(reason: int) -> void:
+	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
+	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
+	_drop_reason = reason
+	_drop_from = ball_at
+	_drop_note = ""
+	_drop_zones.clear()
+	for option in DropRules.options(reason, LATERAL_WATER):
+		_drop_zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	if reason == DropRules.Reason.FREE_RELIEF and not _drop_zones[0].found:
+		_drop_reason = -1
+		hud.show_message("There's no relief from the path near here.", 2.0)
+		return
+	_drop_choice = DropRules.best(_drop_zones, hole.pin)
+	_drop_spot = _drop_zones[_drop_choice].spot
+	if opponents[current] != null:
+		_finish_drop()
+		return
+	state = State.DROP
+	aim_marker.visible = false
+	green_grid.visible = false
+	if golfer:
+		golfer.visible = false
+	var keys := "1" if _drop_zones.size() == 1 else "1-%d" % _drop_zones.size()
+	hud.hint.text = HINT_DROP % keys
+	if reason != DropRules.Reason.WATER:
+		hud.hint.text += HINT_DROP_CANCEL
+	_show_drop()
+
+
+func _select_drop(i: int) -> void:
+	_drop_choice = i
+	_drop_spot = _drop_zones[i].spot
+	_drop_note = "" if _drop_zones[i].found else "There's nowhere to drop that way."
+	_show_drop()
+
+
+func _show_drop() -> void:
+	var z := _drop_zones[_drop_choice]
+	_place_ball(_drop_spot)
+	var radius := z.radius if z.option != DropRules.Option.BACK_ON_LINE else DropRules.CLUB_LENGTH
+	var centre := z.reference if z.option != DropRules.Option.BACK_ON_LINE else _drop_spot
+	drop_marker.visible = z.found and z.option != DropRules.Option.STROKE_AND_DISTANCE
+	drop_marker.position = Vector3(centre.x, hole.terrain.height_at(centre.x, centre.z) + 0.05, centre.z)
+	drop_marker.scale = Vector3(radius, 1.0, radius)
+	var to_pin := Vector3(hole.pin.x - _drop_spot.x, 0.0, hole.pin.z - _drop_spot.z)
+	camera.aim(_drop_spot, to_pin.normalized() if to_pin.length() > 0.01 else Vector3.FORWARD, false)
+	var titles := ["Water hazard: one-stroke penalty.", "Unplayable lie: one-stroke penalty.", "Free drop from the path."]
+	var lines: Array[String] = []
+	if players.size() > 1:
+		lines.append(scoring.names[current])
+	lines.append(titles[_drop_reason])
+	for i in _drop_zones.size():
+		lines.append("%s %d  %s" % [">" if i == _drop_choice else " ", i + 1, DropRules.OPTION_NAMES[_drop_zones[i].option]])
+	if not _drop_note.is_empty():
+		lines.append(_drop_note)
+	hud.show_message("\n".join(lines))
+
+
+## Moves the ball inside the zone: `back` metres away from the pin, `left`
+## metres to the left as the camera sees it.
+func _move_drop(back: float, left: float) -> void:
+	var z := _drop_zones[_drop_choice]
+	if z.option == DropRules.Option.STROKE_AND_DISTANCE or not z.found:
+		return
+	var side := Vector3(-z.direction.z, 0.0, z.direction.x)
+	var p := _drop_spot + z.direction * back + side * left
+	var c := DropRules.check(z, p, hole.pin, hole.terrain)
+	if c == DropRules.Check.OK:
+		_drop_spot = Vector3(p.x, hole.terrain.height_at(p.x, p.z), p.z)
+		_drop_note = ""
+	else:
+		_drop_note = DropRules.CHECK_TEXT[c]
+	_show_drop()
+
+
+## Keys while dropping; true if the key was used.
+func _drop_key(key: InputEventKey) -> bool:
+	var step := 0.25 if key.shift_pressed else 1.0
+	match key.keycode:
+		KEY_1, KEY_2, KEY_3, KEY_4:
+			var i := int(key.keycode - KEY_1)
+			if not key.echo and i < _drop_zones.size():
+				_select_drop(i)
+		KEY_UP:
+			_move_drop(-step, 0.0)
+		KEY_DOWN:
+			_move_drop(step, 0.0)
+		KEY_PAGEDOWN:
+			_move_drop(10.0, 0.0)
+		KEY_LEFT:
+			_move_drop(0.0, step * 0.5)
+		KEY_RIGHT:
+			_move_drop(0.0, -step * 0.5)
+		KEY_BACKSPACE, KEY_D, KEY_F:
+			if not key.echo:
+				_cancel_drop()
+		_:
+			return false
+	return true
+
+
+func _cancel_drop() -> void:
+	if _drop_reason == DropRules.Reason.WATER:
+		return
+	_drop_reason = -1
+	drop_marker.visible = false
+	ball_at = _drop_from
+	hud.show_message("")
+	_prepare_shot(false)
+
+
+func _finish_drop() -> void:
+	var z := _drop_zones[_drop_choice]
+	if not z.found:
+		_drop_note = "There's nowhere to drop that way. Pick another option."
+		_show_drop()
+		return
+	var reason := _drop_reason
+	_drop_reason = -1
+	drop_marker.visible = false
+	ball_at = _drop_spot
+	# The water penalty was counted when the ball went in.
+	if reason != DropRules.Reason.WATER:
+		strokes += DropRules.penalty(reason)
+	var what := DropRules.OPTION_NAMES[z.option]
+	if reason == DropRules.Reason.UNPLAYABLE:
+		what = "Unplayable: " + what.to_lower()
+	shot_log.append("%s: %s, %.0f m left" % [scoring.names[current], what, _flat_distance(ball_at, hole.pin)])
+	if strokes >= MAX_STROKES:
+		_hole_out(true)
+		return
+	var msg := what + "."
+	if players.size() > 1:
+		msg = scoring.names[current] + ": " + msg
+	if reason == DropRules.Reason.WATER:
+		_pass_turn()
+	else:
+		_store_turn()  # so the saved round has the dropped ball
+		_prepare_shot(false)
+	hud.show_message(msg, 2.0)
 
 
 # --- Computer golfers --------------------------------------------------------
@@ -776,8 +1115,8 @@ func _start_computer_turn() -> void:
 	_computer_timer = 0.0
 	_computer_ready = false
 	_computer_backswing = false
-	opponents[current].plan(shot_model, clubs, hole, ball_at, lie, wind.velocity())
-	hud.hint.text = HINT_COMPUTER % scoring.names[current]
+	opponents[shooter].plan(shot_model, clubs, hole, ball_at, lie, wind.velocity())
+	hud.hint.text = HINT_COMPUTER % scoring.names[shooter]
 
 
 ## Plans over a few frames, lines up, then swings.
@@ -785,7 +1124,7 @@ func _process_computer(delta: float) -> void:
 	if pause_menu.visible or settings_panel.visible:
 		return
 	_computer_timer += delta
-	var cpu := opponents[current]
+	var cpu := opponents[shooter]
 	if not _computer_ready:
 		if cpu.step() and _computer_timer >= COMPUTER_THINK:
 			_show_computer_plan()
@@ -800,7 +1139,7 @@ func _process_computer(delta: float) -> void:
 
 ## Takes the club and line the computer chose and shows them.
 func _show_computer_plan() -> void:
-	var cpu := opponents[current]
+	var cpu := opponents[shooter]
 	_computer_ready = true
 	_computer_timer = 0.0
 	club_index = cpu.club_index
@@ -812,7 +1151,7 @@ func _show_computer_plan() -> void:
 
 
 func _computer_swing() -> void:
-	var made := opponents[current].swing()
+	var made := opponents[shooter].swing()
 	aim_deg = made[2]
 	hud.meter.reset()
 	play_shot(made[0], made[1])
@@ -889,6 +1228,18 @@ func _build_world() -> void:
 	ring_mat.albedo_color = Color(1.0, 0.9, 0.2)
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
+
+	drop_marker = MeshInstance3D.new()
+	var drop_ring := TorusMesh.new()
+	drop_ring.inner_radius = 0.96
+	drop_ring.outer_radius = 1.0
+	drop_marker.mesh = drop_ring
+	var drop_mat := StandardMaterial3D.new()
+	drop_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	drop_mat.albedo_color = Color(1.0, 1.0, 1.0)
+	drop_marker.material_override = drop_mat
+	drop_marker.visible = false
+	add_child(drop_marker)
 
 	camera = RoundCamera.new()
 	camera.far = 3000.0
@@ -1111,8 +1462,8 @@ func _update_hud() -> void:
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
 	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
-	if players.size() > 1 or opponents[current] != null:
-		text += "%s    " % _player_label(current)
+	if players.size() > 1 or opponents[shooter] != null:
+		text += "%s    " % _player_label(shooter)
 	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
 		strokes + 1, pin_text, Surface.name_of(lie), club_text, wind.describe(aim_deg), total, thru]
 	var status := scoring.status_text()
@@ -1180,7 +1531,7 @@ func _status(aiming: bool) -> Dictionary:
 	var elev := "Level" if absf(rise) < 1.0 else "%s%d ft" % ["+" if rise > 0.0 else "", roundi(rise)]
 	return {
 		"hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
-		"player": scoring.names[current], "to_par": "E" if thru == 0 else Scorecard.format_to_par(card.to_par()),
+		"player": scoring.names[shooter], "to_par": "E" if thru == 0 else Scorecard.format_to_par(card.to_par()),
 		"thru": thru, "stroke": strokes + 1, "club": club_text, "to_pin": _pin_text(),
 		"lie": Surface.name_of(lie), "wind": wind.describe(aim_deg), "elevation": elev,
 		"ticker": _ticker_text(), "aiming": aiming,

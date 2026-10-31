@@ -28,6 +28,7 @@
 #include "olcore/obstacles.hpp"
 #include "olcore/object_library.hpp"
 #include "olcore/opponent.hpp"
+#include "olcore/rules.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
 #include "olcore/scoring.hpp"
@@ -1115,6 +1116,8 @@ void test_handicaps() {
   CHECK(score_differential(70, 72, 18) == -20);
   CHECK(score_differential(41, 35, 7) == 154);  // 6 * 18 / 7 = 15.43
 
+  CHECK(handicap_rounds_used(2) == 0 && handicap_rounds_used(6) == 2 && handicap_rounds_used(19) == 7);
+  CHECK(handicap_rounds_used(20) == 8 && handicap_rounds_used(40) == 8);
   CHECK(handicap_index({130, 120}) == kNoHandicap);
   CHECK(handicap_index({130, 120, 150}) == 100);       // lowest one, -2.0
   CHECK(handicap_index({130, 120, 150, 140}) == 110);  // -1.0
@@ -1761,6 +1764,82 @@ void test_opponent_rng_and_swings() {
   }
 }
 
+// Drops. A hole running up +z to a pin at z = 100: a stream across it from
+// z = 40 to 60, out of bounds beyond x = 30, a bunker round (10, 80), a cart
+// path from x = -12 to -10 and the green within 5 m of the pin. The printed
+// spots are checked by the GDScript port (game/tests/run_tests.gd,
+// _test_drop_rules_match_olcore).
+class RulesTerrain : public Terrain {
+ public:
+  double height(double x, double z) const override { return 0.01 * x + 0.02 * z; }
+  Surface surface(double x, double z) const override {
+    if (x > 30) return Surface::OutOfBounds;
+    if (std::hypot(x, z - 100) < 5) return Surface::Green;
+    if (z >= 40 && z <= 60) return Surface::Water;
+    if (std::hypot(x - 10, z - 80) < 4) return Surface::Sand;
+    return Surface::Fairway;
+  }
+  bool free_drop(double x, double) const override { return x > -12 && x < -10; }
+};
+
+void test_drop_rules() {
+  RulesTerrain t;
+  Vec3 pin{0, 2, 100};
+  CHECK(drop_penalty(DropReason::Water) == 1);
+  CHECK(drop_penalty(DropReason::Unplayable) == 1);
+  CHECK(drop_penalty(DropReason::FreeRelief) == 0);
+  CHECK(drop_options(DropReason::Water, false).size() == 2);
+  CHECK(drop_options(DropReason::Water, true).size() == 3);
+  CHECK(drop_options(DropReason::FreeRelief, true).size() == 1);
+
+  // A shot from (0, 0) that finishes in the stream at (6, 52).
+  std::vector<Vec3> path;
+  for (int i = 0; i <= 13; ++i) path.push_back({6.0 * i / 13, 3.0, 52.0 * i / 13});
+  Vec3 entry = water_entry(path, t);
+  CHECK_NEAR(entry.z, 40.0, 1e-3);
+  CHECK_NEAR(entry.x, 6.0 * 40 / 52, 1e-3);
+  Vec3 tee{0, 0, 0};
+  DropZone back = drop_zone(DropOption::BackOnLine, entry, tee, pin, false, t);
+  DropZone side = drop_zone(DropOption::Lateral, entry, tee, pin, false, t);
+  DropZone again = drop_zone(DropOption::StrokeAndDistance, entry, tee, pin, false, t);
+  CHECK(back.found && side.found && again.found);
+  CHECK(check_drop(back, back.spot, pin, t) == DropCheck::Ok);
+  CHECK(check_drop(side, side.spot, pin, t) == DropCheck::Ok);
+  CHECK(std::hypot(side.spot.x - entry.x, side.spot.z - entry.z) <= 2 * kClubLength + 1e-9);
+  CHECK(again.spot.z == 0.0);
+  CHECK(best_drop({back, side, again}, pin) == 1);  // the lateral drop is nearer the pin
+  CHECK(best_drop({again}, pin) == 0);
+  CHECK(check_drop(back, {entry.x, 0, 45}, pin, t) == DropCheck::Hazard);
+  CHECK(check_drop(back, {back.spot.x + 2, 0, back.spot.z}, pin, t) == DropCheck::OutsideZone);
+  CHECK(check_drop(side, {entry.x, 0, 37.5}, pin, t) == DropCheck::OutsideZone);
+  CHECK(check_drop(side, {entry.x - 0.5, 0, entry.z - 0.01}, pin, t) == DropCheck::NearerPin);
+
+  // Unplayable in the bunker: the drop stays in the sand.
+  Vec3 sand{10, 0, 80};
+  DropZone sand_back = drop_zone(DropOption::BackOnLine, sand, tee, pin, true, t);
+  DropZone sand_side = drop_zone(DropOption::Lateral, sand, tee, pin, true, t);
+  CHECK(sand_back.found && sand_side.found);
+  CHECK(t.surface(sand_back.spot.x, sand_back.spot.z) == Surface::Sand);
+  CHECK(check_drop(sand_back, {10, 0, 75.5}, pin, t) == DropCheck::NotSand);
+  CHECK(check_drop(sand_back, {35, 0, 80}, pin, t) == DropCheck::OutOfBounds);
+  Vec3 near_green{0, 0, 94};
+  DropZone green_side = drop_zone(DropOption::Lateral, near_green, tee, pin, false, t);
+  CHECK(check_drop(green_side, {0, 0, 95.5}, pin, t) == DropCheck::Green);
+
+  // Free relief from the cart path, away from the pin side.
+  Vec3 path_ball{-11, 0, 20};
+  DropZone free = drop_zone(DropOption::FreeDrop, path_ball, tee, pin, false, t);
+  CHECK(free.found);
+  CHECK(!t.free_drop(free.reference.x, free.reference.z));
+  CHECK(std::hypot(free.reference.x - pin.x, free.reference.z - pin.z) >=
+        std::hypot(path_ball.x - pin.x, path_ball.z - pin.z) - 1e-3);
+  CHECK(check_drop(free, path_ball, pin, t) == DropCheck::StillOnPath);
+  std::printf("  drops: entry %.4f %.4f %.4f, back %.4f %.4f %.4f, lateral %.4f %.4f, sand %.4f %.4f / %.4f %.4f, free %.4f %.4f / %.4f %.4f\n",
+              entry.x, entry.y, entry.z, back.spot.x, back.spot.y, back.spot.z, side.spot.x, side.spot.z,
+              sand_back.spot.x, sand_back.spot.z, sand_side.spot.x, sand_side.spot.z, free.reference.x,
+              free.reference.z, free.spot.x, free.spot.z);
+}
+
 void test_opponent_levels_are_ordered() {
   for (int level = 1; level < kSkillLevelCount; ++level) {
     const SkillProfile& a = skill_profile(static_cast<SkillLevel>(level - 1));
@@ -1820,6 +1899,69 @@ void test_expected_strokes() {
   }
 }
 
+void test_links_swing() {
+  LinksRand r(1);
+  CHECK(r.next() == 41);
+  CHECK(r.next() == 18467);
+  CHECK(r.next() == 6334);
+  // The PowerStroke meter: a snap 16 units past the perfect zone is one step
+  // on the middle levels but not on the easiest or the hardest.
+  CHECK(links_meter_contact(16, 0) == 0);
+  CHECK(links_meter_contact(16, 1) == 1);
+  CHECK(links_meter_contact(16, 3) == 0);
+  CHECK(links_meter_contact(17, 3) == 1);
+  CHECK(links_meter_contact(-30, 3) == -1);
+  CHECK(links_meter_contact(10, 2) == 0);
+
+  struct Case {
+    int ground_class, club, skill;
+    bool mouse;
+    int contact;
+    double power;
+    unsigned seed;
+    bool left_handed, teed_up;
+    double aim, out_power, face, path, spin, speed, loft;
+  };
+  // Checked against the game's own code running in an emulator.
+  for (const Case& c : {
+           Case{kLinksRough, 13, 3, false, -1, 100, 12345, false, false, 0.073820061, 98.9875, 0.011343904,
+                0.006179939, 0.306505, 0.897315, 1},
+           Case{kLinksFairway, 0, 2, false, 1, 100, 777, false, false, 0.117637011, 98.105, 0.010139626, -0.037637011,
+                0.9, 0.902034979, 1},
+           Case{kLinksDirt, 7, 1, false, 2, 90, 99, false, false, 0.148869219, 90, 0.01, -0.068869219, 0.92, 0.9728, 1},
+           Case{kLinksRough, 11, 3, true, -2, 100, 5, false, false, 0.1, 100, 0.043633231, -0.06981317, 0.25,
+                0.927315, 0.95},
+           Case{kLinksSand, 17, 3, false, -1, 100, 42, true, false, 0.1, 94.8025, 0, 0, 1.416666667, 0.393333333, 1},
+           Case{kLinksFairway, 0, 3, false, 1, 100, 2003, false, true, 0.116496095, 97.3625, 0.011466077,
+                -0.036406095, 1, 1, 1},
+       }) {
+    LinksStrike s;
+    s.club = c.club;
+    s.power = c.power;
+    s.aim = 0.1;
+    s.face_error = 0.01;
+    s.path_error = -0.02;
+    LinksSwing w;
+    w.method = c.mouse ? LinksSwingMethod::Mouse : LinksSwingMethod::PowerStroke;
+    w.skill = c.skill;
+    w.contact = c.contact;
+    w.mouse_face_deg = 2.5;
+    w.mouse_path_deg = -4;
+    w.mouse_loft = 0.95;
+    w.left_handed = c.left_handed;
+    w.teed_up = c.teed_up;
+    LinksRand rng(c.seed);
+    links_apply_swing(s, w, links_surface(c.ground_class), rng);
+    CHECK_NEAR(s.aim, c.aim, 1e-8);
+    CHECK_NEAR(s.power, c.out_power, 1e-6);
+    CHECK_NEAR(s.face_error, c.face, 1e-8);
+    CHECK_NEAR(s.path_error, c.path, 1e-8);
+    CHECK_NEAR(s.spin_scale, c.spin, 1e-8);
+    CHECK_NEAR(s.speed_scale, c.speed, 1e-8);
+    CHECK_NEAR(s.loft_scale, c.loft, 1e-9);
+  }
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1857,6 +1999,7 @@ int main() {
       {"swing_accuracy_curves_ball", test_swing_accuracy_curves_ball},
       {"opponent_rng_and_swings", test_opponent_rng_and_swings},
       {"opponent_levels_are_ordered", test_opponent_levels_are_ordered},
+      {"drop_rules", test_drop_rules},
       {"expected_strokes", test_expected_strokes},
       {"putt_drops_at_holing_speed", test_putt_drops_at_holing_speed},
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
@@ -1874,6 +2017,7 @@ int main() {
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},
+      {"links_swing", test_links_swing},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

@@ -154,6 +154,16 @@ func surface_at(x: float, z: float) -> int:
 	return CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
 
 
+## Paths, concrete and asphalt (ground class 6) give a free drop, as in
+## Links 2003.
+func free_drop_at(x: float, z: float) -> bool:
+	var t := triangle_at(x, z)
+	if t < 0:
+		return false
+	var m := triangle_material[t]
+	return m < ground_classes.size() and ground_classes[m] == 6
+
+
 ## The mean colour of the material's texture times its tint, or its flat
 ## colour.
 func ground_color_at(x: float, z: float) -> Color:

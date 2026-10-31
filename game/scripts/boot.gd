@@ -1,7 +1,8 @@
 extends Control
 ## First screen and main menu: makes sure the game can find the player's own
-## Links 2003 files, then offers the main menu (play a round, settings) and
-## the round setup page (RoundSetupPanel), then starts the round. On desktop
+## Links 2003 files, then offers the main menu (play a round, resume a saved
+## round, players, settings) and the round setup page (RoundSetupPanel), then
+## starts the round. On desktop
 ## the files come from a folder (asked for once, then remembered). In the
 ## browser the player picks their disc images or a game folder once; the
 ## browser keeps them locally and nothing is uploaded. Either way the game can
@@ -19,6 +20,7 @@ var _play: Button
 var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
 var _settings: SettingsPanel
+var _players: PlayersPanel
 var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
@@ -64,6 +66,9 @@ func _build_ui() -> void:
 	_settings = SettingsPanel.new()
 	_settings.changed.connect(func() -> void: _graphics.apply_display(get_viewport()))
 	center.add_child(_settings)
+	_players = PlayersPanel.new()
+	_players.back_pressed.connect(_close_players)
+	center.add_child(_players)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -260,7 +265,13 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 		_status.text = "Your game files are ready. No course files were found among them."
 	else:
 		_status.text = "Your game files are ready: %d courses." % courses.size()
-	var items: Array = [["Play a round", _open_setup]] + extra + [["Course designer", _open_designer], ["Settings", _open_settings]]
+	if _can_resume():
+		_status.text += "
+Saved round: %s." % SavedRound.describe()
+	var items: Array = [["Play a round", _open_setup]]
+	if _can_resume():
+		items.append(["Resume round", _resume_round])
+	items += extra + [["Players", _open_players], ["Course designer", _open_designer], ["Settings", _open_settings]]
 	if not OS.has_feature("web"):
 		items.append(["Quit", get_tree().quit])
 	_set_buttons(items)
@@ -291,6 +302,7 @@ func _open_setup() -> void:
 		selected = _setup_paths.find(last) + 1
 	_main_box.visible = false
 	_settings.close()
+	_players.close()
 	_setup.open(names, selected, saved)
 	SceneFade.pop_in(_setup)
 
@@ -301,6 +313,36 @@ func _close_setup() -> void:
 	SceneFade.pop_in(_main_box)
 	if _play:
 		_play.grab_focus.call_deferred()
+
+
+func _open_players() -> void:
+	_main_box.visible = false
+	_players.open()
+	SceneFade.pop_in(_players)
+
+
+func _close_players() -> void:
+	_players.close()
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
+## True if there is a saved round and its course is among the player's files
+## (or it was on the placeholder course).
+func _can_resume() -> bool:
+	var s := SavedRound.load_setup()
+	return s != null and (s.course_key.is_empty() or _course_paths.has(s.course_key))
+
+
+## Carries on with the saved round (SavedRound) from where it stopped.
+func _resume_round() -> void:
+	if _busy or not _can_resume():
+		return
+	var s := SavedRound.load_setup()
+	GolfRound.resume = SavedRound.load_state()
+	_launch(s, 0 if s.course_key.is_empty() else _course_paths.find(s.course_key) + 1)
 
 
 func _open_settings() -> void:
@@ -317,6 +359,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			SceneFade.pop_in(_main_box)
 		elif _setup.visible:
 			_close_setup()
+		elif _players.visible:
+			_close_players()
 
 
 static func _last_course() -> String:
@@ -333,6 +377,15 @@ func _on_setup_start(chosen: RoundSetup, course_index: int) -> void:
 	cfg.load(GameFolder.SETTINGS_PATH)
 	cfg.set_value("round", "course", "" if course_index <= 0 else _setup_paths[course_index - 1])
 	cfg.save(GameFolder.SETTINGS_PATH)
+	GolfRound.resume = {}
+	_launch(chosen, course_index)
+
+
+## Starts the round in `chosen` on the course at `course_index` in the setup
+## page's list (0 is the placeholder), copying the course into memory first in
+## the browser.
+func _launch(chosen: RoundSetup, course_index: int) -> void:
+	chosen.course_key = "" if course_index <= 0 else _course_paths[course_index - 1]
 	GolfRound.setup = chosen
 	if course_index <= 0:
 		chosen.course_path = ""

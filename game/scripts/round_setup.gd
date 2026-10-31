@@ -15,6 +15,11 @@ const HUMAN := -1
 
 ## Course file; empty plays the placeholder course.
 var course_path := ""
+## The course as the menu lists it (its path in the player's files; empty for
+## the placeholder), and its display name. A saved round finds its course by
+## the key.
+var course_key := ""
+var course_name := ""
 var mode: GameModes.Mode = GameModes.Mode.STROKE
 var holes: Holes = Holes.ALL
 var tees: Tees = Tees.BACK
@@ -67,8 +72,8 @@ func problem() -> String:
 		if r.x == r.y:
 			return "%s needs exactly %d players." % [GameModes.MODE_NAMES[mode], r.x]
 		return "%s needs %d to %d players." % [GameModes.MODE_NAMES[mode], r.x, r.y]
-	if mode == GameModes.Mode.BEST_BALL and (not teams.has(0) or not teams.has(1)):
-		return "Best ball needs players on both teams."
+	if GameModes.is_team(mode) and (not teams.has(0) or not teams.has(1)):
+		return "%s needs players on both teams." % GameModes.MODE_NAMES[mode]
 	return ""
 
 
