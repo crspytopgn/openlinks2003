@@ -29,8 +29,8 @@ func _process_modification() -> void:
 	var to_sk := to_world.affine_inverse()
 	var base_y := to_world.origin.y
 	var up := (to_sk.basis * Vector3.UP).normalized()
-	var drop := {}
-	var tilt := {}
+	var drop: Dictionary[String, float] = {}
+	var tilt: Dictionary[String, Vector3] = {}
 	for s: String in ["l", "r"]:
 		var ankle := to_world * sk.get_bone_global_pose(_bones["foot_" + s]).origin
 		var h: float = ground.call(ankle.x, ankle.z)
@@ -39,7 +39,7 @@ func _process_modification() -> void:
 		var dx: float = ground.call(ankle.x - e, ankle.z) - ground.call(ankle.x + e, ankle.z)
 		var dz: float = ground.call(ankle.x, ankle.z - e) - ground.call(ankle.x, ankle.z + e)
 		tilt[s] = (to_sk.basis * Vector3(dx, 2.0 * e, dz)).normalized()
-	var shift := minf(drop["l"], drop["r"])
+	var shift: float = minf(drop["l"], drop["r"])
 	if absf(drop["l"]) < 1e-3 and absf(drop["r"]) < 1e-3:
 		return
 	var root: int = _bones["Root"]
@@ -49,9 +49,11 @@ func _process_modification() -> void:
 		var pose := sk.get_bone_global_pose(foot)
 		# The hips moved by shift; the ankle should end up drop above where
 		# the clip put it.
-		var target := pose.origin + up * (drop[s] - shift)
+		var lift: float = drop[s] - shift
+		var target: Vector3 = pose.origin + up * lift
 		_reach(sk, _bones["thigh_" + s], _bones["calf_" + s], foot, target)
-		var slope := Quaternion(up, tilt[s])
+		var slope_to: Vector3 = tilt[s]
+		var slope := Quaternion(up, slope_to)
 		if slope.get_angle() > MAX_TILT:
 			slope = Quaternion(slope.get_axis().normalized(), MAX_TILT)
 		GolferLook.set_bone_basis(sk, foot, Basis(slope) * pose.basis)
