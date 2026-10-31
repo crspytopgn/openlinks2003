@@ -45,6 +45,7 @@ feel) still need a working install.
   - [ ] Drop the ball and let it roll, re-dropping if it leaves the zone, as Links does
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
   - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
+  - [x] Tour presentation (off by default): leaderboard rail, shot-data bar, driving zone, putt read, hole map with shots ([game-shell.md](docs/game-shell.md#tour))
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound
@@ -68,8 +69,9 @@ feel) still need a working install.
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
   - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
-  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`), on desktop
-  - [ ] Voice event conditions (the condition block), in-flight voice lines, and these sounds in the browser build
+  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`)
+  - [x] Voice lines at impact, in flight and on landing (best-guess timing); the disc sounds in the browser as an opt-in setting
+  - [ ] Voice event conditions (the condition block) read from the banks instead of our own rules
 
 ## Phase 4: the full game
 

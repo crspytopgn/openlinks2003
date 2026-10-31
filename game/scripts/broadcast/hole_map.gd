@@ -19,7 +19,21 @@ const COLORS := {
 }
 
 
+var texture: ImageTexture
+## The map's frame: world x,z to pixels (to_px).
+var _tee := Vector2.ZERO
+var _side := Vector2.RIGHT
+var _up := Vector2.UP
+var _mid := Vector2.ZERO
+var _metres_per_px := 1.0
+
+
 static func make(hole: HoleData) -> ImageTexture:
+	return build(hole).texture
+
+
+## The map and its frame, so shots can be marked on it (to_px).
+static func build(hole: HoleData) -> HoleMap:
 	var tee := Vector2(hole.tee.x, hole.tee.z)
 	var pin := Vector2(hole.pin.x, hole.pin.z)
 	var pts: Array[Vector2] = [tee]
@@ -44,14 +58,28 @@ static func make(hole: HoleData) -> ImageTexture:
 			var q := mid + Vector2(px - WIDTH * 0.5, HEIGHT * 0.5 - py) * metres_per_px
 			var w := tee + side * q.x + up * q.y
 			img.set_pixel(px, py, COLORS.get(hole.terrain.surface_at(w.x, w.y), Color(0.2, 0.4, 0.2)))
-	var to_px := func(p: Vector2) -> Vector2:
-		var q := _turn(p - tee, side, up) - mid
-		return Vector2(WIDTH * 0.5 + q.x / metres_per_px, HEIGHT * 0.5 - q.y / metres_per_px)
+	var map := HoleMap.new()
+	map._tee = tee
+	map._side = side
+	map._up = up
+	map._mid = mid
+	map._metres_per_px = metres_per_px
 	for i in range(1, pts.size()):
-		_line(img, to_px.call(pts[i - 1]), to_px.call(pts[i]), Color(1, 1, 1, 0.8))
-	_dot(img, to_px.call(tee), Color(0.98, 0.78, 0.25))
-	_dot(img, to_px.call(pin), Color(0.9, 0.1, 0.1))
-	return ImageTexture.create_from_image(img)
+		_line(img, map.to_px_2d(pts[i - 1]), map.to_px_2d(pts[i]), Color(1, 1, 1, 0.8))
+	_dot(img, map.to_px_2d(tee), Color(0.98, 0.78, 0.25))
+	_dot(img, map.to_px_2d(pin), Color(0.9, 0.1, 0.1))
+	map.texture = ImageTexture.create_from_image(img)
+	return map
+
+
+## Where a world point falls on the map, in map pixels.
+func to_px(p: Vector3) -> Vector2:
+	return to_px_2d(Vector2(p.x, p.z))
+
+
+func to_px_2d(p: Vector2) -> Vector2:
+	var q := _turn(p - _tee, _side, _up) - _mid
+	return Vector2(WIDTH * 0.5 + q.x / _metres_per_px, HEIGHT * 0.5 - q.y / _metres_per_px)
 
 
 static func _turn(v: Vector2, side: Vector2, up: Vector2) -> Vector2:

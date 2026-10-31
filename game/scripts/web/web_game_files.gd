@@ -21,6 +21,9 @@ const CHUNK := 8 * 1024 * 1024
 const STARTUP := [
 	"object.lib", "predefined.ssf", "predef_1.ssf", "linksm_1.exe", "linksmmiii.exe", "stdter_1.lib", "stdterrain.lib",
 ]
+## The extra sounds copied when the player turns on "Disc sounds": the
+## tournament crowd and the menu sounds. The golfer's voice bank is added too.
+const FULL_SOUNDS := ["tournament.ssf", "tourna_1.ssf", "sounds.ls"]
 
 var last_error := ""
 var _api: JavaScriptObject
@@ -105,7 +108,8 @@ func stored_files() -> Dictionary:
 ## startup_files()), then the objects that stand in for the placeholder
 ## course's trees. Returns false if a copy failed.
 func copy_startup_files(files: Dictionary) -> bool:
-	if not await copy_files(files, startup_files(files, GameFolder.setting("golfer"))):
+	var full := GraphicsSettings.load_saved().web_disc_sounds
+	if not await copy_files(files, startup_files(files, GameFolder.setting("golfer"), full)):
 		return false
 	var lib := DecodedObjectLibrary.open(ROOT)
 	if lib == null:
@@ -129,16 +133,21 @@ func copy_files(files: Dictionary, wanted: Array[String]) -> bool:
 
 
 ## The files the game reads at startup: the STARTUP names and one golfer
-## (`golfer`, an archive name such as ERIC.L3, or else the first one).
-## Everything else stays in the player's images until asked for.
-static func startup_files(files: Dictionary, golfer: String) -> Array[String]:
+## (`golfer`, an archive name such as ERIC.L3, or else the first one). With
+## `full_sounds` it adds the FULL_SOUNDS files and the golfer's voice bank
+## (its .SSF, else the default one). Everything else stays in the player's
+## images until asked for.
+static func startup_files(files: Dictionary, golfer: String, full_sounds := false) -> Array[String]:
 	var out: Array[String] = []
 	var golfers: Array[String] = []
+	var voices: Array[String] = []
 	var clubs := ""
 	for rel: String in files:
 		var lower := rel.to_lower()
-		if lower.get_file() in STARTUP and lower.count("/") == 0:
+		if lower.count("/") == 0 and (lower in STARTUP or (full_sounds and lower in FULL_SOUNDS)):
 			out.append(rel)
+		elif full_sounds and lower.begins_with("polyani/") and lower.get_extension() == "ssf" and lower.count("/") == 1:
+			voices.append(rel)
 		elif lower.begins_with("polyani/") and lower.get_extension() == "l3" and lower.get_file() != "clubs.l3":
 			golfers.append(rel)
 		elif lower == "polyani/clubs.l3":
@@ -152,6 +161,11 @@ static func startup_files(files: Dictionary, golfer: String) -> Array[String]:
 		out.append(chosen)
 		if not clubs.is_empty():
 			out.append(clubs)  # the golfer's driver and putter
+	if full_sounds:
+		# The golfer's own bank, and the default for a golfer without one.
+		for voice in [GolferVoice.bank_for(PackedStringArray(voices), chosen), GolferVoice.bank_for(PackedStringArray(voices), "")]:
+			if not voice.is_empty() and not out.has(voice):
+				out.append(voice)
 	return out
 
 

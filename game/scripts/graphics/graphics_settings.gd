@@ -13,7 +13,9 @@ extends RefCounted
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 ## Classic frames and dresses the round like Links 2003; Broadcast like a TV
 ## golf broadcast (ShotDirector cameras, tracer, replays, BroadcastOverlay).
-enum Presentation { CLASSIC, BROADCAST }
+## Tour is Broadcast with the tour graphics package (TourGraphics): the
+## leaderboard rail, the shot-data bar, the driving zone and the putt read.
+enum Presentation { CLASSIC, BROADCAST, TOUR }
 enum Look { PHOTOREAL, NATURAL, CINEMATIC, CLASSIC, PERFORMANCE, CUSTOM }
 enum Lighting { CLASSIC, PHOTOREAL }
 enum Upscaler { OFF, FSR1, FSR2 }
@@ -25,7 +27,7 @@ const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
 const MSAA_CHOICES := [0, 2, 4, 8]
 const RENDER_SCALES := [0.5, 0.75, 1.0, 1.25, 1.5]
-const PRESENTATION_NAMES := ["Classic Links", "Broadcast"]
+const PRESENTATION_NAMES := ["Classic Links", "Broadcast", "Tour"]
 const LOOK_NAMES := ["Photoreal", "Natural", "Cinematic", "Classic Links", "Performance", "Custom"]
 const LIGHTING_NAMES := ["Classic Links", "Photoreal"]
 const UPSCALER_NAMES := ["Off", "FSR 1", "FSR 2"]
@@ -53,6 +55,10 @@ var render_scale := 1.0  ## 3D resolution relative to the window
 var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
 var wind: int = Wind.Level.MODERATE
 var presentation: int = Presentation.BROADCAST
+## Web only: copy the disc's crowd, menu and golfer voice sounds into memory
+## at startup (tens of MB) instead of using the light placeholder sounds.
+## Desktop builds always read them from the game folder.
+var web_disc_sounds := false
 ## Swing skill level for the people playing, 0 (easiest) to 3: how hard the
 ## Links 2003 swing punishes a missed snap (LinksLaunch.apply_swing).
 var skill := 3
@@ -169,7 +175,8 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.render_scale = clampf(float(cfg.get_value(SECTION, "render_scale", s.render_scale)), 0.25, 2.0)
 	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
-	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.BROADCAST)
+	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.TOUR)
+	s.web_disc_sounds = bool(cfg.get_value(GAME_SECTION, "web_disc_sounds", s.web_disc_sounds))
 	s.skill = clampi(int(cfg.get_value(GAME_SECTION, "skill", s.skill)), 0, LinksLaunch.SKILL_COUNT - 1)
 	s.green_firmness = clampi(int(cfg.get_value(GAME_SECTION, "green_firmness", s.green_firmness)), 0, 2)
 	s.green_speed = clampi(int(cfg.get_value(GAME_SECTION, "green_speed", s.green_speed)), 0, 2)
@@ -208,6 +215,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "fov", fov)
 	cfg.set_value(GAME_SECTION, "wind", wind)
 	cfg.set_value(GAME_SECTION, "presentation", presentation)
+	cfg.set_value(GAME_SECTION, "web_disc_sounds", web_disc_sounds)
 	cfg.set_value(GAME_SECTION, "skill", skill)
 	cfg.set_value(GAME_SECTION, "green_firmness", green_firmness)
 	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
@@ -221,7 +229,18 @@ func save(path := PATH) -> void:
 ## True on the Forward+ renderer (desktop), which supports SSAO and the other
 ## screen-space effects. The web build uses Compatibility.
 func broadcast() -> bool:
-	return presentation == Presentation.BROADCAST
+	return presentation != Presentation.CLASSIC
+
+
+## The tour graphics package on top of the Broadcast presentation.
+func tour() -> bool:
+	return presentation == Presentation.TOUR
+
+
+## Whether the disc's crowd, menu and voice sounds are used: always on the
+## desktop, and on the web when the player has turned "Disc sounds" on.
+static func disc_sounds() -> bool:
+	return not OS.has_feature("web") or load_saved().web_disc_sounds
 
 
 static func is_forward_plus() -> bool:
