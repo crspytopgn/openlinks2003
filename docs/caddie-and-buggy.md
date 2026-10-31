@@ -30,7 +30,7 @@ doesn't make the hard levels easy:
 
 Planning is spread over frames (3 ms a frame), so the browser build doesn't
 stall. The figure is the free MakeHuman golfer (CC0) in a standing pose with
-khaki clothes; the bag is built in code (`GolfBag`, one mesh, three
+white overalls of a tournament caddie; the bag is built in code (`GolfBag`, one mesh, three
 materials).
 
 Code: `game/scripts/caddie/` (`Caddie`, `CaddieAdvice`, `CaddieNote`,

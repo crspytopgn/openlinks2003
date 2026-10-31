@@ -4,14 +4,14 @@ extends Node3D
 ## off to the side with the bag at each of the players' shots, and a note
 ## with their read of it (CaddieAdvice). Computer golfers play without one.
 ## The figure is the free golfer's model (CC0, see FreeGolfer) in a
-## standing pose with khaki clothes, so it needs no game files.
+## standing pose, in a tournament caddie's white overalls, so it needs no game files.
 
 const SIDE_M := 2.7  ## from the ball, on the side away from the golfer
 const AHEAD_M := 0.8
 const PUTT_SIDE_M := 3.4
 const PUTT_BACK_M := 1.0
 const PLAN_BUDGET_MS := 3.0  ## planning per frame, to keep the web build smooth
-const TINT := Color(0.86, 0.8, 0.6)  ## caddie khaki over the golfer's clothes
+const OVERALLS := Color(0.93, 0.93, 0.9)  ## the white boiler suit of a tournament caddie
 
 var note: CaddieNote
 var advice: CaddieAdvice
@@ -94,7 +94,7 @@ func _stand(hole: HoleData, ball: Vector3, dir: Vector3, putting: bool) -> void:
 	visible = true
 
 
-## The free golfer's model standing at ease, arms down, in khaki;
+## The free golfer's model standing at ease, arms down, in white overalls;
 ## null without the model.
 static func make_figure() -> Node3D:
 	if not ResourceLoader.exists(FreeGolfer.SCENE_PATH):
@@ -112,9 +112,10 @@ static func make_figure() -> Node3D:
 		elif mesh.name.begins_with("Clothes"):
 			var mat := mesh.get_active_material(0)
 			if mat is BaseMaterial3D:
-				var khaki := (mat as BaseMaterial3D).duplicate() as BaseMaterial3D
-				khaki.albedo_color = (mat as BaseMaterial3D).albedo_color * TINT
-				mesh.set_surface_override_material(0, khaki)
+				var suit := (mat as BaseMaterial3D).duplicate() as BaseMaterial3D
+				suit.albedo_texture = null
+				suit.albedo_color = OVERALLS
+				mesh.set_surface_override_material(0, suit)
 	var player := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if player != null:
 		player.stop()
@@ -128,24 +129,30 @@ static func make_figure() -> Node3D:
 	return model
 
 
-## Turns an arm from the model's rest pose to hang by the side, a little
-## away from the body. Works from the rest pose itself, so it doesn't depend
-## on how the model's bones are oriented.
+## Turns an arm from the model's rest pose (arms out in an A) to hang by
+## the side, the elbow a little bent. Works from the bones' own positions,
+## so it doesn't depend on how the model's bones are oriented.
 static func _arm_down(skeleton: Skeleton3D, side: String) -> void:
 	var upper := skeleton.find_bone("upperarm_" + side)
 	var lower := skeleton.find_bone("lowerarm_" + side)
-	if upper < 0 or lower < 0:
+	var hand := skeleton.find_bone("hand_" + side)
+	if upper < 0 or lower < 0 or hand < 0:
 		return
-	var g_upper := skeleton.get_bone_global_rest(upper)
-	var g_lower := skeleton.get_bone_global_rest(lower)
-	var along := g_lower.origin - g_upper.origin
+	var out := signf(skeleton.get_bone_global_pose(lower).origin.x - skeleton.get_bone_global_pose(upper).origin.x)
+	if out == 0.0:
+		out = 1.0
+	_point(skeleton, upper, lower, Vector3(0.17 * out, -1.0, 0.02))
+	_point(skeleton, lower, hand, Vector3(0.03 * out, -1.0, -0.15))
+
+
+## Turns `bone` so that its child `child` lies along `want` from it.
+static func _point(skeleton: Skeleton3D, bone: int, child: int, want: Vector3) -> void:
+	var g := skeleton.get_bone_global_pose(bone)
+	var along := skeleton.get_bone_global_pose(child).origin - g.origin
 	if along.length_squared() < 1e-8:
 		return
-	along = along.normalized()
-	var out := signf(along.x) if absf(along.x) > 1e-3 else (1.0 if side == "l" else -1.0)
-	var want := Vector3(0.16 * out, -1.0, 0.0).normalized()
-	var turn := Basis(Quaternion(along, want))
-	var parent := skeleton.get_bone_parent(upper)
-	var parent_basis := skeleton.get_bone_global_rest(parent).basis if parent >= 0 else Basis.IDENTITY
-	var local := parent_basis.inverse() * (turn * g_upper.basis)
-	skeleton.set_bone_pose_rotation(upper, local.get_rotation_quaternion())
+	var turn := Basis(Quaternion(along.normalized(), want.normalized()))
+	var parent := skeleton.get_bone_parent(bone)
+	var parent_basis := skeleton.get_bone_global_pose(parent).basis if parent >= 0 else Basis.IDENTITY
+	var local := parent_basis.inverse() * (turn * g.basis)
+	skeleton.set_bone_pose_rotation(bone, local.get_rotation_quaternion())
