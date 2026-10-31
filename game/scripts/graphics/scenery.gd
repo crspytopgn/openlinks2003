@@ -124,7 +124,7 @@ func apply(settings: GraphicsSettings) -> void:
 	# Low sun-lit haze that thickens with distance, and light shafts near
 	# the camera. Costly, so only at the top quality.
 	environment.volumetric_fog_enabled = fwd and photo and q >= GraphicsSettings.Quality.ULTRA
-	environment.volumetric_fog_density = 0.0025
+	environment.volumetric_fog_density = 0.0012
 	environment.volumetric_fog_albedo = Color(0.9, 0.93, 1.0)
 	environment.volumetric_fog_anisotropy = 0.6
 	environment.volumetric_fog_length = 160.0
