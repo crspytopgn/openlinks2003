@@ -1,7 +1,8 @@
 class_name GraphicsSettings
 extends RefCounted
 ## Display and quality settings, saved to user://settings.cfg under
-## [graphics], plus the wind strength and the presentation under [game].
+## [graphics], plus the wind strength, the presentation and the swing skill
+## level under [game].
 ## Other sections of that file (such as the game folder) are left alone.
 ##
 ## A "look" preset sets everything at once (see apply_look()); changing a
@@ -52,6 +53,9 @@ var render_scale := 1.0  ## 3D resolution relative to the window
 var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
 var wind: int = Wind.Level.MODERATE
 var presentation: int = Presentation.BROADCAST
+## Swing skill level for the people playing, 0 (easiest) to 3: how hard the
+## Links 2003 swing punishes a missed snap (LinksLaunch.apply_swing).
+var skill := 3
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -162,6 +166,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
 	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.BROADCAST)
+	s.skill = clampi(int(cfg.get_value(GAME_SECTION, "skill", s.skill)), 0, LinksLaunch.SKILL_COUNT - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -197,6 +202,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "fov", fov)
 	cfg.set_value(GAME_SECTION, "wind", wind)
 	cfg.set_value(GAME_SECTION, "presentation", presentation)
+	cfg.set_value(GAME_SECTION, "skill", skill)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

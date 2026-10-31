@@ -15,6 +15,9 @@ const FOV_CHOICES := [50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0]
 
 var settings: GraphicsSettings
 
+## The swing skill levels, easiest first (see LinksLaunch.apply_swing).
+const SKILL_NAMES := ["Level 1 (forgiving)", "Level 2", "Level 3", "Level 4 (Links 2003's hardest)"]
+
 var _quality: OptionButton
 var _window: OptionButton
 var _vsync: OptionButton
@@ -23,6 +26,7 @@ var _scale: OptionButton
 var _fov: OptionButton
 var _wind: OptionButton
 var _presentation: OptionButton
+var _skill: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -76,6 +80,7 @@ func _ready() -> void:
 	_fov = _row(grid, "Field of view", fovs)
 	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
 	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
+	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -98,6 +103,7 @@ func open(s: GraphicsSettings) -> void:
 	_fov.select(_closest(FOV_CHOICES, s.fov))
 	_wind.select(s.wind)
 	_presentation.select(s.presentation)
+	_skill.select(s.skill)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -276,6 +282,7 @@ func _on_selected() -> void:
 	settings.fov = FOV_CHOICES[_fov.selected]
 	settings.wind = _wind.selected
 	settings.presentation = _presentation.selected
+	settings.skill = _skill.selected
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

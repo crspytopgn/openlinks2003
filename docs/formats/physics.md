@@ -316,8 +316,10 @@ scale is 2, 1.5, 1.5 and 1.4 and steps 225, 180, 180 and 165. So the meter
 gives at most one step either way: a full miss is c = +/-1, which the swing
 model above magnifies. The levels also change how fast the meter runs.
 Ported as `links_meter_contact`; the game shell maps an accuracy of +/-1 on
-our meter to 25 units (late is a push-slice) and plays skill level 3 until
-the skill level setting lands.
+our meter to 25 units (late is a push-slice); the skill level is the
+"Swing skill" setting (level 3, the hardest, by default). Computer golfers
+skip this model, as in the game, and keep their own mistakes until the
+game's computer miss generator is ported.
 
 ### Not ported
 
