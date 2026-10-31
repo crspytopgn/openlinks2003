@@ -32,6 +32,10 @@ var computer_ratings: LinksLaunch.GolferRatings = null
 ## A person's PowerStroke mouse swing for this shot (LinksMouse.swing), or
 ## null for the meter: its power, face and path replace the meter's.
 var mouse_swing: LinksMouse.Outcome = null
+## The shot is a Chip: its power is already in the game's units (the chip
+## meter's table, or the mouse chip's), a PowerStroke miss keeps it, and a
+## computer golfer misses by its chip rating.
+var chip := false
 ## From the ball to the hole, metres, for computer_ratings.
 var to_hole_m := 0.0
 var rng := LinksLaunch.Rand.new(randi())
@@ -64,7 +68,7 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 		if computer_ratings != null:
 			var cw := LinksLaunch.ComputerSwing.new()
 			cw.power = s.power
-			LinksLaunch.computer_miss(cw, computer_ratings, s.club, lie == Surface.Type.TEE, false,
+			LinksLaunch.computer_miss(cw, computer_ratings, s.club, lie == Surface.Type.TEE, chip,
 					lie_params.ground_class, to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
 			s.power = cw.power
 			s.face_error = deg_to_rad(cw.face_deg)
@@ -79,6 +83,7 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	var w := LinksLaunch.SwingInput.new()
 	w.skill = skill
 	w.teed_up = lie == Surface.Type.TEE
+	w.chip = chip
 	if mouse_swing != null:
 		w.method = LinksLaunch.Method.MOUSE
 		w.mouse_face_deg = mouse_swing.face_deg

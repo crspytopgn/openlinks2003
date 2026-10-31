@@ -102,6 +102,15 @@ struct LinksMouseSwing {
   double loft = 1;    // multiplies the club's loft
   bool whiff = false;
   int quality = 0;    // 0 (perfectly straight) .. 15; the power bonus shrinks with it
+  double help_deg = 0;  // the swing help's nudge to the path, if any
+};
+
+// The game's "swing help" option keeps count of a player's strokes and of
+// those with no sideways movement at all. Keep one per player for the round.
+struct LinksMouseHelp {
+  bool enabled = false;  // the option; with it off nothing is counted
+  int strokes = 0;
+  int still_strokes = 0;
 };
 
 // Full swing: power is the club's speed times the club's gain (10.5 for the
@@ -110,7 +119,11 @@ struct LinksMouseSwing {
 // drift, face by two thirds of it); 10 to 18 hooks or slices; past 18 the
 // club misses. Chips and putts compare the club's speed with the speed the
 // backswing asks for. A straight stroke earns up to 5% (easiest) to 10%
-// (hardest) more power.
-LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng);
+// (hardest) more power with a wood. Irons and wedges (clubs 7 to 18) have
+// their own errors: the stroke's angle is scaled from 2.16 (1 iron) down to
+// 0.4 (lob wedge), and the drift only turns the face (0.05 x|x| within 10,
+// 3x beyond, a miss past 18), with no straightness bonus; so do chips with
+// them. `help`, if given, is the player's swing-help count.
+LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng, LinksMouseHelp* help = nullptr);
 
 }  // namespace olcore

@@ -174,6 +174,9 @@ class SwingInput:
 	var mouse_path_deg := 0.0
 	var mouse_loft := 1.0
 	var left_handed := false
+	## The Chip shot type: a PowerStroke miss still turns the shot but takes
+	## no power off it.
+	var chip := false
 	## A ball on the tee peg strikes cleanly whatever the meter says; a
 	## PowerStroke swing only wobbles its power and aim a little.
 	var teed_up := false
@@ -389,7 +392,8 @@ static func apply_swing(s: Strike, w: SwingInput, lie: LinksGround.Params, rng: 
 					lost = rng.next() % absi(miss) + 1.0
 					if not lost < s.power:
 						lost = s.power - 1.0
-				s.power -= lost
+				if not w.chip:
+					s.power -= lost  # chips draw it but keep their power
 				var dp := (rng.next() % 100) * 0.0025
 				var df := deg_to_rad((rng.next() % 100) * 0.001)
 				s.power += -dp if rng.next() % 100 < 50 else dp

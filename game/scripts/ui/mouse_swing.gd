@@ -46,10 +46,14 @@ func reset() -> void:
 
 
 ## The button went down: a swing with `club_number` (LinksMouse.PUTTER for
-## the putter) at `skill`.
-func begin(club_number: int, skill: int) -> void:
+## the putter) at `skill`, a chip if `chip`.
+func begin(club_number: int, skill: int, chip := false) -> void:
 	reset()
-	var shot := LinksMouse.Shot.PUTT if club_number >= LinksMouse.PUTTER else LinksMouse.Shot.FULL
+	var shot := LinksMouse.Shot.FULL
+	if club_number >= LinksMouse.PUTTER:
+		shot = LinksMouse.Shot.PUTT
+	elif chip:
+		shot = LinksMouse.Shot.CHIP
 	var width := 1920
 	if is_inside_tree() and DisplayServer.window_get_size().x > 0:
 		width = DisplayServer.window_get_size().x
