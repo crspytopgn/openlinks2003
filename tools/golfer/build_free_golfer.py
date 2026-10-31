@@ -238,8 +238,12 @@ def alpha_detail(path, size):
     lum = a[..., :3] @ np.array([0.3, 0.59, 0.11])
     mean_lum = float(mean @ np.array([0.3, 0.59, 0.11]))
     detail = np.clip(DETAIL_MEAN * np.power(np.maximum(lum, 1e-3) / mean_lum, 0.9), 0, 1)
-    out = np.concatenate([np.repeat(detail[..., None], 3, axis=2), a[..., 3:]], axis=2)
-    return Image.fromarray((out * 255).astype(np.uint8), "RGBA"), mean
+    # Drawn with an alpha cutoff and tinted, so 64 grey levels and 16 alpha
+    # levels look the same and compress far better.
+    detail = np.round(detail * 63) / 63
+    alpha = np.round(a[..., 3:] * 15) / 15
+    out = np.concatenate([np.repeat(detail[..., None], 3, axis=2), alpha], axis=2)
+    return Image.fromarray(np.round(out * 255).astype(np.uint8), "RGBA"), mean
 
 
 def lathe(profile, axis, side, segments=12):
@@ -671,7 +675,7 @@ def main():
     for part in parts:
         pack.part(part.name, part.material, part.positions, part.normals, part.uvs, part.joints, part.joint_weights,
                   part.indices, targets[part.name], with_tangents=part.name.startswith(("Top_", "Bottom_")),
-                  tolerance=2e-4 if part.name.startswith(("Body", "Eye")) else 8e-4)
+                  tolerance=5e-4 if part.name.startswith(("Body", "Eye")) else 1.5e-3)
     n = len(cap_pos)
     pack.part("Cap", "Cap", cap_pos, cap_nrm, np.zeros((n, 2)), np.tile([head_j, 0, 0, 0], (n, 1)),
               np.tile([1.0, 0, 0, 0], (n, 1)), cap_idx, targets["Cap"])

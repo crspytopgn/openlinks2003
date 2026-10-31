@@ -12,7 +12,9 @@ extends RefCounted
 ## reuses them.
 
 const PATH := "res://assets/golfer/free_golfer_parts.olg"
-const VERSION := 1
+const VERSION := 2
+## Blend shape normal offsets are stored as 128 + offset * NORMAL_STEPS.
+const NORMAL_STEPS := 100.0
 ## Baked meshes kept; a round with four players uses about 40.
 const MESH_CACHE := 96
 
@@ -213,6 +215,17 @@ func _halves3(span: Array) -> PackedVector3Array:
 	return _vec3(img.get_data().to_float32_array())
 
 
+## Offset bytes (3 per row, see NORMAL_STEPS) to Vector3s.
+func _bytes3(span: Array) -> PackedVector3Array:
+	var bytes := _slice(span)
+	var out := PackedVector3Array()
+	out.resize(bytes.size() / 3)
+	var k := 1.0 / NORMAL_STEPS
+	for i in out.size():
+		out[i] = Vector3(bytes[3 * i] - 128, bytes[3 * i + 1] - 128, bytes[3 * i + 2] - 128) * k
+	return out
+
+
 static func _vec3(f: PackedFloat32Array) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	out.resize(f.size() / 3)
@@ -256,7 +269,7 @@ func _shape(part: Dictionary, shape: String) -> Dictionary:
 		return decoded[shape]
 	var e: Dictionary = part.shapes[shape]
 	var s := {"rows": _slice(e.rows).to_int32_array(), "positions": _halves3(e.positions)}
-	if e.has("normals"):
-		s.normals = _halves3(e.normals)
+	if e.has("normals_u8"):
+		s.normals = _bytes3(e.normals_u8)
 	decoded[shape] = s
 	return s

@@ -10,7 +10,9 @@ Layout: b"OLGL", u32 version, u32 size of the data once inflated, then the
 data gzip-compressed: u32 header length, the header (UTF-8 JSON), then the
 arrays the header points to (byte offsets into what follows the header).
 Arrays are little-endian: f32 positions, uvs and weights, i32 bone indices
-and triangles, f16 normals, tangents and blend shape offsets.
+and triangles, f16 normals, tangents and blend shape position offsets.
+Blend shape normal offsets are u8, 128 + round(offset * NORMAL_STEPS)
+(plenty for shading, and half the size).
 """
 
 import gzip
@@ -19,7 +21,8 @@ import struct
 
 import numpy as np
 
-VERSION = 1
+VERSION = 2
+NORMAL_STEPS = 100.0
 
 
 def tangents(positions, normals, uvs, indices):
@@ -94,7 +97,8 @@ class Pack:
                 continue
             s = {"rows": self._add(rows.astype(np.int32), "<i4"), "positions": self._add(dpos[rows], "<f2")}
             if np.abs(dnrm[rows]).max() > 0.03:
-                s["normals"] = self._add(dnrm[rows], "<f2")
+                q = np.clip(np.round(dnrm[rows] * NORMAL_STEPS) + 128, 0, 255)
+                s["normals_u8"] = self._add(q, "u1")
             entry["shapes"][shape] = s
         self.header["parts"][name] = entry
 
