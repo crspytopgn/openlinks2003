@@ -1,8 +1,8 @@
 class_name RoundSetup
 extends RefCounted
-## What the setup menu chose for a round: course, tees, holes, game mode and
-## players, each one a person or a computer golfer. The last setup is saved
-## under [round] in user://settings.cfg.
+## What the setup menu chose for a round: course, tees, holes, game mode,
+## players (each a person or a computer golfer) and whether handicaps count.
+## The last setup is saved under [round] in user://settings.cfg.
 
 enum Holes { ALL, FRONT_NINE, BACK_NINE }
 enum Tees { BACK, MIDDLE, FORWARD }
@@ -23,6 +23,11 @@ var names: Array[String] = ["Player 1"]
 var teams: Array[int] = [0]
 ## Who plays each seat: HUMAN, or a computer golfer's OpponentSkill.Level.
 var computer: Array[int] = [HUMAN]
+## Play off handicaps: everyone's net scores decide the game.
+var handicaps := false
+## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
+## from their profile. Not saved with the setup.
+var indexes: Array[int] = []
 
 
 static func single(path: String) -> RoundSetup:
@@ -50,6 +55,8 @@ func all_computer() -> bool:
 		if not is_computer(i):
 			return false
 	return true
+func index_of(player: int) -> int:
+	return indexes[player] if player < indexes.size() else Handicap.NONE
 
 
 ## Why this setup can't be played, or "" if it can.
@@ -101,6 +108,7 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "names", PackedStringArray(names))
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
 	cfg.set_value("round", "computer", PackedInt32Array(computer))
+	cfg.set_value("round", "handicaps", handicaps)
 	cfg.save(path)
 
 
@@ -113,6 +121,7 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.mode = clampi(cfg.get_value("round", "mode", 0), 0, GameModes.MODE_NAMES.size() - 1) as GameModes.Mode
 	s.holes = clampi(cfg.get_value("round", "holes", 0), 0, HOLES_NAMES.size() - 1) as Holes
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
+	s.handicaps = cfg.get_value("round", "handicaps", false) == true
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	var saved_computer: PackedInt32Array = cfg.get_value("round", "computer", PackedInt32Array())

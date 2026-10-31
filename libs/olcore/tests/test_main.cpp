@@ -21,6 +21,7 @@
 #include "olcore/inflate.hpp"
 #include "olcore/links_flight.hpp"
 #include "olcore/links_ground.hpp"
+#include "olcore/links_launch.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
@@ -1076,6 +1077,63 @@ void test_game_modes() {
   CHECK(match_text(match_status({0, 0}, {0, 0})) == "All square");
 }
 
+// game/tests/run_tests.gd checks the GDScript port against the same cases.
+void test_handicaps() {
+  CHECK(div_round(95, 10) == 10 && div_round(94, 10) == 9 && div_round(-95, 10) == -10 && div_round(-94, 10) == -9);
+
+  // The back nine of an 18 keeps its order; holes without an index go last.
+  CHECK((stroke_ranks({8, 2, 16, 4, 12, 18, 6, 14, 10}) == std::vector<int>{4, 1, 8, 2, 6, 9, 3, 7, 5}));
+  CHECK((stroke_ranks({0, 3, 0, 1}) == std::vector<int>{3, 2, 4, 1}));
+
+  std::vector<int> ranks = {3, 1, 2};
+  CHECK((handicap_strokes(4, ranks) == std::vector<int>{1, 2, 1}));
+  CHECK((handicap_strokes(6, ranks) == std::vector<int>{2, 2, 2}));
+  CHECK((handicap_strokes(0, ranks) == std::vector<int>{0, 0, 0}));
+  // +1 gives a stroke back on the easiest hole.
+  CHECK((handicap_strokes(-1, ranks) == std::vector<int>{-1, 0, 0}));
+  CHECK((handicap_strokes(-4, ranks) == std::vector<int>{-2, -1, -1}));
+
+  CHECK((net_scores({5, 3, 0, 2}, {1, 2, 1, 3}) == std::vector<int>{4, 1, 0, 1}));
+  CHECK((net_scores({4, 4}, {-1, 0}) == std::vector<int>{5, 4}));
+
+  CHECK(playing_handicap(100, 18, 95) == 10);   // 9.5 rounds up
+  CHECK(playing_handicap(184, 18, 100) == 18);  // 18.4
+  CHECK(playing_handicap(184, 9, 100) == 9);    // 9.2
+  CHECK(playing_handicap(-14, 18, 100) == -1);
+  CHECK(playing_handicap(kNoHandicap, 18, 100) == 0);
+
+  Scorecard card({4, 3, 5});
+  card.record(0, 9);
+  card.record(1, 4);
+  card.record(2, 5);
+  // Net double bogey: 4 + 2 + 1 caps the 9 at 7.
+  CHECK(adjusted_gross(card, {1, 0, 0}, true) == 16);
+  CHECK(adjusted_gross(card, {0, 0, 0}, false) == 18);  // par + 5 caps the 9 at 9
+
+  CHECK(score_differential(85, 72, 18) == 130);
+  CHECK(score_differential(42, 36, 9) == 120);
+  CHECK(score_differential(70, 72, 18) == -20);
+  CHECK(score_differential(41, 35, 7) == 154);  // 6 * 18 / 7 = 15.43
+
+  CHECK(handicap_index({130, 120}) == kNoHandicap);
+  CHECK(handicap_index({130, 120, 150}) == 100);       // lowest one, -2.0
+  CHECK(handicap_index({130, 120, 150, 140}) == 110);  // -1.0
+  CHECK(handicap_index({130, 125, 150, 140, 160, 170}) == 118);  // (12.5 + 13.0) / 2 = 12.75 -> 12.8, -1.0
+  std::vector<int> many;
+  for (int i = 0; i < 25; ++i) {
+    many.push_back(100 + i * 10);  // the oldest five drop out
+  }
+  // Recent 20 are 15.0 to 34.0; the lowest 8 average 18.5.
+  CHECK(handicap_index(many) == 185);
+  CHECK(handicap_index({700, 650, 800}) == kMaxHandicapTenths);
+  CHECK(handicap_index({-300, -250, -200}) == kMinHandicapTenths);
+
+  CHECK(format_handicap(123) == "12.3");
+  CHECK(format_handicap(-14) == "+1.4");
+  CHECK(format_handicap(0) == "0.0");
+  CHECK(format_handicap(kNoHandicap) == "-");
+}
+
 // Builds a store from named objects. Each object's bytes may hold pointers
 // to other objects as "index + 1 into objs" placeholders in the slots listed
 // in `pointers`; they are patched to file offsets.
@@ -1577,6 +1635,111 @@ void test_links_shot() {
   CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, water).outcome == ShotOutcome::Water);
 }
 
+// A made-up club table in the layout the game uses: five rows of 19 values
+// and a spare zero, behind some unrelated bytes.
+std::vector<std::uint8_t> synthetic_club_exe() {
+  std::vector<std::uint8_t> out(36, 0x11);
+  auto f32 = [&](float v) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &v, sizeof bits);
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
+  };
+  for (int i = 0; i < 19; ++i) f32(1.5f + 0.2f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(2.0f + 0.01f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(i < 7 ? 10.0f + 2.0f * i : 14.0f + 4.0f * (i - 7));
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(0.05f + 0.01f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(10.0f + 0.5f * i);
+  f32(0);
+  return out;
+}
+
+void check_launch(const LinksClubTable& t, const LinksStrike& s, std::array<double, 6> want) {
+  LinksLaunch l = links_launch(t, s);
+  double got[6] = {l.velocity.x, l.velocity.y, l.velocity.z, l.spin.x, l.spin.y, l.spin.z};
+  for (int i = 0; i < 6; ++i) CHECK_NEAR(got[i], want[i], 2e-4);
+}
+
+void test_links_launch() {
+  std::optional<LinksClubTable> t = find_links_clubs(synthetic_club_exe());
+  CHECK(t.has_value());
+  CHECK(!find_links_clubs(std::vector<std::uint8_t>(600, 0)).has_value());
+  if (!t) {
+    return;
+  }
+  CHECK_NEAR(t->loft_deg[7], 14.0, 1e-6);
+  // A square driver: straight down the line with pure backspin.
+  LinksStrike s;
+  check_launch(*t, s, {0, 195.679363, 24.503551, 73.860581, 0, 0});
+  // Aimed left, ball back, face open, stance closed, a little closed at impact.
+  s = LinksStrike{};
+  s.club = 12;
+  s.aim = 0.4;
+  s.power = 85;
+  s.face_error = 0.03;
+  s.path_error = -0.02;
+  s.setup = {6, 33, 27};
+  check_launch(*t, s, {-60.178063, 130.934603, 58.414966, 135.705451, 62.62540, -0.570758});
+  // On a slope, with the multipliers away from 1.
+  s = LinksStrike{};
+  s.club = 5;
+  s.aim = -1.2;
+  s.power = 70;
+  s.face_error = -0.05;
+  s.path_error = 0.04;
+  s.spin_scale = 0.9;
+  s.speed_scale = 1.05;
+  s.loft_scale = 1.1;
+  s.setup = {4, 26, 32};
+  s.ground_normal = {0.2, -0.1, std::sqrt(1 - 0.05)};
+  check_launch(*t, s, {130.663751, 47.660517, 18.457195, 27.686730, -73.138883, -7.141661});
+  // A steep slope is clamped to 30 degrees across and 15 along the line.
+  s = LinksStrike{};
+  s.club = 18;
+  s.aim = 2.5;
+  s.power = 60;
+  s.setup.ball_position = 1;
+  s.ground_normal = {-0.3, 0.25, std::sqrt(1 - 0.09 - 0.0625)};
+  check_launch(*t, s, {-24.752554, -31.449690, 48.410392, -62.535463, 46.668793, -1.656532});
+  // In olcore's frame (+y up, +z downrange) backspin turns about -x.
+  BallState b = links_launch_state(*t, LinksStrike{});
+  CHECK_NEAR(b.velocity.z, 195.679363 * 0.3048, 1e-4);
+  CHECK_NEAR(b.velocity.y, 24.503551 * 0.3048, 1e-4);
+  CHECK_NEAR(b.spin.x, -73.860581 * 2 * 3.14159265358979, 1e-3);
+}
+
+void test_links_lie() {
+  LinksStrike s;
+  s.face_error = 0.05;
+  links_apply_lie(s, links_surface(kLinksFairway));
+  CHECK_NEAR(s.spin_scale, 1.0, 1e-12);
+  CHECK_NEAR(s.speed_scale, 1.0, 1e-12);
+  CHECK_NEAR(s.face_error, 0.05, 1e-12);
+  links_apply_lie(s, links_surface(kLinksRough));
+  CHECK_NEAR(s.spin_scale, 0.406505, 1e-9);
+  CHECK_NEAR(s.speed_scale, 0.927315, 1e-9);
+  links_apply_lie(s, links_surface(kLinksDeepGrass));
+  CHECK_NEAR(s.spin_scale, 0.1992, 1e-9);
+  // Sand: the face error goes, and the contact sets speed, spin and loft.
+  struct Case {
+    int contact;
+    double speed, spin, loft;
+  };
+  for (Case c : {Case{0, 0.4, 1.5, 1}, Case{3, 0.38, 1.25, 1}, Case{10, 0.333333, 0.666667, 1},
+                 Case{-3, 0.7, 1.2, 1}, Case{-5, 0.9, 1.0, 1}, Case{-8, 0.705, 0.7, 0.73}}) {
+    LinksStrike t;
+    t.face_error = 0.05;
+    links_apply_lie(t, links_surface(kLinksSand), c.contact);
+    CHECK_NEAR(t.face_error, 0.0, 1e-12);
+    CHECK_NEAR(t.speed_scale, c.speed, 1e-6);
+    CHECK_NEAR(t.spin_scale, c.spin, 1e-6);
+    CHECK_NEAR(t.loft_scale, c.loft, 1e-9);
+  }
+}
+
 // Computer opponents. The printed numbers are checked by the GDScript port
 // (game/tests/run_tests.gd, _test_opponent_skill_matches_olcore).
 void test_opponent_rng_and_swings() {
@@ -1709,8 +1872,11 @@ int main() {
       {"links_roll", test_links_roll},
       {"links_landing", test_links_landing},
       {"links_shot", test_links_shot},
+      {"links_launch", test_links_launch},
+      {"links_lie", test_links_lie},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
+      {"handicaps", test_handicaps},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

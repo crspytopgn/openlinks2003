@@ -31,7 +31,8 @@ enum LinksGroundClass {
 };
 
 // What a ground class does to the ball: offsets 0x14 to 0x2c of a
-// TerrainTypes record.
+// TerrainTypes record for the bounce and roll, and 0x04 and 0x0c for the
+// strike from that lie.
 struct LinksSurface {
   int ground_class = kLinksFairway;
   double restitution = 0;      // normal speed kept by a bounce
@@ -41,6 +42,8 @@ struct LinksSurface {
   double roll_resistance = 0;  // rolling resistance
   double stop_speed = 0;       // bounces end below twice this normal speed
   double spin_grip = 0;        // how much spin friction puts on the ball
+  double lie_spin = 1;         // spin kept when striking from this lie
+  double lie_power = 1;        // ball speed kept when striking from this lie
 };
 
 // The values every course checked so far uses for each class.

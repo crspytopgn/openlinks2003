@@ -197,6 +197,10 @@ func _build_ground_mesh() -> MeshInstance3D:
 	return inst
 
 
+func ground_color_at(x: float, z: float) -> Color:
+	return _color_at(x, z)
+
+
 func _color_at(x: float, z: float) -> Color:
 	var s := surface_at(x, z)
 	var c: Color = _colors[s]

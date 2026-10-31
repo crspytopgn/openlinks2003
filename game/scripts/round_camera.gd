@@ -6,6 +6,9 @@ extends Camera3D
 ## then for longer shots cuts to a view near where the ball comes down,
 ## watching it land and roll. The next shot cuts straight back behind the
 ## ball. Distances are by eye from the original (needs data for exact feel).
+##
+## With `broadcast` set (the Broadcast presentation) a ShotDirector cuts
+## between TV-style cameras instead, and each hole opens with a flyover.
 
 ## Behind the ball, and how high, for full shots and putts.
 const AIM_BACK := 4.2
@@ -32,6 +35,23 @@ var _look_now := Vector3.ZERO
 var _shot: ShotResult
 var _landing_time := -1.0
 var _cut_to_landing := false
+## TV-style cameras (ShotDirector) instead of the Links framing.
+var broadcast := false
+var director: ShotDirector
+var _variant := 0
+var _aim_pos := Vector3.ZERO
+var _aim_look := Vector3.ZERO
+## Hole flyover: a path the camera flies before the first shot; empty when
+## not flying.
+var _fly_path := PackedVector3Array()
+var _fly_t := 0.0
+var _fly_length := 0.0
+var _fly_pin := Vector3.ZERO
+
+const FLYOVER_SPEED := 55.0  ## metres per second along the path
+const FLYOVER_MIN_S := 4.5
+const FLYOVER_MAX_S := 9.0
+const FLYOVER_UP := 38.0
 
 
 ## Snaps behind the ball, looking down the aim line `dir` (flat, unit).
@@ -39,21 +59,35 @@ func aim(ball: Vector3, dir: Vector3, putting: bool) -> void:
 	_shot = null
 	var back := PUTT_BACK if putting else AIM_BACK
 	var up := PUTT_UP if putting else AIM_UP
-	position = _above_ground(ball - dir * back + Vector3.UP * up)
+	var pos := _above_ground(ball - dir * back + Vector3.UP * up)
 	if putting:
 		_look = ball + dir * PUTT_LOOK_AHEAD
 	else:
 		var ahead := ball + dir * AIM_LOOK_AHEAD
 		_look = Vector3(ahead.x, maxf(ball.y, _ground(ahead)) + AIM_LOOK_UP, ahead.z)
+	_aim_pos = pos
+	_aim_look = _look
+	if flying():
+		return
+	position = pos
 	_look_now = _look
 	look_at(_look_now)
 
 
-## Starts following a shot.
-func follow(shot: ShotResult) -> void:
+## Starts following a shot. `pin` and `putting` steer the broadcast cameras;
+## `variant` picks between their alternatives (replays pass a new one).
+func follow(shot: ShotResult, pin := Vector3.ZERO, putting := false, variant := -1) -> void:
 	_shot = shot
 	_cut_to_landing = false
 	_landing_time = -1.0
+	end_flyover()
+	director = null
+	if broadcast:
+		if variant < 0:
+			_variant += 1
+			variant = _variant
+		director = ShotDirector.plan(shot, pin, terrain, position, putting, variant)
+		return
 	if shot.carry_m >= LANDING_VIEW_MIN_CARRY:
 		_landing_time = time_near(shot, shot.first_landing)
 
@@ -61,7 +95,16 @@ func follow(shot: ShotResult) -> void:
 ## Moves the camera for time `t` into the shot (or just eases the view when
 ## no shot is playing).
 func update(delta: float, t: float, ball: Vector3) -> void:
-	if _shot != null:
+	if flying():
+		_update_flyover(delta)
+		return
+	if _shot != null and director != null:
+		var pose := director.step(t, ball, position, delta)
+		position = pose[0]
+		_look = pose[1]
+		if pose[2]:
+			_look_now = _look
+	elif _shot != null:
 		if not _cut_to_landing and _landing_time > 0.0 and t >= _landing_time - LANDING_CUT_LEFT:
 			_cut_to_landing = true
 			_place_for_landing()
@@ -71,6 +114,93 @@ func update(delta: float, t: float, ball: Vector3) -> void:
 	var to_look := _look_now - position
 	if to_look.length() > 0.1 and absf(to_look.normalized().y) < 0.99:
 		look_at(_look_now)
+
+
+## Flies over the hole from behind the tee, along its route, down to the
+## green, then settles behind the ball (wherever aim() last put it).
+func start_flyover(hole: HoleData) -> void:
+	_fly_path = PackedVector3Array()
+	_fly_pin = hole.pin
+	var pts: Array[Vector3] = [hole.tee]
+	for r in hole.route:
+		pts.append(Vector3(r.x, 0.0, r.y))
+	pts.append(hole.pin)
+	var first := Vector3(pts[1].x - pts[0].x, 0.0, pts[1].z - pts[0].z).normalized()
+	_fly_path.append(_lift(hole.tee - first * 40.0, FLYOVER_UP * 0.8))
+	for i in range(0, pts.size() - 1):
+		_fly_path.append(_lift(pts[i], FLYOVER_UP))
+	var last := Vector3(hole.pin.x - pts[pts.size() - 2].x, 0.0, hole.pin.z - pts[pts.size() - 2].z).normalized()
+	_fly_path.append(_lift(hole.pin - last * 30.0, FLYOVER_UP * 0.5))
+	_fly_path.append(_lift(hole.pin - last * 14.0 + last.cross(Vector3.UP) * 6.0, 7.0))
+	_fly_length = 0.0
+	for i in range(1, _fly_path.size()):
+		_fly_length += _fly_path[i - 1].distance_to(_fly_path[i])
+	_fly_t = 0.0
+	position = _fly_path[0]
+	_look_now = _fly_look(0.0)
+	look_at(_look_now)
+
+
+func flying() -> bool:
+	return _fly_path.size() > 1
+
+
+## Ends a flyover early (a click) or once it's done, cutting behind the ball.
+func end_flyover() -> void:
+	if not flying():
+		return
+	_fly_path = PackedVector3Array()
+	position = _aim_pos
+	_look = _aim_look
+	_look_now = _look
+	look_at(_look_now)
+
+
+func flyover_progress() -> float:
+	return clampf(_fly_t / _fly_seconds(), 0.0, 1.0) if flying() else 1.0
+
+
+func _fly_seconds() -> float:
+	return clampf(_fly_length / FLYOVER_SPEED, FLYOVER_MIN_S, FLYOVER_MAX_S)
+
+
+func _update_flyover(delta: float) -> void:
+	_fly_t += delta
+	var u := _fly_t / _fly_seconds()
+	if u >= 1.0:
+		end_flyover()
+		return
+	# Ease in and out so the start and the arrival at the green are gentle.
+	var e := u * u * (3.0 - 2.0 * u)
+	position = _above_ground(_fly_point(e))
+	_look_now = _look_now.lerp(_fly_look(e), 1.0 - exp(-delta * 4.0))
+	var to_look := _look_now - position
+	if to_look.length() > 0.1 and absf(to_look.normalized().y) < 0.99:
+		look_at(_look_now)
+
+
+## Point at fraction `u` of the path, Catmull-Rom through its points.
+func _fly_point(u: float) -> Vector3:
+	var n := _fly_path.size()
+	var f := clampf(u, 0.0, 1.0) * (n - 1)
+	var i := mini(int(f), n - 2)
+	var t := f - i
+	var p0 := _fly_path[maxi(i - 1, 0)]
+	var p1 := _fly_path[i]
+	var p2 := _fly_path[i + 1]
+	var p3 := _fly_path[mini(i + 2, n - 1)]
+	return 0.5 * ((2.0 * p1) + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
+
+
+## Looks a little way ahead along the path, and at the pin near the end.
+func _fly_look(u: float) -> Vector3:
+	var ahead := _fly_point(minf(u + 0.3, 1.0))
+	var ground := Vector3(ahead.x, _ground(ahead), ahead.z)
+	return ground.lerp(_fly_pin, smoothstep(0.55, 0.95, u))
+
+
+func _lift(p: Vector3, up: float) -> Vector3:
+	return Vector3(p.x, _ground(p) + up, p.z)
 
 
 func _place_for_landing() -> void:

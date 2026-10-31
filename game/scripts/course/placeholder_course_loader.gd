@@ -7,6 +7,8 @@ extends CourseLoader
 const PATH := "placeholder://openlinks-nine"
 
 # par, route (tee first, green centre last), bunkers (x, z, r), ponds (x, z, r)
+## Stroke index of each hole, as on a front nine.
+const STROKE_INDEX: Array[int] = [5, 15, 3, 7, 1, 17, 11, 9, 13]
 const HOLES: Array = [
 	[4, [Vector2(0, 0), Vector2(0, 225), Vector2(-28, 350)],
 		[Vector3(18, 235, 8), Vector3(-42, 340, 6), Vector3(-14, 362, 5)], []],
@@ -71,6 +73,7 @@ func _make_hole(number: int, spec: Array) -> HoleData:
 	var hole := HoleData.new()
 	hole.number = number
 	hole.par = spec[0]
+	hole.stroke_index = STROKE_INDEX[number - 1]
 	hole.terrain = t
 	hole.tee = Vector3(t.tee.x, t.height_at(t.tee.x, t.tee.y), t.tee.y)
 	var g := t.green_center()

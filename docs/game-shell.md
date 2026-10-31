@@ -58,8 +58,7 @@ balls stay on the ground where they lie. The modes:
 functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
 cards and turns them into the HUD status line, the end-of-hole result and the
 final standings. The scorecard shows a row per player plus the mode's rows
-(points, skin winners, match holes, team best balls). Handicaps are not done
-yet.
+(points, skin winners, match holes, team best balls).
 
 ### Computer opponents
 
@@ -103,6 +102,37 @@ so the browser build doesn't stall. The computer spends at least 0.8 s
 up. When every seat is a computer, holes move on by themselves after 4 s.
 Seeded rounds (`GolfRound.wind_seed`) seed the computer golfers too, so the
 tests play the same way every run.
+### Handicaps and player profiles
+
+Every finished round of nine holes or more goes on the player's profile,
+matched by name (`PlayerProfiles`, saved in `user://profiles.cfg`; the
+browser keeps it in IndexedDB). After three rounds the profile gives a
+handicap index; until then the player can type a starting index on the setup
+page ("12.3", or "+1.4" for a plus handicap). Rounds that stop early, such as
+a match won 3 & 2, don't count.
+
+The index follows the World Handicap System, simplified because Links
+courses have a stroke index per hole but no course or slope rating: par
+stands in for the course rating and every course has the standard slope.
+
+- Each hole is capped at net double bogey (par + 2 + strokes received; par + 5
+  without an index) to give the adjusted gross score.
+- Score differential = adjusted gross - par, doubled for a nine.
+- Index = the lowest 1 to 8 of the most recent 20 differentials, averaged,
+  with the WHS adjustment of up to -2.0 for three to six rounds. Between +10.0
+  and 54.0.
+
+With "Handicaps: On" in the round setup, each player's playing handicap is
+their index scaled to the holes played at the mode's allowance: 95% for
+stroke play and Stableford, 100% for match play and skins, 90% for best
+ball. Match play, skins and best ball play off the lowest handicap. Strokes
+go on the hardest holes first, by the course's stroke index (a nine keeps
+the order of the 18). Net scores then decide every mode, and the scorecard
+adds a net row under each player, whose label shows their playing handicap.
+
+`Handicap` (`handicap.gd`) mirrors the handicap functions in
+`libs/olcore/src/scoring.cpp`; indexes and differentials are in tenths of a
+stroke so both sides round the same way.
 
 ## Code map
 
@@ -117,6 +147,9 @@ game/scripts/
   ai/
     computer_golfer.gd          ComputerGolfer: plans a computer opponent's shots through the ShotModel
     opponent_skill.gd           OpponentSkill: skill levels and swing mistakes (port of olcore/opponent)
+  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
+  handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
+  player_profiles.gd            PlayerProfiles: each player's rounds and handicap index
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
@@ -198,6 +231,42 @@ plus noise variation and close-up detail) and `Materials.water_disc()` for
 ponds, so decoded courses match the placeholder. CI renders real frames with
 Mesa on both renderers (`game/tests/render_check.gd`) to catch shader errors,
 and uploads the screenshots as the `render-check` artifact.
+
+## Broadcast presentation
+
+Settings > Presentation switches between **Classic Links**, which frames
+and dresses the round like Links 2003, and **Broadcast** (the default),
+which presents it like a TV golf broadcast. Only the presentation changes:
+the physics, the swing and the scoring are the same in both.
+
+- `scripts/broadcast/shot_director.gd`: the camera director. It plans the
+  cuts for each shot (behind the player, then a chase or side-on camera,
+  then a landing camera or a camera behind the green looking back at the
+  ball) and `RoundCamera` follows it. Putts get a low tracking camera.
+- `RoundCamera.start_flyover()`: each hole opens with a flight from behind
+  the tee, along the hole's route, down to the green. A click skips it.
+- `scripts/broadcast/ball_tracer.gd`: the shot tracer, a camera-facing
+  glowing ribbon.
+- Replays: R between shots (and automatically after a holed approach, a
+  long holed putt or a shot to tap-in range) plays the shot again from new
+  camera angles, in slow motion round the landing and the cup.
+- `scripts/broadcast/green_grid.gd`: on the green, a grid draped over the
+  real terrain, coloured by slope, with downhill ticks. G hides it. It
+  shows the slopes, not the putt's line.
+- `scripts/broadcast/broadcast_overlay.gd`: the TV graphics, drawn from
+  plain shapes: the score bug, the shot panel, a lower third as each player
+  steps up, the shot card (carry, roll, total, height, lie, to the pin), the
+  hole card with a map (`hole_map.gd`), the LIVE and REPLAY bugs, camera
+  tags, captions, the scrolling ticker (the leaderboard with more than one
+  player), wipes, and a pin-camera picture on approach shots (Medium quality
+  and up, since it draws the scene twice).
+- `scripts/broadcast/commentary.gd`: caption lines and the crowd reaction
+  for each shot. The crowd sounds are `crowd_cheer`, `crowd_roar`,
+  `crowd_groan` and `crowd_ooh` (synthesised in `PlaceholderSoundBank` until
+  the game's own crowd sounds are mapped).
+
+In both presentations, scene changes fade through black and menu panels fade
+in (`scripts/ui/scene_fade.gd`).
 
 ## Plugging in decoded data
 
@@ -297,4 +366,4 @@ together.
 ## Not done yet
 
 Gusts during a flight, wind that changes with height, lie-specific animations,
-camera styles from the original, handicaps, computer opponents, and the real-time mouse swing.
+camera styles from the original, computer opponents, and the real-time mouse swing.

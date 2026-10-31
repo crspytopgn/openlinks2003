@@ -360,6 +360,7 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		var hole := HoleData.new()
 		hole.number = number
 		hole.par = h.par
+		hole.stroke_index = h.handicap
 		hole.terrain = terrain
 		var tee: Vector3 = tees[0].position
 		var pin: Vector3 = pins[0]

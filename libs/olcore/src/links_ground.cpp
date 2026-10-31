@@ -320,17 +320,19 @@ double segment_distance_xz(Vec3 a, Vec3 b, Vec3 c) {
 
 LinksSurface links_surface(int ground_class) {
   //        class, restitution, impact friction, skid friction, impact drag, roll, stop, spin grip
+  //        (and for rough and deep grass: lie spin, lie power)
   switch (ground_class) {
     case kLinksGreen: return {kLinksGreen, 0.23, 0.08, 0.383486, 0.496454, 0.10538, 0.5, 1.219};
     case kLinksFairway: return {kLinksFairway, 0.266579, 0.1308, 0.132528, 0.441, 0.18, 0.5, 1.00211};
-    case kLinksRough: return {kLinksRough, 0.242881, 0.087621, 0.104659, 0.522788, 0.604758, 1.0, 2.0};
+    case kLinksRough: return {kLinksRough, 0.242881, 0.087621, 0.104659, 0.522788, 0.604758, 1.0, 2.0, 0.406505, 0.927315};
     case kLinksSand: return {kLinksSand, 0.2025, 0.05, 0.0714, 0.644842, 0.897139, 0.5, 4.0};
     case kLinksWater: return {kLinksWater, 0.3, 0.35, 0.00288, 0.1, 2.0, 2.0, 0.1};
     case kLinksPath: return {kLinksPath, 0.75303, 0.45738, 0.45, 0.07597, 0.068172, 2.0, 1.46647};
     case kLinksDirt: return {kLinksDirt, 0.388524, 0.121495, 0.108, 0.307136, 0.195622, 0.467325, 4.80256};
     case kLinksBushes: return {kLinksBushes, 0.404543, 0.209029, 0.203495, 0.19674, 0.2555, 0.5, 3.05625};
     case kLinksRocks: return {kLinksRocks, 0.5022, 0.196532, 0.162792, 0.140846, 0.124317, 2.0, 1.15583};
-    case kLinksDeepGrass: return {kLinksDeepGrass, 0.24384, 0.07, 0.100116, 0.561193, 0.608475, 0.5, 3.0};
+    case kLinksDeepGrass:
+      return {kLinksDeepGrass, 0.24384, 0.07, 0.100116, 0.561193, 0.608475, 0.5, 3.0, 0.1992, 0.836732};
     default: return links_surface(kLinksFairway);
   }
 }
