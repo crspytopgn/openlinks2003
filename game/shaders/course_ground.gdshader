@@ -39,6 +39,7 @@ uniform sampler2D height_tex : filter_linear_mipmap, repeat_enable;
 uniform bool has_height = false;
 uniform float parallax_depth = 0.02; // metres of relief
 uniform float cavity = 0.5; // how much darker the lowest parts are
+uniform float height_mean = 0.5; // the height map's average, so cavities keep the mean brightness
 
 uniform bool blended = false;
 uniform sampler2D mask_tex : filter_linear_mipmap, repeat_enable;
@@ -60,6 +61,7 @@ uniform sampler2D height_tex_b : filter_linear_mipmap, repeat_enable;
 uniform bool has_height_b = false;
 uniform float parallax_depth_b = 0.02;
 uniform float cavity_b = 0.5;
+uniform float height_mean_b = 0.5;
 
 varying vec3 world_pos;
 varying vec2 mask_uv;
@@ -115,10 +117,11 @@ vec2 parallax(sampler2D h_tex, vec2 uv, vec3 view, float depth_uv) {
 	return uv - shift * (h - 0.5);
 }
 
-// Darkening of the scan's low parts, about 1 on average.
-float cavity_shade(sampler2D h_tex, vec2 uv, float amount) {
+// Darkening of the scan's low parts and lightening of its tops, 1 at the
+// map's average height.
+float cavity_shade(sampler2D h_tex, vec2 uv, float amount, float mean) {
 	float h = texture(h_tex, uv).r;
-	return clamp(1.0 + (h - 0.5) * 2.0 * amount, 0.25, 1.4);
+	return clamp(1.0 + (h - mean) * 2.0 * amount, 0.25, 1.4);
 }
 
 void vertex() {
@@ -134,14 +137,17 @@ void fragment() {
 	vec2 uv = p / tile;
 	vec3 view = normalize(CAMERA_POSITION_WORLD - world_pos);
 	float near_relief = 1.0 - smoothstep(10.0, 35.0, dist);
-	float near_cavity = 1.0 - smoothstep(25.0, 110.0, dist);
+	// Cavities fade out before their repeat shows: sooner on finely tiled
+	// ground such as greens.
+	float near_cavity = 1.0 - smoothstep(10.0, clamp(tile * 40.0, 20.0, 110.0), dist);
+	float near_cavity_b = 1.0 - smoothstep(10.0, clamp(tile_b * 40.0, 20.0, 110.0), dist);
 	if (has_height && near_relief > 0.0) {
 		uv = parallax(height_tex, uv, view, parallax_depth / tile * near_relief);
 	}
 	vec3 raw = mix(texture(albedo_tex, uv).rgb, texture(albedo_tex, uv * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
 	vec3 col = layer_color(raw, photo_mean, far_color, photo_hue, detail_gain, variation, stripes, stripe_width, p, dist);
 	if (has_height && near_cavity > 0.0) {
-		col *= mix(1.0, cavity_shade(height_tex, uv, cavity), near_cavity);
+		col *= mix(1.0, cavity_shade(height_tex, uv, cavity, height_mean), near_cavity);
 	}
 	vec3 n = vec3(0.0);
 	if (has_normal) {
@@ -162,8 +168,8 @@ void fragment() {
 		}
 		vec3 raw_b = mix(texture(albedo_tex_b, uv_b).rgb, texture(albedo_tex_b, uv_b * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
 		vec3 col_b = layer_color(raw_b, photo_mean_b, far_color_b, photo_hue_b, detail_gain_b, variation_b, stripes_b, stripe_width_b, p, dist);
-		if (has_height_b && near_cavity > 0.0) {
-			col_b *= mix(1.0, cavity_shade(height_tex_b, uv_b, cavity_b), near_cavity);
+		if (has_height_b && near_cavity_b > 0.0) {
+			col_b *= mix(1.0, cavity_shade(height_tex_b, uv_b, cavity_b, height_mean_b), near_cavity_b);
 		}
 		col = mix(col, col_b, w);
 		vec3 n_b = vec3(0.0);

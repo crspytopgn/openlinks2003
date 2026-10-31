@@ -31,8 +31,8 @@ const PHOTO_GAINS := {"grass": 2.2, "rough": 1.4, "sand": 1.0}
 ## Per photo set: metres of relief for the parallax and how much darker
 ## its low parts get (GROUND_SHADER's parallax_depth and cavity).
 const PHOTO_RELIEF := {
-	"grass": Vector2(0.015, 0.55), "rough": Vector2(0.035, 0.7), "sand": Vector2(0.01, 0.4),
-	"path": Vector2(0.004, 0.3), "dirt": Vector2(0.015, 0.5),
+	"grass": Vector2(0.02, 1.1), "rough": Vector2(0.05, 1.3), "sand": Vector2(0.012, 0.8),
+	"path": Vector2(0.005, 0.6), "dirt": Vector2(0.02, 1.0),
 }
 ## Hue of healthy, watered turf (HSV, 0..1).
 const MOWN_HUE := 0.27
@@ -557,6 +557,7 @@ static func _photo_params(ground: int, info: Dictionary) -> Dictionary:
 		"has_height": height != null,
 		"parallax_depth": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).x,
 		"cavity": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).y,
+		"height_mean": _mean(height).r if height != null else 0.5,
 		"photo_mean": _mean(photo),
 		"far_color": target,
 		"tile": PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES),
@@ -581,6 +582,9 @@ static func _photo_params(ground: int, info: Dictionary) -> Dictionary:
 			p.detail_gain = 1.3
 			p.stripes = 0.07
 			p.stripe_width = 3.0
+			# Cut turf has little relief, and its fine repeat would show.
+			p.parallax_depth = 0.005
+			p.cavity = 0.4
 			p.roughness_value = 0.78
 			p.variation = 0.05
 		Surface.Type.FAIRWAY:
