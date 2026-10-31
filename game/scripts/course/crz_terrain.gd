@@ -11,8 +11,11 @@ const TILE_METRES := 12.0 * 0.3048
 
 ## Ground class (see olcore::parse_ground_classes) to how the ball plays.
 ## Ground classes that take a free photographed texture in place of the
-## disc's own when photo_ground is on (not paths, dirt or rocks).
-const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 8, 10]
+## disc's own when photo_ground is on (not rocks).
+const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 6, 7, 8, 10]
+## Ground classes drawn with a photo set of their own rather than the one
+## of their surface (FreeAssets.slot_for): paths and dirt.
+const CLASS_SLOTS := {6: "path", 7: "dirt"}
 const GROUND_SHADER := preload("res://shaders/course_ground.gdshader")
 const MAPPED_SHADER := preload("res://shaders/terrain_mapped.gdshader")
 
@@ -21,10 +24,16 @@ const MAPPED_SHADER := preload("res://shaders/terrain_mapped.gdshader")
 ## disc's own. Takes effect on the next hole.
 ## Metres per repeat of each photo ground: the turf scans cover about a
 ## metre and a half of lawn.
-const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.5}
+const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.0, "path": 3.0, "dirt": 2.5}
 ## How strongly each scan's light and dark blades show: the lawn scan is
 ## shot in soft light and reads flat at playing distance.
 const PHOTO_GAINS := {"grass": 2.2, "rough": 1.4, "sand": 1.0}
+## Per photo set: metres of relief for the parallax and how much darker
+## its low parts get (GROUND_SHADER's parallax_depth and cavity).
+const PHOTO_RELIEF := {
+	"grass": Vector2(0.02, 1.1), "rough": Vector2(0.05, 1.3), "sand": Vector2(0.012, 0.8),
+	"path": Vector2(0.005, 0.6), "dirt": Vector2(0.02, 1.0),
+}
 ## Hue of healthy, watered turf (HSV, 0..1).
 const MOWN_HUE := 0.27
 static var photo_ground := false
@@ -60,7 +69,9 @@ var surfaces: Array[LinksGround.Params] = []
 var material_flags := PackedInt32Array()
 ## The hole outlines and out-of-bounds areas; null for none.
 var bounds: CourseAreas.HoleBounds
-## Per material: {"texture": Texture2D or null, "colour": Color}, and for a
+## Per material: {"texture": Texture2D or null, "colour": Color}, the
+## disc texture's coarser variants for farther away ("mid", "far"; the
+## blend's "mid_b", "far_b") where the course has them, and for a
 ## free stand-in texture also "normal" (Texture2D or null), "tint" (Color)
 ## and "tile" (metres per repeat). A blended material also has "blend":
 ## {mask, texture_b (Texture2D), ground_a, ground_b (ground classes)}.
@@ -245,7 +256,7 @@ func ground_color_at(x: float, z: float) -> Color:
 			c = FreeAssets.mean_color(tex) * tint
 		var ground := ground_classes[m] if m < ground_classes.size() else 3
 		if photo_ground and ground in PHOTO_CLASSES:
-			c = realistic(c, CLASS_SURFACE.get(ground, Surface.Type.ROUGH))
+			c = realistic_class(c, ground)
 		_ground_colors[key] = c
 	return _ground_colors[key]
 
@@ -425,7 +436,7 @@ func _material(m: int, mapped := false) -> Material:
 			if photo != null:
 				return photo
 		elif ground in PHOTO_CLASSES:
-			var photo := _photo_material(surface, info)
+			var photo := _photo_material(ground, info)
 			if photo != null:
 				return photo
 	var tex: Texture2D = info.get("texture")
@@ -457,9 +468,9 @@ func _material(m: int, mapped := false) -> Material:
 	return mat
 
 
-## Mown grass has a faint sheen.
+## Ground is matt; mown grass only a touch less so.
 static func _disc_roughness(surface: Surface.Type) -> float:
-	return 0.82 if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY else 1.0
+	return 0.95 if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY else 1.0
 
 
 ## The disc's own texture (and for a blended material its mask and second
@@ -469,6 +480,7 @@ static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Var
 	mat.shader = MAPPED_SHADER
 	mat.set_shader_parameter("texture_a", info.texture)
 	mat.set_shader_parameter("roughness_a", _disc_roughness(surface))
+	_set_variants(mat, info, "_a")
 	var normal := FreeAssets.ground(FreeAssets.slot_for(surface), "normal")
 	mat.set_shader_parameter("normal_tex", normal)
 	mat.set_shader_parameter("has_normal", normal != null)
@@ -480,15 +492,25 @@ static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Var
 		mat.set_shader_parameter("mask_tex", b.mask)
 		mat.set_shader_parameter("roughness_a", _disc_roughness(CLASS_SURFACE.get(b.ground_a, surface)))
 		mat.set_shader_parameter("roughness_b", _disc_roughness(surface_b))
+		_set_variants(mat, {"mid": b.get("mid_b"), "far": b.get("far_b")}, "_b")
 	return mat
+
+
+## A layer's coarser variants for farther away (info "mid" and "far",
+## Texture2D or null; see CrzCourseLoader._add_detail_variants).
+static func _set_variants(mat: ShaderMaterial, info: Dictionary, suffix: String) -> void:
+	for slot in ["mid", "far"]:
+		var tex: Texture2D = info.get(slot)
+		mat.set_shader_parameter(slot + suffix, tex)
+		mat.set_shader_parameter("has_" + slot + suffix, tex != null)
 
 
 ## The photo ground for a material: the free texture of its surface,
 ## tinted to the mean colour of the course's own texture (or its class
 ## colour), toned down to the brightness of real turf. Null without the
 ## free textures.
-static func _photo_material(surface: Surface.Type, info: Dictionary) -> ShaderMaterial:
-	var params := _photo_params(surface, info)
+static func _photo_material(ground: int, info: Dictionary) -> ShaderMaterial:
+	var params := _photo_params(ground, info)
 	if params.is_empty():
 		return null
 	var mat := ShaderMaterial.new()
@@ -506,8 +528,8 @@ static func _photo_blend(info: Dictionary, blend: Dictionary) -> ShaderMaterial:
 	var gb: int = blend.ground_b
 	if not (ga in PHOTO_CLASSES and gb in PHOTO_CLASSES):
 		return null
-	var a := _photo_params(CLASS_SURFACE.get(ga, Surface.Type.ROUGH), info)
-	var b := _photo_params(CLASS_SURFACE.get(gb, Surface.Type.ROUGH), {"texture": blend.texture_b})
+	var a := _photo_params(ga, info)
+	var b := _photo_params(gb, {"texture": blend.texture_b})
 	if a.is_empty() or b.is_empty():
 		return null
 	var mat := ShaderMaterial.new()
@@ -524,8 +546,9 @@ static func _photo_blend(info: Dictionary, blend: Dictionary) -> ShaderMaterial:
 
 ## The COURSE_GROUND parameters for one photo layer, or empty without the
 ## free textures.
-static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary:
-	var slot := FreeAssets.slot_for(surface)
+static func _photo_params(ground: int, info: Dictionary) -> Dictionary:
+	var surface: Surface.Type = CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
+	var slot: String = CLASS_SLOTS.get(ground, FreeAssets.slot_for(surface))
 	var photo := FreeAssets.ground(slot, "albedo")
 	if photo == null:
 		return {}
@@ -533,15 +556,21 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 	var target: Color = info.get("colour", Color(0.3, 0.5, 0.2))
 	if own != null and own != photo:
 		target = _mean(own)
-	target = realistic(target, surface)
+	target = realistic_class(target, ground)
 	var normal := FreeAssets.ground(slot, "normal")
 	var rough := FreeAssets.ground(slot, "roughness")
+	var height := FreeAssets.ground(slot, "height")
 	var p := {
 		"albedo_tex": photo,
 		"normal_tex": normal,
 		"has_normal": normal != null,
 		"roughness_tex": rough,
 		"has_roughness": rough != null,
+		"height_tex": height,
+		"has_height": height != null,
+		"parallax_depth": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).x,
+		"cavity": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).y,
+		"height_mean": _mean(height).r if height != null else 0.5,
 		"photo_mean": _mean(photo),
 		"far_color": target,
 		"tile": PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES),
@@ -553,10 +582,22 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 		"roughness_value": 0.92,
 		"variation": 0.14,
 	}
+	if CLASS_SLOTS.has(ground):
+		# Paths and dirt: no stripes, a little wear in patches.
+		p.roughness_value = 0.9
+		p.variation = 0.08
+		return p
 	match surface:
 		Surface.Type.GREEN:
+			# Cut to a few millimetres: the lawn scan smaller and softer,
+			# so it reads as fine, dense turf rather than fairway grass.
+			p.tile = 0.6
+			p.detail_gain = 1.3
 			p.stripes = 0.07
 			p.stripe_width = 3.0
+			# Cut turf has little relief, and its fine repeat would show.
+			p.parallax_depth = 0.005
+			p.cavity = 0.4
 			p.roughness_value = 0.78
 			p.variation = 0.05
 		Surface.Type.FAIRWAY:
@@ -569,21 +610,31 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 	return p
 
 
+## realistic() for ground class `ground`: paths and dirt keep their hue
+## and colour, a little darker, as the disc draws them pale too.
+static func realistic_class(c: Color, ground: int) -> Color:
+	if CLASS_SLOTS.has(ground):
+		return Color.from_hsv(c.h, c.s, c.v * 0.85)
+	return realistic(c, CLASS_SURFACE.get(ground, Surface.Type.ROUGH))
+
+
 ## A course colour (sRGB) as real ground of that surface would be: the 2003
 ## textures are bright and pale for a dim CRT and a flat light; turf in
 ## sunlight is darker and deeper.
 static func realistic(c: Color, surface: Surface.Type) -> Color:
-	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.72)
+	# (Lighter than they would be with a sheen: the ground is matt, so the
+	# sun's glare no longer brightens it.)
+	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.8)
 	if surface == Surface.Type.ROUGH or surface == Surface.Type.DEEP_ROUGH:
 		# Pale disc rough reads as bare ground; real rough and fescue are
 		# olive and straw, with more colour and less light.
-		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.62)
+		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.7)
 	elif surface == Surface.Type.SAND:
 		out = Color.from_hsv(c.h, clampf(c.s * 0.9, 0.0, 0.5), minf(c.v * 0.92, 0.85))
 	elif c.h > 0.12 and c.h < 0.45:
 		# Mown grass: the disc's yellowish greens pulled towards the deep
 		# green of watered turf.
-		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s, c.v * 0.62)
+		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s * 0.92, c.v * 0.72)
 	return out
 
 

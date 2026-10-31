@@ -7,6 +7,13 @@
 // the second. The disc textures have no bumps of their own, so a free
 // photo texture's normals (tiled in metres) pick out the grain under a low
 // sun. Plus the baked ground shade (GroundShade).
+//
+// A course texture may come with coarser variants of itself for farther
+// away ("Dry Grass 02 32.tga" and "... 128.tga"). They fade in with
+// distance, laid at 32 and 128 feet a repeat (the numbers in their names;
+// the base textures repeat every 12 feet), which also hides the tiling of
+// the base texture across a fairway. The distances and scales are a best
+// reading of the names, not measured from the game.
 shader_type spatial;
 
 #include "res://shaders/ground_shade.gdshaderinc"
@@ -23,6 +30,18 @@ uniform vec3 tint_a : source_color = vec3(1.0);
 uniform vec3 tint_b : source_color = vec3(1.0);
 uniform float roughness_a = 1.0;
 uniform float roughness_b = 1.0;
+uniform sampler2D mid_a : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D far_a : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D mid_b : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D far_b : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform bool has_mid_a = false;
+uniform bool has_far_a = false;
+uniform bool has_mid_b = false;
+uniform bool has_far_b = false;
+uniform vec2 mid_range = vec2(12.0, 45.0); // metres over which the middle variant fades in
+uniform vec2 far_range = vec2(60.0, 180.0); // and the far one
+const float MID_SCALE = 12.0 / 32.0;
+const float FAR_SCALE = 12.0 / 128.0;
 
 varying vec3 world_pos;
 varying vec2 mask_uv;
@@ -32,14 +51,28 @@ void vertex() {
 	mask_uv = blended ? CUSTOM0.xy : vec2(0.0);
 }
 
+// A layer's colour at `uv`, with its coarser variants faded in by distance.
+vec3 layer(sampler2D base, sampler2D mid, sampler2D far, bool has_mid, bool has_far, vec2 uv, float dist) {
+	// Branch only on the uniforms, so the texture lookups keep their
+	// derivatives (mip levels) in every renderer.
+	vec3 c = texture(base, uv).rgb;
+	if (has_mid) {
+		c = mix(c, texture(mid, uv * MID_SCALE).rgb, smoothstep(mid_range.x, mid_range.y, dist));
+	}
+	if (has_far) {
+		c = mix(c, texture(far, uv * FAR_SCALE).rgb, smoothstep(far_range.x, far_range.y, dist));
+	}
+	return c;
+}
+
 void fragment() {
 	float dist = length(VERTEX);
-	vec3 col = texture(texture_a, UV).rgb * tint_a;
+	vec3 col = layer(texture_a, mid_a, far_a, has_mid_a, has_far_a, UV, dist) * tint_a;
 	float rough = roughness_a;
 	if (blended) {
 		// The mask runs 0 to 1 across the edge; keep off its border texels.
 		float w = texture(mask_tex, vec2(clamp(mask_uv.x, 0.02, 0.98), mask_uv.y)).a;
-		col = mix(col, texture(texture_b, UV2).rgb * tint_b, w);
+		col = mix(col, layer(texture_b, mid_b, far_b, has_mid_b, has_far_b, UV2, dist) * tint_b, w);
 		rough = mix(rough, roughness_b, w);
 	}
 	if (has_normal) {
@@ -48,5 +81,6 @@ void fragment() {
 		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, n.y, 0.0)).xyz * normal_strength * near);
 	}
 	ALBEDO = col * ground_shading(world_pos.xz, dist);
-	ROUGHNESS = rough;
+	ROUGHNESS = max(rough, 0.92);
+	SPECULAR = 0.1;  // matt ground, no sheen
 }

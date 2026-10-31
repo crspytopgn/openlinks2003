@@ -89,6 +89,32 @@ std::vector<Hole> parse_holes(const std::vector<std::uint8_t>& data) {
   return holes;
 }
 
+CourseScenery parse_course_scenery(const std::vector<std::uint8_t>& data) {
+  constexpr std::size_t kHoleBytes = 16 + kTeesPerHole * 24 + kPinsPerHole * 16 + 8 + kAimPointsPerHole * 12 + 12 + 6;
+  constexpr std::uint32_t kOwnPanorama = 0x80000000u;
+  BinaryReader r(data);
+  r.i32();
+  std::uint32_t version = r.u32();
+  if (version != kHeaderVersion) throw ReadError("course header version " + std::to_string(version) + " is not supported");
+  r.skip(10);
+  std::uint32_t count = r.u32();
+  if (count > 18) throw ReadError("course header has " + std::to_string(count) + " holes");
+  r.skip(count * kHoleBytes);
+  std::uint32_t records = r.u32();  // 12 bytes each, not decoded (5 on every disc course)
+  if (records > 64) throw ReadError("course header trailer has " + std::to_string(records) + " records");
+  r.skip(records * 12);
+  r.skip(16);  // four u32 the game lets the player's settings override; zero on the disc courses
+  CourseScenery s;
+  s.sky = r.u32();
+  r.skip(8);
+  for (float& v : s.values) v = r.f32();
+  r.u32();  // only in header versions above 7
+  std::uint32_t pan = r.u32();
+  s.panorama = pan == kOwnPanorama || pan > 13 ? 0 : pan;
+  if (s.sky > 12) s.sky = 0;
+  return s;
+}
+
 std::vector<std::pair<std::string, std::string>> parse_course_text(const std::vector<std::uint8_t>& data) {
   std::string text;
   std::size_t i = 0;
@@ -203,7 +229,13 @@ std::vector<std::uint8_t> parse_ground_classes(const std::vector<std::uint8_t>& 
 
 Course load_course(const CrzArchive& archive) {
   Course c;
-  c.holes = parse_holes(archive.read("header"));
+  const auto header = archive.read("header");
+  c.holes = parse_holes(header);
+  try {
+    c.scenery = parse_course_scenery(header);
+  } catch (const ReadError&) {
+    // An older or shorter header: keep the defaults.
+  }
   for (auto& [key, value] : parse_course_text(archive.read("english.txt"))) {
     if (key == "CourseName") c.name = value;
     for (std::size_t i = 0; i < c.holes.size(); ++i) {

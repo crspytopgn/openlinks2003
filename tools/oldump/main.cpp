@@ -27,6 +27,7 @@
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/panorama.hpp"
+#include "olcore/shadow_file.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
 
@@ -257,6 +258,18 @@ int cmd_mesh(const char* path, const char* obj_path, const char* clip_path, std:
 int cmd_pano(const char* path, const char* tga) {
   auto r = olcore::BinaryReader::from_file(path);
   const auto& d = r.data();
+  if (d.size() >= 4 && std::memcmp(d.data(), "ARC0", 4) == 0) {
+    // A custom sky from the 1.07 patch.
+    const auto img = olcore::decode_sky_archive(olcore::Arc0Archive(d));
+    std::printf("%s: custom sky, %d x %d\n", path, img.width, img.height);
+    if (tga) {
+      const auto bytes = olcore::encode_tga(img);
+      std::ofstream(tga, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()),
+                                                 static_cast<std::streamsize>(bytes.size()));
+      std::printf("wrote %s\n", tga);
+    }
+    return 0;
+  }
   const auto h = olcore::read_panorama_header(d.data(), d.size());
   std::printf("%s: %s panorama, %u x %u, %u tile rows\n", path, h.kind == olcore::PanoramaKind::Sky ? "sky" : "horizon",
               h.width, h.height, h.rows);
@@ -266,6 +279,22 @@ int cmd_pano(const char* path, const char* tga) {
                                                static_cast<std::streamsize>(bytes.size()));
     std::printf("wrote %s\n", tga);
   }
+  return 0;
+}
+
+int cmd_sha(const char* path) {
+  auto r = olcore::BinaryReader::from_file(path);
+  const auto f = olcore::parse_shadow_file(r.data());
+  int footprints = 0, shapes = 0;
+  for (const auto& s : f.object_shapes) footprints += s.width > 0;
+  for (const auto& s : f.shapes) shapes += s.width > 0;
+  double light = 0;
+  for (float v : f.billboard_light) light += v;
+  std::printf("%s: for %s (%u bytes), %u models (%d footprints), %u model placements (%zu cells), %u billboard types "
+              "(%d shapes), %u billboards (mean light %.3f, %zu cells)\n",
+              path, f.course.c_str(), f.course_size, f.model_count, footprints, f.model_placement_count,
+              f.placement_cells.cells.size(), f.billboard_type_count, shapes, f.billboard_count,
+              f.billboard_light.empty() ? 0.0 : light / double(f.billboard_light.size()), f.billboard_cells.cells.size());
   return 0;
 }
 
@@ -301,12 +330,14 @@ int main(int argc, char** argv) {
                  "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n"
                  "       oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]\n"
                  "       oldump pano <Panorama|PanNN.btc|skyNN.btc> [--tga out.tga]\n"
+                 "       oldump pano <Name.sky> [--tga out.tga]\n"
+                 "       oldump sha <course.SHA>\n"
                  "       oldump font <font.d3f> [--tga PREFIX]\n");
     return 2;
   }
   if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store") ||
                     !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh") || !std::strcmp(argv[1], "pano") ||
-                    !std::strcmp(argv[1], "font"))) {
+                    !std::strcmp(argv[1], "font") || !std::strcmp(argv[1], "sha"))) {
     try {
       if (!std::strcmp(argv[1], "ls")) return cmd_ls(argv[2], extract_dir(argc, argv));
       if (!std::strcmp(argv[1], "ssf")) return cmd_ssf(argv[2], extract_dir(argc, argv));
@@ -317,6 +348,7 @@ int main(int argc, char** argv) {
         }
         return cmd_anim(argv[2], skeleton);
       }
+      if (!std::strcmp(argv[1], "sha")) return cmd_sha(argv[2]);
       if (!std::strcmp(argv[1], "font")) {
         const char* tga = nullptr;
         for (int i = 3; i + 1 < argc; ++i) {

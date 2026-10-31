@@ -17,3 +17,9 @@ func launch(_club: Club, _power: float, _accuracy: float, _aim_deg: float, _lie:
 func simulate(_start: BallState, _terrain: CourseTerrain, _cup: Vector3, _wind := Vector3.ZERO) -> ShotResult:
 	push_error("ShotModel.simulate() is not implemented")
 	return ShotResult.new()
+
+
+## How much farther than its distance at power 100 (Club.total_m) a full
+## swing sends `club` in this model.
+func reach_scale(_club: Club) -> float:
+	return 1.0

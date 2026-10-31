@@ -116,7 +116,7 @@ static func from_gsi_png(bytes: PackedByteArray, box: Array) -> GeoRaster:
 
 
 ## A single-band GeoTIFF in EPSG:4326: either byte order, 32-bit float or
-## 16-bit integer samples, uncompressed or Deflate, in strips or tiles, with
+## 16-bit integer or 8-bit unsigned samples, uncompressed or Deflate, in strips or tiles, with
 ## its position from ModelPixelScale + ModelTiepoint or ModelTransformation.
 ## Null for anything else.
 static func from_tiff(b: PackedByteArray) -> GeoRaster:
@@ -151,6 +151,8 @@ static func from_tiff(b: PackedByteArray) -> GeoRaster:
 		kind = "s16"
 	elif bits == 16 and fmt == 1:
 		kind = "u16"
+	elif bits == 8 and fmt == 1:
+		kind = "u8"  # class codes (land cover)
 	else:
 		return null
 	if predictor == 3 and kind != "f32":
@@ -191,6 +193,11 @@ static func from_tiff(b: PackedByteArray) -> GeoRaster:
 		var vals: PackedFloat32Array
 		if kind == "f32":
 			vals = block.to_float32_array()
+		elif kind == "u8":
+			vals = PackedFloat32Array()
+			vals.resize(block.size())
+			for q in block.size():
+				vals[q] = block[q]
 		else:
 			vals = PackedFloat32Array()
 			vals.resize(block.size() >> 1)

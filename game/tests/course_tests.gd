@@ -320,9 +320,13 @@ func _test_mappings() -> void:
 
 	var plain := TerrainMappings.material_layers({"textures": PackedInt32Array([4, 5, 6]), "kind": 0x3})
 	check(not plain.blended and plain.mask == -1 and plain.layers == PackedInt32Array([4]), "materials: a plain layer and its details")
+	check(plain.details == PackedInt32Array([5, 6]), "materials: middle and far variants")
+	var far_only := TerrainMappings.material_layers({"textures": PackedInt32Array([4, 6]), "kind": 0x2})
+	check(far_only.details == PackedInt32Array([-1, 6]), "materials: only a far variant")
 	var blend := TerrainMappings.material_layers({"mode": 3, "layer_count": 3, "kind": 0x1 | 0xc,
 		"textures": PackedInt32Array([10, 11, 20, 21, 22, 30])})
 	check(blend.blended and blend.mask == 10 and blend.layers == PackedInt32Array([20, 30]), "materials: mask and two layers")
+	check(blend.details == PackedInt32Array([21, 22, -1, -1]), "materials: variants per layer")
 
 	# A terrain whose triangle 0 uses the planar mapping and triangle 1 the
 	# blend (its mask strip covers triangle 1 with vertices 0, 2, 3).
@@ -348,7 +352,7 @@ func _test_mappings() -> void:
 ## builds.
 func _shadow_bytes() -> PackedByteArray:
 	var b := PackedByteArray()
-	b.resize(0x136)
+	b.resize(0x12E)
 	b.fill(0)
 	var magic := "VER5JDHSHADOW".to_ascii_buffer()
 	for i in magic.size():
@@ -357,46 +361,67 @@ func _shadow_bytes() -> PackedByteArray:
 	for i in name.size():
 		b[14 + i] = name[i]
 	b.encode_u32(0x10E, 12345)
-	b.encode_u32(0x11E, 2)
-	b.encode_u32(0x122, 3)
-	b.encode_u32(0x126, 1)
-	b.encode_u32(0x12A, 2)
-	b.encode_u32(0x12E, 2)
-	b.encode_u32(0x132, 2)
-	for _i in 8:
-		b.append(0xFE)
-	put_u32(b, 5)
-	put_f32(b, 1.0)
+	b.encode_u32(0x11A, 1028330567)
+	b.encode_u32(0x11E, 2)  # models
+	b.encode_u32(0x122, 3)  # billboard types
+	b.encode_u32(0x126, 1)  # model placements
+	b.encode_u32(0x12A, 2)  # billboards
+	put_u32(b, 2)  # model 0: a 2 x 2 footprint
+	put_u32(b, 2)
+	for i in 4:
+		b.append(0 if i == 3 else 0xFE)
+	put_u32(b, 0)  # model 1: none
+	put_u32(b, 0)
+	put_u32(b, 2)  # placement 0 touches two cells
+	put_u32(b, 8)
+	put_u32(b, 16)
+	put_f32(b, 1.0)  # billboard light
 	put_f32(b, 0.25)
+	put_u32(b, 0)  # type 0: no shadow
 	put_u32(b, 0)
-	put_u32(b, 0)
-	put_u32(b, 32)
+	put_u32(b, 32)  # type 1
 	put_u32(b, 32)
 	for i in 32 * 32:
 		b.append(i & 0xFF)
+	put_u32(b, 0)  # type 2: no shadow
 	put_u32(b, 0)
+	put_u32(b, 1)  # billboard 0 touches one cell, billboard 1 none
 	put_u32(b, 0)
-	put_u32(b, 3)
-	put_u32(b, 3)
+	put_u32(b, 24)
 	return b
 
 
 func _test_shadow_file() -> void:
-	var f := ShadowFile.parse(_shadow_bytes())
+	var f := ShadowFile.parse(_shadow_bytes(), true)
 	check(not f.is_empty(), "shadow file parses")
 	if f.is_empty():
 		return
-	check(f.course == "test.CRZ" and f.course_size == 12345, "shadow file: course name and size")
+	check(f.course == "test.CRZ" and f.course_size == 12345 and f.stamp == 1028330567, "shadow file: course name and size")
 	check(f.model_count == 2 and f.billboard_type_count == 3 and f.billboard_count == 2, "shadow file: counts")
+	var objects: Array = f.object_shapes
+	check(objects.size() == 2 and objects[0] != null and objects[1] == null, "shadow file: object footprints")
+	if objects.size() == 2 and objects[0] != null:
+		var fp: Image = objects[0]
+		check(fp.get_width() == 2 and fp.get_data()[0] == 0xFE and fp.get_data()[3] == 0, "shadow file: footprint pixels")
+	check(f.placement_cells.start == PackedInt32Array([0, 2]) and f.placement_cells.cells == PackedInt32Array([1, 2]), "shadow file: placement cells")
+	check(f.billboard_light == PackedFloat32Array([1.0, 0.25]), "shadow file: billboard light")
 	var shapes: Array = f.shapes
 	check(shapes.size() == 3 and shapes[0] == null and shapes[2] == null, "shadow file: types without a shadow")
 	if shapes.size() == 3 and shapes[1] != null:
 		var img: Image = shapes[1]
 		check(img.get_width() == 32 and img.get_height() == 32, "shadow file: shape size")
 		check(img.get_data()[33] == 33, "shadow file: shape pixels")
+	check(f.billboard_cells.start == PackedInt32Array([0, 1, 1]) and f.billboard_cells.cells == PackedInt32Array([3]), "shadow file: billboard cells")
+	check(not ShadowFile.parse(_shadow_bytes()).has("billboard_cells"), "shadow file: cells only on request")
 	var bad := _shadow_bytes()
 	bad[0] = 0x58
 	check(ShadowFile.parse(bad).is_empty(), "shadow file: rejects other files")
+	var short := _shadow_bytes()
+	short.resize(short.size() - 1)
+	check(ShadowFile.parse(short).is_empty(), "shadow file: rejects a short file")
+	var long := _shadow_bytes()
+	long.append(0)
+	check(ShadowFile.parse(long).is_empty(), "shadow file: rejects trailing bytes")
 
 
 func _test_holes_and_ground() -> void:
@@ -425,6 +450,23 @@ func _test_holes_and_ground() -> void:
 		put_f32(b, c)
 	b.resize(b.size() + 6)
 	var holes := CrzCourseLoader.parse_holes(b)
+	check(CrzCourseLoader.parse_course_scenery(b).is_empty(), "no scenery without the header trailer")
+	var trailer := b.duplicate()
+	put_u32(trailer, 5)
+	trailer.resize(trailer.size() + 60 + 16)
+	put_u32(trailer, 7)  # sky07
+	trailer.resize(trailer.size() + 8)
+	for v in [0.785, 0.15, 30.0, 0.15]:
+		put_f32(trailer, v)
+	put_u32(trailer, 0)
+	put_u32(trailer, 0x80000000)  # the course's own horizon
+	put_u32(trailer, 0)
+	trailer.resize(trailer.size() + 16)
+	var scenery := CrzCourseLoader.parse_course_scenery(trailer)
+	check(scenery.get("sky", -1) == 7 and scenery.get("panorama", -1) == 0, "scenery: sky and own horizon")
+	check(scenery.has("values") and is_equal_approx(scenery.values[2], 30.0), "scenery: values")
+	trailer.encode_u32(trailer.size() - 24, 3)
+	check(CrzCourseLoader.parse_course_scenery(trailer).get("panorama", -1) == 3, "scenery: stock horizon")
 	check(holes.size() == 1, "one hole")
 	if holes.size() == 1:
 		var h := holes[0]

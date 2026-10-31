@@ -7,6 +7,11 @@ extends RefCounted
 
 ## Trees, walls and the like the ball can hit; null for none.
 var obstacles: ObstacleField
+## The course's billboards for the Links 2003 shot model (trees, bushes,
+## rocks), met as the game meets them; null without. They are then left out
+## of the obstacles, and `model_obstacles` (walls, bridges) is used.
+var links_objects: LinksObjects
+var model_obstacles: ObstacleField
 ## The hole being played (1 to 18), for courses that limit each hole to its
 ## own ground (in_bounds()). Set when a hole starts; 0 means none.
 var hole_number := 0
@@ -70,6 +75,14 @@ func ground_color_at(x: float, z: float) -> Color:
 ## olcore::Terrain::obstacle_hit.
 func obstacle_hit(from: Vector3, to: Vector3) -> Dictionary:
 	return obstacles.segment_hit(from, to) if obstacles != null else {}
+
+
+## Like obstacle_hit(), for the Links 2003 model: without the billboards
+## when links_objects has them.
+func links_obstacle_hit(from: Vector3, to: Vector3) -> Dictionary:
+	if links_objects == null:
+		return obstacle_hit(from, to)
+	return model_obstacles.segment_hit(from, to) if model_obstacles != null else {}
 
 
 ## Builds the visible ground (and water) for this terrain. Called once each

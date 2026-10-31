@@ -41,7 +41,26 @@ static func create() -> FreeGolfer:
 		elif node.name.begins_with("Putter"):
 			golfer._putter.append(node)
 	golfer._show_putter(false)
+	_matt(model)
 	return golfer
+
+
+## Cloth, skin and hair as matt as they are in daylight: the model's own
+## materials shine like plastic under the Photoreal sun. The clubs keep
+## their metal.
+static func _matt(model: Node) -> void:
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.name.begins_with("Driver") or mi.name.begins_with("Putter") or mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var mat := mi.get_active_material(i) as StandardMaterial3D
+			if mat == null or mat.metallic > 0.5:
+				continue
+			var m := mat.duplicate() as StandardMaterial3D
+			m.roughness = maxf(m.roughness, 0.8)
+			m.metallic_specular = minf(m.metallic_specular, 0.3)
+			mi.set_surface_override_material(i, m)
 
 
 func has_animation(animation: StringName) -> bool:

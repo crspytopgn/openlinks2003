@@ -364,8 +364,18 @@ either side of the line.
 **Power.** A full swing gives `(p - 15) / 39` of the club's power rating
 at position p, so 54 is 100 percent, and each overswing position adds
 8/13 of a power point, 8 more at the top. The rating is the club's default
-record (112 for the driver down to 80 for the wedges); the game shell keeps
-100 for every club, as the club distances it shows are built on that. A
+record: 112, 108, 106, 104, 102, 100 and 98 for the woods (clubs 0 to 6),
+then 98, 96, 94, 92, 90, 88, 86, 84, 82 for the irons (7 to 15) and 80 for
+the three wedges; the mouse swing's most power per club is the same list.
+The game shell does the same (`LinksShotModel.club_rating`), and a computer
+golfer's planned power is a share of it too, its forced-power penalty
+counted against 100 percent of the club. Flat carries at power 100 and at
+the rating, no wind, show what it does: driver 212 m to 242 m, 3 wood 209
+to 227, 4 iron 192 to 176, 7 iron 158 to 139, pitching wedge 124 to 105,
+sand wedge 109 to 93. The shell's club distances (`Club.total_m`, close to
+the power-100 numbers) are scaled by rating / 100 for reach and the auto
+club (`ShotModel.reach_scale`), which is within about 4 percent of the
+real change. A
 chip's power comes from its own table: 7 at the snap line, then 0.4 a
 position, rising by 0.05 a position every nine positions (0.45, 0.5, ...
 0.65), to 34.95 at the top. A long putt's table runs from 1.9 at the snap
@@ -778,20 +788,123 @@ water. Bit 3 marks free-drop ground (cart paths, concrete, asphalt, walls).
 
 ### The cup
 
-The cup's radius is set at launch from one of the launch routine's
+The cup's radius R is set at launch from one of the launch routine's
 arguments: 0.1875 ft (a 4.5 inch hole), 0.17708 ft (4.25 inches, the
 regulation size) or 0.29167 ft (7 inches), then multiplied by the hole size
-option (1 normally). On the ground the ball is in the hole when its centre
-is within that radius plus 0.0007 ft of the pin, horizontally; with a
-bigger hole option a ball within the radius but not 0.07 ft (one ball
-radius) inside it is on the lip. What the ground step then does (dropping
-in, lipping out, hitting the flagstick) is not ported yet.
+option (1 normally). The game's "is it in the hole" test answers 2 when the
+ball's centre is within R − 0.07 ft of the pin horizontally (well inside),
+1 within R + 0.0007 ft (over the hole), and 0 otherwise.
+
+The game models the hole as a circle of radius R round the pin's base: a
+rim edge at the green's level that the ball (radius 0.07 ft) can roll on,
+and a cup below it. In the cup the ball has four modes of its own, and the
+game runs them in sub-steps of 1/1200 s (20 a frame, counted down in single
+precision). Positions below are relative to the pin's base.
+
+- **Getting in.** On a green, after the ground step's checkpoint, a ball
+  whose path crosses the circle is moved to the crossing (position by the
+  fraction of the path, velocity and spin by the matching fraction of time)
+  and starts rolling on the rim. A ball coming down from the air whose
+  contact point is within R + 0.0007 ft does not bounce: it falls into the
+  hole's air and plays the rest of its step there.
+- **On the rim.** The edge holds the ball against it: it is pulled round
+  the edge by gravity's component along the axis that tips it over, its
+  velocity into the edge is cancelled, and it is put back 0.07 ft from the
+  edge along the line from the edge to its centre, with spin to match its
+  rolling. The earliest of three events ends the sub-step: rolling back out
+  past R + 0.0007 ft (it rolls on, on the green), coming away from the edge
+  because the edge would have to pull it to keep it there (found by
+  halving the sub-step until the step is under 1/4096; it falls into the
+  hole's air), or its centre dropping below the green's level (it slides
+  down the wall).
+- **In the hole's air.** Gravity alone. Events: touching the edge (it is
+  placed against it; slower than 0.2 ft/s into the edge it rolls on the
+  rim, faster it bounces off with half its speed into the edge), rising
+  above 0.071 ft (back into normal flight, set on the green), or dropping
+  below the green's level (it falls into the cup).
+- **On the wall.** It keeps only its speed round the circle and falls,
+  held on the circle.
+- **Falling in the cup.** Gravity alone; reaching the circle it is put on
+  it and either slides down the wall (slower than 0.2 ft/s into it) or
+  bounces off it with 0.3 of that speed.
+
+In every mode, once the centre is 1 ft below the green the ball is holed.
+After an event the rest of the sub-step is played through the normal step
+again (unless under 5% of it is left). Steps can nest this way, and the
+game caps them at five deep; past that it sets a ball near the hole down
+just outside it (olcore puts it at 1.06 R and stops it).
+
+**The flagstick** is a pole of radius 1/24 ft (half an inch) on the pin.
+The launch takes it out when the shot is struck from the hole's green (or
+when its caller asks; that case is not identified). Otherwise, while
+flying, rolling or in the hole's air, the first time the ball's centre
+crosses the pole's circle anywhere from 0.5 ft below the pin's base to 8 ft
+above it, the ball is moved to the crossing and sent off with its velocity
+mirrored about the line from the pole's axis, times 0.3, and 0.09 of its
+spin. It can only be hit once a shot.
+
+olcore (`links_step` with a `LinksCup`) and the GDScript port follow all of
+this, and match the game's code step for step in an emulator on putts that
+drop, lip out round the rim, hit the flagstick or miss, and on balls
+dropped into the hole's air.
+
+### Trees and other objects
+
+After each step (in flight, on the ground and in the hole's air) the game
+checks the ball's path from its old centre to its new one against the
+objects near it, then against the flagstick, and acts on the first hit.
+
+Billboards (trees, bushes, grasses, rocks and other pictures) are flat
+pictures standing on the ground and turned to face the viewer: the game
+uses its view direction, so the picture's plane is upright and square to
+it. olcore turns them to face back along the shot. A billboard is `height`
+tall and `height * aspect` wide; the placement's two `2DPlant` extra fields
+anchor it (see [course-objects.md](course-objects.md)), so it spans from
+`anchor_x` of its width left of its base to the rest on the right, and from
+`anchor_z` of its height below its base to the rest above.
+
+- **Candidates.** Only a billboard whose plane the path crosses is tried,
+  and not the one hit last (one shot can't hit the same object twice in a
+  row).
+- **Where.** The path is cut with the plane. Off the picture's rectangle
+  there is no hit. Otherwise u (across, from its left edge) and v (up, from
+  its bottom) are the fractions of the picture at that point, and the
+  game looks at that pixel of the largest picture: a transparent pixel is
+  no hit.
+- **Solid or canopy.** Each type has the Course Designer library's
+  `collision` value and six `shape` values (the course repeats them in
+  its `MasterObj` types). Unless bit 1 of `collision` is set, the hit is
+  solid when (u, v) is inside the rectangle `shape[2..5]` (u0, v0, u1, v1;
+  a tree's trunk) or, one time in ten, anywhere else (the game decides by
+  whether the bit pattern of v as a float divides by 10). Otherwise the
+  canopy catches the ball when `shape[1] * 10` is more than the bit
+  pattern of u modulo 10 (signed), so `shape[1]` is about the chance it
+  does.
+- **Solid hit.** The ball is moved to the hit, then 0.1 ft back along its
+  path, keeps its spin, and its velocity (as at the end of the step) is
+  mirrored off the picture's plane and scaled by the type's `shape[0]` when
+  bit 0 of `collision` is set (solid objects: rocks, benches), else by 0.5
+  (trees). Off a tree the plane's normal is first turned about the
+  vertical by up to 60 degrees either way: by (where the hit is across the
+  opaque run of pixels in that row, from 0 to 1, minus 0.5) times 2 pi / 3.
+- **Canopy.** The ball stays where it met the picture and its velocity and
+  spin are scaled by `(alpha / 255 * (1 - shape[0]) + shape[0]) * 0.9`.
+
+Kauri's types: 78 trees (`collision` 0, e.g. shape 0.7, 0.92 and a trunk
+rectangle), 39 solid objects (1; 0.8 to 0.91, 1, then the whole picture)
+and 64 that only slow the ball (2; grasses and flowers, 0.91, 1).
+
+olcore (`LinksObjects`, given to `links_step` or `ShotOptions::links_objects`)
+and the GDScript port follow this. The game reads the full-size picture;
+the Godot course loader keeps a copy reduced to 128 pixels on its longest
+side, which moves the edges of the opaque parts by up to a few percent.
 
 ### Not ported
 
-- The cup: the routines after the test above; olcore uses its own.
-- Trees and other objects in flight and while rolling, and balls rolling
-  on objects such as bridges.
+- Hole size options other than 1 (the game uses a different cup routine).
+- 3D objects (walls, bridges, buildings): the game asks them through the
+  same routine, but their own test is not decoded; olcore and the game use
+  their boxes. Balls rolling on objects such as bridges.
 
 ## Open questions
 
