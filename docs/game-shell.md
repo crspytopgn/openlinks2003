@@ -158,6 +158,21 @@ go on the hardest holes first, by the course's stroke index (a nine keeps
 the order of the 18). Net scores then decide every mode, and the scorecard
 adds a net row under each player, whose label shows their playing handicap.
 
+The main menu's **Players** page (`PlayersPanel`) lists every profile with
+its index, rounds and last date. Picking a player shows their recent rounds
+and stars the ones the index counts. Delete asks once more, then removes
+the profile.
+
+### Saved rounds
+
+The round in progress is saved before every shot and at the end of each hole
+(`SavedRound`, `user://saved_round.cfg`): the setup, everyone's card, the
+hole, the honour, whose turn it is and where each ball lies. After quitting
+(or closing the game, or the browser tab), the main menu offers **Resume
+round** while the saved round's course is among the player's files, and the
+round carries on from that shot. The wind is drawn again. Finishing the round
+clears the save, and starting a new round replaces it.
+
 `Handicap` (`handicap.gd`) mirrors the handicap functions in
 `libs/olcore/src/scoring.cpp`; indexes and differentials are in tenths of a
 stroke so both sides round the same way.
@@ -178,6 +193,7 @@ game/scripts/
   round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
   handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
   player_profiles.gd            PlayerProfiles: each player's rounds and handicap index
+  saved_round.gd                SavedRound: the round in progress, for Resume round
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
@@ -206,7 +222,7 @@ game/scripts/
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
-    round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```

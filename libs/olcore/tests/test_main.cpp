@@ -1116,6 +1116,8 @@ void test_handicaps() {
   CHECK(score_differential(70, 72, 18) == -20);
   CHECK(score_differential(41, 35, 7) == 154);  // 6 * 18 / 7 = 15.43
 
+  CHECK(handicap_rounds_used(2) == 0 && handicap_rounds_used(6) == 2 && handicap_rounds_used(19) == 7);
+  CHECK(handicap_rounds_used(20) == 8 && handicap_rounds_used(40) == 8);
   CHECK(handicap_index({130, 120}) == kNoHandicap);
   CHECK(handicap_index({130, 120, 150}) == 100);       // lowest one, -2.0
   CHECK(handicap_index({130, 120, 150, 140}) == 110);  // -1.0
