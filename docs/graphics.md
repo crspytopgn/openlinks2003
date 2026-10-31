@@ -38,6 +38,18 @@ at Medium and grass at Low.
 - **Bloom** is the renderer's glow. **SSAO** (plus SSIL at Ultra) and
   **depth of field** (far blur only, so the ball and golfer stay sharp) need
   Forward+.
+- **Time of day** (Settings > Graphics, Photoreal lighting only, not part
+  of the looks): Afternoon (the light the game always had), Morning,
+  Midday, Golden hour, or Through the round, which moves the sun from
+  morning on the first hole through midday to golden hour on the last
+  (`Scenery.TIMES`, `ROUND_TIMES`). Each sets the sun's height, bearing,
+  colour and strength, the fill light's colour, an exposure that makes up
+  for a low sun, the haze colour and thickness, and a tint for the
+  photographed sky (`shaders/photo_sky.gdshader`, with a warm glow round
+  a low sun), the course's horizon band and the sky in the water (the
+  global `sky_tint`). The baked ground shade follows the sun, since it is
+  baked at each hole's start after the sun has moved. Classic lighting
+  keeps Links 2003's fixed afternoon sun.
 - **Upscaler**: FSR 1 or FSR 2 on Forward+. **Dynamic resolution**
   (`DynamicResolution`) lowers the 3D resolution, down to half, when frames
   miss 30 or 60 fps and raises it again when there's room.
@@ -49,22 +61,36 @@ at Medium and grass at Low.
   chunks a frame. Tufts take the colour of the ground under them
   (`CourseTerrain.ground_color_at`), bend with the wind and shrink away at
   the edge of the radius, so there's no visible line. Low, Medium and High
-  reach 22, 36 and 55 m. Visual only: the ball never sees it. The shader
+  reach 22, 36 and 55 m. A tuft is eight thin blades of three triangles,
+  each with its own shade and about one in five dry and straw-coloured,
+  dark at the root and bleached at the tip. Visual only: the ball never
+  sees it. The shader
   must not use `specular_disabled`: in Compatibility (the web build) that
   drops the sun from the blades and they go dark. Compatibility also has no
   sky fill light, so `GrassField` lifts the blades' `brightness` there.
 - **Trees in the wind**: the course billboards sway with the hole's wind
   (`foliage_sway` and `wind_vector` global shader uniforms, set by
-  `GolfRound`). Classic Links keeps them still, as in the original.
+  `GolfRound`). The 3D trees and bushes lean with the wind and rock with
+  its gusts as a whole, more the higher up, trunk and branches with the
+  leaves (`shaders/tree_wind.gdshaderinc`, shared by the bark and leaf
+  shaders), and each leaf spray flutters on top. Classic Links keeps them
+  still, as in the original.
 - **3D trees** (`TreeFactory`, `shaders/tree_*.gdshader`): generated
-  from a seed (three broadleaf and two pine variants): tapered branches
-  with the free bark photo (Poly Haven), and leaf cards that each draw a
-  grid of turned leaves from a photographed leaf set (ambientCG), or plain
-  leaf shapes and needle sprigs without it. Leaf normals point out from the
-  middle of the crown, and the leaves use their own soft light (wrapped
-  diffuse, light through the leaves, no specular), so a crown shades as
-  one mass. A solid dark core fills each crown. Up to 6,000 triangles a
-  tree. Beyond 35, 70 or 120 m (the Trees setting: 3D near, 3D, 3D far)
+  from a seed (three broadleaf, two pine and two bush variants): tapered
+  branches with the free bark photo (Poly Haven), and leaf cards that each
+  draw a spray of turned leaves from a photographed leaf set (ambientCG),
+  or plain leaf shapes and needle sprigs without it. A broadleaf crown is
+  clumps of sixteen small cards round each of about forty twig tips; each
+  card holds a 7 by 7 grid of leaves (20 to 30 cm), nudged off their cells,
+  shaded and tinted one by one, and thinned out towards the card's rim so
+  it reads as a round, ragged spray rather than a square. Leaf normals
+  point out from the middle of the crown, and the leaves use their own
+  soft light (wrapped diffuse, light through the leaves, no specular,
+  and a little fill of their own, more in Compatibility, which has no sky
+  light), so a crown shades as one mass. A core of densely leaved cards
+  fills each crown, so gaps show shaded leaves, not black. Bushes are a few
+  thin stems under a low, wide crown of smaller sprays. Up to 6,000
+  triangles a tree. Beyond 35, 70 or 120 m (the Trees setting: 3D near, 3D, 3D far)
   a tree becomes an impostor: one camera-facing quad showing the nearest
   of 8 views, baked once into an atlas (a row per variant) by rendering
   every variant into one off-screen viewport the first time a tree is
@@ -78,7 +104,9 @@ at Medium and grass at Low.
   switch each tree between the two at the camera's distance (the global
   `tree_impostor_distance`, measured from the main camera, so shadows
   agree). Variant and yaw come from a hash of the position, and each tree
-  is scaled to its billboard's height. The ball's obstacles
+  is scaled to its billboard's height. Bush billboards 0.6 m and taller
+  become 3D bushes the same way (hedges keep their billboards), and the
+  placeholder course has forty bushes along the edge of its trees. The ball's obstacles
   come from the course data, not the meshes. Leaf textures are sampled
   with gradients from the card's UV (the turned cells jump at their
   borders, which picks wild mip levels and sparkles in Compatibility).
@@ -118,6 +146,27 @@ at Medium and grass at Low.
   Paths, dirt and rocks keep the disc textures. A blended edge (fairway to
   rough, round bunkers and tees) draws both layers' photo grounds, faded by
   the course's own ragged edge mask.
+- **Free course turf** (`terrain.gdshader`, `PlaceholderTerrain`, the
+  designer's colours): olive, yellow-green turf rather than lime; crisp
+  mowing stripes along the hole on fairways, greens and tees (7 m wide,
+  from the mesh's UV: x across the hole, -y the stripe strength, so other
+  meshes get none); a first cut of slightly darker rough 2.5 m wide
+  beside the fairway (colour only, the ball plays it as rough); bunkers
+  with a trimmed, slightly ragged edge sharpened from the sand weight
+  (the sand colour taken back out of the grass beside it) and a shaded
+  lip of turf; and with 3D trees on, two rows of woods round the edge of
+  the ground, out of bounds and mostly impostors, so the hole no longer
+  ends in a bare edge against the sky.
+- **Water's edge**: a disc course's water triangles carry how far each
+  vertex is from the bank (`CrzTerrain._shore_levels`: 0 on a vertex dry
+  ground also uses, 0.5 one triangle out, 1 beyond, in the vertex colour).
+  The water shader turns that into browner shallows that reflect less, a
+  darker wet margin, and a thin, broken line of froth lapping the bank,
+  all along a ragged, noisy line rather than the triangles' edges. Round
+  ponds (placeholder course) do the same from their radius and fade into
+  the bank along it. The finest ripples are drifting noise instead of
+  more sine waves (whose crossings showed a regular diamond pattern), and
+  gusts roughen patches of the surface and leave others glassy.
 - **Texture mappings and blended edges** (`TerrainMappings`,
   `shaders/terrain_mapped.gdshader`): the disc textures lie on the ground
   the way the course's `Mappings` entry says (per-hole fairway planars
@@ -218,6 +267,9 @@ at Medium and grass at Low.
   climbs.
 - **Ball size** (Settings): drawn bigger with distance, as Links does, or
   at its true size everywhere.
+- **Birds** (`CourseLife`, `shaders/bird.gdshader`): every 25 to 70
+  seconds a small flock (3 to 9 birds in a loose V) crosses the sky 30 to
+  70 m up, flapping and gliding. Each flock is one MultiMesh draw call.
 
 ## Performance budget
 

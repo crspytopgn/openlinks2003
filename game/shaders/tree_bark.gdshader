@@ -1,7 +1,8 @@
 // Bark of the 3D trees (TreeFactory). UV is in metres (around, along the
 // branch); the free bark photo tiles every 1.5 m. Without it, a plain
 // streaky brown. With `bake` on, the plain albedo goes out as emission for
-// the impostor atlas.
+// the impostor atlas. The trunk and branches lean and rock with the wind
+// (tree_wind.gdshaderinc), exactly as the leaves do.
 shader_type spatial;
 
 uniform sampler2D bark_color : source_color, filter_linear_mipmap, repeat_enable;
@@ -12,10 +13,16 @@ uniform bool instanced = false; // see tree_leaves.gdshader
 uniform vec3 tint : source_color = vec3(0.33, 0.25, 0.19);
 
 global uniform float tree_impostor_distance;
+global uniform vec2 wind_vector;
+global uniform float foliage_sway;
+
+#include "res://shaders/tree_wind.gdshaderinc"
 
 void vertex() {
 	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
 		VERTEX = vec3(0.0);
+	} else if (!bake) {
+		VERTEX += tree_bend(VERTEX, MODEL_MATRIX, foliage_sway, wind_vector, TIME);
 	}
 }
 

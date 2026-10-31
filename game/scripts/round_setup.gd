@@ -6,13 +6,9 @@ extends RefCounted
 
 enum Holes { ALL, FRONT_NINE, BACK_NINE }
 enum Tees { BACK, MIDDLE, FORWARD }
-## Off plays the round; PUTTING is the practice green (PuttingPractice) on
-## each chosen hole's green, for the first player only.
-enum Practice { OFF, PUTTING }
 
 const HOLES_NAMES := ["All holes", "Front nine", "Back nine"]
 const TEES_NAMES := ["Back tees", "Middle tees", "Forward tees"]
-const PRACTICE_NAMES := ["Off: play the round", "Putting practice"]
 const MAX_PLAYERS := 4
 const DEFAULT_NAMES := ["Player 1", "Player 2", "Player 3", "Player 4"]
 const HUMAN := -1
@@ -34,7 +30,13 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
-var practice: Practice = Practice.OFF
+## Putting practice (PuttingPractice): the first player on a practice green
+## with several cups on each chosen hole's green. Not saved with the setup.
+var putting := false
+## The practice range: one person hits from the tee as often as they like,
+## the ball comes back, and a launch monitor shows each shot. No scores.
+## Not saved with the setup.
+var practice := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null
@@ -94,7 +96,13 @@ func trim_for_practice() -> void:
 
 ## Why this setup can't be played, or "" if it can.
 func problem() -> String:
-	if practice != Practice.OFF:
+	if putting:
+		return ""
+	if practice:
+		if player_count() != 1 or is_computer(0):
+			return "The practice range is for one person: set Players to 1 player, Human."
+		if challenge != null:
+			return "A friend's round can't be played on the practice range."
 		return ""
 	var r := GameModes.player_range(mode)
 	var n := player_count()
@@ -151,7 +159,6 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
 	cfg.set_value("round", "computer", PackedInt32Array(computer))
 	cfg.set_value("round", "handicaps", handicaps)
-	cfg.set_value("round", "practice", practice)
 	cfg.save(path)
 
 
@@ -165,7 +172,6 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.holes = clampi(cfg.get_value("round", "holes", 0), 0, HOLES_NAMES.size() - 1) as Holes
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
 	s.handicaps = cfg.get_value("round", "handicaps", false) == true
-	s.practice = clampi(int(cfg.get_value("round", "practice", 0)), 0, PRACTICE_NAMES.size() - 1) as Practice
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	var saved_computer: PackedInt32Array = cfg.get_value("round", "computer", PackedInt32Array())

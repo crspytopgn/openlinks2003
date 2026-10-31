@@ -19,6 +19,7 @@ const PUTT_UP := 1.2
 const AIM_LOOK_AHEAD := 70.0
 const AIM_LOOK_UP := 2.0
 const AIM_MAX_LIFT := 14.0  ## highest the aim camera climbs to see over a rise
+const AIM_MAX_BACK_STEPS := 8  ## and how far it backs off (2 m steps) to keep the golfer in view
 const PUTT_LOOK_AHEAD := 6.0
 ## Shots that carry further than this get the landing view.
 const LANDING_VIEW_MIN_CARRY := 70.0
@@ -72,11 +73,8 @@ func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 			var far := ball + dir * reach
 			var target := Vector3(far.x, _ground(far) + 1.0, far.z)
 			if not sight_clear(terrain, pos, target):
-				var lift := 0.0
-				while lift < AIM_MAX_LIFT and not sight_clear(terrain, pos + Vector3.UP * lift, target):
-					lift += 1.0
-				pos += Vector3.UP * lift
-				_look = Vector3(far.x, _ground(far) + AIM_LOOK_UP, far.z)
+				_aim_over_rise(ball, dir, pos, target)
+				return
 	_aim_pos = pos
 	_aim_look = _look
 	if flying():
@@ -95,6 +93,41 @@ func look_from(pos: Vector3, look: Vector3) -> void:
 	_look = look
 	_look_now = look
 	look_at(look)
+## The aim view when a rise hides the target: the camera climbs until it
+## sees over, and backs off until the golfer and ball are still in frame
+## below the target.
+func _aim_over_rise(ball: Vector3, dir: Vector3, start: Vector3, target: Vector3) -> void:
+	var half := deg_to_rad(fov) * 0.5
+	var feet := ball + Vector3.UP * 0.1
+	var pos := start
+	var pitch := 0.0
+	for k in AIM_MAX_BACK_STEPS + 1:
+		pos = _above_ground(start - dir * (2.0 * k))
+		var lift := 0.0
+		while lift < AIM_MAX_LIFT and not sight_clear(terrain, pos + Vector3.UP * lift, target):
+			lift += 1.0
+		pos += Vector3.UP * lift
+		var down_to_target := _angle_below(pos, target)
+		var down_to_feet := _angle_below(pos, feet)
+		# Look down just enough to keep the feet inside the bottom edge.
+		pitch = maxf(down_to_target, down_to_feet - half * 0.85)
+		if pitch - down_to_target < half * 0.8:
+			break
+	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
+	_look = pos + flat * 100.0 + Vector3.DOWN * tan(pitch) * 100.0
+	_aim_pos = pos
+	_aim_look = _look
+	if flying():
+		return
+	position = pos
+	_look_now = _look
+	look_at(_look_now)
+
+
+## Angle below the horizontal from `from` to `to`, radians.
+static func _angle_below(from: Vector3, to: Vector3) -> float:
+	var flat := Vector2(to.x - from.x, to.z - from.z).length()
+	return atan2(from.y - to.y, flat)
 
 
 ## Starts following a shot. `pin` and `putting` steer the broadcast cameras;

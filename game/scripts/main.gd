@@ -16,6 +16,7 @@ enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, D
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
 const MAX_STROKES := 10  ## pick up after this many on a hole
+const FEET_IN_SAND := 0.03  ## metres a golfer works his feet into a bunker
 const CHIP_RANGE_M := 30.48  ## the game picks a Chip within 100 ft of the hole
 const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
@@ -24,7 +25,7 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard%s    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
 const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
@@ -130,6 +131,12 @@ var strokes := 0
 var ball_at := Vector3.ZERO
 var lie: int = Surface.Type.TEE
 var aim_deg := 0.0
+## Draw, fade, high or low for the next shot (Links 2003's shot setup).
+var shape := ShotShape.new()
+## The practice range (RoundSetup.practice): the launch monitor and the
+## session's shots.
+var monitor_panel: LaunchMonitorPanel = null
+var practice_session := LaunchMonitor.Session.new()
 var shot: ShotResult
 var shot_from := Vector3.ZERO
 var shot_time := 0.0
@@ -221,7 +228,7 @@ var assistant: PuttRead  ## Links 2003's Putting Assistant
 var _assist := {}
 var _assist_from := Vector3.INF
 var read_view := 0  ## GreenRead.View
-var practice: PuttingPractice  ## the practice green; null in a round
+var practice: PuttingPractice  ## the putting green (RoundSetup.putting); null otherwise
 var practice_cups: PracticeCups
 var putting_panel: PuttingPanel
 var _home_pins := {}  ## HoleData -> its own pin, while practising
@@ -284,14 +291,14 @@ func start_round() -> void:
 		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
 	round_setup.course_name = course.course_name
-	if round_setup.practice != RoundSetup.Practice.OFF:
+	if round_setup.putting:
 		round_setup.trim_for_practice()
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
 	# A friend's round: the same wind, shot for shot.
 	var versus := round_setup.challenge
 	if versus != null:
 		round_seed = versus.round_seed
-	practice = PuttingPractice.new(round_seed) if round_setup.practice != RoundSetup.Practice.OFF else null
+	practice = PuttingPractice.new(round_seed) if round_setup.putting else null
 	for h: HoleData in _home_pins:
 		h.pin = _home_pins[h]  # the last practice moved them
 	_home_pins.clear()
@@ -361,7 +368,8 @@ func start_round() -> void:
 	round_stats.clear()
 	for _i in scoring.player_count():
 		round_stats.append(PlayerProfiles.empty_stats())
-	var saved := resume
+	_setup_practice()
+	var saved := {} if round_setup.practice else resume
 	resume = {}
 	record.resumed = not saved.is_empty()
 	if saved.is_empty():
@@ -420,7 +428,7 @@ func _restore(saved: Dictionary) -> void:
 
 ## Saves where the round stands (SavedRound), so it can be resumed.
 func _save_progress() -> void:
-	if state == State.ROUND_DONE or practice != null:
+	if state == State.ROUND_DONE or practice != null or round_setup.practice:
 		return
 	var saved_cards: Array = []
 	for c in scoring.cards:
@@ -441,6 +449,8 @@ func _save_progress() -> void:
 ## the round is carried over as if resumed. Only between shots: a shot in
 ## the air would be lost.
 func _visit(scene: String) -> void:
+	if round_setup.practice:
+		return
 	if not (state == State.AIM or state == State.HOLE_DONE or state == State.ROUND_DONE):
 		return
 	prepare_return()
@@ -506,6 +516,8 @@ func start_hole(index: int) -> void:
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
+		# The sun moves on through the round with that time of day.
+		scenery.set_round_progress(float(index) / maxf(holes.size() - 1, 1))
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
@@ -679,6 +691,11 @@ func play_shot(power: float, accuracy: float) -> void:
 	rec.chip = _chip and not club.is_putter
 	rec.stroke = null if rec.computer else _mouse_stroke
 	rec.help = null if rec.computer else _mouse_help
+	if not rec.computer and not club.is_putter:
+		var setup := shape.to_setup(club.short_name)
+		rec.ball_position = setup.ball_position
+		rec.face = setup.face
+		rec.stance = setup.stance
 	rec.wind_level = wind.level
 	rec.wind = wind.velocity()
 	_mouse_stroke = null
@@ -856,6 +873,14 @@ func _unhandled_input(event: InputEvent) -> void:
 						hud.scorecard.visible = false
 					else:
 						hud.scorecard.show_round(scoring, _round_name())
+					return
+				KEY_N, KEY_B:
+					if round_setup.practice and state == State.AIM and holes.size() > 1:
+						var step := 1 if key.keycode == KEY_N else -1
+						start_hole(posmod(hole_index + step, holes.size()))
+					return
+				KEY_Q, KEY_E, KEY_W, KEY_S:
+					_shape_key(key.keycode)
 					return
 				KEY_UP:
 					_change_club(-1)
@@ -1172,6 +1197,114 @@ func _change_club(step: int) -> void:
 	_update_green_aids()
 
 
+## Q/E draw and fade, W/S high and low, for a person's full swing or chip.
+func _shape_key(keycode: Key) -> void:
+	if state != State.AIM or opponents[shooter] != null or clubs[club_index].is_putter:
+		return
+	var changed := false
+	match keycode:
+		KEY_Q:
+			changed = shape.nudge_curve(-1)
+		KEY_E:
+			changed = shape.nudge_curve(1)
+		KEY_W:
+			changed = shape.nudge_height(1)
+		KEY_S:
+			changed = shape.nudge_height(-1)
+	if changed:
+		sounds.play(&"club")
+		_update_hud()
+
+
+## A driver from the tee that stays in play counts for the longest drive.
+func _note_drive(strokes_before: int) -> void:
+	if strokes_before != 0 or clubs[club_index].short_name != "Dr" or shot.outcome != ShotResult.Outcome.REST:
+		return
+	if shooter >= round_stats.size():
+		return
+	var yd := roundi(shot.total_m * YARDS_PER_METRE)
+	round_stats[shooter]["longest_drive_yd"] = maxi(int(round_stats[shooter].get("longest_drive_yd", 0)), yd)
+
+
+# --- Gimmes -------------------------------------------------------------------
+
+## Settings > Gimmes: the ball stopped on the green close enough to concede.
+## Not in a friend's round (the codes must play the same) or a scramble
+## (whose best ball is picked after everyone has played).
+func _gimme_now() -> bool:
+	var feet: float = GraphicsSettings.GIMME_FEET[graphics.gimme]
+	if feet <= 0.0 or shot.outcome != ShotResult.Outcome.REST or round_setup.challenge != null:
+		return false
+	if round_setup.mode == GameModes.Mode.SCRAMBLE:
+		return false
+	if hole.terrain.surface_at(shot.rest.x, shot.rest.z) != Surface.Type.GREEN:
+		return false
+	return _flat_distance(shot.rest, hole.pin) * FEET_PER_METRE <= feet
+
+
+## The conceded putt counts one stroke, kept with the drops so the replay
+## checker adds it to the card.
+func _concede_putt() -> void:
+	strokes += 1
+	players[current].putts += 1
+	record.drops.append({"ball": current, "hole": hole_index, "reason": -1, "penalty": 1, "gimme": true})
+	shot_log.append("%s: gimme from %.1f ft" % [scoring.names[shooter], _flat_distance(shot.rest, hole.pin) * FEET_PER_METRE])
+	hud.show_message("%sThat's a gimme." % ["" if players.size() == 1 else scoring.names[shooter] + ": "], 2.0)
+	_hole_out(false)
+
+
+# --- Practice range ----------------------------------------------------------
+# RoundSetup.practice: one person hits from the tee as often as they like; the
+# ball comes back each time and the launch monitor shows the shot. No scores,
+# stats or saved progress.
+
+func _setup_practice() -> void:
+	if monitor_panel != null:
+		monitor_panel.queue_free()
+		monitor_panel = null
+	practice_session = LaunchMonitor.Session.new()
+	if not round_setup.practice:
+		return
+	monitor_panel = LaunchMonitorPanel.new()
+	monitor_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	monitor_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	monitor_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	monitor_panel.position.x -= 16
+	hud.add_child(monitor_panel)
+
+
+func _practice_shot_done() -> void:
+	var club := clubs[club_index]
+	var reading := LaunchMonitor.read(club.full_name, shot, shot_from, aim_deg)
+	practice_session.add(reading)
+	if monitor_panel != null:
+		monitor_panel.show_reading(reading, practice_session.summary(club.full_name))
+	var msg := "Carry %d yd    Total %d yd    %s" % [roundi(reading.carry_yd), roundi(reading.total_yd),
+		Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))]
+	match shot.outcome:
+		ShotResult.Outcome.HOLED:
+			sounds.play(&"cup")
+			msg = "In the hole!"
+		ShotResult.Outcome.WATER:
+			sounds.play(&"splash")
+			msg = "In the water."
+		ShotResult.Outcome.OUT_OF_BOUNDS:
+			msg = "Out of bounds."
+	hud.show_message(msg)
+	hud.hint.text = HINT_WAIT
+	state = State.SHOT_RESULT
+	result_timer = RESULT_PAUSE * 2.0
+
+
+## The ball comes back to the tee for the next practice shot.
+func _practice_reset() -> void:
+	ball.visible = true
+	ball_at = hole.tee
+	_place_ball(ball_at)
+	strokes = 0
+	_prepare_shot(false)
+
+
 # --- Shot flow ---------------------------------------------------------------
 
 func _prepare_shot(snap_camera: bool) -> void:
@@ -1182,6 +1315,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	# course paints there.
 	if ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
 		lie = Surface.Type.TEE
+	shape.reset()
 	_auto_club()
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
@@ -1240,7 +1374,10 @@ func _aim_hint() -> String:
 	var swing: String = HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER
 	if practice != null:
 		return HINT_PRACTICE % swing
-	var text := HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+	var extra := HINT_OBJECTS if _objects_viewable() else ""
+	if round_setup != null and round_setup.practice:
+		extra = "    N/B: next/previous hole"
+	var text := HINT_AIM % [swing, extra]
 	if not Input.get_connected_joypads().is_empty():
 		text += HINT_AIM_PAD
 	return text
@@ -1327,9 +1464,13 @@ func _complete_flight() -> void:
 	if practice != null:
 		_practice_result()
 		return
+	if round_setup.practice:
+		_practice_shot_done()
+		return
 	var strokes_before := strokes
 	strokes += 1
 	_count_stats(strokes_before)
+	_note_drive(strokes_before)
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
@@ -1374,6 +1515,9 @@ func _complete_flight() -> void:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
+	if _gimme_now():
+		_concede_putt()
+		return
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
 	if strokes >= MAX_STROKES:
@@ -1443,6 +1587,9 @@ func _after_result() -> void:
 	_clear_trail()
 	if practice != null:
 		_practice_drop()
+		return
+	if round_setup.practice:
+		_practice_reset()
 		return
 	if _drop_pending:
 		_drop_pending = false
@@ -1989,6 +2136,7 @@ func _build_world() -> void:
 	ball = _make_ball_mesh()
 	add_child(ball)
 	_build_ball_details()
+	add_child(CourseLife.new())  # birds now and then
 
 	trail = MeshInstance3D.new()
 	trail.mesh = _trail_mesh
@@ -2366,7 +2514,9 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
-	golfer.set_ground(hole.terrain.height_at)
+	# Players wriggle their feet into the sand to take a bunker stance.
+	var in_sand := hole.terrain.surface_at(ball_at.x, ball_at.z) == Surface.Type.SAND
+	golfer.set_ground(hole.terrain.height_at, FEET_IN_SAND if in_sand else 0.0)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
@@ -2401,6 +2551,8 @@ func _update_hud() -> void:
 		club_text += " chip"
 	elif not club.is_putter:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+	if not club.is_putter and not shape.is_square():
+		club_text += "  " + shape.describe()
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
 	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
@@ -2484,6 +2636,8 @@ func _status(aiming: bool) -> Dictionary:
 	var club_text := club.full_name
 	if not club.is_putter:
 		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+		if not shape.is_square():
+			club_text += "  " + shape.describe()
 	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
 	var elev := "Level" if absf(rise) < 1.0 else "%s%d ft" % ["+" if rise > 0.0 else "", roundi(rise)]
 	return {

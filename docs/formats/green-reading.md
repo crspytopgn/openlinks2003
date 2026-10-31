@@ -101,7 +101,7 @@ Practice Options, and drops cost no penalty. Auto-Mulligan keeps the ball
 at the same spot for the next try, after a pause of 1 to 3 seconds. With
 "Enforce Normal Drop Rules" off, the ball can be dragged to a new spot.
 
-Ours: Practice > Putting practice on the round setup page
+Ours: Play > Putting practice on the round setup page
 (`PuttingPractice`). Each chosen hole's green becomes a practice green, as
 at a club: up to six cups cut on the flatter parts (the hole's own pin
 first), each with a short stick, the one being putted to with a yellow

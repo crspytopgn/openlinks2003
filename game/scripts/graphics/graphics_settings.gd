@@ -20,6 +20,9 @@ enum Look { PHOTOREAL, NATURAL, CINEMATIC, CLASSIC, PERFORMANCE, CUSTOM }
 enum Lighting { CLASSIC, PHOTOREAL }
 enum Upscaler { OFF, FSR1, FSR2 }
 enum Grade { NEUTRAL, VIVID, WARM, COOL, FILM }
+## The Photoreal lighting's time of day (Scenery.TIMES); Through the round
+## moves the sun from morning on the first hole to golden hour on the last.
+enum TimeOfDay { AFTERNOON, MORNING, MIDDAY, GOLDEN, ROUND }
 
 const PATH := "user://settings.cfg"
 const SECTION := "graphics"
@@ -34,6 +37,7 @@ const UPSCALER_NAMES := ["Off", "FSR 1", "FSR 2"]
 const GRADE_NAMES := ["Neutral", "Vivid", "Warm afternoon", "Cool morning", "Film"]
 const LEVEL_NAMES := ["Off", "Low", "Medium", "High"]
 const PUTTING_GRID_NAMES := ["Off", "Yellow (Links)", "Coloured by height (Links)", "Coloured by slope (TV)"]
+const TIME_NAMES := ["Afternoon", "Morning", "Midday", "Golden hour", "Through the round"]
 ## Trees: the course's own (classic) or 3D, by how far out they stay 3D
 ## before turning into impostors (TreeFactory.IMPOSTOR_DISTANCE).
 const TREE_NAMES := ["Classic", "3D near", "3D", "3D far"]
@@ -92,6 +96,11 @@ var caddie := false
 var true_size_ball := false
 ## Drive a golf buggy to the ball between shots (GolfBuggy). Off by default.
 var buggy := false
+## Gimmes: a putt left this close is conceded for one stroke (an index into
+## GIMME_FEET; 0 is off, as in Links 2003). Never in a friend's round.
+var gimme := 0
+const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
+const GIMME_NAMES := ["Off", "Inside 2 ft", "Inside 3 ft", "Inside the leather (4 ft)"]
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -112,6 +121,8 @@ var foliage_wind := false
 var cloud_shadows := false
 ## 0 classic trees, 1 to 3 photo-textured 3D trees (see TREE_NAMES).
 var trees := 0
+## Photoreal lighting only, and not part of the looks.
+var time_of_day: int = TimeOfDay.AFTERNOON
 
 
 func _init() -> void:
@@ -216,8 +227,10 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.breakline = bool(cfg.get_value(GAME_SECTION, "breakline", s.breakline))
 	s.putting_assistant = bool(cfg.get_value(GAME_SECTION, "putting_assistant", s.putting_assistant))
 	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
+	s.time_of_day = clampi(int(cfg.get_value(SECTION, "time_of_day", s.time_of_day)), TimeOfDay.AFTERNOON, TimeOfDay.ROUND)
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
+	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -264,8 +277,10 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "breakline", breakline)
 	cfg.set_value(GAME_SECTION, "putting_assistant", putting_assistant)
 	cfg.set_value(GAME_SECTION, "caddie", caddie)
+	cfg.set_value(SECTION, "time_of_day", time_of_day)
 	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
+	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

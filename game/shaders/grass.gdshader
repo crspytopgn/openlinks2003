@@ -1,6 +1,6 @@
 // 3D grass tufts in the rough (GrassField). Each MultiMesh instance is one
 // tuft of thin blades; INSTANCE_CUSTOM.rgb is the ground's colour under it
-// (sRGB) and .a a random phase. Blades bend with the global wind and shrink
+// (sRGB) and .a a random phase; COLOR per blade: r shade, g dryness. Blades bend with the global wind and shrink
 // away towards the edge of the grass radius, so there's no visible line
 // where the 3D grass ends. Normals point straight up so the tufts take the
 // same light as the ground they stand on. Works in Forward+ and
@@ -18,12 +18,14 @@ uniform float brightness = 1.0; // GrassField lifts it for Compatibility
 #include "res://shaders/ground_shade.gdshaderinc"
 
 varying vec3 base_color;
+varying vec2 blade;
 varying float height;
 varying vec2 root_xz;
 
 void vertex() {
 	// VERTEX and NORMAL are in world space here (world_vertex_coords).
 	height = UV.y;
+	blade = COLOR.rg;
 	vec3 root = MODEL_MATRIX[3].xyz;
 	root_xz = root.xz;
 	float fade = 1.0 - smoothstep(fade_start, fade_end, distance(root.xz, camera_pos.xz));
@@ -38,8 +40,11 @@ void vertex() {
 }
 
 void fragment() {
-	// Darker in the tuft, sun-bleached at the tips.
-	ALBEDO = base_color * mix(0.8, 1.25, height) * brightness * vec3(0.97, 1.03, 0.9)
+	// Each blade its own shade, a few dry and straw-coloured; dark down
+	// in the tuft, where little light gets in, and sun-bleached at the tips.
+	vec3 straw = vec3(dot(base_color, vec3(0.5, 0.4, 0.1))) * vec3(1.45, 1.25, 0.62);
+	vec3 c = mix(base_color, straw, blade.y * 0.7) * mix(0.8, 1.15, blade.x);
+	ALBEDO = c * mix(0.55, 1.28, smoothstep(0.0, 1.0, height)) * brightness * vec3(0.97, 1.03, 0.9)
 		* ground_shading(root_xz, length(VERTEX));
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).

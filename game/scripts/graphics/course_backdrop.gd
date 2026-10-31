@@ -53,9 +53,10 @@ uniform sampler2D band : source_color, filter_linear_mipmap_anisotropic, repeat_
 uniform float fade_top = 0.0;  // fraction of the band height faded out at the top
 uniform vec3 haze_color : source_color = vec3(0.7, 0.78, 0.86);
 uniform float haze = 0.0;  // how far the band fades into the haze
+global uniform vec3 sky_tint;  // the time of day's light (Scenery)
 void fragment() {
 	vec4 c = texture(band, UV);
-	ALBEDO = mix(c.rgb, haze_color, haze);
+	ALBEDO = mix(c.rgb * sky_tint, haze_color, haze);
 	ALPHA = c.a * (fade_top > 0.0 ? smoothstep(0.0, fade_top, UV.y) : 1.0);
 }
 """
