@@ -29,6 +29,7 @@ func _initialize() -> void:
 	_run("wind_conditions", _test_wind_conditions)
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
+	_run("links_cup_matches_olcore", _test_links_cup_matches_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
@@ -1258,6 +1259,53 @@ static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: Lin
 		if b.mode == LinksGround.Mode.REST:
 			return k
 	return -1
+
+
+## Steps a ball near a hole at the origin until it is holed or stops;
+## returns the step, or -1. `seen` gets the state after step `at`.
+static func _run_cup_ball(b: LinksGround.Ball, seen: LinksGround.Ball = null, at := -1) -> int:
+	var green := TestLinksGround.new(LinksGround.GREEN)
+	var air := _still_air()
+	var rng := LinksGround.Rng.new()
+	var cup := LinksGround.Cup.new()
+	for k in 600:
+		LinksGround.step(b, green, air, Vector3.ZERO, rng, LinksGround.FRAME_DT, cup)
+		if k == at and seen != null:
+			seen.assign(b)
+		if b.mode == LinksGround.Mode.REST or b.mode == LinksGround.Mode.HOLED:
+			return k
+	return -1
+
+
+## As test_links_cup in the C++ core; every case matches the game's own code.
+func _test_links_cup_matches_olcore() -> void:
+	_check_near(LinksGround.cup_radius(1), 0.17708, 1e-9, "regulation hole")
+	_check_near(LinksGround.cup_radius(2), 0.29167, 1e-9, "big hole")
+	var seen := LinksGround.Ball.new()
+	var b := _links_ball(Vector3(0.02, -1.5, 0.07), Vector3(0, 6, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	_check(_run_cup_ball(b, seen, 18) == 35, "putt off the flagstick is holed on step 35")
+	_check(b.mode == LinksGround.Mode.HOLED, "putt holed")
+	_check(seen.mode == LinksGround.Mode.CUP_RIM, "on the rim at step 18")
+	b = _links_ball(Vector3(0.02, -1.5, 0.07), Vector3(0, 6, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	_run_cup_ball(b, seen, 21)
+	_check(seen.mode == LinksGround.Mode.CUP_AIR and seen.flagstick_out, "off the flagstick at step 21")
+	_check_near(seen.velocity.x, 0.9429, 2e-4, "flagstick vx")
+	_check_near(seen.velocity.y, -0.6037, 2e-4, "flagstick vy")
+	_check_near(seen.velocity.z, -0.7611, 2e-4, "flagstick vz")
+	b = _links_ball(Vector3(0.02, -1.5, 0.07), Vector3(0, 6, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	b.flagstick_out = true
+	_check(_run_cup_ball(b) == 34 and b.mode == LinksGround.Mode.HOLED, "flagstick out: holed on step 34")
+	b = _links_ball(Vector3(0.12, -1, 0.07), Vector3(0, 5, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	_check(_run_cup_ball(b) == 31 and b.mode == LinksGround.Mode.HOLED, "firm putt holed on step 31")
+	b = _links_ball(Vector3(0.16, -1, 0.07), Vector3(0, 4, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	var lip := _run_cup_ball(b)
+	_check(lip == 63 and b.mode == LinksGround.Mode.REST, "lip-out stops on step 63, got %d" % lip)
+	_check_near(b.position.x, -0.08464, 2e-3, "lip-out x")
+	_check_near(b.position.y, 0.64145, 2e-3, "lip-out y")
+	b = _links_ball(Vector3(0.19, -1, 0.07), Vector3(0, 3.5, 0), Vector3.ZERO, LinksGround.Mode.SKID)
+	_check(_run_cup_ball(b) == 47 and b.mode == LinksGround.Mode.REST, "misses the hole")
+	b = _links_ball(Vector3(0.05, -0.05, 0.06), Vector3(0, 1, -3), Vector3.ZERO, LinksGround.Mode.CUP_AIR)
+	_check(_run_cup_ball(b) == 10 and b.mode == LinksGround.Mode.HOLED, "dropped in on step 10")
 
 
 ## Same cases and numbers as the links_* tests in the C++ core, which come

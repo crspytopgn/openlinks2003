@@ -8,7 +8,11 @@ extends RefCounted
 ## golfer's right, y downrange, z up, feet, seconds, and spin in revolutions
 ## per second. simulate_shot() converts to and from the game's SI frame.
 
-enum Mode { FLIGHT, SKID, ROLL, REST }
+## The cup has four modes of its own: CUP_AIR falling or bouncing inside the
+## hole's circle above the rim, CUP_RIM rolling round the rim's edge,
+## CUP_WALL sliding down the wall and CUP_DROP falling inside the cup below
+## the rim. HOLED is at rest in the cup.
+enum Mode { FLIGHT, SKID, ROLL, REST, CUP_AIR, CUP_RIM, CUP_WALL, CUP_DROP, HOLED }
 
 const GREEN := 1
 const FAIRWAY := 2
@@ -62,6 +66,25 @@ const KICK_MIN_SPEED := 1.0
 const KICK_STOP_CHANCE := 0.5
 const KICK_BOOST := 5.0
 
+const MAX_NESTING := 5
+## The cup (positions relative to the pin's base). See cup_frame().
+const CUP_SUB_STEP := 0.000833333354  ## 1/1200 s, as the game stores it (a float)
+const CUP_EDGE := 0.0007  ## ft added to the radius for "in the hole"
+const NO_EVENT := 2.0
+const BISECT_STOP := 0.000244140625  ## 1/4096
+const REST_OF_STEP := 0.05
+const RIM_BOUNCE := 0.5
+const WALL_BOUNCE := 0.3
+const STICK_SPEED := 0.2
+const CUP_DEPTH := 1.0
+const CUP_TOP := 0.071
+const POLE_RADIUS := 1.0 / 24.0
+const POLE_TOP := 8.0
+const POLE_BOTTOM := 0.5
+const POLE_BOUNCE := 0.3
+const POLE_SPIN := 0.09
+const GRAVITY_VECTOR := Vector3(0, 0, -GRAVITY)
+
 ## class, restitution, impact friction, skid friction, impact drag, roll, stop, spin grip
 ## (and for rough and deep grass: lie spin, lie power)
 const SURFACES := {
@@ -102,6 +125,48 @@ class Ball:
 	var checkpoint_x := 0.0
 	var checkpoint_y := 0.0
 	var ground_time := 0.0
+	## The flagstick is out: struck from the green, or already hit once.
+	var flagstick_out := false
+
+	func copy() -> Ball:
+		var c := Ball.new()
+		c.position = position
+		c.velocity = velocity
+		c.spin = spin
+		c.mode = mode
+		c.on_ground_started = on_ground_started
+		c.checkpoint_x = checkpoint_x
+		c.checkpoint_y = checkpoint_y
+		c.ground_time = ground_time
+		c.flagstick_out = flagstick_out
+		return c
+
+	func assign(o: Ball) -> void:
+		position = o.position
+		velocity = o.velocity
+		spin = o.spin
+		mode = o.mode
+		on_ground_started = o.on_ground_started
+		checkpoint_x = o.checkpoint_x
+		checkpoint_y = o.checkpoint_y
+		ground_time = o.ground_time
+		flagstick_out = o.flagstick_out
+
+
+## The hole round the pin's base. Mirrors olcore::LinksCup.
+class Cup:
+	var pin := Vector3.ZERO
+	var radius := 0.17708  ## ft: the regulation 4.25 inch hole
+
+
+## What one step works with. Mirrors the C++ StepContext.
+class Ctx:
+	var g: Ground
+	var aero: LinksAero
+	var wind: Vector3
+	var rng: Rng
+	var cup: Cup
+	var depth := 0
 
 
 ## The game's random numbers. Mirrors olcore::LinksRandom.
@@ -349,18 +414,53 @@ static func contact_time(v0: Vector3, v1: Vector3, s: float) -> float:
 	return t1 if t1 >= 0.0 and t1 <= 1.0 else t2
 
 
+## The cup radius the game's launch sets from its hole option. Mirrors
+## olcore::links_cup_radius.
+static func cup_radius(option: int) -> float:
+	match option:
+		0:
+			return 0.1875
+		2:
+			return 0.29167
+	return 0.17708
+
+
 ## Mirrors olcore::links_step. `wind` is in ft/s before the game's 0.5 factor.
-static func step(b: Ball, ground: Ground, aero: LinksAero, wind: Vector3, rng: Rng, dt := FRAME_DT) -> StepInfo:
-	match b.mode:
-		Mode.FLIGHT:
-			return _flight_step(b, ground, aero, wind, dt)
-		Mode.SKID, Mode.ROLL:
-			return _ground_step(b, ground, aero, wind, rng, dt)
-	return StepInfo.new()
+static func step(b: Ball, ground: Ground, aero: LinksAero, wind: Vector3, rng: Rng, dt := FRAME_DT, cup: Cup = null) -> StepInfo:
+	var c := Ctx.new()
+	c.g = ground
+	c.aero = aero
+	c.wind = wind
+	c.rng = rng
+	c.cup = cup
+	return _step(c, b, dt)
+
+
+static func _step(c: Ctx, b: Ball, dt: float) -> StepInfo:
+	var info := StepInfo.new()
+	if b.mode == Mode.REST or b.mode == Mode.HOLED:
+		return info
+	c.depth += 1
+	if c.depth > MAX_NESTING:
+		_nesting_overflow(c, b)
+	else:
+		match b.mode:
+			Mode.FLIGHT:
+				info = _flight_step(c, b, dt)
+			Mode.SKID, Mode.ROLL:
+				info = _ground_step(c, b, dt)
+			_:
+				if c.cup != null:
+					_cup_frame(c, b, dt)
+				else:
+					_rest(b)
+	c.depth -= 1
+	return info
 
 
 ## Mirrors olcore::simulate_links_shot: a whole shot with the Links 2003
-## flight, bounce and roll, and our own trees, cup, water and out of bounds.
+## flight, bounce, roll, cup and flagstick, and our own trees, water and out
+## of bounds.
 static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: bool, cup: Vector3, wind_mps: Vector3, aero: LinksAero) -> ShotResult:
 	var dt := FRAME_DT
 	var radius_m := RADIUS / FEET_PER_METRE
@@ -384,8 +484,15 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 		b.mode = Mode.SKID
 		landed = true
 		r.first_landing = start.position
+	# The game takes the flagstick out for a shot from the green.
+	b.flagstick_out = ground.surface(b.position.x, b.position.y).ground_class == GREEN
 	var rng := Rng.new(Rng.seed_for(b.position.x, b.position.y))
 	var wind := _to_game(wind_mps)
+	var hole: Cup = null
+	if has_cup:
+		hole = Cup.new()
+		hole.pin = _to_game(cup)
+		hole.radius = BallPhysics.CUP_RADIUS * FEET_PER_METRE
 	r.add_sample(0.0, start.position)
 
 	while t < BallPhysics.MAX_TIME:
@@ -393,7 +500,7 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 		var before_velocity := _from_game(b.velocity)
 		var before_spin := _spin_from_game(b.spin)
 		var was_flying := b.mode == Mode.FLIGHT
-		var info := step(b, ground, aero, wind, rng, dt)
+		var info := step(b, ground, aero, wind, rng, dt, hole)
 		t += dt
 		n_steps += 1
 		var after := _from_game(b.position) - Vector3(0, radius_m, 0)
@@ -426,16 +533,14 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 				return _finish(r, ShotResult.Outcome.WATER, contact, t, landed, start, terrain)
 			if surf == Surface.Type.OUT_OF_BOUNDS:
 				return _finish(r, ShotResult.Outcome.OUT_OF_BOUNDS, contact, t, landed, start, terrain)
-			if has_cup and BallPhysics._distance_xz(contact, cup) < BallPhysics.CUP_RADIUS:
-				return _finish(r, ShotResult.Outcome.HOLED, cup, t, landed, start, terrain)
 		elif not was_flying:
-			if has_cup and _from_game(b.velocity).length() < BallPhysics.MAX_HOLING_SPEED and BallPhysics._segment_distance_xz(before, after, cup) < BallPhysics.CUP_RADIUS:
-				return _finish(r, ShotResult.Outcome.HOLED, cup, t, landed, start, terrain)
 			var here := terrain.surface_at(after.x, after.z)
 			if here == Surface.Type.WATER:
 				return _finish(r, ShotResult.Outcome.WATER, after, t, landed, start, terrain)
 			if here == Surface.Type.OUT_OF_BOUNDS:
 				return _finish(r, ShotResult.Outcome.OUT_OF_BOUNDS, after, t, landed, start, terrain)
+		if b.mode == Mode.HOLED:
+			return _finish(r, ShotResult.Outcome.HOLED, cup, t, landed, start, terrain)
 		if b.mode == Mode.REST:
 			return _finish(r, ShotResult.Outcome.REST, after, t, landed, start, terrain)
 		if n_steps % BallPhysics.SAMPLE_EVERY == 0:
@@ -522,14 +627,24 @@ static func _acceleration(v: Vector3, spin: Vector3, aero: LinksAero, wind: Vect
 	return a
 
 
-static func _flight_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, dt: float) -> StepInfo:
+static func _flight_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
+	var g := c.g
 	var info := StepInfo.new()
 	var p := b.position
 	var v := b.velocity
 	var w := b.spin
-	var v2 := v + _acceleration(v, w, aero, wind) * dt
+	var v2 := v + _acceleration(v, w, c.aero, c.wind) * dt
 	var p2 := p + (v + v2) * (0.5 * dt)
 	var w2 := w * pow(LinksAero.SPIN_KEPT_PER_FRAME, LinksAero.FRAME_RATE * dt)
+	# The flagstick can turn the ball before it comes down.
+	var moved := b.copy()
+	moved.position = p2
+	moved.velocity = v2
+	moved.spin = w2
+	if _hit_flagstick(c, b, moved):
+		p2 = moved.position
+		v2 = moved.velocity
+		w2 = moved.spin
 	var s := _ground_crossing(g, p, p2)
 	if s < 0.0:
 		b.position = p2
@@ -545,14 +660,20 @@ static func _flight_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, dt:
 	b.velocity = v * (1.0 - tau) + v2 * tau
 	b.spin = w * (1.0 - tau) + w2 * tau
 	b.position = hit + n * RADIUS
-	impact(b, n, surf)
 	info.landed = true
 	info.contact = hit
 	info.contact_class = surf.ground_class
+	# Coming down inside the hole's circle: no bounce, the cup takes over.
+	if _enter_cup_from_air(c, b, tau, dt):
+		return info
+	impact(b, n, surf)
 	return info
 
 
-static func _ground_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, rng: Rng, dt: float) -> StepInfo:
+static func _ground_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
+	var g := c.g
+	var rng := c.rng
+	var before := b.copy()
 	var p := b.position
 	var v0 := b.velocity
 	var w := b.spin
@@ -586,8 +707,8 @@ static func _ground_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, rng
 	if nh == 0.0 or vh == 0.0:
 		pull = 0.5 / n1.z * normal_force
 	else:
-		var c := (n1.x * v.x + n1.y * v.y) / (vh * nh)
-		pull = sqrt((1.0 - c * c) * ACROSS + c * c * ALONG) / n1.z * normal_force
+		var k := (n1.x * v.x + n1.y * v.y) / (vh * nh)
+		pull = sqrt((1.0 - k * k) * ACROSS + k * k * ALONG) / n1.z * normal_force
 	var slope := Vector3(n1.x * pull, n1.y * pull, normal_force - GRAVITY)
 	var support := Vector3(n1.x * pull, n1.y * pull, normal_force).length()
 	var resist := support * surf.roll_resistance
@@ -620,7 +741,7 @@ static func _ground_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, rng
 	if (z2 - p.z) * (z2 - p.z) > LEAVE_GROUND:
 		b.mode = Mode.FLIGHT
 		b.on_ground_started = false
-		return _flight_step(b, g, aero, wind, dt)
+		return _flight_step(c, b, dt)
 
 	# Keep the speed, along the ground at the new point.
 	var side := n2.cross(v2)
@@ -675,8 +796,388 @@ static func _ground_step(b: Ball, g: Ground, aero: LinksAero, wind: Vector3, rng
 			b.checkpoint_x = p2.x
 			b.checkpoint_y = p2.y
 			b.ground_time = 0.0
+	_hit_flagstick(c, before, b)
+	# Rolling across the hole's circle on the green.
+	if cls == GREEN:
+		_enter_cup_from_green(c, b, before)
 	if hop:
 		b.velocity = hop_velocity
 		b.position = p + hop_velocity * dt
 		b.mode = Mode.FLIGHT
 	return StepInfo.new()
+
+
+# ---------------------------------------------------------------------------
+# The cup. Positions here are relative to the pin's base. The game runs the
+# cup in sub-steps of 1/1200 s and in four modes; each finds the earliest
+# event in its sub-step, moves the ball to it, and plays the rest of the
+# sub-step through the normal step again. Mirrors the cup section of
+# links_ground.cpp; see docs/formats/physics.md.
+
+static func _in_cup_mode(m: int) -> bool:
+	return m == Mode.CUP_AIR or m == Mode.CUP_RIM or m == Mode.CUP_WALL or m == Mode.CUP_DROP
+
+
+static func _f32(x: float) -> float:
+	var a := PackedFloat32Array([x])
+	return a[0]
+
+
+## The game's state blend: position by the fraction s of the path, velocity
+## and spin by the matching fraction of time. Returns [ball, tau].
+static func _blend(a: Ball, b: Ball, s: float) -> Array:
+	s = clampf(s, 0.0, 1.0)
+	var out := b.copy()
+	out.position = a.position * (1.0 - s) + b.position * s
+	var tau := contact_time(a.velocity, b.velocity, s)
+	out.velocity = a.velocity * (1.0 - tau) + b.velocity * tau
+	out.spin = a.spin * (1.0 - tau) + b.spin * tau
+	return [out, tau]
+
+
+## Where the path p + d t (0 < t < 1) first crosses the circle of radius r
+## round the origin, across the ground; -1 if it doesn't.
+static func _circle_crossing(p: Vector3, d: Vector3, r: float) -> float:
+	var a := d.x * d.x + d.y * d.y
+	var b := 2.0 * (d.x * p.x + d.y * p.y)
+	var k := p.x * p.x + p.y * p.y - r * r
+	var disc := b * b - 4.0 * k * a
+	if not (disc > 0.0):
+		return -1.0
+	var root := sqrt(disc)
+	var t1 := (-b - root) / (a + a)
+	var t2 := (root - b) / (a + a)
+	if t1 > 0.0 and t1 < 1.0:
+		return t1
+	if t2 > 0.0 and t2 < 1.0:
+		return t2
+	return -1.0
+
+
+static func _flat_unit(p: Vector3) -> Vector3:
+	var r := Vector2(p.x, p.y).length()
+	return Vector3(p.x / r, p.y / r, 0) if r != 0.0 else Vector3(p.x, p.y, 0)
+
+
+## The game turns a velocity from the level onto a slope with normal n when
+## the ball enters or leaves the cup on sloping ground.
+static func _level_to_slope(v: Vector3, n: Vector3) -> Vector3:
+	var a := _unit_or_zero(Vector3(n.y, -n.x, 0))
+	var b := _unit_or_zero(a.cross(n))
+	var along := a.x * v.x + a.y * v.y
+	var across := a.y * v.x - a.x * v.y
+	return a * along + n * v.z + b * across
+
+
+static func _touches_rim(p: Vector3, radius: float) -> bool:
+	return Vector2(radius - Vector2(p.x, p.y).length(), p.z).length() < RADIUS
+
+
+static func _leaves_rim(b: Ball, dt: float, radius: float) -> bool:
+	var r := Vector2(b.position.x, b.position.y).length()
+	var u := Vector3(b.position.x / r, b.position.y / r, 0)
+	var n := _unit_or_zero(Vector3(u.x * (r - radius), u.y * (r - radius), b.position.z))
+	return -n.dot(GRAVITY_VECTOR) < n.dot(b.velocity) / dt
+
+
+## The green's height (relative to the pin's base) and normal near the cup.
+## Returns [height, normal].
+static func _green_height(c: Ctx, rel: Vector3) -> Array:
+	var w := rel + c.cup.pin
+	return [c.g.height(w.x, w.y) - c.cup.pin.z, c.g.normal(w.x, w.y)]
+
+
+static func _finish_substep(c: Ctx, b: Ball, tau: float, dt: float) -> void:
+	var rest_of := 1.0 - tau
+	if not (rest_of > REST_OF_STEP):
+		return
+	b.position += c.cup.pin
+	_step(c, b, rest_of * dt)
+	b.position -= c.cup.pin
+
+
+## Halves towards the time the test starts to hold, as the game does.
+static func _bisect(holds: Callable) -> float:
+	var f := 0.5
+	var step_size := 0.25
+	while true:
+		f += -step_size if holds.call(f) else step_size
+		step_size *= 0.5
+		if not (step_size > BISECT_STOP):
+			break
+	return f
+
+
+## Rolling round the rim's edge.
+static func _cup_rim(c: Ctx, b: Ball, dt: float) -> void:
+	var radius := c.cup.radius
+	var old := b.copy()
+	var p := b.position
+	var v := b.velocity
+	var r := Vector2(p.x, p.y).length()
+	var along := Vector3(-p.y / r, p.x / r, 0)
+	var n := _unit_or_zero(p - _flat_unit(p) * radius)
+	var pivot := along.cross(n)
+	var a := pivot * pivot.dot(GRAVITY_VECTOR) + n * (n.dot(v) * (-1.0 / dt))
+	var v1 := v + a * dt
+	var p1 := p + v1 * dt
+	var edge := _flat_unit(p1) * radius
+	var n1 := _unit_or_zero(p1 - edge)
+	var next := b.copy()
+	next.position = edge + n1 * RADIUS
+	next.velocity = v1
+	next.spin = v1.cross(n1 * -REV_PER_FPS)
+
+	var t_out := NO_EVENT
+	if Vector2(next.position.x, next.position.y).length() > radius + CUP_EDGE:
+		t_out = maxf(_circle_crossing(p, next.position - p, radius + CUP_EDGE), 0.0)
+	var t_off := NO_EVENT
+	if _leaves_rim(next, dt, radius):
+		var off_rim := func(f: float) -> bool:
+			var bf: Array = _blend(old, next, f)
+			return _leaves_rim(bf[0], (1.0 - float(bf[1])) * dt, radius)
+		t_off = _bisect(off_rim)
+	var t_down := -p.z / (next.position.z - p.z) if next.position.z < 0.0 else NO_EVENT
+	var event := -1
+	var t := NO_EVENT
+	if t_out < t:
+		event = 0
+		t = t_out
+	if t_off < t:
+		event = 1
+		t = t_off
+	if t_down < t:
+		event = 2
+		t = t_down
+
+	if event < 0:
+		b.assign(next)
+		return
+	var bl: Array = _blend(old, next, t)
+	var m: Ball = bl[0]
+	var tau: float = bl[1]
+	match event:
+		0:  # back onto the green, on the circle
+			var u := _flat_unit(m.position)
+			var gh: Array = _green_height(c, m.position)
+			var gn: Vector3 = gh[1]
+			m.position = Vector3(u.x * radius, u.y * radius, float(gh[0]) + RADIUS / gn.z)
+			if gn.z != 1.0:
+				m.velocity = _level_to_slope(m.velocity, gn)
+			m.mode = Mode.ROLL
+			m.on_ground_started = false
+		1:  # off the edge, falling into the hole
+			m.mode = Mode.CUP_AIR
+		2:  # over the edge: slides down the wall
+			var u := _flat_unit(m.position)
+			var tangent := Vector3(-u.y, u.x, 0)
+			var vt := tangent.dot(m.velocity)
+			m.position = Vector3(u.x * radius, u.y * radius, 0)
+			m.velocity = Vector3(tangent.x * vt, tangent.y * vt, m.velocity.z)
+			m.mode = Mode.CUP_WALL
+	b.assign(m)
+	_finish_substep(c, b, tau, dt)
+
+
+## Falling or bouncing in the air inside the hole's circle.
+static func _cup_air(c: Ctx, b: Ball, dt: float) -> void:
+	var radius := c.cup.radius
+	var old := b.copy()
+	var p := b.position
+	var next := b.copy()
+	next.velocity = b.velocity + GRAVITY_VECTOR * dt
+	next.position = p + next.velocity * dt
+	var p1 := next.position
+
+	var t_rim := NO_EVENT
+	if _touches_rim(p1, radius):
+		t_rim = _bisect(func(f: float) -> bool: return _touches_rim(p * (1.0 - f) + p1 * f, radius))
+	var t_up := (RADIUS - p.z) / (p1.z - p.z) if p1.z > CUP_TOP else NO_EVENT
+	var t_down := -p.z / (p1.z - p.z) if p1.z < 0.0 else NO_EVENT
+	var event := -1
+	var t := NO_EVENT
+	if t_rim < t:
+		event = 0
+		t = t_rim
+	if t_up < t:
+		event = 1
+		t = t_up
+	if t_down < t:
+		event = 2
+		t = t_down
+
+	if event < 0:
+		b.assign(next)
+	else:
+		var bl: Array = _blend(old, next, t)
+		var m: Ball = bl[0]
+		var tau: float = bl[1]
+		match event:
+			0:  # hits the rim's edge
+				var u := _flat_unit(m.position)
+				var edge := u * radius
+				var n := _unit_or_zero(m.position - edge)
+				var tangent := Vector3(-u.y, u.x, 0)
+				var pivot := _unit_or_zero(Vector3(u.x * n.z, u.y * n.z, -u.y * n.y - u.x * n.x))
+				var v := m.velocity
+				var vn := v.dot(n)
+				var out := _unit_or_zero(Vector3(n.x, n.y, 0))
+				m.position = edge + out * RADIUS
+				var kept := pivot * v.dot(pivot) + tangent * v.dot(tangent)
+				if -vn < STICK_SPEED:
+					m.velocity = kept
+					m.mode = Mode.CUP_RIM
+				else:
+					m.velocity = kept + n * (-RIM_BOUNCE * vn)
+			1:  # up and out of the cup, back to the normal flight
+				var gh: Array = _green_height(c, m.position)
+				var gn: Vector3 = gh[1]
+				m.position.z = float(gh[0]) + RADIUS / gn.z
+				if gn.z != 1.0:
+					m.velocity = _level_to_slope(m.velocity, gn)
+				m.mode = Mode.FLIGHT
+			2:  # into the cup
+				m.mode = Mode.CUP_DROP
+		b.assign(m)
+		_finish_substep(c, b, tau, dt)
+	# The flagstick stands in the middle of the cup.
+	var from := old.copy()
+	var to := b.copy()
+	from.position += c.cup.pin
+	to.position += c.cup.pin
+	if _hit_flagstick(c, from, to):
+		b.assign(to)
+		b.position -= c.cup.pin
+
+
+static func _holed(b: Ball) -> void:
+	b.velocity = Vector3.ZERO
+	b.spin = Vector3.ZERO
+	b.mode = Mode.HOLED
+
+
+## Sliding down the cup's wall: held on the circle, keeping only its speed
+## round it, and falling.
+static func _cup_wall(b: Ball, dt: float, radius: float) -> void:
+	var u := _flat_unit(b.position)
+	var vt := u.x * b.velocity.y - u.y * b.velocity.x
+	b.velocity = Vector3(-u.y * vt, u.x * vt, b.velocity.z) + GRAVITY_VECTOR * dt
+	b.position = Vector3(radius * u.x, radius * u.y, b.position.z) + b.velocity * dt
+	if b.position.z < -CUP_DEPTH:
+		_holed(b)
+
+
+## Falling inside the cup, bouncing off its wall.
+static func _cup_drop(b: Ball, dt: float, radius: float) -> void:
+	b.velocity += GRAVITY_VECTOR * dt
+	b.position += b.velocity * dt
+	if b.position.z < -CUP_DEPTH:
+		_holed(b)
+		return
+	var r := Vector2(b.position.x, b.position.y).length()
+	if not (r > radius):
+		return
+	var u := Vector3(b.position.x / r, b.position.y / r, 0)
+	var n := -u
+	var v := b.velocity
+	var vn := n.dot(v)
+	var vt := u.x * v.y - u.y * v.x
+	b.position = Vector3(radius * u.x, radius * u.y, b.position.z)
+	if -vn < STICK_SPEED:
+		b.velocity = Vector3(-u.y * vt, u.x * vt, v.z)
+		b.mode = Mode.CUP_WALL
+	else:
+		b.velocity = Vector3(-u.y * vt, u.x * vt, 0) + n * (-WALL_BOUNCE * vn) + Vector3(0, 0, v.z)
+
+
+static func _cup_sub(c: Ctx, b: Ball, h: float) -> void:
+	match b.mode:
+		Mode.CUP_AIR:
+			_cup_air(c, b, h)
+		Mode.CUP_RIM:
+			_cup_rim(c, b, h)
+		Mode.CUP_WALL:
+			_cup_wall(b, h, c.cup.radius)
+		Mode.CUP_DROP:
+			_cup_drop(b, h, c.cup.radius)
+
+
+## One frame (or the rest of one) in the cup, in sub-steps, counted down in
+## single precision as the game does.
+static func _cup_frame(c: Ctx, b: Ball, dt: float) -> void:
+	b.position -= c.cup.pin
+	var sub := _f32(CUP_SUB_STEP)
+	var remaining := _f32(dt)
+	while remaining >= sub and _in_cup_mode(b.mode):
+		_cup_sub(c, b, sub)
+		remaining = _f32(remaining - sub)
+	if remaining > 0.0 and _in_cup_mode(b.mode):
+		_cup_sub(c, b, remaining)
+	b.position += c.cup.pin
+
+
+static func _enter_cup_from_air(c: Ctx, b: Ball, tau: float, dt: float) -> bool:
+	if c.cup == null:
+		return false
+	var rel := b.position - c.cup.pin
+	if not (Vector2(rel.x, rel.y).length() <= c.cup.radius + CUP_EDGE):
+		return false
+	b.mode = Mode.CUP_AIR
+	var n := c.g.normal(c.cup.pin.x, c.cup.pin.y)
+	if n.z != 1.0:
+		b.velocity = _level_to_slope(b.velocity, n)
+	_step(c, b, (1.0 - tau) * dt)
+	return true
+
+
+static func _enter_cup_from_green(c: Ctx, b: Ball, before: Ball) -> void:
+	if c.cup == null or b.mode == Mode.REST:
+		return
+	var t := _circle_crossing(before.position - c.cup.pin, b.position - before.position, c.cup.radius)
+	if t < 0.0:
+		return
+	var m: Ball = _blend(before, b, t)[0]
+	m.mode = Mode.CUP_RIM
+	var n := c.g.normal(c.cup.pin.x, c.cup.pin.y)
+	if n.z != 1.0:
+		m.velocity = _level_to_slope(m.velocity, n)
+	b.assign(m)
+
+
+## The flagstick: a pole of radius 0.5 in on the pin. Mirrors hit_flagstick
+## in links_ground.cpp.
+static func _hit_flagstick(c: Ctx, old: Ball, b: Ball) -> bool:
+	if c.cup == null or b.flagstick_out:
+		return false
+	var pin := c.cup.pin
+	if pin.z + POLE_TOP < minf(old.position.z, b.position.z):
+		return false
+	if pin.z - POLE_BOTTOM > maxf(old.position.z, b.position.z):
+		return false
+	var t := _circle_crossing(old.position - pin, b.position - old.position, POLE_RADIUS)
+	if t < 0.0:
+		return false
+	var m: Ball = _blend(old, b, t)[0]
+	var d := _unit_or_zero(Vector3(m.position.x - pin.x, m.position.y - pin.y, 0))
+	m.velocity = (m.velocity - d * (2.0 * m.velocity.dot(d))) * POLE_BOUNCE
+	m.spin = m.spin * POLE_SPIN
+	m.mode = b.mode
+	m.flagstick_out = true
+	b.assign(m)
+	return true
+
+
+## The game caps how deeply steps nest; past that a ball near the hole is
+## set down just outside it.
+static func _nesting_overflow(c: Ctx, b: Ball) -> void:
+	if c.cup == null:
+		return
+	var rel := b.position - c.cup.pin
+	var r := Vector2(rel.x, rel.y).length()
+	if not (r < c.cup.radius * 1.05):
+		return
+	var u := Vector3(rel.x / r, rel.y / r, 0) if r != 0.0 else Vector3(1, 0, 0)
+	var w := c.cup.pin + u * (c.cup.radius * 1.06)
+	var n := c.g.normal(w.x, w.y)
+	b.position = Vector3(w.x, w.y, c.g.height(w.x, w.y) + RADIUS / n.z)
+	_rest(b)
