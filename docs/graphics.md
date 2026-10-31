@@ -234,6 +234,25 @@ calls, 0.7 million triangles, 1,100 objects and 125 MB from the tee in
 Compatibility when the budget was set. Raise a limit only with a reason
 written here.
 
+## Download size
+
+`tools/size_report.py` runs after the CI export. It writes each build's
+download size, its game data (the `.pck`) and the biggest files in the pack
+to the job summary, and fails CI when a build goes over
+`tools/size_budget.json`. When it was added (2026-10-31) the game data was
+33 MB, a third of it the HDR sky, and the Godot engine was the rest of each
+download (about 70 MB uncompressed on Linux). Two import changes took the
+data from 33 to 27.7 MB without changing the look (30.5 MB once the photoscanned sand, paths and height maps of #79 landed):
+
+- the sky panorama has no mipmaps (it is only ever magnified), and
+- textures without their own `.import` settings (the golfer's, extracted
+  from its `.glb`) default to lossy WebP at quality 0.85 through
+  `[importer_defaults]` in `project.godot`, instead of lossless.
+
+`.import` files are not committed, so import settings live in
+`tools/fetch_free_assets.py` (the free textures) and `project.godot` (the
+defaults).
+
 ## Still to do
 
 - Occlusion from the terrain itself (hollows, cliffs).

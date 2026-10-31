@@ -1,20 +1,31 @@
 class_name FreeGolfer
 extends GolferRig
 ## The golfer used without the original game files: a realistic man built
-## from MakeHuman's CC0 assets, with a hand-keyed swing, putt and celebration
-## baked into the glTF by tools/golfer/build_free_golfer.py. The swing and
-## putt are then replaced with motion capture by tools/golfer/mocap_swing.py.
+## from MakeHuman's CC0 assets by tools/golfer/build_free_golfer.py, moving
+## with motion capture retargeted by tools/golfer/mocap_swing.py: the
+## address (with a look at the target), swing, putt, walk and reactions.
+## At each new ball he walks up to it before settling over it.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if the file is
 ## missing.
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
 const BLEND_TIME := 0.15
-const LOOPING: Array[StringName] = [&"address", &"address_putt"]
+const LOOPING: Array[StringName] = [&"address", &"address_putt", &"walk"]
+## The walk up to a new ball: from this far behind the address spot, at the
+## mocap walk's own speed (so the feet don't slide), easing into address.
+const WALK_FROM := 2.2
+const WALK_SPEED := 0.89
+const WALK_SETTLE := 0.35
+## A move of more than this between addresses is a new ball.
+const NEW_BALL := 0.5
 
 var _player: AnimationPlayer
 var _driver: Array[Node3D] = []
 var _putter: Array[Node3D] = []
 var _putting := false
+var _model: Node3D
+var _walk: Tween
+var _last_spot := Vector3.INF
 
 
 ## Null if the model is missing or has no animations.
@@ -31,6 +42,7 @@ static func create() -> FreeGolfer:
 		return null
 	var golfer := FreeGolfer.new()
 	golfer.add_child(model)
+	golfer._model = model as Node3D
 	golfer._player = player
 	for anim_name in LOOPING:
 		if player.has_animation(anim_name):
@@ -75,6 +87,7 @@ func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
 ## The putter stays out after a putt, for the next address and the
 ## celebration, until a full swing.
 func play(animation: StringName) -> void:
+	_stop_walk()
 	match animation:
 		&"putt":
 			_putting = true
@@ -84,8 +97,34 @@ func play(animation: StringName) -> void:
 	if animation == &"address" and _putting:
 		clip = &"address_putt"
 	_show_putter(_putting)
+	if animation == &"address" and _model and is_inside_tree() and _player.has_animation(&"walk"):
+		var spot := global_position
+		var new_ball := _last_spot == Vector3.INF or spot.distance_to(_last_spot) > NEW_BALL
+		_last_spot = spot
+		if new_ball:
+			_walk_in(clip)
+			return
 	if _player.has_animation(clip):
 		_player.play(clip, BLEND_TIME)
+
+
+## Walks forward to the address spot, then settles into the clip.
+func _walk_in(clip: StringName) -> void:
+	_model.position = Vector3(0, 0, WALK_FROM)
+	_player.play(&"walk", BLEND_TIME)
+	_walk = create_tween()
+	_walk.tween_property(_model, "position", Vector3.ZERO, WALK_FROM / WALK_SPEED)
+	_walk.tween_callback(func() -> void:
+		if _player.has_animation(clip):
+			_player.play(clip, WALK_SETTLE))
+
+
+func _stop_walk() -> void:
+	if _walk and _walk.is_valid():
+		_walk.kill()
+	_walk = null
+	if _model:
+		_model.position = Vector3.ZERO
 
 
 func _show_putter(on: bool) -> void:

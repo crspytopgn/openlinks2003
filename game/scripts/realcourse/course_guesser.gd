@@ -76,12 +76,16 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar 
 			if _find(c, Surface.Type.TEE, t, 6.0) == null:
 				_add(c, added, _box(Surface.Type.TEE, t, first_dir, TEE_HALF))
 
-		# Fairway.
+		# Fairway: the real one in the photo, else a typical one.
 		if par >= 4 and not _has_fairway(c, line, length):
-			var start := minf(length * (0.3 if par == 4 else 0.22), FAIRWAY_START)
 			var stop := length - radius - 4.0
-			if stop - start > 60.0:
-				_add(c, added, _fairway(line, start, stop, FAIRWAY_WIDTH * rng.randf_range(0.9, 1.1), rng))
+			var ring := CourseDetector.find_fairway(photo, c.area, line, minf(60.0, length * 0.2), stop)
+			if ring.size() >= 3:
+				_add(c, added, CourseShape.new(Surface.Type.FAIRWAY, ring), true)
+			else:
+				var start := minf(length * (0.3 if par == 4 else 0.22), FAIRWAY_START)
+				if stop - start > 60.0:
+					_add(c, added, _fairway(line, start, stop, FAIRWAY_WIDTH * rng.randf_range(0.9, 1.1), rng))
 
 		# Bunkers only on holes with none mapped: a mapper who drew one
 		# bunker of a hole drew them all.

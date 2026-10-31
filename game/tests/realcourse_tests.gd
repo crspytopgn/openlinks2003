@@ -544,6 +544,8 @@ func _test_detector() -> void:
 			var p := Vector2(300 - i, 300 - j)
 			if p.distance_to(h.pin) < 13.0:
 				photo.set_pixel(i, j, Color(0.36, 0.6, 0.3))
+			elif absf(p.x) < 15.0 and p.y > -60.0 and p.y < 160.0:
+				photo.set_pixel(i, j, Color(0.33, 0.52, 0.24))
 			elif Rect2(16, 176, 8, 6).has_point(p):
 				photo.set_pixel(i, j, Color(0.86, 0.8, 0.64))
 	photo.fill_rect(Rect2i(250, 80, 3, 100), Color(0.8, 0.76, 0.66))
@@ -556,6 +558,14 @@ func _test_detector() -> void:
 		elif s.surface == Surface.Type.SAND:
 			sand.append(s)
 	check(green != null and green.has_meta("detected"), "the green is found in the photo")
+	var fairway: CourseShape = null
+	for s in added:
+		if s.surface == Surface.Type.FAIRWAY:
+			fairway = s
+	check(fairway != null and fairway.has_meta("detected"), "the fairway is found in the photo")
+	if fairway != null:
+		var fb := fairway.bounds()
+		check(absf(fb.size.x - 30.0) < 7.0 and fb.position.y > -80.0 and fb.end.y < 180.0, "found fairway in place: %s" % fb)
 	if green != null:
 		var a := absf(_ring_area_of(green.outline()))
 		check(a > 420.0 and a < 650.0, "found green size: %.0f m2" % a)
