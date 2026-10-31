@@ -47,15 +47,38 @@ buggy parked beside the ball, so a round with the buggy on is no slower
 than without it. Computer golfers never drive, and on a new hole the buggy
 waits beside the tee.
 
-Handling (`BuggyDrive`): a governed electric cart, about 16 mph on cart
-paths, 14 mph on grass, 9 mph in the rough and slower in deep rough, 5.5 mph
-in reverse. Steering is a kinematic bicycle model (1.65 m wheelbase, 32
-degrees of lock, less of it at speed), hills slow it going up and push it
-going down, and it stops at the edge of greens, bunkers and water, as real
-course rules ask. The model (`GolfBuggy`) is built in code: a glossy white
+Handling (`BuggyDrive`) is a planar rigid-body vehicle model stepped at
+120 Hz, with real electric-cart numbers:
+
+- 500 kg with the golfer aboard, 300 kg m^2 of yaw inertia, the centre of
+  gravity behind the middle (the batteries) and 0.55 m up, 1.65 m wheelbase.
+- A rear-drive 48 V motor: 1500 N at the wheels from a stand, then 3.7 kW,
+  and a governor at about 15.5 mph (5.5 mph in reverse) that also
+  regenerates to hold the speed downhill. Pedals take a moment to press,
+  and the automatic park brake holds it, even on a hill, once the pedals
+  are up and it has stopped.
+- Tyres with 9000 N/rad of cornering stiffness per axle, saturating
+  smoothly at the grip of the ground (0.85 on cart paths, 0.62 on grass,
+  0.55 in the rough, 0.45 in deep rough), inside a friction circle per
+  axle, so it understeers, wheelspins and slides. The steering ratio
+  slows at speed, as a game pad or keyboard needs.
+- Weight moves back under acceleration and forward under braking, which
+  changes the grip at each axle.
+- Rolling resistance by ground (0.015 on paths, 0.045 on grass, 0.14 in the
+  rough, 0.22 in deep rough), air drag, and gravity along and across the
+  slope.
+
+What comes out of that, checked in the tests: about 15 mph on grass and
+paths, 11 mph in the rough, 6.5 mph in deep rough, 8.5 mph up a 15% hill,
+held at the governor coming down, half a g of cornering grip, and a stop
+from full speed in about 1.4 s.
+
+It stops at the edge of greens, bunkers and water, as real course rules
+ask. The model (`GolfBuggy`) is built in code: a glossy white
 two-seater with a canopy, tinted windscreen, bench seat, headlights and a
 bag on the back, one mesh for the body (six materials) and four wheels that
-turn and steer. It sits on the ground under its four wheels, pitching and
+turn and steer. The body squats, dives and leans on its springs (a damped
+spring per axis, about 1.3 Hz). It sits on the ground under its four wheels, pitching and
 rolling with the slopes, and a chase camera follows it.
 
 Code: `game/scripts/buggy/` (`BuggyDrive`, `GolfBuggy`).

@@ -1046,33 +1046,73 @@ func _test_caddie() -> void:
 
 
 func _test_buggy_drive() -> void:
+	# The handling, against what an electric cart does: speeds and grip by
+	# ground, hills, braking, reverse, the park brake and the course rules.
+	var dt := 1.0 / 30.0
 	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
 	var d := BuggyDrive.new()
 	d.place(Vector3.ZERO, 0.0, fairway)
 	for i in 300:
-		d.step(1.0 / 30.0, 1.0, 0.0, fairway)
-	_check_near(d.speed, BuggyDrive.TOP_GRASS, 0.05, "top speed on grass")
+		d.step(dt, 1.0, 0.0, fairway)
+	print("  fairway top speed %.2f m/s" % d.speed)
+	_check(d.speed > 6.0 and d.speed <= BuggyDrive.GOVERNED, "governed at about 15 mph on grass (%.2f)" % d.speed)
 	_check(d.position.z > 40.0 and absf(d.position.x) < 1e-3, "drives straight down +z (%s)" % d.position)
-	for i in 30:
-		d.step(1.0 / 30.0, 1.0, 1.0, fairway)
-	_check(d.heading_deg > 10.0, "steering left turns towards +x (%.1f deg)" % d.heading_deg)
-	for i in 120:
-		d.step(1.0 / 30.0, -1.0, 0.0, fairway)
-	_check(d.speed < 0.0 and d.speed >= -BuggyDrive.TOP_REVERSE, "brakes, then backs up slowly")
-	for i in 120:
-		d.step(1.0 / 30.0, 0.0, 0.0, fairway)
-	_check(d.speed == 0.0, "coasts to a stop")
+	var rough := FlatTerrain.new(Surface.Type.ROUGH)
+	var r := BuggyDrive.new()
+	r.place(Vector3.ZERO, 0.0, rough)
+	for i in 300:
+		r.step(dt, 1.0, 0.0, rough)
+	_check(r.speed < d.speed - 1.0, "slower in the rough (%.2f)" % r.speed)
+	for i in 60:
+		d.step(dt, 1.0, 1.0, fairway)
+	print("  full lock at speed: %.0f deg, sliding %.2f m/s, %.2f g" % [d.heading_deg, d.lateral, d.accel_lat / BuggyDrive.GRAVITY])
+	_check(d.heading_deg > 30.0, "steering left turns towards +x (%.1f deg)" % d.heading_deg)
+	_check(absf(d.accel_lat) <= 0.7 * BuggyDrive.GRAVITY, "cornering limited by the tyres (%.2f g)" % (d.accel_lat / BuggyDrive.GRAVITY))
+	d.place(Vector3.ZERO, 0.0, fairway)
+	for i in 300:
+		d.step(dt, 1.0, 0.0, fairway)
+	var from := d.position.z
+	var t := 0
+	while d.speed > 0.0 and t < 300:
+		d.step(dt, -1.0, 0.0, fairway)
+		t += 1
+	print("  stops from top speed in %.1f s, %.1f m" % [t * dt, d.position.z - from])
+	_check(t * dt < 2.5 and d.position.z - from < 8.0, "brakes hard")
+	for i in 150:
+		d.step(dt, -1.0, 0.0, fairway)
+	_check(d.speed < 0.0 and d.speed >= -BuggyDrive.GOVERNED_REVERSE - 0.1, "backs up slowly (%.2f)" % d.speed)
+	for i in 150:
+		d.step(dt, 0.0, 0.0, fairway)
+	_check(d.speed == 0.0, "the park brake holds once stopped")
+	var hill := TiltedTerrain.new()
+	var up := BuggyDrive.new()
+	up.place(Vector3.ZERO, 0.0, hill)
+	for i in 450:
+		up.step(dt, 1.0, 0.0, hill)
+	_check(up.speed < BuggyDrive.TOP_GRASS - 1.5, "slower up a 15%% hill (%.2f)" % up.speed)
+	var down := BuggyDrive.new()
+	down.place(Vector3.ZERO, 180.0, hill)
+	for i in 450:
+		down.step(dt, 1.0, 0.0, hill)
+	_check(absf(down.speed - BuggyDrive.GOVERNED) < 0.6, "the governor holds it downhill (%.2f)" % down.speed)
+	var parked := BuggyDrive.new()
+	parked.place(Vector3.ZERO, 0.0, hill)
+	for i in 90:
+		parked.step(dt, 0.0, 0.0, hill)
+	_check(parked.position.distance_to(Vector3.ZERO) < 1e-3, "parked on a hill, it stays put")
 	var green := FlatTerrain.new(Surface.Type.GREEN)
 	d.place(Vector3.ZERO, 0.0, green)
-	d.step(0.1, 1.0, 0.0, green)
+	for i in 30:
+		d.step(dt, 1.0, 0.0, green)
 	_check(d.blocked and d.position == Vector3.ZERO, "stays off the green")
 	_check(BuggyDrive.keeps_off(Surface.Type.SAND) and BuggyDrive.keeps_off(Surface.Type.WATER), "and bunkers and water")
 	var spot := BuggyDrive.parking_spot(fairway, Vector3.ZERO, Vector3(0.0, 0.0, 100.0))
 	_check(spot.z < 0.0 and spot.length() > 5.0, "parks back from the ball, off the line (%s)" % spot)
 	var b := GolfBuggy.new()
-	_check(b.get_child_count() == 6, "body, four wheels and a bag")
+	_check(b.get_child_count() == 5, "body (with the bag) and four wheels")
 	b.park(Vector3(5.0, 0.0, 5.0), 90.0, fairway)
-	b.step(0.5, 1.0, 0.0, fairway)
+	for i in 30:
+		b.step(dt, 1.0, 0.0, fairway)
 	_check(b.position.x > 5.0, "the model moves with the drive (%s)" % b.position)
 	var view: Array = b.chase(0.1, fairway)
 	_check((view[0] as Vector3).x < b.position.x, "the chase camera sits behind")
@@ -2733,3 +2773,14 @@ func _test_broadcast_round() -> void:
 	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
 	game._apply_graphics()
 	_check(not game.hud.tour.visible and not game.putt_read.visible, "broadcast hides the tour graphics")
+
+
+## A 15% slope rising towards +z, for the buggy tests.
+class TiltedTerrain:
+	extends FlatTerrain
+
+	func height_at(_x: float, z: float) -> float:
+		return 0.15 * z
+
+	func normal_at(_x: float, _z: float) -> Vector3:
+		return Vector3(0.0, 1.0, -0.15).normalized()

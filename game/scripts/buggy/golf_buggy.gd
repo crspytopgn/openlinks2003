@@ -3,8 +3,10 @@ extends Node3D
 ## The optional golf buggy (Settings > Golf buggy, off by default): a
 ## two-seat electric cart, modelled in code (no files) in glossy white with
 ## a canopy, tinted windscreen and a bag on the back. It sits on the ground
-## on all four wheels, pitching and rolling with the slopes, and its wheels
-## turn and steer. BuggyDrive does the driving; the round moves the camera.
+## on all four wheels, pitching and rolling with the slopes; the body leans
+## on its springs as it brakes, accelerates and corners (a damped spring
+## per axis, about 1.3 Hz); the wheels turn and steer. BuggyDrive does the
+## driving; the round moves the camera.
 
 const WHEEL_RADIUS := 0.23
 const TRACK := 0.56  ## half the distance between the left and right wheels
@@ -12,12 +14,22 @@ const AXLE := 0.82  ## half the wheelbase
 const CHASE_BACK := 7.5
 const CHASE_UP := 3.0
 const CHASE_LOOK_AHEAD := 8.0
+const SPRING := 70.0  ## body roll and pitch: stiffness, 1/s^2
+const DAMPING := 9.0  ## and damping, 1/s
+const PITCH_PER_ACCEL := 0.012  ## radians of squat or dive per m/s^2
+const ROLL_PER_ACCEL := 0.016  ## radians of lean per m/s^2 of cornering
+const BODY_PIVOT := 0.3  ## the body leans about this height
 
 static var _body_mesh: ArrayMesh
 static var _wheel_mesh: ArrayMesh
 
 var drive := BuggyDrive.new()
 var _wheels: Array[MeshInstance3D] = []
+var _chassis := Node3D.new()  ## the body and bag, on the springs
+var _pitch := 0.0
+var _pitch_rate := 0.0
+var _roll := 0.0
+var _roll_rate := 0.0
 var _spin := 0.0
 var _chase_pos := Vector3.INF
 var _chase_look := Vector3.ZERO
@@ -25,9 +37,12 @@ var _chase_look := Vector3.ZERO
 
 func _init() -> void:
 	name = "GolfBuggy"
+	add_child(_chassis)
 	var body := MeshInstance3D.new()
 	body.mesh = body_mesh()
-	add_child(body)
+	body.position.y = -BODY_PIVOT
+	_chassis.position.y = BODY_PIVOT
+	_chassis.add_child(body)
 	# Front is -z, as for any node that looks_at().
 	for corner: Vector2 in [Vector2(-TRACK, -AXLE), Vector2(TRACK, -AXLE), Vector2(-TRACK, AXLE), Vector2(TRACK, AXLE)]:
 		var w := MeshInstance3D.new()
@@ -36,14 +51,19 @@ func _init() -> void:
 		add_child(w)
 		_wheels.append(w)
 	var bag := GolfBag.new()
-	bag.position = Vector3(0.0, 0.62, 1.12)
+	bag.position = Vector3(0.0, 0.62 - BODY_PIVOT, 1.12)
 	bag.rotation = Vector3(deg_to_rad(-12.0), PI, 0.0)
-	add_child(bag)
+	_chassis.add_child(bag)
 
 
 ## Puts the cart at `p` facing `heading_deg` (0 is +z), stopped.
 func park(p: Vector3, heading_deg: float, terrain: CourseTerrain) -> void:
 	drive.place(p, heading_deg, terrain)
+	_pitch = 0.0
+	_pitch_rate = 0.0
+	_roll = 0.0
+	_roll_rate = 0.0
+	_chassis.basis = Basis.IDENTITY
 	fit(terrain)
 	_chase_pos = Vector3.INF
 
@@ -51,7 +71,23 @@ func park(p: Vector3, heading_deg: float, terrain: CourseTerrain) -> void:
 func step(dt: float, throttle: float, steer: float, terrain: CourseTerrain) -> void:
 	drive.step(dt, throttle, steer, terrain)
 	_spin += drive.speed * dt / WHEEL_RADIUS
+	_springs(dt)
 	fit(terrain)
+
+
+## The body on its springs: squats under acceleration, dives under braking
+## and leans out of corners.
+func _springs(dt: float) -> void:
+	var h := minf(dt, 0.05)
+	var want_pitch := drive.accel_long * PITCH_PER_ACCEL
+	var want_roll := -drive.accel_lat * ROLL_PER_ACCEL
+	_pitch_rate += (SPRING * (want_pitch - _pitch) - DAMPING * _pitch_rate) * h
+	_pitch += _pitch_rate * h
+	_roll_rate += (SPRING * (want_roll - _roll) - DAMPING * _roll_rate) * h
+	_roll += _roll_rate * h
+	# Nose up (+x rotation lifts -z) under acceleration; lean right (-z
+	# rotation) when turning left, as the weight pushes out.
+	_chassis.basis = Basis(Vector3.RIGHT, _pitch) * Basis(Vector3.BACK, _roll)
 
 
 ## Sits the cart on the ground under its four wheels.
