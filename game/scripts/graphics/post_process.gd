@@ -8,6 +8,7 @@ extends CanvasLayer
 const SHADER := preload("res://shaders/post_process.gdshader")
 
 ## Per Grade: exposure, contrast, saturation, white balance, shadow colour.
+## Neutral with Photoreal lighting uses PHOTO_NEUTRAL instead.
 const GRADES := [
 	[1.0, 1.0, 1.0, Color(1, 1, 1), Color(1, 1, 1)],
 	[1.0, 1.08, 1.18, Color(1, 1, 1), Color(1, 1, 1)],
@@ -15,6 +16,13 @@ const GRADES := [
 	[1.0, 1.03, 0.97, Color(0.94, 0.99, 1.06), Color(0.94, 0.98, 1.04)],
 	[0.98, 1.1, 0.9, Color(1.03, 1.0, 0.95), Color(0.9, 0.98, 1.06)],
 ]
+
+## Neutral grade under Photoreal lighting: the render's own colours read
+## flat and hazy next to a photograph, so a gentle filmic curve (deeper
+## shadows, brighter highlights), a touch of sun warmth in the highlights
+## and sky blue in the shadows, as in camera footage of a sunny course.
+const PHOTO_NEUTRAL := [1.0, 1.0, 1.06, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
+const PHOTO_CURVE := 0.45
 
 var _rect: ColorRect
 var _mat: ShaderMaterial
@@ -47,13 +55,14 @@ func covered_size() -> Vector2:
 
 
 func apply(s: GraphicsSettings) -> void:
-	var g: Array = GRADES[s.grade]
+	var photo := s.lighting == GraphicsSettings.Lighting.PHOTOREAL
+	var g: Array = PHOTO_NEUTRAL if photo and s.grade == GraphicsSettings.Grade.NEUTRAL else GRADES[s.grade]
+	_mat.set_shader_parameter("curve", PHOTO_CURVE if photo else 0.0)
 	_mat.set_shader_parameter("sharpen", GraphicsSettings.SHARPEN_LEVELS[s.sharpen])
 	_mat.set_shader_parameter("exposure", g[0])
 	_mat.set_shader_parameter("contrast", g[1])
 	# Under ACES the sky fill light on Forward+ greys the greens a little:
 	# put some colour back.
-	var photo := s.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	var balance := 1.0
 	if photo:
 		balance = 1.15 if GraphicsSettings.is_forward_plus() else 1.0

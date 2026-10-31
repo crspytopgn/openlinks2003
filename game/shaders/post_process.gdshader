@@ -14,6 +14,7 @@ uniform vec3 tint = vec3(1.0); // white balance
 uniform vec3 shadow_tint = vec3(1.0); // colour of the darks, for the film look
 uniform float vignette = 0.0;
 uniform float grain = 0.0;
+uniform float curve = 0.0; // filmic S-curve: deeper shadows, brighter highlights
 
 float hash(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -43,6 +44,13 @@ void fragment() {
 	c = mix(vec3(luma), c, saturation);
 	c = mix(c * shadow_tint, c, smoothstep(0.0, 0.5, luma));
 	c = (c - 0.5) * contrast + 0.5;
+	if (curve > 0.0) {
+		// On luminance, so colours keep their hue.
+		float l = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+		float lc = clamp(l, 0.0, 1.0);
+		float s_curve = lc * lc * (3.0 - 2.0 * lc);
+		c *= mix(l, s_curve, curve) / l;
+	}
 	vec2 d = uv - 0.5;
 	c *= 1.0 - vignette * smoothstep(0.15, 0.75, dot(d, d) * 2.0);
 	c += (hash(FRAGCOORD.xy + fract(TIME) * 913.0) - 0.5) * grain;
