@@ -60,12 +60,14 @@ the files again. **Forget my files** clears the remembered choice.
 
 ## Download a build
 
-Every push to `main` builds the game for all three platforms. Open the
-**Actions** tab, pick the latest successful **CI** run, and download the
-artifact for your platform from the bottom of the page.
+Every push to `main` builds the game for all three platforms and publishes
+it as the **[latest release](https://github.com/crspytopgn/openlinks2003/releases/tag/latest)**
+(macOS universal, Windows, Linux). The builds contain no game data.
 
-**macOS:** the build is ad-hoc signed, not notarised. The first time,
-right-click the app, choose **Open**, then confirm.
+**macOS:** the build is ad-hoc signed, not notarised. Unzip it, move
+OpenLinks2003.app to Applications, then right-click it, choose **Open**, and
+confirm. On macOS 15 or later, if it still won't open, go to **System
+Settings > Privacy & Security** and click **Open Anyway**.
 
 ## Building locally
 
@@ -85,6 +87,7 @@ The game: open `game/project.godot` in Godot 4.4 and press F5.
 libs/olcore/    Portable C++ core: file formats, physics (engine-independent)
 tools/oldump/   File inspection tool for format reverse engineering
 tools/cdimage/  Reads files from raw CD images (.b6i, .iso)
+tools/mac/      Installs and wraps the original game for macOS under Wine
 tools/lsarchive/ Lists and extracts LSls archives and .SSF sound banks
 game/           Godot 4 project (scenes, scripts, export presets)
 docs/           Clean-room rules and file-format notes
@@ -93,6 +96,11 @@ docs/           Clean-room rules and file-format notes
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md).
+
+## Supporting the project
+
+OpenLinks2003 is free and always will be. If you enjoy it and want to chip in,
+you can [sponsor it on GitHub](https://github.com/sponsors/crspytopgn).
 
 ## Licence
 

@@ -4,6 +4,8 @@
 
 namespace olcore {
 
+struct LinksAero;
+
 struct Vec3 {
   double x = 0, y = 0, z = 0;
 };
@@ -36,6 +38,13 @@ struct BallParams {
   double drag_spin_factor = 0.18;
   double gravity = 9.81;           // m/s^2
   double spin_decay_per_s = 0.04;  // fraction of spin lost per second
+  // Velocity of the air, m/s: (0, 0, 5) is a 5 m/s tailwind on a shot hit
+  // towards +z. Uniform at every height; drag and lift act on the ball's
+  // speed through the air rather than over the ground.
+  Vec3 wind;
+  // When set, the flight uses the Links 2003 model (links_flight.hpp)
+  // instead of the drag and lift fits above.
+  const LinksAero* links = nullptr;
 };
 
 // Builds a launch state from the numbers a swing produces.
@@ -47,10 +56,12 @@ struct BallParams {
 BallState make_launch(double speed_mps, double launch_deg, double azimuth_deg, double backspin_rpm,
                       double sidespin_rpm);
 
-// Acceleration on the ball from gravity, drag and Magnus lift.
+// Acceleration on the ball from gravity, drag and Magnus lift, with drag and
+// lift worked out from the velocity relative to the wind.
 Vec3 acceleration(const BallState& s, const BallParams& p);
 
-// Advances the flight by dt seconds (RK4 on position and velocity).
+// Advances the flight by dt seconds (RK4 on position and velocity, or the
+// game's own step when p.links is set).
 BallState step_flight(const BallState& s, const BallParams& p, double dt);
 
 struct FlightResult {

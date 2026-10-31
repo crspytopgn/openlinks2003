@@ -1,6 +1,7 @@
 #pragma once
 
 #include "olcore/ball_physics.hpp"
+#include "olcore/obstacles.hpp"
 
 namespace olcore {
 
@@ -42,6 +43,13 @@ class Terrain {
   virtual Surface surface(double x, double z) const = 0;
   // Unit surface normal. The default takes central differences of height().
   virtual Vec3 normal(double x, double z) const;
+  // The first obstacle (tree, wall) the ball meets moving from -> to. The
+  // default looks in `obstacles`, if set.
+  virtual bool obstacle_hit(Vec3 from, Vec3 to, ObstacleHit& hit) const {
+    return obstacles != nullptr && obstacles->segment_hit(from, to, hit);
+  }
+
+  const ObstacleField* obstacles = nullptr;
 };
 
 class FlatTerrain : public Terrain {

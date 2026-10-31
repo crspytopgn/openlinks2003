@@ -25,6 +25,7 @@
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/ls_archive.hpp"
+#include "olcore/panorama.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
 
@@ -252,6 +253,21 @@ int cmd_mesh(const char* path, const char* obj_path, const char* clip_path, std:
   return 0;
 }
 
+int cmd_pano(const char* path, const char* tga) {
+  auto r = olcore::BinaryReader::from_file(path);
+  const auto& d = r.data();
+  const auto h = olcore::read_panorama_header(d.data(), d.size());
+  std::printf("%s: %s panorama, %u x %u, %u tile rows\n", path, h.kind == olcore::PanoramaKind::Sky ? "sky" : "horizon",
+              h.width, h.height, h.rows);
+  if (tga) {
+    const auto bytes = olcore::encode_tga(olcore::decode_panorama(d));
+    std::ofstream(tga, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()),
+                                               static_cast<std::streamsize>(bytes.size()));
+    std::printf("wrote %s\n", tga);
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -262,11 +278,12 @@ int main(int argc, char** argv) {
                  "       oldump ssf <bank.ssf> [--extract DIR]\n"
                  "       oldump store <file.skl|file.clp>\n"
                  "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n"
-                 "       oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]\n");
+                 "       oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]\n"
+                 "       oldump pano <Panorama|PanNN.btc|skyNN.btc> [--tga out.tga]\n");
     return 2;
   }
   if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store") ||
-                    !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh"))) {
+                    !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh") || !std::strcmp(argv[1], "pano"))) {
     try {
       if (!std::strcmp(argv[1], "ls")) return cmd_ls(argv[2], extract_dir(argc, argv));
       if (!std::strcmp(argv[1], "ssf")) return cmd_ssf(argv[2], extract_dir(argc, argv));
@@ -276,6 +293,13 @@ int main(int argc, char** argv) {
           if (!std::strcmp(argv[i], "--skeleton")) skeleton = argv[i + 1];
         }
         return cmd_anim(argv[2], skeleton);
+      }
+      if (!std::strcmp(argv[1], "pano")) {
+        const char* tga = nullptr;
+        for (int i = 3; i + 1 < argc; ++i) {
+          if (!std::strcmp(argv[i], "--tga")) tga = argv[i + 1];
+        }
+        return cmd_pano(argv[2], tga);
       }
       if (!std::strcmp(argv[1], "mesh")) {
         const char *obj = nullptr, *clip = nullptr;

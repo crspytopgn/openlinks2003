@@ -12,7 +12,8 @@ func launch(_club: Club, _power: float, _accuracy: float, _aim_deg: float, _lie:
 
 
 ## Flies, bounces and rolls the ball until it stops, drops into the cup at
-## `cup`, or ends in water or out of bounds.
-func simulate(_start: BallState, _terrain: CourseTerrain, _cup: Vector3) -> ShotResult:
+## `cup`, or ends in water or out of bounds. `wind` is the velocity of the air
+## in m/s (see Wind).
+func simulate(_start: BallState, _terrain: CourseTerrain, _cup: Vector3, _wind := Vector3.ZERO) -> ShotResult:
 	push_error("ShotModel.simulate() is not implemented")
 	return ShotResult.new()

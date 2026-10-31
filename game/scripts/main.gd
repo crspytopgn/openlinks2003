@@ -1,6 +1,9 @@
 class_name GolfRound
 extends Node3D
 ## One round of golf: aim, swing, watch the ball, hole out, next hole.
+## Up to four players share the round (hot seat): everyone tees off in order
+## of the honour, then whoever is furthest from the hole plays next. The game
+## mode (RoundSetup, RoundScoring) decides what the cards mean.
 ##
 ## Courses, objects, the golfer and sounds come from AssetProviders
 ## (placeholders until the decoders land) and the ball physics from a
@@ -14,19 +17,54 @@ const MAX_STROKES := 10  ## pick up after this many on a hole
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: settings"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: menu"
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
-const HINT_WAIT := "Space or click: continue    Tab: scorecard"
+const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
+const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
+const MENU_SCENE := "res://scenes/boot.tscn"
+## Broadcast replays: slow motion near the landing and the cup.
+const REPLAY_SLOW := 0.35
+const REPLAY_SLOW_SPAN := 0.9  ## seconds either side of the landing
+const REPLAY_HOLD := 1.0  ## seconds held on the final picture
+## Approach shots landing this close to the pin get the pin camera picture.
+const PIP_RANGE := 50.0
+const AUTO_REPLAY_DELAY := 1.4
+
+
+## One player's ball on the current hole.
+class PlayerBall:
+	var at := Vector3.ZERO
+	var strokes := 0
+	var holed := false
+	var picked_up := false
+	var marker: MeshInstance3D
+
+	func done() -> bool:
+		return holed or picked_up
 
 ## Course to load; empty plays the placeholder course.
 @export var course_path := ""
 ## Set by the boot screen's course picker before it opens this scene.
 static var chosen_course := ""
+## Set by the round setup menu; null plays one player, stroke play, on
+## `course_path` or `chosen_course`.
+static var setup: RoundSetup
+## Seeds the wind; 0 gives different conditions each round. Tests set it so
+## their rounds play the same way every run.
+static var wind_seed := 0
 
 var state: State = State.AIM
 var course: CourseData
+## The holes being played, in order (all of the course, or a nine).
+var holes: Array[HoleData] = []
 var hole: HoleData
 var hole_index := 0
+var round_setup: RoundSetup
+var scoring: RoundScoring
+var players: Array[PlayerBall] = []
+var current := 0  ## whose turn it is
+var honour: Array[int] = []  ## tee-off order for this hole
+## The current player's card.
 var card: Scorecard
 var clubs: Array[Club] = []
 var club_index := 0
@@ -38,11 +76,13 @@ var shot: ShotResult
 var shot_from := Vector3.ZERO
 var shot_time := 0.0
 var result_timer := 0.0
+var _land_time := INF  ## when the ball first lands; INF once the sound has played
 
 var shot_model: ShotModel
+var wind: Wind
 var sounds: SoundBank
 var hud: Hud
-var camera: Camera3D
+var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
@@ -51,12 +91,27 @@ var hole_root: Node3D
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
+var pause_menu: PauseMenu
+var ambience: CourseAmbience
+var post: PostProcess
+var dynamic_resolution: DynamicResolution
+var grass: GrassField
 
 var _trail_mesh := ImmediateMesh.new()
+## Broadcast presentation pieces (GraphicsSettings.presentation).
+var broadcast := false
+var tracer: BallTracer
+var green_grid: GreenGrid
+var grid_on := true
+var _replaying := false
+var _replay_time := 0.0
+var _replay_count := 0
+var _ball_was_visible := true
+var _shot_from_pin := 0.0
+var _replay_delay := -1.0  ## counts down to an automatic replay
+var _pip := false
+var _commentary_rng := RandomNumberGenerator.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
-var _cam_pos := Vector3.ZERO
-var _cam_look := Vector3.ZERO
-var _cam_look_now := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -74,23 +129,73 @@ func _ready() -> void:
 
 
 func start_round() -> void:
+	_stop_replay()
+	round_setup = setup
+	if round_setup == null:
+		round_setup = RoundSetup.single(course_path if not course_path.is_empty() else chosen_course)
 	if course_path.is_empty():
-		course_path = chosen_course
+		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
-	card = Scorecard.new(course.pars())
+	holes.clear()
+	var pars: Array[int] = []
+	var numbers: Array[int] = []
+	var stroke_index: Array[int] = []
+	for i in round_setup.hole_indices(course.holes.size()):
+		var h := course.holes[i]
+		if h.tees.size() > 1:
+			h.tee = h.tees[round_setup.tee_index(h.tees.size())]
+		holes.append(h)
+		pars.append(h.par)
+		numbers.append(h.number)
+		stroke_index.append(h.stroke_index)
+	scoring = RoundScoring.new(round_setup, pars, numbers, stroke_index)
+	for p in players:
+		if p.marker:
+			p.marker.queue_free()
+	players.clear()
+	honour.clear()
+	for i in scoring.player_count():
+		var p := PlayerBall.new()
+		p.marker = _make_ball_mesh()
+		p.marker.visible = false
+		add_child(p.marker)
+		players.append(p)
+		honour.append(i)
+	current = 0
+	card = scoring.cards[0]
+	scenery.set_backdrop(course.horizon)
+	if ambience != null:
+		ambience.queue_free()
+		ambience = null
+	if course.read_entry.is_valid():
+		ambience = CourseAmbience.create(course.read_entry)
+		if ambience != null:
+			add_child(ambience)
+	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
 	start_hole(0)
 
 
+func _round_name() -> String:
+	var title := course.course_name
+	if holes.size() < course.holes.size():
+		title += "  (%s)" % RoundSetup.HOLES_NAMES[round_setup.holes].to_lower()
+	if scoring.player_count() > 1 or round_setup.mode != GameModes.Mode.STROKE:
+		title += "    " + GameModes.MODE_NAMES[round_setup.mode]
+	return title
+
+
 func start_hole(index: int) -> void:
 	hole_index = index
-	hole = course.holes[index]
+	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
 	hole_root = Node3D.new()
 	hole_root.name = "Hole%d" % hole.number
 	add_child(hole_root)
 	hole_root.add_child(hole.terrain.build_visual())
+	if course.objects != null:
+		hole_root.add_child(course.objects.build_visual(hole))
 	for o in hole.objects:
 		var node := AssetProviders.object_library.instantiate(o.id)
 		if node == null:
@@ -103,14 +208,80 @@ func start_hole(index: int) -> void:
 	_add_tee_markers()
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
+	camera.terrain = hole.terrain
+	if grass.terrain != hole.terrain:
+		grass.setup(hole.terrain, graphics.grass)
+	if ambience != null:
+		ambience.start_hole(hole.tee)
 
-	strokes = 0
-	ball_at = hole.tee
-	ball.visible = true
+	wind.start_hole()
+	_update_wind_shaders()
+	for p in players:
+		p.at = hole.tee
+		p.strokes = 0
+		p.holed = false
+		p.picked_up = false
 	_clear_trail()
 	hud.scorecard.visible = false
-	hud.show_message("Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)], 3.0)
-	_prepare_shot(true)
+	_begin_turn(_next_player(), true)
+	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
+	if broadcast:
+		text = ""
+		hud.overlay.wipe()
+		hud.overlay.hole_card({"number": hole.number, "par": hole.par,
+			"yards": roundi(hole.length_m() * YARDS_PER_METRE), "name": course.course_name}, HoleMap.make(hole))
+		camera.start_flyover(hole)
+	if players.size() > 1:
+		text += ("\n" if not text.is_empty() else "") + "%s has the honour" % scoring.names[current]
+	hud.show_message(text, 3.0)
+
+
+## Who plays next: tee shots in order of the honour, then whoever is furthest
+## from the hole. -1 once everyone has holed out or picked up.
+func _next_player() -> int:
+	for i in honour:
+		if players[i].strokes == 0 and not players[i].done():
+			return i
+	var best := -1
+	var best_d := -1.0
+	for i in players.size():
+		if players[i].done():
+			continue
+		var d := _flat_distance(players[i].at, hole.pin)
+		if d > best_d:
+			best = i
+			best_d = d
+	return best
+
+
+func _begin_turn(index: int, snap_camera: bool) -> void:
+	current = index
+	var p := players[index]
+	ball_at = p.at
+	strokes = p.strokes
+	card = scoring.cards[index]
+	ball.visible = true
+	_update_markers()
+	_prepare_shot(snap_camera)
+	if broadcast:
+		var thru := card.holes_played()
+		hud.overlay.lower_third(scoring.names[current], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
+			"E" if thru == 0 else Scorecard.format_to_par(card.to_par()), thru, strokes + 1, _pin_text().to_upper()])
+
+
+## Shows the other players' balls where they lie.
+func _update_markers() -> void:
+	for i in players.size():
+		var p := players[i]
+		p.marker.visible = i != current and p.strokes > 0 and not p.done()
+		if p.marker.visible:
+			_size_ball(p.marker, p.at)
+
+
+## Keeps the current player's ball and strokes in their PlayerBall.
+func _store_turn() -> void:
+	players[current].at = ball_at
+	players[current].strokes = strokes
 
 
 ## Plays a shot with the current club and aim. The swing meter calls this;
@@ -121,10 +292,25 @@ func play_shot(power: float, accuracy: float) -> void:
 		golfer.play(&"putt" if club.is_putter else &"swing")
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
+	_shot_from_pin = _flat_distance(ball_at, hole.pin)
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
-	shot = shot_model.simulate(start, hole.terrain, hole.pin)
+	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
+	wind.next_shot()
+	_update_wind_shaders()
 	shot_time = 0.0
+	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
+	camera.follow(shot, hole.pin, club.is_putter)
 	aim_marker.visible = false
+	green_grid.visible = false
+	if broadcast:
+		hud.overlay.hide_lower_third()
+		hud.overlay.hide_shot_card()
+		hud.overlay.set_status(_status(false))
+		_pip = not club.is_putter and graphics.quality >= GraphicsSettings.Quality.MEDIUM \
+			and shot.carry_m > 40.0 and _flat_distance(shot.first_landing, hole.pin) < PIP_RANGE
+		if _pip:
+			_place_pip_camera()
+		hud.overlay.show_pip(_pip)
 	hud.show_message("")
 	hud.hint.text = "Space or click: skip"
 	state = State.FLIGHT
@@ -155,17 +341,30 @@ func auto_play_step() -> void:
 
 
 func _process(delta: float) -> void:
-	match state:
-		State.AIM:
-			_process_aim(delta)
-		State.FLIGHT:
-			_process_flight(delta)
-		State.SHOT_RESULT:
-			result_timer -= delta
-			if result_timer <= 0.0:
-				_after_result()
-	_update_camera(delta)
+	if _replaying:
+		_process_replay(delta)
+	else:
+		match state:
+			State.AIM:
+				_process_aim(delta)
+			State.FLIGHT:
+				_process_flight(delta)
+			State.SHOT_RESULT:
+				result_timer -= delta
+				if result_timer <= 0.0:
+					_after_result()
+	if _replay_delay >= 0.0 and not _replaying:
+		_replay_delay -= delta
+		if _replay_delay < 0.0:
+			start_replay()
+	camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	grass.update_around(camera.global_position)
 	_update_ball_size()
+	if broadcast:
+		var playing := _replaying or state == State.FLIGHT
+		hud.overlay.set_cam_tag(camera.director.cam_name(_replay_time if _replaying else shot_time) if playing and camera.director != null else "")
+		if _pip and playing:
+			hud.overlay.pip_camera.look_at(_ball_base)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -176,8 +375,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_ESCAPE:
 					if settings_panel.visible:
 						settings_panel.close()
+						pause_menu.open()
+					elif pause_menu.visible:
+						pause_menu.close()
 					else:
-						settings_panel.open(graphics)
+						pause_menu.open()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -185,20 +387,24 @@ func _unhandled_input(event: InputEvent) -> void:
 					graphics.save()
 					_apply_graphics()
 					return
-	if settings_panel.visible:
+	if settings_panel.visible or pause_menu.visible:
 		return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
 			match key.keycode:
+				KEY_M:
+					if state == State.ROUND_DONE:
+						_quit_to_menu()
+						return
 				KEY_O:
-					get_tree().change_scene_to_file("res://scenes/object_viewer.tscn")
+					SceneFade.change_scene(get_tree(), "res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
 						hud.scorecard.visible = false
 					else:
-						hud.scorecard.show_card(card, course.course_name)
+						hud.scorecard.show_round(scoring, _round_name())
 					return
 				KEY_UP:
 					_change_club(-1)
@@ -207,7 +413,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					_change_club(1)
 					return
 				KEY_C:
-					get_tree().change_scene_to_file("res://scenes/course_viewer.tscn")
+					SceneFade.change_scene(get_tree(), "res://scenes/course_viewer.tscn")
+					return
+				KEY_R:
+					start_replay()
+					return
+				KEY_G:
+					grid_on = not grid_on
+					_update_green_grid()
 					return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:
@@ -219,6 +432,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_swing_pressed() -> void:
+	if _replaying:
+		_stop_replay()
+		return
+	if state == State.AIM and camera.flying():
+		camera.end_flyover()
+		return
 	match state:
 		State.AIM:
 			hud.scorecard.visible = false
@@ -261,6 +480,10 @@ func _change_club(step: int) -> void:
 func _prepare_shot(snap_camera: bool) -> void:
 	state = State.AIM
 	lie = hole.terrain.surface_at(ball_at.x, ball_at.z)
+	# The first shot is played from the teeing ground, whatever mown grass
+	# the course paints there.
+	if strokes == 0 and ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
+		lie = Surface.Type.TEE
 	_auto_club()
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
@@ -271,6 +494,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
+	_update_green_grid()
 
 
 func _process_aim(delta: float) -> void:
@@ -287,6 +511,7 @@ func _process_aim(delta: float) -> void:
 	aim_deg = wrapf(aim_deg + turn * rate * delta, -180.0, 180.0)
 	_place_golfer()
 	_update_aim_marker()
+	_update_hud()
 	_aim_camera(false)
 
 
@@ -295,7 +520,9 @@ func _process_flight(delta: float) -> void:
 	var p := shot.position_at(shot_time)
 	_place_ball(p)
 	_draw_trail(shot.sample_index_at(shot_time), p)
-	_follow_camera(p)
+	if shot_time >= _land_time:
+		_land_time = INF
+		sounds.play(&"land")
 	if shot_time >= shot.time_s:
 		_complete_flight()
 
@@ -304,14 +531,15 @@ func _complete_flight() -> void:
 	shot_time = shot.time_s
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
-	_follow_camera(shot.rest)
 	strokes += 1
+	if broadcast:
+		_report_shot()
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
 			sounds.play(&"cup")
 			ball.visible = false
-			_finish_hole(false)
+			_hole_out(false)
 			return
 		ShotResult.Outcome.WATER:
 			sounds.play(&"splash")
@@ -325,47 +553,151 @@ func _complete_flight() -> void:
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
-			if clubs[club_index].is_putter:
+			if broadcast:
+				msg = ""
+			elif clubs[club_index].is_putter:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
 	if strokes >= MAX_STROKES:
-		_finish_hole(true)
+		_hole_out(true)
 		return
-	hud.show_message(msg)
+	if players.size() > 1 and not msg.is_empty():
+		msg = scoring.names[current] + ": " + msg
+	if not msg.is_empty() or not broadcast:
+		hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
 
 
 func _after_result() -> void:
+	_stop_replay()
 	hud.show_message("")
 	_clear_trail()
-	_prepare_shot(false)
+	_store_turn()
+	var next := _next_player()
+	if next < 0:
+		_finish_hole()
+		return
+	if next == current:
+		_prepare_shot(false)
+	else:
+		_begin_turn(next, true)
+		if players.size() > 1:
+			hud.show_message("%s to play" % scoring.names[current], 1.5)
 
 
-func _finish_hole(picked_up: bool) -> void:
-	card.record(hole_index, strokes)
-	state = State.HOLE_DONE
+## The current player is done with the hole: holed, or picked up after
+## MAX_STROKES. The hole ends when everyone is.
+func _hole_out(picked_up: bool) -> void:
+	_store_turn()
+	var p := players[current]
+	p.holed = not picked_up
+	p.picked_up = picked_up
 	var title := "Picked up" if picked_up else Scorecard.score_name(strokes, hole.par)
 	if not picked_up and strokes < hole.par:
 		sounds.play(&"applause")
 		if golfer:
 			golfer.play(&"celebrate")
-	hud.show_message("%s!   %d on the par %d.   Round: %s" % [title, strokes, hole.par, Scorecard.format_to_par(card.to_par())])
-	hud.scorecard.show_card(card, course.course_name)
+	if _next_player() < 0:
+		_finish_hole()
+		return
+	_update_markers()
+	hud.show_message("%s: %s!   %d on the par %d." % [scoring.names[current], title, strokes, hole.par])
+	hud.hint.text = HINT_WAIT
+	state = State.SHOT_RESULT
+	result_timer = RESULT_PAUSE
+
+
+func _finish_hole() -> void:
+	for i in players.size():
+		scoring.cards[i].record(hole_index, players[i].strokes)
+	state = State.HOLE_DONE
+	if players.size() == 1:
+		var p := players[0]
+		var title := "Picked up" if p.picked_up else Scorecard.score_name(p.strokes, hole.par)
+		hud.show_message("%s!   %d on the par %d.   Round: %s" % [title, p.strokes, hole.par, Scorecard.format_to_par(card.to_par())])
+	else:
+		var parts: Array[String] = []
+		for i in players.size():
+			var p := players[i]
+			parts.append("%s %d%s" % [scoring.names[i], p.strokes, " (picked up)" if p.picked_up else ""])
+		var text := "   ".join(parts)
+		var result := scoring.hole_result(hole_index)
+		if not result.is_empty():
+			text += "\n" + result
+		hud.show_message(text)
+	_update_honour()
+	_update_markers()
+	hud.scorecard.show_round(scoring, _round_name())
 	hud.hint.text = HINT_WAIT
 	_update_hud()
 
 
+## The lowest score on the hole tees off first on the next; ties keep their
+## order.
+func _update_honour() -> void:
+	var order := honour.duplicate()
+	order.sort_custom(_tees_off_before)
+	honour = order
+
+
+func _tees_off_before(a: int, b: int) -> bool:
+	var sa := players[a].strokes
+	var sb := players[b].strokes
+	return sa < sb or (sa == sb and honour.find(a) < honour.find(b))
+
+
 func _next_hole() -> void:
-	if hole_index + 1 < course.holes.size():
+	_stop_replay()
+	if hole_index + 1 < holes.size() and not scoring.decided():
 		start_hole(hole_index + 1)
 		return
 	state = State.ROUND_DONE
-	hud.show_message("Round complete: %d (%s). Click to play again." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())])
-	hud.scorecard.show_card(card, course.course_name, "Final")
-	hud.hint.text = "Space or click: new round"
+	for p in players:
+		p.marker.visible = false
+	var text := "Round complete. " + scoring.winner_text()
+	if players.size() == 1 and round_setup.mode == GameModes.Mode.STROKE:
+		text = "Round complete: %d (%s)." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())]
+		if scoring.handicaps:
+			var net := scoring.scored_card(0)
+			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
+	var records := _record_rounds()
+	if not records.is_empty():
+		text += "\n" + records
+	hud.show_message(text)
+	hud.scorecard.show_round(scoring, _round_name(), "Final")
+	hud.hint.text = HINT_DONE
+
+
+## Adds each finished card to the player's profile and says what it did to
+## their handicap index. Rounds that stop early, or are shorter than nine
+## holes, don't count.
+func _record_rounds() -> String:
+	var profiles := PlayerProfiles.load_saved()
+	var date := Time.get_date_string_from_system()
+	var lines: Array[String] = []
+	for i in scoring.player_count():
+		var player := scoring.names[i]
+		var before := profiles.index_of(player)
+		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):
+			continue
+		var after := profiles.index_of(player)
+		if after == Handicap.NONE:
+			var left := 3 - profiles.rounds(player).size()
+			lines.append("%s: %d more round%s for a handicap index." % [player, left, "" if left == 1 else "s"])
+		elif before == Handicap.NONE or before == after:
+			lines.append("%s's handicap index: %s." % [player, Handicap.format(after)])
+		else:
+			lines.append("%s's handicap index: %s (was %s)." % [player, Handicap.format(after), Handicap.format(before)])
+	if not lines.is_empty():
+		profiles.save()
+	return "\n".join(lines)
+
+
+func _quit_to_menu() -> void:
+	SceneFade.change_scene(get_tree(), MENU_SCENE)
 
 
 ## Drop point for a ball in water: back along the line of flight to dry land,
@@ -438,16 +770,7 @@ func _build_world() -> void:
 	scenery = Scenery.new()
 	add_child(scenery)
 
-	ball = MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 1.0
-	sphere.height = 2.0
-	ball.mesh = sphere
-	var ball_mat := StandardMaterial3D.new()
-	ball_mat.albedo_color = Color.WHITE
-	ball_mat.emission_enabled = true
-	ball_mat.emission = Color(0.25, 0.25, 0.25)
-	ball.material_override = ball_mat
+	ball = _make_ball_mesh()
 	add_child(ball)
 
 	trail = MeshInstance3D.new()
@@ -457,6 +780,10 @@ func _build_world() -> void:
 	trail_mat.albedo_color = Color(1, 1, 0.6)
 	trail.material_override = trail_mat
 	add_child(trail)
+	tracer = BallTracer.new()
+	add_child(tracer)
+	green_grid = GreenGrid.new()
+	add_child(green_grid)
 
 	aim_marker = MeshInstance3D.new()
 	var ring := TorusMesh.new()
@@ -469,23 +796,107 @@ func _build_world() -> void:
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
 
-	camera = Camera3D.new()
+	camera = RoundCamera.new()
 	camera.far = 3000.0
 	add_child(camera)
+
+	grass = GrassField.new()
+	add_child(grass)
+	post = PostProcess.new()
+	add_child(post)
+	dynamic_resolution = DynamicResolution.new()
+	add_child(dynamic_resolution)
 
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	hud = Hud.new()
 	canvas.add_child(hud)
+	hud.use_art(HudArt.load_from_game())
 	settings_panel = SettingsPanel.new()
 	canvas.add_child(settings_panel)
 	settings_panel.changed.connect(_apply_graphics)
+	pause_menu = PauseMenu.new()
+	canvas.add_child(pause_menu)
+	pause_menu.resume_pressed.connect(pause_menu.close)
+	pause_menu.scorecard_pressed.connect(_on_pause_scorecard)
+	pause_menu.settings_pressed.connect(_on_pause_settings)
+	pause_menu.restart_pressed.connect(_on_pause_restart)
+	pause_menu.menu_pressed.connect(_quit_to_menu)
+
+
+func _make_ball_mesh() -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	m.mesh = sphere
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color.WHITE
+	mat.emission_enabled = true
+	mat.emission = Color(0.25, 0.25, 0.25)
+	m.material_override = mat
+	return m
+
+
+func _on_pause_scorecard() -> void:
+	pause_menu.close()
+	hud.scorecard.show_round(scoring, _round_name())
+
+
+func _on_pause_settings() -> void:
+	pause_menu.close()
+	settings_panel.open(graphics)
+
+
+func _on_pause_restart() -> void:
+	pause_menu.close()
+	start_round()
 
 
 func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
 	scenery.apply(graphics)
+	post.apply(graphics)
+	dynamic_resolution.setup(get_viewport(), graphics)
 	camera.fov = graphics.fov
+	camera.attributes = _camera_attributes()
+	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
+	if grass.level != graphics.grass and hole != null:
+		grass.setup(hole.terrain, graphics.grass)
+	broadcast = graphics.broadcast()
+	camera.broadcast = broadcast
+	hud.set_broadcast(broadcast)
+	trail.visible = not broadcast
+	tracer.visible = broadcast
+	if not broadcast:
+		hud.overlay.show_pip(false)
+		camera.end_flyover()
+	if hole != null and state == State.AIM:
+		_update_green_grid()
+	if wind != null:
+		wind.set_level(graphics.wind)
+		_update_wind_shaders()
+		if hole != null:
+			_update_hud()
+
+
+## Depth of field (Forward+ only): the far distance goes softly out of
+## focus, like a camera lens on a bright day; null for none.
+func _camera_attributes() -> CameraAttributes:
+	if not graphics.dof or not GraphicsSettings.is_forward_plus():
+		return null
+	var a := CameraAttributesPractical.new()
+	a.dof_blur_far_enabled = true
+	a.dof_blur_far_distance = 260.0
+	a.dof_blur_far_transition = 400.0
+	a.dof_blur_amount = 0.05 if graphics.look == GraphicsSettings.Look.CINEMATIC else 0.03
+	return a
+
+
+## Tells the grass, trees and water which way the wind blows.
+func _update_wind_shaders() -> void:
+	var v := wind.velocity()
+	RenderingServer.global_shader_parameter_set("wind_vector", Vector2(v.x, v.z))
 
 
 func _add_flag() -> void:
@@ -547,14 +958,20 @@ func _place_ball(p: Vector3) -> void:
 	_update_ball_size()
 
 
-## Draws the ball bigger with distance so it stays visible, as Links does.
+## Draws the balls bigger with distance so they stay visible, as Links does.
 func _update_ball_size() -> void:
-	if not ball.visible:
-		return
-	var d := camera.position.distance_to(_ball_base)
+	if ball.visible:
+		_size_ball(ball, _ball_base)
+	for p in players:
+		if p.marker.visible:
+			_size_ball(p.marker, p.at)
+
+
+func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
+	var d := camera.position.distance_to(base)
 	var r := maxf(BallPhysics.RADIUS, d * 0.0045)
-	ball.scale = Vector3.ONE * r
-	ball.position = _ball_base + Vector3.UP * r
+	m.scale = Vector3.ONE * r
+	m.position = base + Vector3.UP * r
 
 
 func _place_golfer() -> void:
@@ -597,16 +1014,23 @@ func _update_hud() -> void:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
-	hud.info.text = "%s    Hole %d    Par %d    %d yd\nStroke %d    To pin %s    Lie: %s\nClub: %s    Wind: calm\nRound: %s thru %d" % [
-		course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE),
-		strokes + 1, pin_text, Surface.name_of(lie),
-		club_text,
-		total, thru,
-	]
+	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
+	if players.size() > 1:
+		text += "%s    " % scoring.names[current]
+	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
+		strokes + 1, pin_text, Surface.name_of(lie), club_text, wind.describe(aim_deg), total, thru]
+	var status := scoring.status_text()
+	if not status.is_empty():
+		text += "\n" + status
+	hud.info.text = text
+	hud.wind.show_wind(wind, aim_deg)
+	if broadcast:
+		hud.overlay.set_status(_status(state == State.AIM or state == State.SWING))
 
 
 func _clear_trail() -> void:
 	_trail_mesh.clear_surfaces()
+	tracer.clear()
 
 
 func _draw_trail(upto: int, head: Vector3) -> void:
@@ -618,44 +1042,173 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 		_trail_mesh.surface_add_vertex(shot.points[i] + Vector3.UP * 0.05)
 	_trail_mesh.surface_add_vertex(head + Vector3.UP * 0.05)
 	_trail_mesh.surface_end()
+	if broadcast:
+		tracer.draw(shot.points, upto, head, camera.global_position)
 
 
 # --- Camera ------------------------------------------------------------------
 
-## Behind the ball, looking down the aim line.
-func _aim_camera(snap: bool) -> void:
-	var dir := _aim_dir()
+## Behind the ball, looking down the aim line. Links cuts straight to the
+## new view rather than gliding, so this always snaps.
+func _aim_camera(_snap: bool) -> void:
+	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter)
+
+
+# --- Broadcast presentation ---------------------------------------------------
+
+func _pin_text() -> String:
+	var to_pin := _flat_distance(ball_at, hole.pin)
+	if lie == Surface.Type.GREEN or to_pin < 20.0:
+		return "%d ft" % roundi(to_pin * FEET_PER_METRE)
+	return "%d yd" % roundi(to_pin * YARDS_PER_METRE)
+
+
+## What the broadcast graphics show for the current player and shot.
+func _status(aiming: bool) -> Dictionary:
+	var club := clubs[club_index]
+	var thru := card.holes_played()
+	var club_text := club.full_name
+	if not club.is_putter:
+		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
+	var elev := "Level" if absf(rise) < 1.0 else "%s%d ft" % ["+" if rise > 0.0 else "", roundi(rise)]
+	return {
+		"hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
+		"player": scoring.names[current], "to_par": "E" if thru == 0 else Scorecard.format_to_par(card.to_par()),
+		"thru": thru, "stroke": strokes + 1, "club": club_text, "to_pin": _pin_text(),
+		"lie": Surface.name_of(lie), "wind": wind.describe(aim_deg), "elevation": elev,
+		"ticker": _ticker_text(), "aiming": aiming,
+	}
+
+
+## The scrolling line along the bottom: the leaderboard with more than one
+## player, otherwise the round so far.
+func _ticker_text() -> String:
+	var parts: Array[String] = []
+	if scoring.player_count() > 1:
+		parts.append("LEADERBOARD")
+		var pos := 1
+		for row: Array in scoring.standings():
+			parts.append("%d. %s  %s" % [pos, str(row[0]).to_upper(), row[1]])
+			pos += 1
+	else:
+		parts.append(course.course_name.to_upper())
+		parts.append(GameModes.MODE_NAMES[round_setup.mode].to_upper())
+		parts.append("HOLE %d OF %d" % [hole_index + 1, holes.size()])
+		var thru := card.holes_played()
+		if thru > 0:
+			parts.append("ROUND %d (%s) THRU %d" % [card.total_strokes(), Scorecard.format_to_par(card.to_par()), thru])
+		parts.append("WIND %s" % wind.describe(aim_deg).to_upper())
+	return "      \u00b7      ".join(parts)
+
+
+## The shot card, a caption and the crowd after a shot (strokes already
+## counted). Great shots get an automatic replay.
+func _report_shot() -> void:
 	var putting := clubs[club_index].is_putter
-	var back := 3.5 if putting else 7.5
-	var up := 1.5 if putting else 2.6
-	_cam_pos = ball_at - dir * back + Vector3.UP * up
-	_cam_look = ball_at + dir * (8.0 if putting else 60.0) + Vector3.UP * (0.0 if putting else 3.0)
-	_keep_above_ground()
-	if snap:
-		camera.position = _cam_pos
-		_cam_look_now = _cam_look
-		camera.look_at(_cam_look_now)
+	var surface := hole.terrain.surface_at(shot.rest.x, shot.rest.z)
+	var to_pin := _flat_distance(shot.rest, hole.pin)
+	if shot.outcome == ShotResult.Outcome.HOLED:
+		to_pin = 0.0
+	hud.overlay.show_pip(false)
+	var line: Array = Commentary.pick(shot, surface, putting, to_pin, _shot_from_pin, _commentary_rng)
+	match line[1]:
+		Commentary.Crowd.POLITE:
+			sounds.play(&"applause")
+		Commentary.Crowd.CHEER:
+			sounds.play(&"crowd_cheer")
+		Commentary.Crowd.ROAR:
+			sounds.play(&"crowd_roar")
+		Commentary.Crowd.GROAN:
+			sounds.play(&"crowd_groan")
+		Commentary.Crowd.OOH:
+			sounds.play(&"crowd_ooh")
+	if not str(line[0]).is_empty():
+		hud.show_message(line[0], 4.0)
+	var where := "In the hole" if shot.outcome == ShotResult.Outcome.HOLED else Surface.name_of(surface)
+	if shot.outcome == ShotResult.Outcome.WATER:
+		where = "Water"
+	elif shot.outcome == ShotResult.Outcome.OUT_OF_BOUNDS:
+		where = "Out of bounds"
+	var left := "-" if to_pin == 0.0 else ("%d ft" % roundi(to_pin * FEET_PER_METRE) if to_pin < 20.0 else "%d yd" % roundi(to_pin * YARDS_PER_METRE))
+	var unit := FEET_PER_METRE if putting else YARDS_PER_METRE
+	var u := " ft" if putting else " yd"
+	hud.overlay.shot_card({
+		"title": "%s  shot %d" % [clubs[club_index].full_name, strokes],
+		"carry": "-" if putting else "%d%s" % [roundi(shot.carry_m * unit), u],
+		"roll": "%d%s" % [roundi(maxf(0.0, shot.total_m - shot.carry_m) * unit), u],
+		"total": "%d%s" % [roundi(shot.total_m * unit), u],
+		"height": "-" if putting else "%d ft" % roundi(shot.apex_m * FEET_PER_METRE),
+		"lie": where, "to_pin": left,
+	})
+	var great := shot.outcome == ShotResult.Outcome.HOLED and (not putting or _shot_from_pin > 9.0)
+	great = great or (not putting and to_pin < 2.0 and _shot_from_pin > 60.0)
+	if great:
+		_replay_delay = AUTO_REPLAY_DELAY
 
 
-## Holds at the tee for a moment, then chases the ball.
-func _follow_camera(p: Vector3) -> void:
-	_cam_look = p
-	if shot_time < 0.6 and not clubs[club_index].is_putter:
+## Replays the last shot from new camera angles, slowing down round the
+## landing. Works between shots and after holing out; a click ends it.
+func start_replay() -> bool:
+	if shot == null or _replaying or not (state == State.SHOT_RESULT or state == State.HOLE_DONE):
+		return false
+	_replaying = true
+	_replay_count += 1
+	_replay_time = 0.0
+	_ball_was_visible = ball.visible
+	ball.visible = true
+	hud.overlay.set_replay(true)
+	hud.overlay.hide_shot_card()
+	_clear_trail()
+	var putting := clubs[club_index].is_putter
+	camera.aim(shot_from, _aim_dir(), putting)
+	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
+	if golfer:
+		golfer.play(&"putt" if putting else &"swing")
+	sounds.play(&"putt" if putting else &"hit")
+	return true
+
+
+func _process_replay(delta: float) -> void:
+	var t_land := RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else -100.0
+	var slow := absf(_replay_time - t_land) < REPLAY_SLOW_SPAN
+	slow = slow or (shot.outcome == ShotResult.Outcome.HOLED and _replay_time > shot.time_s - 1.2)
+	_replay_time += delta * (REPLAY_SLOW if slow else 1.0)
+	var p := shot.position_at(_replay_time)
+	_place_ball(p)
+	_draw_trail(shot.sample_index_at(_replay_time), p)
+	if shot.outcome == ShotResult.Outcome.HOLED and _replay_time >= shot.time_s:
+		ball.visible = false
+	if _replay_time >= shot.time_s + REPLAY_HOLD:
+		_stop_replay()
+
+
+func _stop_replay() -> void:
+	_replay_delay = -1.0
+	if not _replaying:
 		return
-	var dir := _aim_dir()
-	var putting := clubs[club_index].is_putter
-	_cam_pos = p - dir * (4.0 if putting else 16.0) + Vector3.UP * (1.8 if putting else 6.0)
-	_keep_above_ground()
+	_replaying = false
+	hud.overlay.set_replay(false)
+	hud.overlay.wipe()
+	ball.visible = _ball_was_visible
+	_place_ball(shot.rest)
+	_draw_trail(shot.points.size() - 1, shot.rest)
+	result_timer = RESULT_PAUSE
 
 
-func _keep_above_ground() -> void:
-	var ground := hole.terrain.height_at(_cam_pos.x, _cam_pos.z)
-	_cam_pos.y = maxf(_cam_pos.y, ground + 1.0)
+func _place_pip_camera() -> void:
+	var start := shot.points[0]
+	var back := Vector3(hole.pin.x - start.x, 0.0, hole.pin.z - start.z).normalized()
+	var p := hole.pin + back * 9.0 + Vector3.UP * 2.0
+	p.y = maxf(p.y, hole.terrain.height_at(p.x, p.z) + 1.5)
+	var cam := hud.overlay.pip_camera
+	cam.position = p
+	cam.look_at(hole.pin + Vector3.UP * 0.5)
 
 
-func _update_camera(delta: float) -> void:
-	camera.position = camera.position.lerp(_cam_pos, 1.0 - exp(-delta * 2.5))
-	_cam_look_now = _cam_look_now.lerp(_cam_look, 1.0 - exp(-delta * 6.0))
-	var to_look := _cam_look_now - camera.position
-	if to_look.length() > 0.1 and absf(to_look.normalized().y) < 0.99:
-		camera.look_at(_cam_look_now)
+func _update_green_grid() -> void:
+	var on := broadcast and grid_on and state == State.AIM and clubs[club_index].is_putter \
+		and (lie == Surface.Type.GREEN or lie == Surface.Type.FRINGE)
+	green_grid.visible = on
+	if on:
+		green_grid.build(hole.terrain, ball_at, hole.pin)

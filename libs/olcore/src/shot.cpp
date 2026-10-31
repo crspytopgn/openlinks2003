@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "olcore/links_ground.hpp"
+
 namespace olcore {
 
 namespace {
@@ -23,6 +25,13 @@ double segment_distance_xz(Vec3 a, Vec3 b, Vec3 c) {
 
 constexpr double kRadToDeg = 57.29577951308232;
 constexpr double kMaxCraterDeg = 30.0;
+
+constexpr double kSolidRestitution = 0.35;  // normal speed kept off a trunk or wall
+constexpr double kSolidFriction = 0.75;     // speed along the face kept
+constexpr double kCanopyKeep = 0.2;         // speed kept going into leaves
+constexpr double kCanopyBounce = 0.05;      // normal speed kept coming back out
+constexpr double kObstacleGap = 0.01;       // m; keeps the ball off the face it hit
+constexpr double kFlatTop = 0.7;            // normal y above which the ball can rest on a solid
 
 bool is_hazard_stop(Surface s) { return s == Surface::Water || s == Surface::OutOfBounds; }
 
@@ -128,8 +137,26 @@ void bounce(Vec3& velocity, Vec3& spin, Vec3 n, Surface surface, const BallParam
   velocity = vt + n * (-e * vn);
 }
 
+void hit_obstacle(Vec3& velocity, Vec3& spin, const ObstacleHit& hit) {
+  double vn = dot(velocity, hit.normal);
+  if (vn >= 0) {
+    return;
+  }
+  Vec3 vt = velocity - hit.normal * vn;
+  if (hit.kind == ObstacleKind::Solid) {
+    velocity = vt * kSolidFriction - hit.normal * (vn * kSolidRestitution);
+    spin = spin * 0.5;
+  } else {
+    velocity = vt * kCanopyKeep - hit.normal * (vn * kCanopyBounce);
+    spin = spin * 0.2;
+  }
+}
+
 ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                          const ShotOptions& opt) {
+  if (p.links) {
+    return simulate_links_shot(start, p, terrain, opt);
+  }
   ShotResult r;
   BallState s = start;
   double t = 0;
@@ -169,6 +196,32 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
       t += opt.dt;
       ++step;
       r.apex_m = std::max(r.apex_m, next.position.y - start.position.y);
+
+      // An obstacle met before the ground. Time keeps the whole step, so a
+      // ball wedged between obstacles still runs out of time.
+      double ground = h1 <= 0 ? (h0 > 0 ? h0 / (h0 - h1) : 0.0) : 2.0;
+      ObstacleHit hit;
+      if (terrain.obstacle_hit(s.position, next.position, hit) && hit.fraction < ground) {
+        Vec3 pos = s.position + (next.position - s.position) * hit.fraction;
+        Vec3 vel = s.velocity + (next.velocity - s.velocity) * hit.fraction;
+        Vec3 spin = next.spin;
+        hit_obstacle(vel, spin, hit);
+        // Just outside a solid, or just inside a canopy, so the same face
+        // is not met again.
+        pos = pos + hit.normal * (hit.kind == ObstacleKind::Solid ? kObstacleGap : -kObstacleGap);
+        ++r.obstacle_hits;
+        r.path.push_back({t, pos});
+        // Settled on top of something flat enough (a wall, a bridge).
+        if (hit.kind == ObstacleKind::Solid && hit.normal.y > kFlatTop && dot(vel, hit.normal) < opt.roll_threshold) {
+          if (!landed) {
+            landed = true;
+            r.first_landing = pos;
+          }
+          return finish(ShotOutcome::Rest, pos);
+        }
+        s = BallState{pos, vel, spin};
+        continue;
+      }
 
       if (h1 <= 0) {
         // Back up to the moment of contact.
@@ -235,6 +288,20 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
       nv = nv - nn * dot(nv, nn);
       t += opt.dt;
       ++step;
+
+      // Rolling into a trunk or a wall; leaves do not stop a rolling ball.
+      ObstacleHit hit;
+      if (terrain.obstacle_hit(pos, npos, hit) && hit.kind == ObstacleKind::Solid) {
+        Vec3 hp = pos + (npos - pos) * hit.fraction + hit.normal * kObstacleGap;
+        hp.y = terrain.height(hp.x, hp.z);
+        hit_obstacle(nv, s.spin, hit);
+        Vec3 hn = terrain.normal(hp.x, hp.z);
+        s.position = hp;
+        s.velocity = nv - hn * dot(nv, hn);
+        ++r.obstacle_hits;
+        r.path.push_back({t, hp});
+        continue;
+      }
 
       if (opt.has_cup && length(nv) < opt.max_holing_speed &&
           segment_distance_xz(pos, npos, opt.cup) < opt.cup_radius) {

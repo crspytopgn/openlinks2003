@@ -4,7 +4,13 @@ extends RefCounted
 
 var number := 1
 var par := 4
+## Stroke index from the course: 1 is the hardest hole, where handicap
+## strokes go first. 0 if the course doesn't say.
+var stroke_index := 0
+## The tee in play.
 var tee := Vector3.ZERO
+## Every tee box, back to forward, when the course has more than one.
+var tees: Array[Vector3] = []
 var pin := Vector3.ZERO
 var terrain: CourseTerrain
 var objects: Array[PlacedObject] = []

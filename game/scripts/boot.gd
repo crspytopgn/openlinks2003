@@ -1,6 +1,7 @@
 extends Control
-## First screen: makes sure the game can find the player's own Links 2003
-## files, lets the player choose a course, then starts the round. On desktop
+## First screen and main menu: makes sure the game can find the player's own
+## Links 2003 files, then offers the main menu (play a round, settings) and
+## the round setup page (RoundSetupPanel), then starts the round. On desktop
 ## the files come from a folder (asked for once, then remembered). In the
 ## browser the player picks their disc images or a game folder once; the
 ## browser keeps them locally and nothing is uploaded. Either way the game can
@@ -14,7 +15,10 @@ var _status: Label
 var _bar: ProgressBar
 var _buttons: HBoxContainer
 var _play: Button
-var _course: OptionButton
+var _main_box: VBoxContainer
+var _setup: RoundSetupPanel
+var _settings: SettingsPanel
+var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
 var _course_paths: PackedStringArray = []
@@ -23,6 +27,7 @@ var _busy := false
 
 
 func _ready() -> void:
+	_graphics = GraphicsSettings.load_saved()
 	_build_ui()
 	if WebGameFiles.is_supported():
 		_web = WebGameFiles.new()
@@ -47,6 +52,14 @@ func _build_ui() -> void:
 	box.custom_minimum_size = Vector2(720, 0)
 	box.add_theme_constant_override("separation", 16)
 	center.add_child(box)
+	_main_box = box
+	_setup = RoundSetupPanel.new()
+	_setup.start_pressed.connect(_on_setup_start)
+	_setup.back_pressed.connect(_close_setup)
+	center.add_child(_setup)
+	_settings = SettingsPanel.new()
+	_settings.changed.connect(func() -> void: _graphics.apply_display(get_viewport()))
+	center.add_child(_settings)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -62,12 +75,6 @@ func _build_ui() -> void:
 	_bar.custom_minimum_size = Vector2(0, 22)
 	_bar.visible = false
 	box.add_child(_bar)
-	_course = OptionButton.new()
-	_course.custom_minimum_size = Vector2(320, 36)
-	_course.visible = false
-	var course_row := CenterContainer.new()
-	course_row.add_child(_course)
-	box.add_child(course_row)
 	_buttons = HBoxContainer.new()
 	_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	_buttons.add_theme_constant_override("separation", 12)
@@ -141,7 +148,7 @@ func _check_stored() -> void:
 			_set_buttons([
 				["Use my game files", _reconnect],
 				["Load different files...", _pick.bind(false)],
-				["Play with placeholders", _start],
+				["Play with placeholders", _play_placeholders],
 			])
 		_:
 			_ask_for_files()
@@ -157,7 +164,7 @@ func _ask_for_files(problem := "") -> void:
 	_set_buttons([
 		["Load disc images...", _pick.bind(false)],
 		["Load a game folder...", _pick.bind(true)],
-		["Play with placeholders", _start],
+		["Play with placeholders", _play_placeholders],
 	])
 
 
@@ -233,27 +240,25 @@ func _forget() -> void:
 	await _web.forget()
 	GameFolder.override_path = ""
 	_stored = {}
-	_course.visible = false
+	_course_paths = PackedStringArray()
 	_check_stored()
 
 
 # --- Ready to play ------------------------------------------------------------
 
-## Shows the course picker (the placeholder course plus any found in the
-## player's files), a Play button and `extra` buttons.
+## Shows the main menu: Play a round (the setup page offers the placeholder
+## course plus any found in the player's files), `extra` buttons for the game
+## files, Settings and Quit.
 func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 	_course_paths = courses
-	_course.clear()
-	_course.add_item("Placeholder Nine (built in)")
-	for path in courses:
-		_course.add_item(CourseFiles.display_name(path))
-	_course.select(0 if courses.is_empty() else 1)
-	_course.visible = true
 	if courses.is_empty():
 		_status.text = "Your game files are ready. No course files were found among them."
 	else:
-		_status.text = "Your game files are ready. Choose a course."
-	_set_buttons([["Play", _play_chosen]] + extra)
+		_status.text = "Your game files are ready: %d courses." % courses.size()
+	var items: Array = [["Play a round", _open_setup]] + extra + [["Settings", _open_settings]]
+	if not OS.has_feature("web"):
+		items.append(["Quit", get_tree().quit])
+	_set_buttons(items)
 	if _web != null:
 		_community_hint.text = "Download a course, then press Add a course and pick the .zip. It's played with your own copy of the game."
 	else:
@@ -261,15 +266,75 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 	_community.visible = true
 
 
-func _play_chosen() -> void:
+func _play_placeholders() -> void:
+	_course_paths = PackedStringArray()
+	_open_setup()
+
+
+func _open_setup() -> void:
 	if _busy:
 		return
-	var i := _course.selected
-	if i <= 0:
+	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	for path in _course_paths:
+		names.append(CourseFiles.display_name(path))
+	var saved := RoundSetup.load_saved()
+	# The last course played, or the first real one.
+	var selected := 0 if _course_paths.is_empty() else 1
+	var last := _last_course()
+	if not last.is_empty() and _course_paths.has(last):
+		selected = _course_paths.find(last) + 1
+	_main_box.visible = false
+	_settings.close()
+	_setup.open(names, selected, saved)
+	SceneFade.pop_in(_setup)
+
+
+func _close_setup() -> void:
+	_setup.visible = false
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
+func _open_settings() -> void:
+	_main_box.visible = false
+	_settings.open(_graphics)
+	SceneFade.pop_in(_settings)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+		if _settings.visible:
+			_settings.close()
+			_main_box.visible = true
+			SceneFade.pop_in(_main_box)
+		elif _setup.visible:
+			_close_setup()
+
+
+static func _last_course() -> String:
+	var cfg := ConfigFile.new()
+	cfg.load(GameFolder.SETTINGS_PATH)
+	return cfg.get_value("round", "course", "")
+
+
+func _on_setup_start(chosen: RoundSetup, course_index: int) -> void:
+	if _busy:
+		return
+	chosen.save()
+	var cfg := ConfigFile.new()
+	cfg.load(GameFolder.SETTINGS_PATH)
+	cfg.set_value("round", "course", "" if course_index <= 0 else _course_paths[course_index - 1])
+	cfg.save(GameFolder.SETTINGS_PATH)
+	GolfRound.setup = chosen
+	if course_index <= 0:
+		chosen.course_path = ""
 		GolfRound.chosen_course = ""
 		_start()
 		return
-	var path := _course_paths[i - 1]
+	_close_setup()
+	var path := _course_paths[course_index - 1]
 	if _web != null:
 		# In the browser the course is copied into memory only when chosen.
 		_busy = true
@@ -282,6 +347,7 @@ func _play_chosen() -> void:
 				_busy = false
 				return
 		path = WebGameFiles.ROOT.path_join(path)
+	chosen.course_path = path
 	GolfRound.chosen_course = path
 	_start()
 
@@ -311,7 +377,7 @@ func _show_desktop_choice() -> void:
 		+ "(or a folder you extracted with tools/cdimage/cdimage.py install).")
 	_set_buttons([
 		["Choose game folder...", _choose_folder],
-		["Play with placeholders", _start],
+		["Play with placeholders", _play_placeholders],
 	])
 
 
@@ -350,4 +416,4 @@ static func _folder_ok(path: String) -> bool:
 
 
 func _start() -> void:
-	get_tree().change_scene_to_file(MAIN_SCENE)
+	SceneFade.change_scene(get_tree(), MAIN_SCENE)

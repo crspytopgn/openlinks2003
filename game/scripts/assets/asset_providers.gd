@@ -34,6 +34,9 @@ static func ensure_defaults() -> void:
 	if golfer_assets == null:
 		golfer_assets = PlaceholderGolferAssets.new()
 	if shot_model == null:
+		# The game's own ball flight when the player's executable is there.
+		shot_model = LinksShotModel.from_game_folder()
+	if shot_model == null:
 		shot_model = StandardShotModel.new()
 
 

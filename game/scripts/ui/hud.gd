@@ -1,12 +1,20 @@
 class_name Hud
 extends Control
 ## On-screen text: hole and shot info, messages, controls, and the meter.
+## In the Broadcast presentation the TV graphics (BroadcastOverlay) take the
+## place of the info text and bars, and messages become captions.
 
 var info: Label
 var message: Label
 var hint: Label
 var meter: SwingMeter
+var wind: WindIndicator
 var scorecard: ScorecardPanel
+## With the player's own interface art: one chrome bar per line of `info`.
+var art: HudArt
+var _bars: Array[InfoBar] = []
+var overlay: BroadcastOverlay
+var broadcast := false
 
 var _message_time := 0.0
 
@@ -29,16 +37,55 @@ func _ready() -> void:
 	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -34, 900, 26))
 	add_child(hint)
 
+	wind = WindIndicator.new()
+	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 12, 90, 112))
+	add_child(wind)
+
 	meter = SwingMeter.new()
 	_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))
 	add_child(meter)
+
+	overlay = BroadcastOverlay.new()
+	overlay.visible = false
+	add_child(overlay)
+	move_child(overlay, 0)
 
 	scorecard = ScorecardPanel.new()
 	scorecard.visible = false
 	add_child(scorecard)
 
 
+## Switches to the original's interface pieces from the player's files.
+func use_art(hud_art: HudArt) -> void:
+	art = hud_art
+	if art == null:
+		return
+	info.visible = false
+	meter.art = art
+	var want := meter.wanted_size()
+	_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
+	meter.queue_redraw()
+
+
+## Switches between the Classic interface and the broadcast graphics.
+func set_broadcast(on: bool) -> void:
+	broadcast = on
+	overlay.visible = on
+	info.visible = not on and art == null
+	for bar in _bars:
+		bar.visible = false
+	if on:
+		message.text = ""
+	else:
+		overlay.caption("")
+	# The wind sits below the LIVE bug, and the hints above the ticker.
+	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 50 if on else 12, 90, 112))
+	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+
+
 func _process(delta: float) -> void:
+	if art != null and not broadcast:
+		_update_bars()
 	if _message_time > 0.0:
 		_message_time -= delta
 		if _message_time <= 0.0:
@@ -50,6 +97,11 @@ func _process(delta: float) -> void:
 
 ## Shows a message; seconds <= 0 keeps it until the next one.
 func show_message(text: String, seconds := 0.0) -> void:
+	if broadcast:
+		overlay.caption(text.replace("\n", "    "), seconds)
+		message.text = ""
+		_message_time = 0.0
+		return
 	message.text = text
 	_message_time = seconds
 
@@ -70,3 +122,17 @@ func _label(font_size: int) -> Label:
 	l.add_theme_constant_override("outline_size", 5)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+func _update_bars() -> void:
+	var lines := info.text.split("\n", false)
+	while _bars.size() < lines.size():
+		var bar := InfoBar.new(art)
+		bar.position = Vector2(8, 6 + _bars.size() * (bar.size.y - 10.0))
+		add_child(bar)
+		move_child(bar, 0)
+		_bars.append(bar)
+	for i in _bars.size():
+		_bars[i].visible = i < lines.size()
+		if i < lines.size():
+			_bars[i].text = lines[i].strip_edges()

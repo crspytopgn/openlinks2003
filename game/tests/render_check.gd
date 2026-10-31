@@ -6,6 +6,7 @@ extends SceneTree
 ##
 ##   godot --path game --rendering-method gl_compatibility -s res://tests/render_check.gd -- out.png
 
+const FLYOVER_FRAME := 20
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
 
@@ -18,6 +19,11 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	_out = args[0] if args.size() > 0 else "user://render_check.png"
 	print("renderer: %s" % RenderingServer.get_current_rendering_method())
+	# Fixed wind, so the shots (and what the camera sees) are the same every run.
+	GolfRound.wind_seed = 20031
+	# The richest look, so every effect's shader compiles; a fixed 3D
+	# resolution, as software rendering is far too slow for 60 fps.
+	GraphicsSettings.force_look = GraphicsSettings.Look.PHOTOREAL
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
@@ -25,9 +31,21 @@ func _initialize() -> void:
 
 func _process(_delta: float) -> bool:
 	_frames += 1
-	if _frames == 2:
+	if _frames == 1:
+		# The round is ready by now.
+		_game.graphics.dynamic_res = 0
+		_game._apply_graphics()
+	elif _frames == 2:
 		_game.start_hole(1)
+		_game.scenery.set_backdrop(_test_horizon())
+	elif _frames == 3:
+		print("post process: visible %s, covers %s" % [_game.post.visible, _game.post.covered_size()])
+	elif _frames == FLYOVER_FRAME:
+		# The Broadcast presentation opens the hole with a flyover.
+		_save_jpg(root.get_texture().get_image(), "-flyover")
+		_game.camera.end_flyover()
 	elif _frames == SHOT_FRAME:
+		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()
 	elif _frames == CAPTURE_FRAME:
 		_capture()
@@ -42,6 +60,7 @@ func _capture() -> void:
 		quit(1)
 		return
 	img.save_png(_out)
+	_save_jpg(img, "")
 	print("saved %s (%dx%d)" % [_out, img.get_width(), img.get_height()])
 	var top := _mean(img, Rect2i(img.get_width() / 3, 0, img.get_width() / 3, img.get_height() / 8))
 	var bottom := _mean(img, Rect2i(img.get_width() / 4, img.get_height() * 3 / 4, img.get_width() / 2, img.get_height() / 8))
@@ -53,6 +72,25 @@ func _capture() -> void:
 	else:
 		print("RENDER CHECK FAILED: unexpected colours")
 		quit(1)
+
+
+## A smaller JPEG copy next to the PNG (out-tee.jpg for the view from the
+## tee), which CI can print when asked for screenshots.
+func _save_jpg(img: Image, suffix: String) -> void:
+	if img == null or img.is_empty():
+		return
+	var small := img.duplicate() as Image
+	small.resize(1280, 1280 * small.get_height() / small.get_width(), Image.INTERPOLATE_LANCZOS)
+	small.save_jpg(_out.get_basename() + suffix + ".jpg", 0.85)
+
+
+## A stand-in horizon so the backdrop's shader compiles here: green land
+## below eye level, transparent above, like a course's Panorama.
+func _test_horizon() -> Image:
+	var img := Image.create_empty(1024, 96, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	img.fill_rect(Rect2i(0, 64, 1024, 32), Color(0.25, 0.4, 0.2))
+	return img
 
 
 func _mean(img: Image, r: Rect2i) -> Color:
