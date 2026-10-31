@@ -381,7 +381,7 @@ func _test_scorecard() -> void:
 	for i in 10:
 		scoring.cards[0].record(i, 5)
 	var panel := ScorecardPanel.new()
-	root.add_child(panel)
+	panel._ready()  # not in the tree yet: nodes added now only get _ready() once the main loop runs
 	panel.show_round(scoring, "Test")
 	var grid: GridContainer = panel._grid
 	_check(grid.columns == 21, "scorecard: 18 holes, Out and Tot")
