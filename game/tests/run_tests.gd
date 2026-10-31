@@ -689,6 +689,7 @@ func _test_round_scoring() -> void:
 	_check(r.team_name(0) == "Ann & Cy", "team name")
 	_check(r.team_scores(0)[0] == 3, "team best ball")
 	_check(r.hole_result(0) == "Ann & Cy win the hole, 3 to 4.", "best ball hole: %s" % r.hole_result(0))
+	_check(r.winner_text() == "Ann & Cy win: 3 (-1)", "best ball winner: %s" % r.winner_text())
 
 	s.mode = GameModes.Mode.STABLEFORD
 	r = RoundScoring.new(s, pars, numbers)
@@ -697,6 +698,10 @@ func _test_round_scoring() -> void:
 	r.cards[2].record(0, 6)
 	_check(r.standings()[0] == ["Ann", "3 points"], "stableford leader: %s" % [r.standings()])
 	_check(r.winner_text() == "Ann wins: 3 points", "stableford winner: %s" % r.winner_text())
+	r.cards[1].record(0, 3)
+	r.cards[2].record(0, 3)
+	var tie := r.winner_text()
+	_check(tie.begins_with("Tied at the top: ") and tie.ends_with(", 3 points") and "Ann" in tie and "Bob" in tie and "Cy" in tie and " and " in tie, "three-way tie: %s" % tie)
 
 
 ## The hole of test_drop_rules in libs/olcore/tests/test_main.cpp: a stream
