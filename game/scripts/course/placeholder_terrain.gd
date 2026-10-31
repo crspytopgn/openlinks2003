@@ -6,15 +6,24 @@ extends CourseTerrain
 
 const GRID_STEP := 2.5  ## metres between visual mesh vertices
 const MARGIN := 40.0  ## ground drawn beyond the out-of-bounds line
+## The first cut: rough this close to the fairway is mown a little longer
+## than the fairway (its colour only; the ball plays it as rough).
+const FIRST_CUT := 2.5
+const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
+## Mowing stripe strength per surface (the terrain shader draws them along
+## the hole, crisp, from UV: x across the hole, -y the strength).
+const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.5}
 
+## Olive, yellow-green turf as real courses have in sun (brighter, bluer
+## greens read as lime under the Photoreal light).
 var _colors := {
-	Surface.Type.TEE: Color(0.33, 0.62, 0.25),
-	Surface.Type.FAIRWAY: Color(0.30, 0.58, 0.20),
-	Surface.Type.FRINGE: Color(0.32, 0.64, 0.26),
-	Surface.Type.GREEN: Color(0.36, 0.72, 0.30),
-	Surface.Type.ROUGH: Color(0.20, 0.43, 0.14),
-	Surface.Type.DEEP_ROUGH: Color(0.15, 0.33, 0.11),
-	Surface.Type.SAND: Color(0.86, 0.80, 0.60),
+	Surface.Type.TEE: Color(0.29, 0.48, 0.19),
+	Surface.Type.FAIRWAY: Color(0.29, 0.47, 0.18),
+	Surface.Type.FRINGE: Color(0.27, 0.47, 0.19),
+	Surface.Type.GREEN: Color(0.30, 0.52, 0.21),
+	Surface.Type.ROUGH: Color(0.22, 0.38, 0.14),
+	Surface.Type.DEEP_ROUGH: Color(0.19, 0.31, 0.12),
+	Surface.Type.SAND: Color(0.78, 0.72, 0.55),
 	Surface.Type.WATER: Color(0.12, 0.25, 0.35),
 	Surface.Type.OUT_OF_BOUNDS: Color(0.13, 0.27, 0.10),
 }
@@ -127,7 +136,42 @@ func build_visual() -> Node3D:
 		var water := Materials.water_disc(w.z + 4.0)
 		water.position = Vector3(w.x, _pond_levels[i], w.y)
 		root.add_child(water)
+	if TreeFactory.enabled():
+		_add_tree_line(root)
 	return root
+
+
+## Woods round the edge of the ground, out of bounds, so the hole is set
+## among trees instead of ending in a bare edge against the sky. Visual
+## only (far trees are impostors); the ball never gets there.
+func _add_tree_line(root: Node3D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector2i(roundi(tee.x), roundi(tee.y)))
+	var trees := PackedFloat32Array()
+	var ring := bounds.grow(MARGIN * 0.55)
+	var corners := [ring.position, Vector2(ring.end.x, ring.position.y), ring.end, Vector2(ring.position.x, ring.end.y)]
+	for side in 4:
+		var a: Vector2 = corners[side]
+		var b: Vector2 = corners[(side + 1) % 4]
+		var out := (b - a).normalized().orthogonal()
+		var length := a.distance_to(b)
+		var at := 0.0
+		while at < length:
+			for row in 2:
+				var p := a.lerp(b, at / length) + out * (row * 9.0 + rng.randf_range(-3.0, 3.0))
+				var species := TreeFactory.Species.PINE if rng.randf() < 0.45 else TreeFactory.Species.BROADLEAF
+				trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y) - 0.2, p.y, rng.randf_range(10.0, 17.0), species]))
+			at += rng.randf_range(6.0, 10.0)
+	for batch: Dictionary in TreeFactory.batches(trees, 50.0):
+		var node := MultiMeshInstance3D.new()
+		node.name = "TreeLine"
+		node.multimesh = batch.multimesh
+		node.position = batch.position
+		if batch.full:
+			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
+		else:
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(node)
 
 
 func _build_ground_mesh() -> MeshInstance3D:
@@ -142,6 +186,10 @@ func _build_ground_mesh() -> MeshInstance3D:
 	colors.resize(nx * nz)
 	var weights := PackedVector2Array()
 	weights.resize(nx * nz)
+	var uvs := PackedVector2Array()
+	uvs.resize(nx * nz)
+	var dir := (green_center() - tee).normalized()
+	var across := Vector2(-dir.y, dir.x)
 	for j in nz:
 		for i in nx:
 			var x := area.position.x + i * GRID_STEP
@@ -151,7 +199,9 @@ func _build_ground_mesh() -> MeshInstance3D:
 			heights[k] = h
 			verts[k] = Vector3(x, h, z)
 			colors[k] = _color_at(x, z)
-			weights[k] = Materials.terrain_weights(surface_at(x, z))
+			var surface := surface_at(x, z)
+			weights[k] = Materials.terrain_weights(surface)
+			uvs[k] = Vector2(across.dot(Vector2(x, z)), -float(STRIPES.get(surface, 0.0)))
 
 	var normals := PackedVector3Array()
 	normals.resize(nx * nz)
@@ -186,6 +236,7 @@ func _build_ground_mesh() -> MeshInstance3D:
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_TEX_UV2] = weights
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
@@ -203,12 +254,11 @@ func ground_color_at(x: float, z: float) -> Color:
 
 func _color_at(x: float, z: float) -> Color:
 	var s := surface_at(x, z)
-	var c: Color = _colors[s]
-	if s == Surface.Type.FAIRWAY or s == Surface.Type.GREEN:
-		# Mowing stripes.
-		var stripe := int(floor((x + z * 0.15) / 6.0)) % 2
-		c = c.lightened(0.06) if stripe == 0 else c
-	return c
+	if s == Surface.Type.ROUGH:
+		var r := _route_distance(Vector2(x, z))
+		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+			return FIRST_CUT_COLOR
+	return _colors[s]
 
 
 func _base(x: float, z: float) -> float:

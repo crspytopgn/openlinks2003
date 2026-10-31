@@ -146,6 +146,17 @@ at Medium and grass at Low.
   Paths, dirt and rocks keep the disc textures. A blended edge (fairway to
   rough, round bunkers and tees) draws both layers' photo grounds, faded by
   the course's own ragged edge mask.
+- **Free course turf** (`terrain.gdshader`, `PlaceholderTerrain`, the
+  designer's colours): olive, yellow-green turf rather than lime; crisp
+  mowing stripes along the hole on fairways, greens and tees (7 m wide,
+  from the mesh's UV: x across the hole, -y the stripe strength, so other
+  meshes get none); a first cut of slightly darker rough 2.5 m wide
+  beside the fairway (colour only, the ball plays it as rough); bunkers
+  with a trimmed, slightly ragged edge sharpened from the sand weight
+  (the sand colour taken back out of the grass beside it) and a shaded
+  lip of turf; and with 3D trees on, two rows of woods round the edge of
+  the ground, out of bounds and mostly impostors, so the hole no longer
+  ends in a bare edge against the sky.
 - **Water's edge**: a disc course's water triangles carry how far each
   vertex is from the bank (`CrzTerrain._shore_levels`: 0 on a vertex dry
   ground also uses, 0.5 one triangle out, 1 beyond, in the vertex colour).
