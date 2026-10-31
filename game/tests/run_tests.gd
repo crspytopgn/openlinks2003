@@ -947,6 +947,8 @@ func _test_caddie() -> void:
 	print("  approach: " + advice.text)
 	_check(advice.is_ready() and not clubs[advice.club_index].is_putter, "a full club for an approach")
 	_check(advice.text.to_lower().contains(clubs[advice.club_index].full_name.to_lower()), "names the club it planned")
+	_check(clubs[advice.club_index].short_name in ["8i", "9i"], "a full 8 or 9 iron for 140 m, as a caddie would (%s)" % clubs[advice.club_index].short_name)
+	_check(CaddieAdvice.club_for(clubs, 150.0, Surface.Type.FAIRWAY) == 8, "8 iron reaches 150 m")
 	hole.terrain = FlatTerrain.new(Surface.Type.GREEN)
 	hole.pin = Vector3(0.0, 0.0, 6.0)
 	advice.start(model, clubs, hole, Vector3.ZERO, Surface.Type.GREEN, Vector3.ZERO, 3)

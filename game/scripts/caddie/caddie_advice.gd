@@ -100,6 +100,16 @@ func _compose() -> String:
 	var dir := Vector3(sin(deg_to_rad(heading)), 0.0, cos(deg_to_rad(heading)))
 	var left := Vector3.UP.cross(dir)
 	var reach := club.total_m * Surface.lie_power(_lie)
+	# With the pin in range, a caddie names the club that gets there with a
+	# full swing for what the shot plays like, not the planner's soft long
+	# club; the planner's line still stands.
+	var plays := plays_like_m(dist, _hole.pin.y - _from.y, _wind.dot(dir))
+	var full := club_for(_clubs, plays, _lie)
+	if full >= 0 and dist <= _clubs[0].total_m * Surface.lie_power(_lie):
+		club_index = full
+		club = _clubs[full]
+		power = 1.0
+		reach = club.total_m * Surface.lie_power(_lie)
 	return shot_text(detail, {
 		"to_pin_m": dist, "rise_m": _hole.pin.y - _from.y,
 		"wind_along_mps": _wind.dot(dir), "wind_cross_mps": _wind.dot(left),
@@ -107,6 +117,15 @@ func _compose() -> String:
 		"in_range": dist <= reach * 1.08, "lie": _lie, "par": _hole.par,
 		"tee": _lie == Surface.Type.TEE,
 	})
+
+
+## The shortest club whose full swing from `lie` reaches `plays_m`, or -1.
+static func club_for(clubs: Array[Club], plays_m: float, lie: int) -> int:
+	var best := -1
+	for i in clubs.size():
+		if not clubs[i].is_putter and clubs[i].total_m * Surface.lie_power(lie) >= plays_m:
+			best = i
+	return best
 
 
 ## What a shot of `distance_m` plays like, with the pin `rise_m` above the
