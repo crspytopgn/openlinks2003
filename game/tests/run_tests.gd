@@ -86,6 +86,7 @@ func _process(_delta: float) -> bool:
 	_run("pause_stops_play", _test_pause_stops_play)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
+	_run("viewer_return", _test_viewer_return)
 	_run("players_panel", _test_players_panel)
 	SavedRound.clear()
 	_run("menu_resume", _test_menu_resume)
@@ -1891,6 +1892,34 @@ func _test_menu_resume() -> void:
 	SavedRound.save(s, {"hole": 0})
 	_check(boot._resume_slot() == 0, "menu: the placeholder course resumes")
 	boot.free()
+
+
+## Leaving for the object or course viewer and coming back carries on with
+## the round; one saved on the end-of-hole screen counts the hole once.
+func _test_viewer_return() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.HOLE_DONE and steps < 200:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.HOLE_DONE and game.hole_index == 0, "viewer: hole 1 finished")
+	var stats: Dictionary = game.round_stats[0].duplicate()
+	var strokes: Array = Array(game.scoring.cards[0].strokes)
+	game.prepare_return()
+	_check(not GolfRound.resume.is_empty(), "viewer: the round is kept to come back to")
+	game.start_round()
+	_check(GolfRound.resume.is_empty(), "viewer: used once")
+	_check(game.state == GolfRound.State.HOLE_DONE and game.hole_index == 0, "viewer: back on the end-of-hole screen")
+	_check(Array(game.scoring.cards[0].strokes) == strokes, "viewer: the card is the same")
+	for key: String in stats:
+		_check(int(game.round_stats[0][key]) == int(stats[key]), "viewer: %s counted once" % key)
+	game.auto_play_step()
+	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "viewer: on to hole 2")
+	SavedRound.clear()
 
 
 ## The full and multiplayer rounds above went into the test profiles.

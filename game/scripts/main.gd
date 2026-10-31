@@ -334,7 +334,8 @@ func _restore(saved: Dictionary) -> void:
 	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
 	var next := _next_player()
 	if next < 0:
-		_finish_hole()
+		# Saved on the end-of-hole screen: the stats already count the hole.
+		_finish_hole(false)
 		return
 	_begin_turn(next, true)
 	hud.show_message("Round resumed: %s to play" % scoring.names[shooter], 2.5)
@@ -357,6 +358,22 @@ func _save_progress() -> void:
 		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
 		"stats": round_stats,
 	})
+
+
+## The object and course viewers (O, C) come back to a new round scene, so
+## the round is carried over as if resumed. Only between shots: a shot in
+## the air would be lost.
+func _visit(scene: String) -> void:
+	if not (state == State.AIM or state == State.HOLE_DONE or state == State.ROUND_DONE):
+		return
+	prepare_return()
+	SceneFade.change_scene(get_tree(), scene)
+
+
+## Saves the round and keeps it to carry on with when this scene opens again.
+func prepare_return() -> void:
+	_save_progress()
+	resume = SavedRound.load_state() if state != State.ROUND_DONE else {}
 
 
 func _round_name() -> String:
@@ -694,7 +711,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						_quit_to_menu()
 						return
 				KEY_O:
-					SceneFade.change_scene(get_tree(), "res://scenes/object_viewer.tscn")
+					_visit("res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -709,7 +726,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					_change_club(1)
 					return
 				KEY_C:
-					SceneFade.change_scene(get_tree(), "res://scenes/course_viewer.tscn")
+					_visit("res://scenes/course_viewer.tscn")
 					return
 				KEY_R:
 					start_replay()
@@ -1077,10 +1094,12 @@ func _hole_out(picked_up: bool) -> void:
 	result_timer = RESULT_PAUSE
 
 
-func _finish_hole() -> void:
+func _finish_hole(add_stats := true) -> void:
 	for i in players.size():
 		var p := players[ball_of[i]]
 		scoring.cards[i].record(hole_index, p.strokes)
+		if not add_stats:
+			continue
 		var st := round_stats[i]
 		if p.fairway >= 0:
 			st.fairway_holes += 1
