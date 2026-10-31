@@ -840,6 +840,8 @@ func _test_graphics_settings() -> void:
 	s.wind = Wind.Level.STRONG
 	s.presentation = GraphicsSettings.Presentation.CLASSIC
 	s.skill = 1
+	s.green_firmness = 2
+	s.green_speed = 0
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -849,6 +851,7 @@ func _test_graphics_settings() -> void:
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
 	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
 	_check(loaded.skill == 1, "swing skill saved")
+	_check(loaded.green_firmness == 2 and loaded.green_speed == 0, "green options saved")
 	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
@@ -1228,6 +1231,14 @@ func _check_launch(t: LinksLaunch, s: LinksLaunch.Strike, want: Array, what: Str
 
 
 func _test_links_ground_matches_olcore() -> void:
+	# The game's green options, as test_links_green.
+	var greens := [
+		[1, 1, 0.10538], [1, 2, 0.09], [1, 0, 0.12076], [2, 2, 0.07462], [0, 0, 0.13614], [2, 0, 0.10538],
+	]
+	for c in greens:
+		_check_near(LinksGround.green_for(c[0], c[1]).roll_resistance, c[2], 1e-6, "green %s" % [c])
+	_check_near(LinksGround.green_for(2, 1).spin_grip, 1.3, 1e-6, "firm greens grip")
+	_check_near(LinksGround.green_for(0, 1).restitution, 0.21, 1e-6, "soft greens bounce less")
 	var rng := LinksGround.Rng.new()
 	_check(rng.next_u32() == 0x79a8b120, "first random number")
 	_check(rng.state == 0x65b8545c, "random state")

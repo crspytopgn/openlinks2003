@@ -1406,6 +1406,7 @@ func _on_pause_restart() -> void:
 
 func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
+	LinksGround.set_greens(graphics.green_firmness, graphics.green_speed)
 	scenery.apply(graphics)
 	post.apply(graphics)
 	dynamic_resolution.setup(get_viewport(), graphics)
