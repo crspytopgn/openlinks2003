@@ -752,7 +752,9 @@ func _on_swing_pressed() -> void:
 			hud.hint.text = HINT_SWING
 			hud.meter.click()
 		State.SWING:
-			hud.meter.click()
+			# Space mid mouse swing would start the meter on top of it.
+			if not hud.mouse_swing.is_swinging():
+				hud.meter.click()
 		State.FLIGHT:
 			_complete_flight()
 		State.SHOT_RESULT:
