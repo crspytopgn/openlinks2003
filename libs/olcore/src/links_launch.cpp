@@ -192,6 +192,30 @@ void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& 
   s.spin_scale = lie.lie_spin;
   s.speed_scale = lie.lie_power;
 
+  if (s.club == kLinksPutter) {
+    if (w.method == LinksSwingMethod::PowerStroke) {
+      if (skill > 0) {
+        int miss = w.contact * (skill == 3 ? 6 : skill == 2 ? 5 : 2);
+        miss = static_cast<int>(miss * ls.snap);
+        if (miss != 0) {
+          int sum = rng.next() % 101 + rng.next() % 101 + rng.next() % 101;
+          miss = static_cast<int>((sum * 0.001 + 0.35) * miss);
+        }
+        miss = -std::clamp(miss, -60, 60);
+        double turn = ((rng.next() % 25) + 75.0) * 0.01 * miss;
+        turn *= skill == 3 ? 0.5 : skill == 2 ? 1 / 1.9 : 2 / 3.0;
+        s.face_error += turn * kDeg;
+        // The game still draws the power it would lose, then keeps it all.
+        if (skill >= 2 && miss != 0) rng.next();
+      }
+    } else {
+      s.face_error = w.mouse_face_deg * kDeg;
+      s.path_error = w.mouse_path_deg * kDeg;
+    }
+    if (sand) s.face_error = 0;
+    return;
+  }
+
   if (w.method == LinksSwingMethod::PowerStroke) {
     if (skill > 0) {
       // The miss in steps, magnified by an overswing, the skill level and the
@@ -374,9 +398,31 @@ void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int
   w.power = power;
 }
 
+LinksLaunch links_putt(const LinksStrike& s) {
+  double a = s.face_error + (s.setup.face - 30 + s.setup.stance - 30) * kDeg;
+  double b = s.path_error + (s.setup.stance - 30) * kDeg;
+  Vec3 d{std::sin(a), std::cos(a), 0};
+  double speed = std::cos(a - b) * s.power * kLinksPuttSpeed;
+  LinksLaunch out;
+  out.velocity = turn_z(d * speed, s.aim);
+  out.spin = turn_z(Vec3{std::abs(speed) * 2.273642507507853, 0, 0}, s.aim);
+  return out;
+}
+
+Vec3 links_putt_slope(Vec3 v, Vec3 n) {
+  double a = std::atan2(n.y, n.z);
+  double c = std::cos(a), sn = std::sin(a);
+  double x = v.x, y = v.y * c - v.z * sn, z = v.z * c + v.y * sn;
+  double b = -std::atan2(n.x, n.z);
+  c = std::cos(b);
+  sn = std::sin(b);
+  return {z * sn + x * c, y, z * c - x * sn};
+}
+
 BallState links_launch_state(const LinksClubTable& clubs, const LinksStrike& s) {
-  LinksLaunch l = links_launch(clubs, s);
+  LinksLaunch l = s.club == kLinksPutter ? links_putt(s) : links_launch(clubs, s);
   BallState b;
+  b.on_ground = s.club == kLinksPutter;
   b.velocity = Vec3{-l.velocity.x, l.velocity.z, l.velocity.y} * (1.0 / kFeetPerMetre);
   b.spin = Vec3{-l.spin.x, l.spin.z, l.spin.y} * (2 * kPi);
   return b;

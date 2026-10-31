@@ -366,11 +366,20 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 	var t := 0.0
 	var n_steps := 0
 
-	# The game always starts the ball in flight with its centre one radius up.
+	# The game starts a full shot in flight with its centre one radius up.
 	var b := Ball.new()
 	b.position = _to_game(start.position) + Vector3(0, 0, RADIUS)
 	b.velocity = _to_game(start.velocity)
 	b.spin = _spin_to_game(start.spin)
+	if start.on_ground:
+		# A putt starts skidding, one radius above the slope, tilted onto it.
+		var n := ground.normal(b.position.x, b.position.y)
+		b.velocity = LinksLaunch.putt_slope(b.velocity, n)
+		b.spin = LinksLaunch.putt_slope(b.spin, n)
+		b.position.z = ground.height(b.position.x, b.position.y) + RADIUS / n.z
+		b.mode = Mode.SKID
+		landed = true
+		r.first_landing = start.position
 	var rng := Rng.new(Rng.seed_for(b.position.x, b.position.y))
 	var wind := _to_game(wind_mps)
 	r.add_sample(0.0, start.position)

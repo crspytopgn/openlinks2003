@@ -1,4 +1,5 @@
 #include "olcore/links_ground.hpp"
+#include "olcore/links_launch.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -521,11 +522,22 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
   double t = 0;
   int step = 0;
 
-  // The game always starts the ball in flight with its centre one radius up.
+  // The game starts a full shot in flight with its centre one radius up.
   LinksBall b;
   b.position = to_game(start.position) + Vec3{0, 0, C::kRadius};
   b.velocity = to_game(start.velocity);
   b.spin = spin_to_game(start.spin);
+  if (start.on_ground) {
+    // A putt starts skidding on the ground, its centre one radius above the
+    // slope, with its velocity and spin tilted onto it.
+    Vec3 n = ground.normal(b.position.x, b.position.y);
+    b.velocity = links_putt_slope(b.velocity, n);
+    b.spin = links_putt_slope(b.spin, n);
+    b.position.z = ground.height(b.position.x, b.position.y) + C::kRadius / n.z;
+    b.mode = LinksMode::Skid;
+    landed = true;
+    r.first_landing = start.position;
+  }
   LinksRandom rng(LinksRandom::seed_for(b.position.x, b.position.y));
   Vec3 wind = to_game(p.wind);
   auto bottom = [&](const LinksBall& ball) { return from_game(ball.position) - Vec3{0, radius_m, 0}; };

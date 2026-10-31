@@ -381,11 +381,51 @@ own files, gives every shot type the level's single rating from
 power at 100 percent.
 
 Not ported: chips (the shot type that uses the chip rating is not mapped
-yet), putts and one other shot type, which go to a separate routine; and a
+yet), putts (a computer golfer's putt still uses our own face error) and
+one other shot type, which go to a separate routine; and a
 routine that, from the second shot of a hole, scales both misses (from a
 quarter up to eighteen times) and can change the club by how the golfer is
 scoring on the hole against a target. Without it both scales are 1, as on a
 tee shot.
+
+### Putts
+
+The putter (club 19, which has no row in the club table) has its own
+launch:
+
+- The face angle is `a = face error + (face setting - 30) + (stance
+  setting - 30)` degrees and the path `b = path error + (stance setting -
+  30)`. Unlike a full swing, the face error is added, so a positive one
+  sends the ball right.
+- The ball leaves flat along `(sin a, cos a, 0)` at `cos(a - b) x power x
+  2.3436` ft/s, turned by the aim. Power is the putt's strength straight
+  from the meter; there is no lie, loft or club table in it.
+- Its spin is backspin exactly as fast as rolling would need
+  (`speed x 2.2736` rev/s about the side axis), so a putt first skids, with
+  the green's skid friction slowing it hard, and only then rolls.
+- Both vectors are tilted onto the slope under the ball (about x by
+  `atan2(n.y, n.z)`, then about y by `-atan2(n.x, n.z)`), and the ball
+  starts on the ground, skidding, with its centre one radius over the
+  slope (`R / n.z`), not in flight.
+
+On a flat, moderate, normal-speed green a putt of power 4 goes about 4.5
+ft, 10 about 28 ft and 25 about 112 ft. How the game's putt meters (the
+Classic swing has a long and a short putt scale) turn into that power was
+not found; the game shell's meter is linear in ball speed with 25 at full.
+
+A PowerStroke miss on a putt only turns the face. The miss in steps is
+worked out as for a full swing (times 6, 5 or 2 by skill, times the lie's
+snap, scattered, clamped at 60) but with no overswing, then flipped in sign
+and added to the face error as `(75 + rand % 25) / 100 x miss x (1/2,
+1/1.9 or 2/3)` degrees. A late snap therefore pushes the putt right. No
+power is lost (the game still draws the number it would use), there is no
+scatter and no strike quality step. Skill 0 putts never miss.
+
+Ported as `links_putt`, `links_putt_slope` and the putter branch of
+`links_apply_swing` (olcore), with `BallState::on_ground` starting the
+simulation on the ground; `LinksLaunch.putt` and `LinksShotModel` in the
+game shell. Checked against the game's own routines: the launch on 25
+random putts and the miss on every skill with several snaps.
 
 ### Not ported
 
@@ -395,8 +435,8 @@ tee shot.
   and how its speed depends on the level), the meter's own face value, and
   the mouse swing's maths that produce its face and path. The game shell
   has no mouse swing yet.
-- Chips, putts and one other shot type skip or flip parts of the swing
-  model; only full swings are ported. A game option that doubles every
+- Chips and one other shot type skip or flip parts of the swing model;
+  full swings and putts are ported. A game option that doubles every
   PowerStroke miss is left out.
 - Per-course lie values: olcore uses the class defaults above (every
   course checked so far uses them).
