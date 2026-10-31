@@ -1161,10 +1161,25 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 	var saved := _save()
 	_set_status("Built %s: %d holes, %d areas, %d trees%s%s. %s" % [c.course_name, int(summary.get("holes", 0)),
 		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
-		(" (%d areas the map lacked were guessed at standard sizes; check them)" % int(summary["guessed"])) if int(summary.get("guessed", 0)) > 0 else "",
+		_filled_note(summary),
 		(", ground every %.1f m" % float(summary.get("metres_per_pixel", 0))) if summary.has("metres_per_pixel") else "",
 		("Saved; polish it here, then play it." if saved else "Save it to keep it.") +
 		(" Also saved: %s (Open)." % ", ".join(others.map(func(o: DesignedCourse) -> String: return o.course_name)) if not others.is_empty() else "")])
+
+
+## Says how many greens, tees, fairways and bunkers the map lacked were
+## found in the photo or lidar, and how many were guessed.
+static func _filled_note(summary: Dictionary) -> String:
+	var found := int(summary.get("detected", 0))
+	var guessed := int(summary.get("guessed", 0))
+	if found + guessed == 0:
+		return ""
+	var parts: Array[String] = []
+	if found > 0:
+		parts.append("%d found in the photo or lidar" % found)
+	if guessed > 0:
+		parts.append("%d guessed at standard sizes" % guessed)
+	return " (areas the map lacked: %s; check them)" % ", ".join(parts)
 
 
 ## The course's aerial photo as a ground overlay material, if it has one.

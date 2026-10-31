@@ -199,15 +199,30 @@ OpenStreetMap from the club's own published scorecard.
   is planted on a fairway, green, tee, bunker or in water.
 - **What the map lacks:** many clubs are mapped with their hole lines but
   not every green, tee, fairway or bunker. `CourseGuesser`
-  (`game/scripts/realcourse/course_guesser.gd`) draws whatever a hole is
-  missing at typical sizes along its line: a green round the pin (about
-  520, 600 and 650 m2 for par 3, 4 and 5, a quarter longer than wide), a
-  tee box at each tee, on par 4s and 5s a fairway from the landing area
-  (at most 140 m out) to the green, about 34 m wide and narrower at its
-  ends, and, on holes with no bunker mapped within 45 m of the line, two
-  or three greenside bunkers and a fairway bunker at 230 m. They are saved
-  with `"guessed": true`, and the designer's message says how many there
-  are, so they can be checked against the photo and redrawn.
+  (`game/scripts/realcourse/course_guesser.gd`) fills in whatever a hole is
+  missing. First it looks for the real thing (`CourseDetector`,
+  `course_detector.gd`):
+  - **Greens in the photo:** the evenly coloured grass grown out from the
+    pin, with the loosest colour match that doesn't yet leak 26 m out
+    (into the fringe and fairway), 150 to 1200 m2.
+  - **Bunkers in the photo:** compact patches of bright, whitish or pale
+    yellow sand by the green and at the driving distance, 15 to 600 m2, at
+    least 3 m thick and not on a mapped path (sandy tracks).
+  - **Bunkers in lidar:** without a photo, hollows at least 0.3 m below
+    the ground 6 to 8 m round them.
+  On Hilversum (greens and bunkers removed from the map, then found
+  again), 14 of 20 greens were found, 9 of them within half their mapped
+  size; most bunkers were found, plus some unmapped ones and a few pieces
+  of sandy track.
+  Whatever isn't found is drawn at typical sizes along the line: a green
+  round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
+  longer than wide), a tee box at each tee, on par 4s and 5s a fairway
+  from the landing area (at most 140 m out) to the green, about 34 m wide
+  and narrower at its ends, and, on holes with no bunker within 45 m of
+  the line, two or three greenside bunkers and a fairway bunker at 230 m.
+  Found and guessed shapes are saved with `"guessed": true`, and the
+  designer's message says how many of each there are, so they can be
+  checked against the photo and redrawn.
 - **Cart paths:** `golf=cartpath` and `golf_cart=designated` ways.
 - **Ground:** the lidar or tile heights at every 2 m sample, bilinear. Heights below
   -12 m (the sea floor) are raised to -12 m, then the grid is stored round
@@ -239,6 +254,7 @@ game/scripts/realcourse/
   aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
   land_cover.gd           LandCover: 10 m land cover, trees and ground colours from it
   course_guesser.gd       CourseGuesser: greens, tees, fairways and bunkers the map lacks
+  course_detector.gd      CourseDetector: real greens and bunkers in the photo and lidar
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests
@@ -248,9 +264,8 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
-- Finding missing greens, fairways and bunkers in the lidar (hollows,
-  smooth raised greens) and photos (bright sand, striped grass) instead of
-  guessing them.
+- Finding fairways in the photo (mown stripes) rather than guessing them,
+  and greens in the lidar (smooth, raised) where there is no photo.
 - More lidar and photo services (above); reprojecting from national
   grids would open most of the rest.
 - Buildings (`building=*`, already read to keep trees off them) as
