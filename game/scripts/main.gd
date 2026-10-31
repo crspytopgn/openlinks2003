@@ -620,7 +620,9 @@ func _store_turn() -> void:
 
 ## Plays a shot with the current club and aim. The swing meter calls this;
 ## tests call it directly.
-func play_shot(power: float, accuracy: float) -> void:
+## `monitor` is a real swing from a launch monitor (OpenConnect), played as
+## measured; power and accuracy then only drive the animation.
+func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null) -> void:
 	var club := clubs[club_index]
 	if caddie != null:
 		caddie.quiet()
@@ -660,6 +662,10 @@ func play_shot(power: float, accuracy: float) -> void:
 		rec.ball_position = setup.ball_position
 		rec.face = setup.face
 		rec.stance = setup.stance
+	if monitor != null:
+		rec.monitor = monitor.to_array()
+		rec.stroke = null
+		rec.help = null
 	rec.wind_level = wind.level
 	rec.wind = wind.velocity()
 	_mouse_stroke = null
@@ -1144,6 +1150,7 @@ func _change_club(step: int) -> void:
 	club_index = clampi(club_index + step, 0, clubs.size() - 1)
 	if club_index != before:
 		sounds.play(&"club")
+		_tell_monitor()
 	_place_golfer()  # the golfer takes the new club
 	_update_aim_marker()
 	_update_hud()
@@ -1177,6 +1184,56 @@ func _note_drive(strokes_before: int) -> void:
 		return
 	var yd := roundi(shot.total_m * YARDS_PER_METRE)
 	round_stats[shooter]["longest_drive_yd"] = maxi(int(round_stats[shooter].get("longest_drive_yd", 0)), yd)
+
+
+# --- Launch monitor ------------------------------------------------------------
+# Settings > Launch monitor (desktop): a launch monitor app sends real shots
+# over OpenConnect, and the person's next shot is played as measured.
+
+var monitor_server: OpenConnectServer = null
+
+
+func _set_monitor(on: bool) -> void:
+	if on == (monitor_server != null):
+		return
+	if not on:
+		monitor_server.stop()
+		monitor_server.queue_free()
+		monitor_server = null
+		return
+	monitor_server = OpenConnectServer.new()
+	add_child(monitor_server)
+	if not monitor_server.start():
+		hud.show_message("Launch monitor: port %d is in use (is another simulator open?)." % OpenConnect.PORT, 4.0)
+		monitor_server.queue_free()
+		monitor_server = null
+		return
+	monitor_server.shot_received.connect(_on_monitor_shot)
+	monitor_server.connected_changed.connect(func(c: bool) -> void:
+		hud.show_message("Launch monitor connected." if c else "Launch monitor disconnected.", 2.5))
+	_tell_monitor()
+
+
+## The launch monitor app hears which club is up.
+func _tell_monitor() -> void:
+	if monitor_server != null and not clubs.is_empty():
+		monitor_server.send_player(true, clubs[club_index].short_name)
+
+
+func _on_monitor_shot(launch: OpenConnect.Launch) -> void:
+	if _replaying or pause_menu.visible or settings_panel.visible:
+		return
+	if state != State.AIM or opponents[shooter] != null:
+		return
+	if camera.flying():
+		camera.end_flyover()
+	hud.hand_over.close()
+	hud.scorecard.visible = false
+	var club := clubs[club_index]
+	var full := club.ball_speed_mps if club.ball_speed_mps > 0.0 else 1.0
+	var power := clampf(launch.speed_mph * OpenConnect.MPS_PER_MPH / full, 0.05, 1.0)
+	hud.meter.reset()
+	play_shot(power, 0.0, launch)
 
 
 # --- Gimmes -------------------------------------------------------------------
@@ -1270,6 +1327,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 		lie = Surface.Type.TEE
 	shape.reset()
 	_auto_club()
+	_tell_monitor()
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
 	hud.meter.reset()
@@ -2219,6 +2277,7 @@ func _apply_graphics() -> void:
 		_update_green_grid()
 	_set_caddie(graphics.caddie)
 	_set_buggy(graphics.buggy)
+	_set_monitor(graphics.launch_monitor)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
