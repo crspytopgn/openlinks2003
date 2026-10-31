@@ -1748,6 +1748,18 @@ func _test_course_marks() -> void:
 			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
 		_check(on_sand, "footprints only on sand")
 		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+	# The TV tracer stops at the first landing, not after the bounces.
+	var sr := ShotResult.new()
+	sr.points = PackedVector3Array([Vector3(0, 0, 0), Vector3(0, 20, 50), Vector3(0, 0.1, 99), Vector3(0, 2, 105), Vector3(0, 0, 110)])
+	sr.first_landing = Vector3(0, 0, 100)
+	sr.carry_m = 100.0
+	_check(GolfRound.tracer_end(sr) == 2, "the tracer ends at the first landing")
+	sr.carry_m = 0.0
+	_check(GolfRound.tracer_end(sr) == 4, "a putt's trace runs to the end")
+	# The green-side inset tilts up at most 12 degrees after a high ball.
+	var pt := GolfRound.pip_target(Vector3(0, 2, 0), Vector3(0, 40, 100))
+	_check_near(rad_to_deg(atan2(pt.y - 2.0, 100.0)), GolfRound.PIP_MAX_TILT, 1e-3, "the inset camera stays on the green")
+	_check_near(GolfRound.pip_target(Vector3(0, 2, 0), Vector3(0, 1, 30)).y, 1.0, 1e-6, "the inset follows a low ball")
 	# Tee markers stand square to the line of the hole, 5.5 m apart.
 	var tm := GolfRound.tee_marker_spots(Vector3.ZERO, Vector3(100, 0, 0))
 	_check_near(tm[0].distance_to(tm[1]), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers 5.5 m apart")

@@ -887,7 +887,8 @@ func _process(delta: float) -> void:
 		var playing := _replaying or state == State.FLIGHT
 		hud.overlay.set_cam_tag(camera.director.cam_name(_replay_time if _replaying else shot_time) if playing and camera.director != null else "")
 		if _pip and playing:
-			hud.overlay.pip_camera.look_at(_ball_base)
+			var pc := hud.overlay.pip_camera
+			pc.look_at(pip_target(pc.global_position, _ball_base))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -3007,7 +3008,29 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 	_trail_mesh.surface_add_vertex(head + Vector3.UP * 0.05)
 	_trail_mesh.surface_end()
 	if broadcast:
-		tracer.draw(shot.points, upto, head, camera.global_position)
+		# A TV tracer follows the flight and stops where the ball first
+		# lands: the bounces and roll are never traced.
+		var land := tracer_end(shot)
+		if upto >= land:
+			tracer.draw(shot.points, land - 1, shot.first_landing, camera.global_position)
+		else:
+			tracer.draw(shot.points, upto, head, camera.global_position)
+
+
+## The index of the shot's first landing among its points (the last point
+## for a shot that never leaves the ground, such as a putt).
+static func tracer_end(s: ShotResult) -> int:
+	var n := s.points.size()
+	if s.carry_m < 1.0 or n < 2:
+		return n - 1
+	var best := n - 1
+	var best_d := INF
+	for i in range(1, n):
+		var d := s.points[i].distance_squared_to(s.first_landing)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
 
 
 # --- Camera ------------------------------------------------------------------
@@ -3192,6 +3215,19 @@ func _stop_replay() -> void:
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
 	result_timer = RESULT_PAUSE
+
+
+## Where the green-side inset camera points: at the ball, but like a TV
+## camera holding the green it tilts up at most PIP_MAX_TILT, so a high
+## ball crosses the frame rather than the shot filling with sky.
+const PIP_MAX_TILT := 12.0
+
+
+static func pip_target(cam: Vector3, ball: Vector3) -> Vector3:
+	var flat := Vector2(ball.x - cam.x, ball.z - cam.z).length()
+	var t := ball
+	t.y = minf(ball.y, cam.y + flat * tan(deg_to_rad(PIP_MAX_TILT)))
+	return t
 
 
 func _place_pip_camera() -> void:
