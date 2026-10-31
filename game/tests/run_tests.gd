@@ -369,6 +369,28 @@ func _test_scorecard() -> void:
 	_check(Scorecard.format_to_par(card.to_par()) == "E", "even")
 	card.record(2, 7)
 	_check(Scorecard.format_to_par(card.to_par()) == "+2", "+2")
+	# An 18-hole card gets an Out column after the ninth.
+	var s18 := RoundSetup.new()
+	s18.mode = GameModes.Mode.STABLEFORD
+	var pars18: Array[int] = []
+	var numbers: Array[int] = []
+	for i in 18:
+		pars18.append(4)
+		numbers.append(i + 1)
+	var scoring := RoundScoring.new(s18, pars18, numbers)
+	for i in 10:
+		scoring.cards[0].record(i, 5)
+	var panel := ScorecardPanel.new()
+	root.add_child(panel)
+	panel.show_round(scoring, "Test")
+	var grid: GridContainer = panel._grid
+	_check(grid.columns == 21, "scorecard: 18 holes, Out and Tot")
+	# Rows: hole, par, score, points.
+	_check(grid.get_child_count() == 21 * 4, "scorecard: every row has the Out column (%d cells)" % grid.get_child_count())
+	_check((grid.get_child(21 + 10) as Label).text == "36", "scorecard: par out")
+	_check((grid.get_child(42 + 10) as Label).text == "45", "scorecard: strokes out")
+	_check((grid.get_child(63 + 10) as Label).text == "9", "scorecard: points out")
+	panel.free()
 
 
 ## The same cases as test_game_modes in libs/olcore/tests/test_main.cpp.
