@@ -17,12 +17,13 @@ const GRADES := [
 	[0.98, 1.1, 0.9, Color(1.03, 1.0, 0.95), Color(0.9, 0.98, 1.06)],
 ]
 
-## Neutral grade under Photoreal lighting: the render's own colours read
-## flat and hazy next to a photograph, so a gentle filmic curve (deeper
-## shadows, brighter highlights), a touch of sun warmth in the highlights
-## and sky blue in the shadows, as in camera footage of a sunny course.
-const PHOTO_NEUTRAL := [1.0, 1.0, 1.06, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
-const PHOTO_CURVE := 0.45
+## Neutral grade under Photoreal lighting: AgX keeps highlights natural but
+## greys colours and flattens contrast, so a filmic curve (deeper shadows,
+## brighter highlights), colour put back, a touch of sun warmth in the
+## highlights and sky blue in the shadows, as in camera footage of a sunny
+## course.
+const PHOTO_NEUTRAL := [1.0, 1.04, 1.2, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
+const PHOTO_CURVE := 0.6
 
 var _rect: ColorRect
 var _mat: ShaderMaterial
@@ -61,12 +62,7 @@ func apply(s: GraphicsSettings) -> void:
 	_mat.set_shader_parameter("sharpen", GraphicsSettings.SHARPEN_LEVELS[s.sharpen])
 	_mat.set_shader_parameter("exposure", g[0])
 	_mat.set_shader_parameter("contrast", g[1])
-	# Under ACES the sky fill light on Forward+ greys the greens a little:
-	# put some colour back.
-	var balance := 1.0
-	if photo:
-		balance = 1.15 if GraphicsSettings.is_forward_plus() else 1.0
-	_mat.set_shader_parameter("saturation", g[2] * balance)
+	_mat.set_shader_parameter("saturation", g[2])
 	_mat.set_shader_parameter("tint", _vec(g[3]))
 	_mat.set_shader_parameter("shadow_tint", _vec(g[4]))
 	_mat.set_shader_parameter("vignette", GraphicsSettings.VIGNETTE_LEVELS[s.vignette])
