@@ -35,6 +35,7 @@ func _process(_delta: float) -> void:
 
 func open() -> void:
 	visible = true
+	SceneFade.pop_in(self)
 	_first.grab_focus()
 
 

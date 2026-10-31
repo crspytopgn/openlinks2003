@@ -390,7 +390,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						_quit_to_menu()
 						return
 				KEY_O:
-					get_tree().change_scene_to_file("res://scenes/object_viewer.tscn")
+					SceneFade.change_scene(get_tree(), "res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -405,7 +405,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					_change_club(1)
 					return
 				KEY_C:
-					get_tree().change_scene_to_file("res://scenes/course_viewer.tscn")
+					SceneFade.change_scene(get_tree(), "res://scenes/course_viewer.tscn")
 					return
 				KEY_R:
 					start_replay()
@@ -689,7 +689,7 @@ func _record_rounds() -> String:
 
 
 func _quit_to_menu() -> void:
-	get_tree().change_scene_to_file(MENU_SCENE)
+	SceneFade.change_scene(get_tree(), MENU_SCENE)
 
 
 ## Drop point for a ball in water: back along the line of flight to dry land,

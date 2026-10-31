@@ -206,7 +206,7 @@ func _show_objects(objects: Array, scatter: bool) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key and key.pressed and key.keycode == KEY_ESCAPE:
-		get_tree().change_scene_to_file("res://scenes/main.tscn")
+		SceneFade.change_scene(get_tree(), "res://scenes/main.tscn")
 		return
 	var motion := event as InputEventMouseMotion
 	if motion and motion.button_mask & (MOUSE_BUTTON_MASK_LEFT | MOUSE_BUTTON_MASK_RIGHT):

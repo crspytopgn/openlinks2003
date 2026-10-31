@@ -220,6 +220,9 @@ the physics, the swing and the scoring are the same in both.
   `crowd_groan` and `crowd_ooh` (synthesised in `PlaceholderSoundBank` until
   the game's own crowd sounds are mapped).
 
+In both presentations, scene changes fade through black and menu panels fade
+in (`scripts/ui/scene_fade.gd`).
+
 ## Plugging in decoded data
 
 Each decoder implements one small interface and registers it with
