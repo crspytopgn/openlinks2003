@@ -1464,11 +1464,11 @@ func _auto_club() -> void:
 	# above the hole) unless the ball is in sand.
 	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
 	var power := Surface.lie_power(lie)
-	var target := hole.aim_point(ball_at, clubs[0].total_m * power)
+	var target := hole.aim_point(ball_at, clubs[0].total_m * shot_model.reach_scale(clubs[0]) * power)
 	var d := _flat_distance(ball_at, target)
 	club_index = 0
 	for i in clubs.size():
-		if not clubs[i].is_putter and clubs[i].total_m * power >= d:
+		if not clubs[i].is_putter and clubs[i].total_m * shot_model.reach_scale(clubs[i]) * power >= d:
 			club_index = i
 
 
@@ -1491,7 +1491,7 @@ func _club_reach() -> float:
 	var club := clubs[club_index]
 	if club.is_putter:
 		return club.total_m
-	return club.total_m * Surface.lie_power(lie)
+	return club.total_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 
 
 func _aim_dir() -> Vector3:
@@ -1784,7 +1784,7 @@ func _update_aim_marker() -> void:
 		reach = minf(_flat_distance(ball_at, hole.pin), club.total_m)
 		size = 0.25
 	else:
-		reach = club.carry_m * Surface.lie_power(lie)
+		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
 	p.y = hole.terrain.height_at(p.x, p.z) + 0.08
