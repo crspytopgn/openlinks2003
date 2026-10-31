@@ -63,17 +63,18 @@ const KICK_STOP_CHANCE := 0.5
 const KICK_BOOST := 5.0
 
 ## class, restitution, impact friction, skid friction, impact drag, roll, stop, spin grip
+## (and for rough and deep grass: lie spin, lie power)
 const SURFACES := {
 	GREEN: [0.23, 0.08, 0.383486, 0.496454, 0.10538, 0.5, 1.219],
 	FAIRWAY: [0.266579, 0.1308, 0.132528, 0.441, 0.18, 0.5, 1.00211],
-	ROUGH: [0.242881, 0.087621, 0.104659, 0.522788, 0.604758, 1.0, 2.0],
+	ROUGH: [0.242881, 0.087621, 0.104659, 0.522788, 0.604758, 1.0, 2.0, 0.406505, 0.927315],
 	SAND: [0.2025, 0.05, 0.0714, 0.644842, 0.897139, 0.5, 4.0],
 	WATER: [0.3, 0.35, 0.00288, 0.1, 2.0, 2.0, 0.1],
 	PATH: [0.75303, 0.45738, 0.45, 0.07597, 0.068172, 2.0, 1.46647],
 	DIRT: [0.388524, 0.121495, 0.108, 0.307136, 0.195622, 0.467325, 4.80256],
 	BUSHES: [0.404543, 0.209029, 0.203495, 0.19674, 0.2555, 0.5, 3.05625],
 	ROCKS: [0.5022, 0.196532, 0.162792, 0.140846, 0.124317, 2.0, 1.15583],
-	DEEP_GRASS: [0.24384, 0.07, 0.100116, 0.561193, 0.608475, 0.5, 3.0],
+	DEEP_GRASS: [0.24384, 0.07, 0.100116, 0.561193, 0.608475, 0.5, 3.0, 0.1992, 0.836732],
 }
 
 
@@ -87,6 +88,8 @@ class Params:
 	var roll_resistance := 0.0
 	var stop_speed := 0.0
 	var spin_grip := 0.0
+	var lie_spin := 1.0  ## spin kept when striking from this lie
+	var lie_power := 1.0  ## ball speed kept when striking from this lie
 
 
 ## Mirrors olcore::LinksBall. `position` is the centre.
@@ -183,6 +186,9 @@ static func surface_for_class(ground_class: int) -> Params:
 	p.roll_resistance = v[4]
 	p.stop_speed = v[5]
 	p.spin_grip = v[6]
+	if v.size() > 7:
+		p.lie_spin = v[7]
+		p.lie_power = v[8]
 	return p
 
 

@@ -4,12 +4,22 @@ extends Node3D
 ## the expensive parts on and off; the Forward+-only effects (SSAO, SSIL,
 ## soft sun shadows) are left off on the Compatibility renderer used by the
 ## web build.
+##
+## Two lighting styles: Classic keeps Links 2003's flat, true-to-texture
+## colours (linear tone map, colour ambient); Photoreal uses a filmic tone
+## map, a stronger sun with sky-coloured fill light and, on Forward+,
+## volumetric haze and screen-space reflections on the water.
 
 const HORIZON := Color(0.68, 0.77, 0.86)
 const AMBIENT := Color(0.66, 0.70, 0.76)
 const AMBIENT_ENERGY := 0.5
 ## With the sun 38 degrees up, flat ground gets 0.85 * sin(38) of it.
 const SUN_ENERGY := 0.85
+## Photoreal: a brighter sun under the ACES curve, which rolls the highlights
+## off instead of clipping them.
+const PHOTO_SUN_ENERGY := 1.7
+const PHOTO_AMBIENT_ENERGY := 0.75
+const PHOTO_EXPOSURE := 1.05
 
 var environment: Environment
 var sun: DirectionalLight3D
@@ -82,13 +92,47 @@ func _init() -> void:
 func apply(settings: GraphicsSettings) -> void:
 	var fwd := GraphicsSettings.is_forward_plus()
 	var q := settings.quality
+	var photo := settings.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	sun.directional_shadow_max_distance = settings.shadow_distance()
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if q == GraphicsSettings.Quality.LOW else DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	# Angular size of the sun gives contact-hardening soft shadows (Forward+).
 	sun.light_angular_distance = 0.6 if fwd and q >= GraphicsSettings.Quality.HIGH else 0.0
-	environment.glow_enabled = q >= GraphicsSettings.Quality.HIGH
-	environment.ssao_enabled = fwd and q >= GraphicsSettings.Quality.HIGH
-	environment.ssil_enabled = fwd and q >= GraphicsSettings.Quality.ULTRA
+	sun.light_energy = PHOTO_SUN_ENERGY if photo else SUN_ENERGY
+	sun.light_color = Color(1.0, 0.94, 0.84) if photo else Color(1.0, 0.95, 0.86)
+	if photo:
+		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+		# Compatibility has no sky fill light, so the same sun reads hotter.
+		environment.tonemap_exposure = PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8
+		environment.tonemap_white = 6.0
+		environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY
+		# Fill light from the sky itself (blue from above, green bounce from
+		# below) where the renderer supports it.
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if fwd else Environment.AMBIENT_SOURCE_COLOR
+		environment.ambient_light_sky_contribution = 0.6
+	else:
+		environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+		environment.tonemap_exposure = 1.0
+		environment.ambient_light_energy = AMBIENT_ENERGY
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	var bloom: float = GraphicsSettings.BLOOM_LEVELS[settings.bloom]
+	# Classic keeps its faint glow on the brightest highlights.
+	environment.glow_enabled = bloom > 0.0 or (not photo and q >= GraphicsSettings.Quality.HIGH)
+	environment.glow_intensity = bloom * 2.0 if bloom > 0.0 else 0.25
+	environment.glow_bloom = bloom * 0.15
+	environment.glow_hdr_threshold = 1.0 if photo else 1.2
+	environment.ssao_enabled = fwd and settings.ssao
+	environment.ssil_enabled = fwd and settings.ssao and q >= GraphicsSettings.Quality.ULTRA
+	# Low sun-lit haze that thickens with distance, and light shafts near
+	# the camera. Costly, so only at the top quality.
+	environment.volumetric_fog_enabled = fwd and photo and q >= GraphicsSettings.Quality.ULTRA
+	environment.volumetric_fog_density = 0.0012
+	environment.volumetric_fog_albedo = Color(0.9, 0.93, 1.0)
+	environment.volumetric_fog_anisotropy = 0.6
+	environment.volumetric_fog_length = 160.0
+	environment.volumetric_fog_sky_affect = 0.0
+	environment.ssr_enabled = fwd and photo and q >= GraphicsSettings.Quality.HIGH
+	environment.ssr_max_steps = 48
+	environment.fog_aerial_perspective = 0.5 if photo else 0.3
 
 
 ## Shows the course's own horizon (null for none) in front of a cloud sky

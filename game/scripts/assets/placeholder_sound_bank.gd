@@ -14,6 +14,10 @@ func _ready() -> void:
 	_add(&"cup", _rattle())
 	_add(&"splash", _noise(0.45, 0.5))
 	_add(&"applause", _noise(1.6, 0.25))
+	_add(&"crowd_cheer", _crowd(2.6, 0.35, 0.0))
+	_add(&"crowd_roar", _crowd(4.0, 0.5, 0.0))
+	_add(&"crowd_groan", _crowd(1.6, 0.3, -1.0))
+	_add(&"crowd_ooh", _crowd(1.4, 0.28, 1.0))
 
 
 func play(event: StringName) -> void:
@@ -75,4 +79,28 @@ func _noise(length: float, gain: float) -> AudioStreamWAV:
 		var t := float(i) / MIX_RATE
 		smooth = lerpf(smooth, randf_range(-1.0, 1.0), 0.3)
 		s[i] = gain * smooth * sin(PI * t / length)
+	return _wav(s)
+
+
+## A crowd: many voices as a swell of filtered noise, with a hummed vowel
+## that falls (`bend` -1, a groan), rises then falls (1, an "ooh") or is
+## left out (0, cheering).
+func _crowd(length: float, gain: float, bend: float) -> AudioStreamWAV:
+	var n := int(length * MIX_RATE)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var smooth := 0.0
+	var phases := [0.0, 0.0, 0.0, 0.0]
+	for i in n:
+		var t := float(i) / MIX_RATE
+		var u := t / length
+		var env := sin(PI * minf(u * 3.0, 1.0) * 0.5) * (1.0 - u) * (1.0 - u) * 1.6
+		smooth = lerpf(smooth, randf_range(-1.0, 1.0), 0.18)
+		var v := smooth * (0.4 if bend != 0.0 else 1.0)
+		if bend != 0.0:
+			var f := 180.0 * (1.0 - 0.35 * u) if bend < 0.0 else 170.0 * (1.0 + 0.4 * sin(PI * u))
+			for k in phases.size():
+				phases[k] += TAU * f * (1.0 + 0.013 * k) / MIX_RATE
+				v += 0.15 * sin(phases[k]) * (0.6 + 0.4 * sin(phases[k] * 2.0))
+		s[i] = gain * env * v
 	return _wav(s)

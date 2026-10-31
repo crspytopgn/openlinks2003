@@ -170,4 +170,112 @@ std::string match_text(const MatchStatus& status) {
   return status.dormie ? text + " (dormie)" : text;
 }
 
+int div_round(int a, int b) {
+  return a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b);
+}
+
+std::vector<int> stroke_ranks(const std::vector<int>& stroke_index) {
+  std::vector<std::size_t> order(stroke_index.size());
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    order[i] = i;
+  }
+  auto key = [&](std::size_t i) { return stroke_index[i] > 0 ? stroke_index[i] : 1000; };
+  std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return key(a) < key(b); });
+  std::vector<int> ranks(stroke_index.size(), 0);
+  for (std::size_t r = 0; r < order.size(); ++r) {
+    ranks[order[r]] = static_cast<int>(r) + 1;
+  }
+  return ranks;
+}
+
+std::vector<int> handicap_strokes(int handicap, const std::vector<int>& ranks) {
+  int n = static_cast<int>(ranks.size());
+  std::vector<int> out(ranks.size(), 0);
+  if (n == 0) {
+    return out;
+  }
+  int h = std::abs(handicap);
+  for (std::size_t i = 0; i < ranks.size(); ++i) {
+    if (handicap >= 0) {
+      out[i] = h / n + (ranks[i] <= h % n ? 1 : 0);
+    } else {
+      out[i] = -(h / n + (ranks[i] > n - h % n ? 1 : 0));
+    }
+  }
+  return out;
+}
+
+std::vector<int> net_scores(const std::vector<int>& gross, const std::vector<int>& received) {
+  std::vector<int> out(gross.size(), 0);
+  for (std::size_t i = 0; i < gross.size(); ++i) {
+    if (gross[i] > 0) {
+      int r = i < received.size() ? received[i] : 0;
+      out[i] = std::max(1, gross[i] - r);
+    }
+  }
+  return out;
+}
+
+int playing_handicap(int index_tenths, int holes, int allowance_percent) {
+  if (index_tenths == kNoHandicap) {
+    return 0;
+  }
+  return div_round(index_tenths * holes * allowance_percent, 18 * 100 * 10);
+}
+
+int adjusted_gross(const Scorecard& card, const std::vector<int>& received, bool has_index) {
+  int total = 0;
+  for (std::size_t i = 0; i < card.strokes.size(); ++i) {
+    int r = i < received.size() ? received[i] : 0;
+    int cap = has_index ? card.pars[i] + 2 + r : card.pars[i] + 5;
+    total += std::min(card.strokes[i], cap);
+  }
+  return total;
+}
+
+int score_differential(int adjusted_gross, int par, int holes) {
+  if (holes <= 0) {
+    return 0;
+  }
+  return div_round((adjusted_gross - par) * 10 * 18, holes);
+}
+
+int handicap_index(const std::vector<int>& differentials) {
+  std::size_t first = differentials.size() > kHandicapRounds ? differentials.size() - kHandicapRounds : 0;
+  std::vector<int> recent(differentials.begin() + static_cast<std::ptrdiff_t>(first), differentials.end());
+  std::size_t n = recent.size();
+  if (n < 3) {
+    return kNoHandicap;
+  }
+  // WHS: how many of the lowest count, and the adjustment, by rounds on record.
+  std::size_t use = 1;
+  int adjust = 0;
+  if (n == 3) { use = 1; adjust = -20; }
+  else if (n == 4) { use = 1; adjust = -10; }
+  else if (n == 5) { use = 1; }
+  else if (n == 6) { use = 2; adjust = -10; }
+  else if (n <= 8) { use = 2; }
+  else if (n <= 11) { use = 3; }
+  else if (n <= 14) { use = 4; }
+  else if (n <= 16) { use = 5; }
+  else if (n <= 18) { use = 6; }
+  else if (n == 19) { use = 7; }
+  else { use = 8; }
+  std::sort(recent.begin(), recent.end());
+  int sum = 0;
+  for (std::size_t i = 0; i < use; ++i) {
+    sum += recent[i];
+  }
+  int index = div_round(sum, static_cast<int>(use)) + adjust;
+  return std::clamp(index, kMinHandicapTenths, kMaxHandicapTenths);
+}
+
+std::string format_handicap(int index_tenths) {
+  if (index_tenths == kNoHandicap) {
+    return "-";
+  }
+  int a = std::abs(index_tenths);
+  return (index_tenths < 0 ? "+" : "") + std::to_string(a / 10) + "." + std::to_string(a % 10);
+}
+
 }  // namespace olcore

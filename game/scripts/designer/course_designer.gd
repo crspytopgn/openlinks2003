@@ -897,7 +897,7 @@ func _on_file_action(action: String) -> void:
 		"play":
 			_play()
 		"menu":
-			_confirm_discard(func() -> void: get_tree().change_scene_to_file(MENU_SCENE))
+			_confirm_discard(func() -> void: SceneFade.change_scene(get_tree(), MENU_SCENE))
 
 
 func _save() -> bool:
@@ -925,7 +925,7 @@ func _play() -> void:
 		return
 	GolfRound.setup = RoundSetup.single(path)
 	GolfRound.chosen_course = path
-	get_tree().change_scene_to_file(ROUND_SCENE)
+	SceneFade.change_scene(get_tree(), ROUND_SCENE)
 
 
 func _show_open() -> void:

@@ -145,6 +145,12 @@ func surface_at(x: float, z: float) -> int:
 	return _surf[r * _sw + c]
 
 
+## The colour the ground is drawn with at the nearest grid vertex.
+func ground_color_at(x: float, z: float) -> Color:
+	var c := course.cell_of(Vector2(x, z))
+	return _vc[c.y * course.cols + c.x]
+
+
 ## The water line of a pond shape (its bank's lowest point, less a little).
 func water_level(shape: CourseShape) -> float:
 	return _water_levels.get(shape, 0.0)
@@ -197,7 +203,7 @@ func build_water() -> Node3D:
 		var normals := PackedVector3Array()
 		for p in poly:
 			verts.append(Vector3(p.x, level, p.y))
-			uvs.append(Vector2(0.5, 0.5))  # the water shader's disc centre: no foam edge
+			uvs.append(Vector2(0.5, 0.5))
 			normals.append(Vector3.UP)
 		var indices := PackedInt32Array()
 		for t in range(0, tris.size(), 3):
@@ -212,7 +218,7 @@ func build_water() -> Node3D:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		var inst := MeshInstance3D.new()
 		inst.mesh = mesh
-		inst.material_override = Materials.water()
+		inst.material_override = Materials.water_surface()
 		inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(inst)
 	return root

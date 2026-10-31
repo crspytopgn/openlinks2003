@@ -1,10 +1,22 @@
 class_name GraphicsSettings
 extends RefCounted
 ## Display and quality settings, saved to user://settings.cfg under
-## [graphics], plus the wind strength under [game]. Other sections of that
-## file (such as the game folder) are left alone.
+## [graphics], plus the wind strength and the presentation under [game].
+## Other sections of that file (such as the game folder) are left alone.
+##
+## A "look" preset sets everything at once (see apply_look()); changing a
+## single option makes the look Custom. On the first run the look is picked
+## for the device (detect_look()), so phones and the browser start light and
+## gaming PCs start on Photoreal. See docs/graphics.md.
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
+## Classic frames and dresses the round like Links 2003; Broadcast like a TV
+## golf broadcast (ShotDirector cameras, tracer, replays, BroadcastOverlay).
+enum Presentation { CLASSIC, BROADCAST }
+enum Look { PHOTOREAL, NATURAL, CINEMATIC, CLASSIC, PERFORMANCE, CUSTOM }
+enum Lighting { CLASSIC, PHOTOREAL }
+enum Upscaler { OFF, FSR1, FSR2 }
+enum Grade { NEUTRAL, VIVID, WARM, COOL, FILM }
 
 const PATH := "user://settings.cfg"
 const SECTION := "graphics"
@@ -12,6 +24,22 @@ const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
 const MSAA_CHOICES := [0, 2, 4, 8]
 const RENDER_SCALES := [0.5, 0.75, 1.0, 1.25, 1.5]
+const PRESENTATION_NAMES := ["Classic Links", "Broadcast"]
+const LOOK_NAMES := ["Photoreal", "Natural", "Cinematic", "Classic Links", "Performance", "Custom"]
+const LIGHTING_NAMES := ["Classic Links", "Photoreal"]
+const UPSCALER_NAMES := ["Off", "FSR 1", "FSR 2"]
+const GRADE_NAMES := ["Neutral", "Vivid", "Warm afternoon", "Cool morning", "Film"]
+const LEVEL_NAMES := ["Off", "Low", "Medium", "High"]
+const DYNAMIC_NAMES := ["Off", "Keep 30 fps", "Keep 60 fps"]
+const DYNAMIC_FPS := [0, 30, 60]
+## Strength of each level (Off, Low, Medium, High) of the post effects.
+const SHARPEN_LEVELS := [0.0, 0.25, 0.5, 0.8]
+const BLOOM_LEVELS := [0.0, 0.15, 0.3, 0.55]
+const VIGNETTE_LEVELS := [0.0, 0.15, 0.3, 0.5]
+const GRAIN_LEVELS := [0.0, 0.025, 0.05, 0.1]
+
+## Tests and the CI render check set this to fix the look (-1: as saved).
+static var force_look := -1
 
 var quality: int = Quality.HIGH
 var fullscreen := false
@@ -20,6 +48,23 @@ var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
 var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
 var wind: int = Wind.Level.MODERATE
+var presentation: int = Presentation.BROADCAST
+
+var look: int = Look.CLASSIC
+var lighting: int = Lighting.CLASSIC
+var upscaler: int = Upscaler.OFF
+var dynamic_res := 0  ## index into DYNAMIC_FPS
+## Post effects, as levels 0 (off) to 3 (high).
+var sharpen := 0
+var bloom := 0
+var vignette := 0
+var grain := 0
+var grade: int = Grade.NEUTRAL
+var ssao := false
+var dof := false
+## 3D grass in the rough, 0 (off) to 3 (dense and far).
+var grass := 0
+var foliage_wind := false
 
 
 func _init() -> void:
@@ -31,11 +76,75 @@ func _init() -> void:
 		msaa = 2
 
 
+## The look to start with on this device: Photoreal on a dedicated graphics
+## card, Natural on built-in graphics and desktop browsers, Performance on
+## phones, tablets and software renderers.
+static func detect_look() -> int:
+	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		return Look.PERFORMANCE
+	if OS.has_feature("web"):
+		return Look.NATURAL
+	match RenderingServer.get_video_adapter_type():
+		RenderingDevice.DEVICE_TYPE_DISCRETE_GPU:
+			return Look.PHOTOREAL
+		RenderingDevice.DEVICE_TYPE_CPU:
+			return Look.PERFORMANCE
+	return Look.NATURAL
+
+
+## Sets every option to the preset `which` (a Look). Options the renderer
+## can't do (SSAO, depth of field and FSR in the browser) are still stored
+## and simply skipped when applied. The browser build keeps quality and grass
+## a notch lower, as it shares one thread with the game.
+func apply_look(which: int) -> void:
+	look = which
+	match which:
+		Look.PHOTOREAL:
+			_set_look(Quality.ULTRA, Lighting.PHOTOREAL, Upscaler.FSR2, 0, 1.0, [1, 2, 1, 1], Grade.NEUTRAL, true, true, 3)
+		Look.NATURAL:
+			_set_look(Quality.HIGH, Lighting.PHOTOREAL, Upscaler.OFF, 2, 1.0, [1, 1, 1, 0], Grade.NEUTRAL, true, false, 2)
+		Look.CINEMATIC:
+			_set_look(Quality.ULTRA, Lighting.PHOTOREAL, Upscaler.FSR2, 0, 1.0, [1, 3, 2, 2], Grade.FILM, true, true, 3)
+		Look.CLASSIC:
+			_set_look(Quality.HIGH, Lighting.CLASSIC, Upscaler.OFF, 2, 1.0, [0, 0, 0, 0], Grade.NEUTRAL, false, false, 0)
+			foliage_wind = false
+			dynamic_res = 0
+			return
+		Look.PERFORMANCE:
+			# A lower 3D resolution, upscaled with FSR 1 where it's
+			# available and sharpened, costs far less than it shows.
+			_set_look(Quality.LOW, Lighting.PHOTOREAL, Upscaler.FSR1, 0, 0.75, [2, 0, 0, 0], Grade.NEUTRAL, false, false, 1)
+		_:
+			return
+	foliage_wind = true
+	dynamic_res = 2
+	if OS.has_feature("web"):
+		quality = mini(quality, Quality.MEDIUM)
+		grass = mini(grass, 1)
+		msaa = maxi(msaa, 2) if which != Look.PERFORMANCE else 0
+
+
+## `post` is [sharpen, bloom, vignette, grain] levels.
+func _set_look(q: int, light: int, up: int, samples: int, scale: float, post: Array, g: int, ao: bool, blur: bool, grass_level: int) -> void:
+	quality = q
+	lighting = light
+	upscaler = up
+	msaa = samples
+	render_scale = scale
+	sharpen = post[0]
+	bloom = post[1]
+	vignette = post[2]
+	grain = post[3]
+	grade = g
+	ssao = ao
+	dof = blur
+	grass = grass_level
+
+
 static func load_saved(path := PATH) -> GraphicsSettings:
 	var s := GraphicsSettings.new()
 	var cfg := ConfigFile.new()
-	if cfg.load(path) != OK:
-		return s
+	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))
@@ -44,6 +153,27 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.render_scale = clampf(float(cfg.get_value(SECTION, "render_scale", s.render_scale)), 0.25, 2.0)
 	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
+	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.BROADCAST)
+	if force_look >= 0:
+		s.apply_look(force_look)
+		return s
+	if not cfg.has_section_key(SECTION, "look"):
+		# First run, or settings from before the looks: pick for the device.
+		s.apply_look(detect_look())
+		return s
+	s.look = clampi(int(cfg.get_value(SECTION, "look", s.look)), Look.PHOTOREAL, Look.CUSTOM)
+	s.lighting = clampi(int(cfg.get_value(SECTION, "lighting", s.lighting)), Lighting.CLASSIC, Lighting.PHOTOREAL)
+	s.upscaler = clampi(int(cfg.get_value(SECTION, "upscaler", s.upscaler)), Upscaler.OFF, Upscaler.FSR2)
+	s.dynamic_res = clampi(int(cfg.get_value(SECTION, "dynamic_res", s.dynamic_res)), 0, DYNAMIC_FPS.size() - 1)
+	s.sharpen = clampi(int(cfg.get_value(SECTION, "sharpen", s.sharpen)), 0, 3)
+	s.bloom = clampi(int(cfg.get_value(SECTION, "bloom", s.bloom)), 0, 3)
+	s.vignette = clampi(int(cfg.get_value(SECTION, "vignette", s.vignette)), 0, 3)
+	s.grain = clampi(int(cfg.get_value(SECTION, "grain", s.grain)), 0, 3)
+	s.grade = clampi(int(cfg.get_value(SECTION, "grade", s.grade)), Grade.NEUTRAL, Grade.FILM)
+	s.ssao = bool(cfg.get_value(SECTION, "ssao", s.ssao))
+	s.dof = bool(cfg.get_value(SECTION, "dof", s.dof))
+	s.grass = clampi(int(cfg.get_value(SECTION, "grass", s.grass)), 0, 3)
+	s.foliage_wind = bool(cfg.get_value(SECTION, "foliage_wind", s.foliage_wind))
 	return s
 
 
@@ -57,6 +187,9 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "render_scale", render_scale)
 	cfg.set_value(SECTION, "fov", fov)
 	cfg.set_value(GAME_SECTION, "wind", wind)
+	cfg.set_value(GAME_SECTION, "presentation", presentation)
+	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind"]:
+		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)
 	if err != OK:
 		push_warning("Could not save graphics settings to %s (error %d)" % [path, err])
@@ -64,6 +197,10 @@ func save(path := PATH) -> void:
 
 ## True on the Forward+ renderer (desktop), which supports SSAO and the other
 ## screen-space effects. The web build uses Compatibility.
+func broadcast() -> bool:
+	return presentation == Presentation.BROADCAST
+
+
 static func is_forward_plus() -> bool:
 	return RenderingServer.get_current_rendering_method() == "forward_plus"
 
@@ -103,8 +240,26 @@ func apply_display(viewport: Viewport) -> void:
 			viewport.msaa_3d = Viewport.MSAA_8X
 		_:
 			viewport.msaa_3d = Viewport.MSAA_DISABLED
-	# FXAA is cheap and softens the edges MSAA would otherwise catch.
-	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if msaa == 0 and quality >= Quality.MEDIUM else Viewport.SCREEN_SPACE_AA_DISABLED
+	var fsr2 := is_forward_plus() and upscaler == Upscaler.FSR2
+	# FXAA is cheap and softens the edges MSAA would otherwise catch. FSR 2
+	# does its own (temporal) anti-aliasing, even at full resolution.
+	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if msaa == 0 and not fsr2 and quality >= Quality.MEDIUM else Viewport.SCREEN_SPACE_AA_DISABLED
+	if fsr2:
+		viewport.msaa_3d = Viewport.MSAA_DISABLED
+	# The FSR upscalers need Forward+; the browser's renderer stretches.
+	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	if is_forward_plus():
+		match upscaler:
+			Upscaler.FSR1:
+				viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+			Upscaler.FSR2:
+				viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+		viewport.fsr_sharpness = 0.3
 	viewport.scaling_3d_scale = render_scale
 	RenderingServer.directional_shadow_atlas_set_size(shadow_atlas_size(), true)
 	RenderingServer.directional_soft_shadow_filter_set_quality(soft_shadow_quality())
+
+
+## The frame rate dynamic resolution keeps to, or 0 for off.
+func target_fps() -> int:
+	return DYNAMIC_FPS[dynamic_res]
