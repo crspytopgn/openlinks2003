@@ -62,8 +62,9 @@ product lead builds it.
 11. [x] **Hole positions**: Links 2003 courses keep 18 hole positions per
    hole but we always played the first. Round setup > Pins: usual or random
    (picked by the round seed, so a friend's round plays the same ones).
-12. [ ] **Click to aim**: click a spot on the hole map (or the course) to aim
-   there and get the club for that distance, as modern sims do. Owner: lead.
+12. [x] **Click to aim**: click a spot on the hole map (or the course) to aim
+   there and get the club for that distance, as modern sims do. Done:
+   right-click on the course. Still to do: clicking the hole map.
 13. [x] **Pick-up limit**: an option to pick up at double par or net double
    bogey, like real stableford and casual rounds, to keep rounds moving.
    Done: Settings > Pick up (double par or triple bogey).
