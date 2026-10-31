@@ -146,6 +146,11 @@ at Medium and grass at Low.
   0.1), so the sun and sky leave no plastic sheen; only the water and
   the clubs shine. The photo ground's colours (`realistic()`) are a little
   lighter to make up for the glare they no longer get.
+- **Ground relief** (`PHOTO_RELIEF` in `crz_terrain.gd`): each photo set's
+  height map shifts the texture with the view within about 35 m
+  (two-step parallax, a few millimetres to 3.5 cm of relief per surface)
+  and darkens its low parts within about 110 m (cavities between blades,
+  pebbles and footprints), so the ground looks deep rather than printed on.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump

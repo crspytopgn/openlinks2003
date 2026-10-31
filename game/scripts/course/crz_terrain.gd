@@ -28,6 +28,12 @@ const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.0, "path": 3.0, "dir
 ## How strongly each scan's light and dark blades show: the lawn scan is
 ## shot in soft light and reads flat at playing distance.
 const PHOTO_GAINS := {"grass": 2.2, "rough": 1.4, "sand": 1.0}
+## Per photo set: metres of relief for the parallax and how much darker
+## its low parts get (GROUND_SHADER's parallax_depth and cavity).
+const PHOTO_RELIEF := {
+	"grass": Vector2(0.015, 0.55), "rough": Vector2(0.035, 0.7), "sand": Vector2(0.01, 0.4),
+	"path": Vector2(0.004, 0.3), "dirt": Vector2(0.015, 0.5),
+}
 ## Hue of healthy, watered turf (HSV, 0..1).
 const MOWN_HUE := 0.27
 static var photo_ground := false
@@ -540,12 +546,17 @@ static func _photo_params(ground: int, info: Dictionary) -> Dictionary:
 	target = realistic_class(target, ground)
 	var normal := FreeAssets.ground(slot, "normal")
 	var rough := FreeAssets.ground(slot, "roughness")
+	var height := FreeAssets.ground(slot, "height")
 	var p := {
 		"albedo_tex": photo,
 		"normal_tex": normal,
 		"has_normal": normal != null,
 		"roughness_tex": rough,
 		"has_roughness": rough != null,
+		"height_tex": height,
+		"has_height": height != null,
+		"parallax_depth": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).x,
+		"cavity": PHOTO_RELIEF.get(slot, Vector2(0.01, 0.4)).y,
 		"photo_mean": _mean(photo),
 		"far_color": target,
 		"tile": PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES),

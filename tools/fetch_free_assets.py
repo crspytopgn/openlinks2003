@@ -47,12 +47,14 @@ AMBIENT_GROUNDS = {
     "path": ["Concrete034", "Concrete031"],  # cart paths (tinted to the course's)
     "dirt": ["Ground103"],  # bare, worn ground
 }
-AMBIENT_MAPS = {"albedo.jpg": "_Color.jpg", "normal.jpg": "_NormalGL.jpg", "roughness.jpg": "_Roughness.jpg"}
+AMBIENT_MAPS = {"albedo.jpg": "_Color.jpg", "normal.jpg": "_NormalGL.jpg", "roughness.jpg": "_Roughness.jpg",
+                "height.jpg": "_Displacement.jpg"}
 AMBIENT_RES = "2K"
 
 
 def texture_maps(res):
-    return {"albedo.jpg": ("Diffuse", res, "jpg"), "normal.jpg": ("nor_gl", res, "jpg"), "roughness.jpg": ("Rough", res, "jpg")}
+    return {"albedo.jpg": ("Diffuse", res, "jpg"), "normal.jpg": ("nor_gl", res, "jpg"), "roughness.jpg": ("Rough", res, "jpg"),
+            "height.jpg": ("Displacement", res, "jpg")}
 
 
 # slot: (asset type, preferred ids, fallback keywords, {out name: (map, resolution, format)})
@@ -142,7 +144,8 @@ SMALL_SLOTS = ("path_", "dirt_", "bark_")
 
 def size_limit(out_name):
     """Roughness is soft detail: 1024 pixels is plenty and saves memory."""
-    return 1024 if out_name.startswith("roughness") or out_name.startswith(SMALL_SLOTS) or "_roughness" in out_name else 0
+    soft = out_name.startswith("roughness") or "_roughness" in out_name or "_height" in out_name
+    return 1024 if soft or out_name.startswith(SMALL_SLOTS) else 0
 
 
 def fetch_ambient_ground(out_dir, slot):
