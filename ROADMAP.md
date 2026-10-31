@@ -83,7 +83,8 @@ feel) still need a working install.
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
 - [ ] Course designer
   - [x] In-game designer that works in the browser: sculpt the ground, paint fairways, greens, tees, bunkers, ponds and rough, plant trees, lay out holes, play the course, save, export and import `.olc` files ([course-designer.md](docs/course-designer.md))
-  - [ ] Crisp surface edges (splat map), more object kinds, cart paths and bridges, hazard stakes, per-course skies
+  - [x] Objects from the player's own object library with measured collision sizes, cart paths (free drop) and bridges, per-hole flyover, shareable single-file courses
+  - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker

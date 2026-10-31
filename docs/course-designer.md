@@ -54,8 +54,13 @@ The tools on the left:
   listed too (trees, bushes, buildings, grandstands, crowds and the rest),
   drawn from the player's files. Turn and size are set in the panel, or
   randomised a little for natural planting. A course stores each object by
-  its catalog file name; on a machine without the game files those objects
-  aren't drawn, though the course still plays.
+  its catalog file name and its measured size, so on a machine without the
+  game files the course still plays the same: the game's trees are drawn as
+  built-in trees of about the same height, and other objects aren't drawn
+  but still stop the ball.
+- **Path:** click to lay a cart path's points, then press Enter,
+  right-click or double-click to finish. Width is in the panel; tick
+  **Bridge** to make a bridge instead. Shift+click removes the nearest path.
 - **Tee, Pin, Aim point:** place the current hole's back, middle and forward
   tees, its pin, and aim points for doglegs (the round's auto-aim uses them,
   and the hole is measured along them).
@@ -92,10 +97,18 @@ browser's own storage for the site). **Open** lists the saved courses.
   Every green gets a 1.8 m fringe ring. Ground with no area is rough, and
   everything outside the course is out of bounds.
 - **Trees and objects** are obstacles for the ball (`DesignerObjects`): the
-  built-in trees get a trunk and a canopy sized to their meshes; catalog
-  models are solid columns and catalog billboards get a trunk and canopy,
-  sized from their height (guesses until the game's own collision shapes
-  are read).
+  built-in trees get a trunk and a canopy sized to their meshes. Catalog
+  objects are measured from the node the player's object library builds for
+  them (the bounds of all its meshes, at scale 1). Models become a solid box
+  of that size, turned with the object. Billboards follow the catalog's
+  `collision` value: trees (0) get a trunk and a canopy 0.8 of their width
+  across, solid ones (1) a column, and pass-through ones (2) nothing.
+- **Cart paths** (`CoursePath`) are painted as fairway right after the
+  fairway layer, so greens, bunkers and water still cover them, and drawn as
+  a grey ribbon on the ground; the rules give a free drop from them. **Bridges** aren't painted: their deck runs
+  in a straight slope from 0.4 m above one end to 0.4 m above the other,
+  never less than 0.6 m above the ground or water under it, and is a chain
+  of solid 0.3 m boxes the ball bounces off, with rails drawn either side.
 - **Meshes** are built in 64 m chunks and cached; the designer rebuilds only
   the chunks an edit touched. A sloping apron runs out from the course edge
   so the course doesn't end in a cliff.
@@ -118,6 +131,8 @@ A UTF-8 JSON object:
 | `shapes` | `[{"surface": "Fairway", "points": [x0, z0, x1, z1, ...]}, ...]`: surface names as in `Surface.NAMES` |
 | `holes` | `[{"par": 4, "tees": [x, z, ...], "pin": [x, z], "route": [x, z, ...]}, ...]`: tees back to forward, route is the aim points |
 | `objects` | `[{"id": "tree_pine", "x": 0, "z": 0, "yaw": 90, "scale": 1}, ...]` |
+| `paths` | `[{"points": [x0, z0, x1, z1, ...], "width": 2.5, "bridge": false}, ...]` (width 1 to 8 m) |
+| `object_info` | `{"<catalog file name>": {"kind": "model", "size": [x, y, z], "centre": [x, y, z]}, ...}`: the measured size of every catalog object the course uses, in metres at scale 1, with `kind` one of `model`, `tree`, `solid`, `soft`. Only sizes, never the objects themselves, so a shared file carries no game data. |
 
 A medium course (1000 x 800 m) with a few holes is a few hundred kilobytes.
 Readers refuse files with another `format`, a newer `version`, or a height
@@ -134,6 +149,7 @@ game/scripts/designer/
   designer_files.gd      DesignerFiles: export and import (browser download and picker, desktop dialog)
   designed_course.gd     DesignedCourse: the course data, sculpting, the .olc format
   designed_hole.gd       DesignedHole: par, tees, pin and aim points
+  course_path.gd         CoursePath: a cart path or bridge
   course_shape.gd        CourseShape: a painted area and its smoothed outline
   designed_terrain.gd    DesignedTerrain: heights, surfaces, obstacles and meshes
 game/scripts/course/designed_course_loader.gd   DesignedCourseLoader (registered by default)
@@ -146,9 +162,9 @@ game/tests/designer_tests.gd                    data checks; run_tests.gd also o
 
 - Crisper surface edges: the colours blend between 2 m vertices. A splat map
   sampled in the terrain shader would give sharp, Links-like cut lines.
-- Collision shapes for catalog objects from `OBJECT.LIB` (`collision`,
-  `shape`) instead of guesses from their height.
+- The catalog's own `shape` field (not yet understood) could give tighter
+  shapes than the measured boxes.
 - Built-in (free) bushes, rocks and buildings for players without the game
   files.
-- Bridges, cart paths, hazard stakes, and lateral hazards for the rules.
+- Hazard stakes, and lateral hazards for the rules.
 - Per-course sky and horizon choices.

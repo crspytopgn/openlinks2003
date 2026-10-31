@@ -108,7 +108,10 @@ func update_surfaces(area: Rect2) -> void:
 func update_objects() -> void:
 	obstacles = ObstacleField.new()
 	for o in course.objects:
-		DesignerObjects.add_obstacles(obstacles, o, height_at(o.position.x, o.position.z))
+		DesignerObjects.add_obstacles(obstacles, o, height_at(o.position.x, o.position.z), course.object_info)
+	for p in course.paths:
+		if p.bridge and p.is_valid():
+			_add_bridge_obstacles(p)
 	obstacles.finalize()
 
 
@@ -131,6 +134,14 @@ func surface_at(x: float, z: float) -> int:
 	var c := mini(int((x - a.position.x) / RES), _sw - 1)
 	var r := mini(int((z - a.position.y) / RES), _sh - 1)
 	return _surf[r * _sw + c]
+
+
+## Cart paths give a free drop, as on the game's own courses.
+func free_drop_at(x: float, z: float) -> bool:
+	for p in course.paths:
+		if not p.bridge and p.distance_to(Vector2(x, z)) <= p.width * 0.5:
+			return true
+	return false
 
 
 ## The colour the ground is drawn with at the nearest grid vertex.
@@ -171,8 +182,130 @@ func build_visual() -> Node3D:
 			inst.material_override = Materials.terrain()
 			root.add_child(inst)
 	root.add_child(build_apron())
+	root.add_child(build_paths())
 	root.add_child(build_water())
 	return root
+
+
+## Cart paths draped on the ground, and bridges with their rails.
+func build_paths() -> Node3D:
+	var root := Node3D.new()
+	root.name = "Paths"
+	for p in course.paths:
+		if p.is_valid():
+			root.add_child(_path_mesh(p))
+	return root
+
+
+func _path_mesh(p: CoursePath) -> MeshInstance3D:
+	var samples := p.samples()
+	var g0 := height_at(p.points[0].x, p.points[0].y)
+	var last := p.points[p.points.size() - 1]
+	var g1 := height_at(last.x, last.y)
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var rail_verts := PackedVector3Array()
+	for smp: Array in samples:
+		var c: Vector2 = smp[0]
+		var side: Vector2 = (smp[1] as Vector2).orthogonal() * p.width * 0.5
+		var l := c + side
+		var r := c - side
+		var along: float = smp[2]
+		if p.bridge:
+			var y := p.deck_height(along, height_at(c.x, c.y), g0, g1)
+			verts.append(Vector3(l.x, y, l.y))
+			verts.append(Vector3(r.x, y, r.y))
+			for e: Vector2 in [l, r]:
+				rail_verts.append(Vector3(e.x, y, e.y))
+				rail_verts.append(Vector3(e.x, y + 1.0, e.y))
+		else:
+			verts.append(Vector3(l.x, height_at(l.x, l.y) + 0.05, l.y))
+			verts.append(Vector3(r.x, height_at(r.x, r.y) + 0.05, r.y))
+		uvs.append(Vector2(0.0, along / p.width))
+		uvs.append(Vector2(1.0, along / p.width))
+	var indices := PackedInt32Array()
+	for k in samples.size() - 1:
+		var a := 2 * k
+		_add_tri(indices, verts, a, a + 2, a + 1)
+		_add_tri(indices, verts, a + 1, a + 2, a + 3)
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var mesh := ArrayMesh.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.surface_set_material(0, _path_material(p.bridge))
+	if p.bridge and rail_verts.size() >= 8:
+		# Two rails, each a strip of upright quads along one edge.
+		var rail_idx := PackedInt32Array()
+		var n := samples.size()
+		for side in 2:
+			for k in n - 1:
+				var a := 4 * k + 2 * side
+				var b := 4 * (k + 1) + 2 * side
+				rail_idx.append_array(PackedInt32Array([a, b, a + 1, a + 1, b, b + 1]))
+		var rail_normals := PackedVector3Array()
+		rail_normals.resize(rail_verts.size())
+		rail_normals.fill(Vector3.UP)
+		var rails := []
+		rails.resize(Mesh.ARRAY_MAX)
+		rails[Mesh.ARRAY_VERTEX] = rail_verts
+		rails[Mesh.ARRAY_NORMAL] = rail_normals
+		rails[Mesh.ARRAY_INDEX] = rail_idx
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, rails)
+		mesh.surface_set_material(1, _path_material(true))
+	var inst := MeshInstance3D.new()
+	inst.mesh = mesh
+	return inst
+
+
+static var _path_mat: StandardMaterial3D
+static var _bridge_mat: StandardMaterial3D
+
+
+static func _path_material(bridge: bool) -> StandardMaterial3D:
+	if bridge:
+		if _bridge_mat == null:
+			_bridge_mat = StandardMaterial3D.new()
+			_bridge_mat.albedo_color = Color(0.45, 0.33, 0.22)
+			_bridge_mat.roughness = 0.85
+			_bridge_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		return _bridge_mat
+	if _path_mat == null:
+		_path_mat = StandardMaterial3D.new()
+		_path_mat.albedo_color = Color(0.62, 0.60, 0.56)
+		_path_mat.roughness = 0.95
+	return _path_mat
+
+
+## The deck of a bridge, as a chain of solid boxes 0.3 m thick.
+func _add_bridge_obstacles(p: CoursePath) -> void:
+	var samples := p.samples()
+	var g0 := height_at(p.points[0].x, p.points[0].y)
+	var last := p.points[p.points.size() - 1]
+	var g1 := height_at(last.x, last.y)
+	var k := 0
+	while k < samples.size() - 1:
+		var k2 := mini(k + 4, samples.size() - 1)
+		var a: Vector2 = samples[k][0]
+		var b: Vector2 = samples[k2][0]
+		var ya := p.deck_height(samples[k][2], height_at(a.x, a.y), g0, g1)
+		var yb := p.deck_height(samples[k2][2], height_at(b.x, b.y), g0, g1)
+		var pa := Vector3(a.x, ya, a.y)
+		var pb := Vector3(b.x, yb, b.y)
+		var along := (pb - pa)
+		if along.length() > 0.01:
+			var x_axis := along.normalized()
+			var z_axis := x_axis.cross(Vector3.UP).normalized()
+			var y_axis := z_axis.cross(x_axis).normalized()
+			var mid := (pa + pb) * 0.5 - y_axis * 0.15
+			obstacles.add_box(mid, Basis(x_axis, y_axis, z_axis), Vector3(along.length() * 0.5 + 0.05, 0.15, p.width * 0.5), ObstacleField.Kind.SOLID)
+		k = k2
 
 
 func build_water() -> Node3D:
@@ -305,6 +438,11 @@ func _raster(px: Rect2i) -> void:
 		for s in course.shapes:
 			if s.surface == layer and s.is_valid() and s.bounds().intersects(world):
 				_fill(s.outline(), layer, px)
+		if layer == Surface.Type.FAIRWAY:
+			# Cart paths play as fairway (firm and mown).
+			for p in course.paths:
+				if not p.bridge and p.is_valid() and p.bounds().intersects(world):
+					_fill(p.outline(), Surface.Type.FAIRWAY, px)
 		if layer == Surface.Type.FRINGE:
 			# Every green gets a fringe ring under it.
 			for s in course.shapes:
