@@ -27,6 +27,7 @@ func _initialize() -> void:
 	_run("wind_conditions", _test_wind_conditions)
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
+	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
@@ -703,6 +704,74 @@ static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: Lin
 
 ## Same cases and numbers as the links_* tests in the C++ core, which come
 ## from the game's own code.
+func _test_links_launch_matches_olcore() -> void:
+	# The made-up club table of test_links_launch in libs/olcore/tests.
+	var exe := PackedByteArray()
+	exe.resize(36)
+	exe.fill(0x11)
+	var rows: Array[Callable] = [
+		func(i: int) -> float: return 1.5 + 0.2 * i,
+		func(i: int) -> float: return 2.0 + 0.01 * i,
+		func(i: int) -> float: return 10.0 + 2.0 * i if i < 7 else 14.0 + 4.0 * (i - 7),
+		func(i: int) -> float: return 0.05 + 0.01 * i,
+		func(i: int) -> float: return 10.0 + 0.5 * i,
+	]
+	for row in rows:
+		for i in 20:
+			var at := exe.size()
+			exe.resize(at + 4)
+			exe.encode_float(at, row.call(i) if i < 19 else 0.0)
+	var t := LinksLaunch.from_exe(exe)
+	_check(t != null, "club table found")
+	var empty := PackedByteArray()
+	empty.resize(600)
+	_check(LinksLaunch.from_exe(empty) == null, "no club table in zeros")
+	if t == null:
+		return
+	var s := LinksLaunch.Strike.new()
+	_check_launch(t, s, [0, 195.679363, 24.503551, 73.860581, 0, 0], "square driver")
+	s = LinksLaunch.Strike.new()
+	s.club = 12
+	s.aim = 0.4
+	s.power = 85
+	s.face_error = 0.03
+	s.path_error = -0.02
+	s.setup.ball_position = 6
+	s.setup.face = 33
+	s.setup.stance = 27
+	_check_launch(t, s, [-60.178063, 130.934603, 58.414966, 135.705451, 62.62540, -0.570758], "set-up iron")
+	s = LinksLaunch.Strike.new()
+	s.club = 5
+	s.aim = -1.2
+	s.power = 70
+	s.face_error = -0.05
+	s.path_error = 0.04
+	s.spin_scale = 0.9
+	s.speed_scale = 1.05
+	s.loft_scale = 1.1
+	s.setup.face = 26
+	s.setup.stance = 32
+	s.ground_normal = Vector3(0.2, -0.1, sqrt(1 - 0.05))
+	_check_launch(t, s, [130.663751, 47.660517, 18.457195, 27.686730, -73.138883, -7.141661], "on a slope")
+	s = LinksLaunch.Strike.new()
+	s.club = 18
+	s.aim = 2.5
+	s.power = 60
+	s.setup.ball_position = 1
+	s.ground_normal = Vector3(-0.3, 0.25, sqrt(1 - 0.09 - 0.0625))
+	_check_launch(t, s, [-24.752554, -31.449690, 48.410392, -62.535463, 46.668793, -1.656532], "steep slope")
+	var b := t.launch_state(LinksLaunch.Strike.new())
+	_check_near(b.velocity.z, 195.679363 * 0.3048, 1e-3, "SI speed")
+	_check_near(b.spin.x, -73.860581 * TAU, 1e-2, "SI backspin")
+
+
+func _check_launch(t: LinksLaunch, s: LinksLaunch.Strike, want: Array, what: String) -> void:
+	var l := t.launch(s)
+	var got := [l[0].x, l[0].y, l[0].z, l[1].x, l[1].y, l[1].z]
+	for i in 6:
+		_check_near(got[i], want[i], 2e-3, "%s [%d]" % [what, i])
+
+
 func _test_links_ground_matches_olcore() -> void:
 	var rng := LinksGround.Rng.new()
 	_check(rng.next_u32() == 0x79a8b120, "first random number")

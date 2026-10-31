@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient tables are read from the player's executable, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Still to do: the launch (club tables, lie effects), the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Still to do: the swing meters' accuracy windows, lie effects, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))

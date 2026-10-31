@@ -19,7 +19,8 @@ and don't start a "(needs data)" item on guesses.
   Change both together; `game/tests/run_tests.gd` checks the port against
   numbers printed by the C++ tests. `obstacle_field.gd` ports
   `obstacles.cpp`, `links_aero.gd` ports `links_flight.cpp` and
-  `links_ground.gd` ports `links_ground.cpp` the same way, and
+  `links_ground.gd` ports `links_ground.cpp`, `links_launch.gd` ports
+  `links_launch.cpp` the same way, and
   `game/scripts/game_modes.gd` ports the game-mode half of `scoring.cpp`
   and `game/scripts/handicap.gd` its handicap functions.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
