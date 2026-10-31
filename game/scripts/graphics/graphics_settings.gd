@@ -88,6 +88,8 @@ var buggy := false
 ## Gimmes: a putt left this close is conceded for one stroke (an index into
 ## GIMME_FEET; 0 is off, as in Links 2003). Never in a friend's round.
 var gimme := 0
+## Take real swings from a launch monitor app over OpenConnect (desktop).
+var launch_monitor := false
 const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
 const GIMME_NAMES := ["Off", "Inside 2 ft", "Inside 3 ft", "Inside the leather (4 ft)"]
 
@@ -216,6 +218,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.time_of_day = clampi(int(cfg.get_value(SECTION, "time_of_day", s.time_of_day)), TimeOfDay.AFTERNOON, TimeOfDay.ROUND)
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
+	s.launch_monitor = bool(cfg.get_value(GAME_SECTION, "launch_monitor", s.launch_monitor))
 	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
@@ -264,6 +267,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
+	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

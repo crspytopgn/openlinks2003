@@ -97,6 +97,7 @@ func _process(_delta: float) -> bool:
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
+	_run("launch_monitor_input", _test_launch_monitor_input)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2543,6 +2544,74 @@ func _test_gimmes() -> void:
 	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
 	_check(ok.ok and ok.cards_checked, "a round with gimmes replays: %s" % [ok.errors])
 	print("  gimmes: %d, card %s" % [gimmes, str(game.card.strokes)])
+	GolfRound.setup = null
+
+
+## OpenConnect: messages split from a stream, read into a launch, flown the
+## right way, sent over a real socket, and played and replayed in a round.
+func _test_launch_monitor_input() -> void:
+	var shot_msg := {"DeviceID": "Test LM", "Units": "Yards", "ShotNumber": 1, "APIversion": "1",
+		"BallData": {"Speed": 120.0, "SpinAxis": 4.0, "TotalSpin": 6500.0, "HLA": 2.0, "VLA": 17.0},
+		"ShotDataOptions": {"ContainsBallData": true, "IsHeartBeat": false}}
+	var beat := {"DeviceID": "Test LM", "ShotDataOptions": {"ContainsBallData": false, "IsHeartBeat": true}}
+	var text := JSON.stringify(beat) + JSON.stringify(shot_msg)
+	var split := OpenConnect.split_messages(text.substr(0, text.length() - 5))
+	_check((split[0] as Array).size() == 1 and (split[1] as String).length() > 0, "a part message waits for the rest")
+	split = OpenConnect.split_messages(split[1] + text.substr(text.length() - 5))
+	_check((split[0] as Array).size() == 1 and (split[1] as String).is_empty(), "then it completes")
+	_check(OpenConnect.launch_of(beat) == null, "heartbeats are not shots")
+	var l := OpenConnect.launch_of(split[0][0])
+	_check(l != null and l.speed_mph == 120.0 and l.vla_deg == 17.0 and l.total_rpm == 6500.0, "ball data read")
+	var bs := {"BallData": {"Speed": 100.0, "BackSpin": 3000.0, "SideSpin": -400.0, "HLA": 0.0, "VLA": 20.0}}
+	var l2 := OpenConnect.launch_of(bs)
+	_check(l2 != null and absf(l2.total_rpm - Vector2(3000, 400).length()) < 0.01 and l2.axis_deg < 0.0, "back and side spin read")
+	# HLA right starts it right (-x); a positive spin axis curves it further right.
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var right := BallPhysics.simulate_shot(OpenConnect.ball_state(l, 0.0), fairway)
+	var start := OpenConnect.ball_state(l, 0.0)
+	_check(start.velocity.x < 0.0, "HLA right starts right")
+	_check(right.rest.x < start.velocity.x / start.velocity.z * right.rest.z, "a positive spin axis curves right")
+	_check_near(start.velocity.length(), 120.0 * OpenConnect.MPS_PER_MPH, 1e-4, "ball speed")
+	var straight := OpenConnect.Launch.from_array([120.0, 17.0, 0.0, 6500.0, 0.0])
+	var carry := BallPhysics.simulate_shot(OpenConnect.ball_state(straight, 0.0), fairway).carry_m * 1.0936
+	_check(carry > 140.0 and carry < 185.0, "a 120 mph 7-iron-like launch carries %.0f yd" % carry)
+	# Over a socket.
+	var server := OpenConnectServer.new()
+	root.add_child(server)
+	_check(server.start(19210), "server listens")
+	var got: Array = []
+	server.shot_received.connect(func(x: OpenConnect.Launch) -> void: got.append(x))
+	var client := StreamPeerTCP.new()
+	client.connect_to_host("127.0.0.1", 19210)
+	var reply := ""
+	for _i in 200:
+		client.poll()
+		server._process(0.0)
+		if client.get_status() == StreamPeerTCP.STATUS_CONNECTED and got.is_empty() and reply.is_empty():
+			client.put_data(JSON.stringify(shot_msg).to_utf8_buffer())
+		if client.get_available_bytes() > 0:
+			reply += (client.get_partial_data(client.get_available_bytes())[1] as PackedByteArray).get_string_from_utf8()
+		if not got.is_empty() and reply.contains("200"):
+			break
+		OS.delay_msec(5)
+	_check(got.size() == 1, "the shot came over the socket")
+	_check(reply.contains("\"Code\":200"), "and was answered: %s" % reply)
+	client.disconnect_from_host()
+	server.stop()
+	server.queue_free()
+	# In a round: played as measured, recorded, and replayed.
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	game.camera.end_flyover()
+	game._on_monitor_shot(OpenConnect.Launch.from_array([150.0, 11.0, 0.0, 2800.0, 0.0]))
+	_check(game.state == GolfRound.State.FLIGHT, "the monitor's shot is in the air")
+	var rec: ShotRecord = game.record.shots.back()
+	_check(rec.monitor.size() == 5 and ShotRecord.from_dict(rec.to_dict()).monitor == rec.monitor, "recorded as measured")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.checked == 1, "the monitor's shot replays: %s" % [ok.errors])
 	GolfRound.setup = null
 
 
