@@ -5,7 +5,7 @@ extends Node3D
 ## The golfer animation decoder plugs in through GolferAssets.
 ##
 ## Animation names the game uses: &"address", &"backswing", &"swing",
-## &"putt", &"celebrate". Before them the round calls set_shot() with the
+## &"putt", &"celebrate", &"upset" (after a penalty). Before them the round calls set_shot() with the
 ## club, the distance to the hole and (just before the swing) the power, so
 ## a rig can pick the club it holds and the swing it plays.
 

@@ -1054,10 +1054,14 @@ func _complete_flight() -> void:
 			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
 			_drop_pending = true
 			msg = "Water hazard. One-stroke penalty, take a drop."
+			if golfer:
+				golfer.play(&"upset")
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			strokes += 1
 			ball_at = shot_from
 			msg = "Out of bounds. Stroke and distance."
+			if golfer:
+				golfer.play(&"upset")
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
