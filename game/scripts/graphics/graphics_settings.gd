@@ -139,8 +139,7 @@ func _set_look(q: int, light: int, up: int, samples: int, scale: float, post: Ar
 static func load_saved(path := PATH) -> GraphicsSettings:
 	var s := GraphicsSettings.new()
 	var cfg := ConfigFile.new()
-	if cfg.load(path) != OK:
-		return s
+	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))

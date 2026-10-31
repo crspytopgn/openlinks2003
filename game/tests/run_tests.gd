@@ -490,6 +490,9 @@ func _test_graphics_settings() -> void:
 	cfg.save(path)
 	loaded = GraphicsSettings.load_saved(path)
 	_check(loaded.look == GraphicsSettings.detect_look(), "old settings get a look for the device")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.detect_look(), "first run gets a look for the device")
 	GraphicsSettings.force_look = GraphicsSettings.Look.CLASSIC
 	loaded = GraphicsSettings.load_saved(path)
 	GraphicsSettings.force_look = -1
