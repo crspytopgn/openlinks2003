@@ -84,9 +84,13 @@ func _process(_delta: float) -> bool:
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
+	_run("pause_stops_play", _test_pause_stops_play)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
+	_run("viewer_return", _test_viewer_return)
 	_run("players_panel", _test_players_panel)
+	SavedRound.clear()
+	_run("menu_resume", _test_menu_resume)
 	SavedRound.clear()
 	_run("broadcast_round", _test_broadcast_round)
 	_run("designer_scene", _test_designer_scene)
@@ -586,6 +590,9 @@ func _test_round_setup() -> void:
 	_check(s.problem().is_empty(), "best ball, three players")
 	s.mode = GameModes.Mode.SCRAMBLE
 	_check(s.problem().is_empty(), "scramble, three players")
+	s.names = _strs(["A", "B", "a "])
+	_check(not s.problem().is_empty(), "two players can't share a name")
+	s.names = _strs(["A", "B", "C"])
 	s.teams = _ints([1, 1, 1])
 	_check(not s.problem().is_empty(), "scramble needs both teams")
 	s.teams = _ints([0, 1, 0])
@@ -1840,6 +1847,88 @@ func _test_team_drops() -> void:
 	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
 	game._finish_drop()
 	GolfRound.setup = null
+
+
+## The pause menu holds the round: the meter, the ball in flight and the
+## pause after a shot all wait until it closes.
+func _test_pause_stops_play() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	if game.camera.flying():
+		game.camera.end_flyover()  # the broadcast hole flyover takes the first click
+	game._on_swing_pressed()
+	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
+	game.open_pause_menu()
+	game._process(0.1)
+	_check(not game.hud.meter.is_processing(), "pause: the swing meter stops")
+	game.pause_menu.close()
+	game._process(0.01)
+	_check(game.hud.meter.is_processing(), "pause: the swing meter runs again")
+	game.hud.meter.reset()
+	game.state = GolfRound.State.AIM
+	game.play_shot(0.8, 0.0)
+	_check(game.state == GolfRound.State.FLIGHT, "pause: ball in the air")
+	game.open_pause_menu()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.FLIGHT and game.shot_time == 0.0, "pause: the ball waits in the air")
+	game.pause_menu.close()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the shot finishes after closing")
+	game.open_pause_menu()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the turn doesn't pass while paused")
+	game.pause_menu.close()
+
+
+## The main menu resumes a saved round on a real course before the setup
+## page has ever been opened.
+func _test_menu_resume() -> void:
+	var boot: Control = (load("res://scripts/boot.gd") as GDScript).new()
+	var key := "Courses/TEST.crz"
+	boot._course_paths = PackedStringArray(["Courses/OTHER.crz", key])
+	var s := RoundSetup.new()
+	s.course_key = key
+	SavedRound.save(s, {"hole": 0})
+	_check(boot._resume_slot() == 2, "menu: the saved course's slot")
+	_check(boot._setup_paths.size() >= 2 and boot._setup_paths[1] == key, "menu: the setup list is filled for resuming")
+	s.course_key = "Courses/GONE.crz"
+	SavedRound.save(s, {"hole": 0})
+	_check(not boot._can_resume(), "menu: no resume when the course is gone")
+	s.course_key = ""
+	SavedRound.save(s, {"hole": 0})
+	_check(boot._resume_slot() == 0, "menu: the placeholder course resumes")
+	boot.free()
+
+
+## Leaving for the object or course viewer and coming back carries on with
+## the round; one saved on the end-of-hole screen counts the hole once.
+func _test_viewer_return() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.HOLE_DONE and steps < 200:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.HOLE_DONE and game.hole_index == 0, "viewer: hole 1 finished")
+	var stats: Dictionary = game.round_stats[0].duplicate()
+	var strokes: Array = Array(game.scoring.cards[0].strokes)
+	game.prepare_return()
+	_check(not GolfRound.resume.is_empty(), "viewer: the round is kept to come back to")
+	game.start_round()
+	_check(GolfRound.resume.is_empty(), "viewer: used once")
+	_check(game.state == GolfRound.State.HOLE_DONE and game.hole_index == 0, "viewer: back on the end-of-hole screen")
+	_check(Array(game.scoring.cards[0].strokes) == strokes, "viewer: the card is the same")
+	for key: String in stats:
+		_check(int(game.round_stats[0][key]) == int(stats[key]), "viewer: %s counted once" % key)
+	game.auto_play_step()
+	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "viewer: on to hole 2")
+	SavedRound.clear()
 
 
 ## The full and multiplayer rounds above went into the test profiles.

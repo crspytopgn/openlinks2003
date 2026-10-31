@@ -10,6 +10,8 @@ extends PanelContainer
 ## applies to textures loaded from then on (HdPack).
 
 signal changed
+## Done was pressed (Esc does the same in the menus that show the panel).
+signal back_pressed
 
 const FOV_CHOICES := [50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0]
 
@@ -96,11 +98,19 @@ func _ready() -> void:
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 16)
+	box.add_child(footer)
+	var done := MenuStyle.button("Done")
+	done.custom_minimum_size.x = 120
+	done.pressed.connect(back_pressed.emit)
+	footer.add_child(done)
 	var hint := Label.new()
 	hint.text = "Esc: close    F11: fullscreen"
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.modulate = Color(1, 1, 1, 0.7)
-	box.add_child(hint)
+	hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	footer.add_child(hint)
 	visible = false
 
 

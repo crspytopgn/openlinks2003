@@ -334,7 +334,8 @@ func _restore(saved: Dictionary) -> void:
 	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
 	var next := _next_player()
 	if next < 0:
-		_finish_hole()
+		# Saved on the end-of-hole screen: the stats already count the hole.
+		_finish_hole(false)
 		return
 	_begin_turn(next, true)
 	hud.show_message("Round resumed: %s to play" % scoring.names[shooter], 2.5)
@@ -357,6 +358,22 @@ func _save_progress() -> void:
 		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
 		"stats": round_stats,
 	})
+
+
+## The object and course viewers (O, C) come back to a new round scene, so
+## the round is carried over as if resumed. Only between shots: a shot in
+## the air would be lost.
+func _visit(scene: String) -> void:
+	if not (state == State.AIM or state == State.HOLE_DONE or state == State.ROUND_DONE):
+		return
+	prepare_return()
+	SceneFade.change_scene(get_tree(), scene)
+
+
+## Saves the round and keeps it to carry on with when this scene opens again.
+func prepare_return() -> void:
+	_save_progress()
+	resume = SavedRound.load_state() if state != State.ROUND_DONE else {}
 
 
 func _round_name() -> String:
@@ -610,7 +627,13 @@ func auto_play_step() -> void:
 
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
-	if _replaying:
+	# The pause menu and settings stop the round: the swing meter, the ball
+	# in the air and the countdowns all wait.
+	var paused := pause_menu.visible or settings_panel.visible
+	hud.meter.set_process(not paused)
+	if paused:
+		pass
+	elif _replaying:
 		_process_replay(delta)
 	else:
 		match state:
@@ -630,7 +653,7 @@ func _process(delta: float) -> void:
 					result_timer -= delta
 					if result_timer <= 0.0:
 						_next_hole()
-	if _replay_delay >= 0.0 and not _replaying:
+	if _replay_delay >= 0.0 and not _replaying and not paused:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
 			start_replay()
@@ -656,7 +679,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					elif pause_menu.visible:
 						pause_menu.close()
 					else:
-						pause_menu.open()
+						open_pause_menu()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -688,7 +711,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						_quit_to_menu()
 						return
 				KEY_O:
-					SceneFade.change_scene(get_tree(), "res://scenes/object_viewer.tscn")
+					_visit("res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -703,7 +726,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					_change_club(1)
 					return
 				KEY_C:
-					SceneFade.change_scene(get_tree(), "res://scenes/course_viewer.tscn")
+					_visit("res://scenes/course_viewer.tscn")
 					return
 				KEY_R:
 					start_replay()
@@ -746,7 +769,9 @@ func _on_swing_pressed() -> void:
 			hud.hint.text = HINT_SWING
 			hud.meter.click()
 		State.SWING:
-			hud.meter.click()
+			# Space mid mouse swing would start the meter on top of it.
+			if not hud.mouse_swing.is_swinging():
+				hud.meter.click()
 		State.FLIGHT:
 			_complete_flight()
 		State.SHOT_RESULT:
@@ -762,6 +787,15 @@ func _on_swing_pressed() -> void:
 			_next_hole()
 		State.ROUND_DONE:
 			start_round()
+
+
+## Esc: the pause menu. A mouse swing in progress is called off, since the
+## menu takes the button's release.
+func open_pause_menu() -> void:
+	if hud.mouse_swing.is_swinging():
+		hud.mouse_swing.reset()
+		_on_mouse_stroke_cancelled()
+	pause_menu.open()
 
 
 ## Links 2003's mouse swing: holding the left button while aiming starts
@@ -1060,10 +1094,12 @@ func _hole_out(picked_up: bool) -> void:
 	result_timer = RESULT_PAUSE
 
 
-func _finish_hole() -> void:
+func _finish_hole(add_stats := true) -> void:
 	for i in players.size():
 		var p := players[ball_of[i]]
 		scoring.cards[i].record(hole_index, p.strokes)
+		if not add_stats:
+			continue
 		var st := round_stats[i]
 		if p.fairway >= 0:
 			st.fairway_holes += 1
@@ -1495,6 +1531,7 @@ func _build_world() -> void:
 	settings_panel = SettingsPanel.new()
 	canvas.add_child(settings_panel)
 	settings_panel.changed.connect(_apply_graphics)
+	settings_panel.back_pressed.connect(_on_settings_back)
 	pause_menu = PauseMenu.new()
 	canvas.add_child(pause_menu)
 	pause_menu.resume_pressed.connect(pause_menu.close)
@@ -1526,6 +1563,11 @@ func _on_pause_scorecard() -> void:
 func _on_pause_settings() -> void:
 	pause_menu.close()
 	settings_panel.open(graphics)
+
+
+func _on_settings_back() -> void:
+	settings_panel.close()
+	pause_menu.open()
 
 
 func _on_pause_restart() -> void:

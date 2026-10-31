@@ -68,6 +68,7 @@ func _build_ui() -> void:
 	center.add_child(_setup)
 	_settings = SettingsPanel.new()
 	_settings.changed.connect(func() -> void: _graphics.apply_display(get_viewport()))
+	_settings.back_pressed.connect(_close_settings)
 	center.add_child(_settings)
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
@@ -294,7 +295,7 @@ func _open_setup() -> void:
 	if _busy:
 		return
 	var names := PackedStringArray(["Placeholder Nine (built in)"])
-	_setup_paths = _course_paths + DesignedCourse.saved_paths()
+	_setup_paths = _all_courses()
 	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))
 	var saved := RoundSetup.load_saved()
@@ -332,20 +333,42 @@ func _close_players() -> void:
 		_play.grab_focus.call_deferred()
 
 
+## Every course the setup page offers after the placeholder: the game's
+## courses, then the player's own designs.
+func _all_courses() -> PackedStringArray:
+	return _course_paths + DesignedCourse.saved_paths()
+
+
 ## True if there is a saved round and its course is among the player's files
-## (or it was on the placeholder course).
+## or designs (or it was on the placeholder course).
 func _can_resume() -> bool:
+	return _resume_slot() >= 0
+
+
+## Where the saved round's course sits in the setup list (0: the
+## placeholder), or -1 if there's no saved round or its course is gone.
+## Fills the setup list, so the menu can resume before the setup page has
+## been opened.
+func _resume_slot() -> int:
 	var s := SavedRound.load_setup()
-	return s != null and (s.course_key.is_empty() or _course_paths.has(s.course_key))
+	if s == null:
+		return -1
+	if s.course_key.is_empty():
+		return 0
+	_setup_paths = _all_courses()
+	var i := _setup_paths.find(s.course_key)
+	return -1 if i < 0 else i + 1
 
 
 ## Carries on with the saved round (SavedRound) from where it stopped.
 func _resume_round() -> void:
-	if _busy or not _can_resume():
+	if _busy:
 		return
-	var s := SavedRound.load_setup()
+	var slot := _resume_slot()
+	if slot < 0:
+		return
 	GolfRound.resume = SavedRound.load_state()
-	_launch(s, 0 if s.course_key.is_empty() else _course_paths.find(s.course_key) + 1)
+	_launch(SavedRound.load_setup(), slot)
 
 
 func _open_settings() -> void:
@@ -354,12 +377,18 @@ func _open_settings() -> void:
 	SceneFade.pop_in(_settings)
 
 
+func _close_settings() -> void:
+	_settings.close()
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
 		if _settings.visible:
-			_settings.close()
-			_main_box.visible = true
-			SceneFade.pop_in(_main_box)
+			_close_settings()
 		elif _setup.visible:
 			_close_setup()
 		elif _players.visible:
@@ -388,7 +417,7 @@ func _on_setup_start(chosen: RoundSetup, course_index: int) -> void:
 ## page's list (0 is the placeholder), copying the course into memory first in
 ## the browser.
 func _launch(chosen: RoundSetup, course_index: int) -> void:
-	chosen.course_key = "" if course_index <= 0 else _course_paths[course_index - 1]
+	chosen.course_key = "" if course_index <= 0 else _setup_paths[course_index - 1]
 	GolfRound.setup = chosen
 	if course_index <= 0:
 		chosen.course_path = ""
