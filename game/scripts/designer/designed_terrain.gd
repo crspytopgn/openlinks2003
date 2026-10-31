@@ -26,13 +26,13 @@ const LAYERS := [
 	Surface.Type.FRINGE, Surface.Type.TEE, Surface.Type.GREEN, Surface.Type.SAND, Surface.Type.WATER,
 ]
 const COLORS := [
-	Color(0.33, 0.62, 0.25),  # tee
-	Color(0.30, 0.58, 0.20),  # fairway
-	Color(0.32, 0.64, 0.26),  # fringe
-	Color(0.36, 0.72, 0.30),  # green
-	Color(0.20, 0.43, 0.14),  # rough
-	Color(0.15, 0.33, 0.11),  # deep rough
-	Color(0.86, 0.80, 0.60),  # sand
+	Color(0.29, 0.48, 0.19),  # tee (olive, as real turf reads in sun)
+	Color(0.29, 0.47, 0.18),  # fairway
+	Color(0.27, 0.47, 0.19),  # fringe
+	Color(0.30, 0.52, 0.21),  # green
+	Color(0.22, 0.38, 0.14),  # rough
+	Color(0.19, 0.31, 0.12),  # deep rough
+	Color(0.78, 0.72, 0.55),  # sand
 	Color(0.12, 0.25, 0.35),  # water
 	Color(0.13, 0.27, 0.10),  # out of bounds
 ]

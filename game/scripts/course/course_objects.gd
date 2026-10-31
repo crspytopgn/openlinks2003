@@ -33,6 +33,8 @@ const FAR_REACH := 900.0  ## how far from a hole the always-drawn chunks go
 ## drawn as 3D trees, in cells of TREE_CELL metres. The ball's obstacles
 ## stay those of the billboards.
 const TREE_MIN_HEIGHT := 3.0
+## Bushes lower than this keep their billboards (tufts and flowers).
+const BUSH_MIN_HEIGHT := 0.6
 const TREE_CELL := 50.0
 const CROWD_GROUPS: Array[String] = ["fan", "Sit", "media", "Official"]
 const CROWD_SPRITE_FEET := 6.0  ## a 128-pixel spectator sprite
@@ -880,17 +882,19 @@ static func plant_shape(type_name: String) -> int:
 
 
 ## The TreeFactory.Species a billboard type is drawn as with 3D trees on,
-## or -1 to keep its billboard (palms and dead trees look nothing like the
-## generated trees).
+## or -1 to keep its billboard (palms, dead trees and hedges look nothing
+## like the generated trees and bushes).
 static func tree_species(type_name: String) -> int:
 	var n := type_name.to_lower()
-	if n.contains("palm") or n.contains("dead"):
+	if n.contains("palm") or n.contains("dead") or n.contains("hedge"):
 		return -1
 	match plant_shape(type_name):
 		1:
 			return TreeFactory.Species.BROADLEAF
 		2:
 			return TreeFactory.Species.PINE
+		3:
+			return TreeFactory.Species.BUSH
 	return -1
 
 
@@ -1279,7 +1283,10 @@ func _add_trees(root: Node3D, s: Sprites, chunk: int) -> void:
 ## Whether placement i of `s` is drawn as a 3D tree when they are on.
 static func is_3d_tree(s: Sprites, i: int) -> bool:
 	var t := s.sprite[i]
-	return t < s.species.size() and s.species[t] >= 0 and s.xyzh[4 * i + 3] >= TREE_MIN_HEIGHT
+	if t >= s.species.size() or s.species[t] < 0:
+		return false
+	var least := BUSH_MIN_HEIGHT if s.species[t] == TreeFactory.Species.BUSH else TREE_MIN_HEIGHT
+	return s.xyzh[4 * i + 3] >= least
 
 
 ## The MultiMesh of one bucket: per instance a row-major 3x4 transform

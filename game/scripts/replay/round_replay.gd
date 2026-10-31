@@ -30,12 +30,28 @@ static func run_shot(model: ShotModel, r: ShotRecord, club: Club, terrain: Cours
 			links.mouse_swing = mouse_outcome(r.stroke, round_seed, r.index, copy_help(r.help))
 		links.rng = LinksLaunch.Rand.new(RoundRecord.shot_seed(round_seed, r.index, RoundRecord.SALT_MODEL))
 	model.setup = r.setup()
-	var start := model.launch(club, r.power, r.accuracy, r.aim_deg, r.lie, r.from)
+	var start := monitor_launch(r, club, model) if not r.monitor.is_empty() \
+			else model.launch(club, r.power, r.accuracy, r.aim_deg, r.lie, r.from)
 	# Back to square, so planners (computer golfers, the caddie) see plain shots.
 	model.setup = LinksLaunch.Setup.new()
 	var result := model.simulate(start, terrain, pin, wind)
 	result.launch = start
 	return result
+
+
+## A launch monitor's shot as measured, with the lie's loss of speed and
+## spin (rough, sand) as the swing would have.
+static func monitor_launch(r: ShotRecord, club: Club, model: ShotModel) -> BallState:
+	var l := OpenConnect.Launch.from_array(r.monitor)
+	if not club.is_putter:
+		l.speed_mph *= Surface.lie_power(r.lie)
+		l.total_rpm *= Surface.lie_spin(r.lie)
+	else:
+		l.vla_deg = 0.0
+	var b := OpenConnect.ball_state(l, r.aim_deg)
+	b.position = r.from
+	b.on_ground = club.is_putter and model is LinksShotModel
+	return b
 
 
 ## The PowerStroke mouse swing of shot `index`, with that shot's draws.

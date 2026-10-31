@@ -40,6 +40,7 @@ var _speed: OptionButton
 var _caddie: OptionButton
 var _buggy: OptionButton
 var _gimme: OptionButton
+var _monitor: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -57,6 +58,7 @@ var _grain: OptionButton
 var _grass: OptionButton
 var _foliage: OptionButton
 var _clouds: OptionButton
+var _time: OptionButton
 var _trees: OptionButton
 var _filling := false  ## true while open() sets the controls
 
@@ -109,6 +111,8 @@ func _ready() -> void:
 	_caddie = _row(grid, "Caddie", ["Off", "On (advice follows swing skill)"])
 	_buggy = _row(grid, "Golf buggy", ["Off (walk)", "Drive between shots"])
 	_gimme = _row(grid, "Gimmes", GraphicsSettings.GIMME_NAMES)
+	if OpenConnectServer.supported():
+		_monitor = _row(grid, "Launch monitor", ["Off", "On (OpenConnect, port 921)"])
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -151,6 +155,8 @@ func open(s: GraphicsSettings) -> void:
 	_caddie.select(1 if s.caddie else 0)
 	_buggy.select(1 if s.buggy else 0)
 	_gimme.select(s.gimme)
+	if _monitor != null:
+		_monitor.select(1 if s.launch_monitor else 0)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -196,6 +202,8 @@ func _add_look_rows(grid: GridContainer) -> void:
 	_grass = _row(grid, "3D grass", GraphicsSettings.LEVEL_NAMES)
 	_foliage = _row(grid, "Trees in the wind", ["Still", "Sway"])
 	_clouds = _row(grid, "Cloud shadows", ["Off", "On"])
+	_time = _row(grid, "Time of day", GraphicsSettings.TIME_NAMES)
+	_time.tooltip_text = "The sun and sky with Photoreal lighting. The shadows follow on the next hole."
 	_trees = _row(grid, "Trees", GraphicsSettings.TREE_NAMES)
 	_trees.tooltip_text = "Photo-textured 3D trees. Takes effect on the next hole."
 	if not GraphicsSettings.is_forward_plus():
@@ -222,6 +230,7 @@ func _show_look() -> void:
 	_grass.select(s.grass)
 	_foliage.select(1 if s.foliage_wind else 0)
 	_clouds.select(1 if s.cloud_shadows else 0)
+	_time.select(s.time_of_day)
 	_trees.select(s.trees)
 	_filling = false
 
@@ -364,6 +373,8 @@ func _on_selected() -> void:
 	settings.caddie = _caddie.selected == 1
 	settings.buggy = _buggy.selected == 1
 	settings.gimme = _gimme.selected
+	if _monitor != null:
+		settings.launch_monitor = _monitor.selected == 1
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected
@@ -377,6 +388,7 @@ func _on_selected() -> void:
 	settings.grass = _grass.selected
 	settings.foliage_wind = _foliage.selected == 1
 	settings.cloud_shadows = _clouds.selected == 1
+	settings.time_of_day = _time.selected
 	settings.trees = _trees.selected
 	if before != _look_values():
 		settings.look = GraphicsSettings.Look.CUSTOM

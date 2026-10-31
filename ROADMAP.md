@@ -40,9 +40,11 @@ product lead builds it.
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).
    Still to do: a built-in range course with yardage targets.
-6. [ ] **Launch monitor input** (desktop): take real swings from home
+6. [x] **Launch monitor input** (desktop): take real swings from home
    simulators through the open GSPro-style connect API, the golf version of
-   a sim-racing wheel. Owner: new thread, after item 5.
+   a sim-racing wheel. Done: Settings > Launch monitor
+   ([game-shell.md](docs/game-shell.md#launch-monitors)). Still to do: try
+   it with a real launch monitor app.
 7. [x] **Career**: a season of events against the computer golfers, with a
    money list and the handicap and stats already kept. Done: main menu >
    Career ([game-shell.md](docs/game-shell.md#career)): three tours, cuts,

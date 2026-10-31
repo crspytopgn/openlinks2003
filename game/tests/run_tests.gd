@@ -98,6 +98,7 @@ func _process(_delta: float) -> bool:
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
+	_run("launch_monitor_input", _test_launch_monitor_input)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -1341,6 +1342,15 @@ func _test_graphics_settings() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	for g in GraphicsSettings.Grade.values():
 		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
+	_check(GraphicsSettings.TIME_NAMES.size() == GraphicsSettings.TimeOfDay.size(), "a name per time of day")
+	var noon := Scenery.time_light(GraphicsSettings.TimeOfDay.MIDDAY, 0.0)
+	var dawn := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 0.0)
+	var half := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 0.5)
+	var dusk := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 1.0)
+	_check(noon.elevation > dawn.elevation and dawn.elevation > dusk.elevation, "the sun is highest at midday, lowest at golden hour")
+	_check(half.elevation < noon.elevation and half.elevation > Scenery.TIMES["afternoon"].elevation, "through the round blends the light (%.1f)" % half.elevation)
+	_check((dusk.sun as Color).b < (noon.sun as Color).b, "golden hour sun is warm")
+	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == 38.0, "afternoon keeps the old sun")
 
 
 func _test_trees() -> void:
@@ -1353,7 +1363,9 @@ func _test_trees() -> void:
 			tris += (m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
 		_check(tris > 200 and tris < 6000, "tree %d stays light (%d triangles)" % [v, tris])
 		var box := m.get_aabb()
-		_check(box.end.y > 8.0 and box.end.y < 19.0 and box.position.y > -0.5, "tree %d is tree-sized (%.1f m)" % [v, box.end.y])
+		var low := 1.2 if spec[0] == TreeFactory.Species.BUSH else 8.0
+		var high := 3.5 if spec[0] == TreeFactory.Species.BUSH else 19.0
+		_check(box.end.y > low and box.end.y < high and box.position.y > -0.5, "tree %d is its species' size (%.1f m)" % [v, box.end.y])
 		var again := TreeFactory.build_mesh(spec[0], spec[1])
 		_check(again.surface_get_array_len(1) == m.surface_get_array_len(1), "tree %d grows the same each time" % v)
 		_check(TreeFactory.frame_size(v) >= box.end.y, "tree %d fits its impostor frame" % v)
@@ -2537,6 +2549,74 @@ func _test_gimmes() -> void:
 	GolfRound.setup = null
 
 
+## OpenConnect: messages split from a stream, read into a launch, flown the
+## right way, sent over a real socket, and played and replayed in a round.
+func _test_launch_monitor_input() -> void:
+	var shot_msg := {"DeviceID": "Test LM", "Units": "Yards", "ShotNumber": 1, "APIversion": "1",
+		"BallData": {"Speed": 120.0, "SpinAxis": 4.0, "TotalSpin": 6500.0, "HLA": 2.0, "VLA": 17.0},
+		"ShotDataOptions": {"ContainsBallData": true, "IsHeartBeat": false}}
+	var beat := {"DeviceID": "Test LM", "ShotDataOptions": {"ContainsBallData": false, "IsHeartBeat": true}}
+	var text := JSON.stringify(beat) + JSON.stringify(shot_msg)
+	var split := OpenConnect.split_messages(text.substr(0, text.length() - 5))
+	_check((split[0] as Array).size() == 1 and (split[1] as String).length() > 0, "a part message waits for the rest")
+	split = OpenConnect.split_messages(split[1] + text.substr(text.length() - 5))
+	_check((split[0] as Array).size() == 1 and (split[1] as String).is_empty(), "then it completes")
+	_check(OpenConnect.launch_of(beat) == null, "heartbeats are not shots")
+	var l := OpenConnect.launch_of(split[0][0])
+	_check(l != null and l.speed_mph == 120.0 and l.vla_deg == 17.0 and l.total_rpm == 6500.0, "ball data read")
+	var bs := {"BallData": {"Speed": 100.0, "BackSpin": 3000.0, "SideSpin": -400.0, "HLA": 0.0, "VLA": 20.0}}
+	var l2 := OpenConnect.launch_of(bs)
+	_check(l2 != null and absf(l2.total_rpm - Vector2(3000, 400).length()) < 0.01 and l2.axis_deg < 0.0, "back and side spin read")
+	# HLA right starts it right (-x); a positive spin axis curves it further right.
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var right := BallPhysics.simulate_shot(OpenConnect.ball_state(l, 0.0), fairway)
+	var start := OpenConnect.ball_state(l, 0.0)
+	_check(start.velocity.x < 0.0, "HLA right starts right")
+	_check(right.rest.x < start.velocity.x / start.velocity.z * right.rest.z, "a positive spin axis curves right")
+	_check_near(start.velocity.length(), 120.0 * OpenConnect.MPS_PER_MPH, 1e-4, "ball speed")
+	var straight := OpenConnect.Launch.from_array([120.0, 17.0, 0.0, 6500.0, 0.0])
+	var carry := BallPhysics.simulate_shot(OpenConnect.ball_state(straight, 0.0), fairway).carry_m * 1.0936
+	_check(carry > 140.0 and carry < 185.0, "a 120 mph 7-iron-like launch carries %.0f yd" % carry)
+	# Over a socket.
+	var server := OpenConnectServer.new()
+	root.add_child(server)
+	_check(server.start(19210), "server listens")
+	var got: Array = []
+	server.shot_received.connect(func(x: OpenConnect.Launch) -> void: got.append(x))
+	var client := StreamPeerTCP.new()
+	client.connect_to_host("127.0.0.1", 19210)
+	var reply := ""
+	for _i in 200:
+		client.poll()
+		server._process(0.0)
+		if client.get_status() == StreamPeerTCP.STATUS_CONNECTED and got.is_empty() and reply.is_empty():
+			client.put_data(JSON.stringify(shot_msg).to_utf8_buffer())
+		if client.get_available_bytes() > 0:
+			reply += (client.get_partial_data(client.get_available_bytes())[1] as PackedByteArray).get_string_from_utf8()
+		if not got.is_empty() and reply.contains("200"):
+			break
+		OS.delay_msec(5)
+	_check(got.size() == 1, "the shot came over the socket")
+	_check(reply.contains("\"Code\":200"), "and was answered: %s" % reply)
+	client.disconnect_from_host()
+	server.stop()
+	server.queue_free()
+	# In a round: played as measured, recorded, and replayed.
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	game.camera.end_flyover()
+	game._on_monitor_shot(OpenConnect.Launch.from_array([150.0, 11.0, 0.0, 2800.0, 0.0]))
+	_check(game.state == GolfRound.State.FLIGHT, "the monitor's shot is in the air")
+	var rec: ShotRecord = game.record.shots.back()
+	_check(rec.monitor.size() == 5 and ShotRecord.from_dict(rec.to_dict()).monitor == rec.monitor, "recorded as measured")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.checked == 1, "the monitor's shot replays: %s" % [ok.errors])
+	GolfRound.setup = null
+
+
 func _test_multiplayer_rounds() -> void:
 	var game := _game
 	if not game.is_node_ready():
@@ -2753,6 +2833,12 @@ func _test_tee_view() -> void:
 	var far := game.ball_at + game._aim_dir() * reach
 	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
 	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
+	var cam: RoundCamera = game.camera
+	var forward := (cam._aim_look - cam._aim_pos).normalized()
+	var half := deg_to_rad(cam.fov) * 0.5
+	var to_feet := (game.ball_at - cam._aim_pos).normalized()
+	_check(forward.angle_to(to_feet) < half, "tee view: the golfer and ball stay in frame")
+	_check(forward.angle_to((target - cam._aim_pos).normalized()) < half, "tee view: and so does the target")
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
