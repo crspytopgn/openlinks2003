@@ -11,7 +11,8 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
+## REMOTE: an online round waits for another player's shot or drop.
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, REMOTE }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -40,6 +41,7 @@ const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the whi
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
+const HINT_REMOTE := "%s is playing    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
@@ -92,6 +94,8 @@ static var record_rounds := true
 ## A saved round to carry on with (SavedRound.load_state); start_round uses it
 ## once and clears it.
 static var resume := {}
+## An online round for the next GolfRound to play (the lobby sets it).
+static var next_online: OnlineRound
 
 var state: State = State.AIM
 var course: CourseData
@@ -212,6 +216,10 @@ var _holes_started := 0
 var _mouse_stroke: LinksMouse.Stroke = null
 ## The swing help count before that stroke.
 var _mouse_help: LinksMouse.Help = null
+## The online round this game is part of, or null (OnlineRound).
+var online: OnlineRound
+## Another player's shot being played here, to check against theirs.
+var _incoming: ShotRecord = null
 
 
 func _ready() -> void:
@@ -235,6 +243,9 @@ func _ready() -> void:
 	hud.mouse_swing.backswing_started.connect(_on_backswing_started)
 	hud.mouse_swing.stroke_finished.connect(_on_mouse_stroke)
 	hud.mouse_swing.stroke_cancelled.connect(_on_mouse_stroke_cancelled)
+	if online == null:
+		online = next_online
+	next_online = null
 	start_round()
 
 
@@ -249,6 +260,8 @@ func start_round() -> void:
 	round_setup.course_name = course.course_name
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
 	# A friend's round: the same wind, shot for shot.
+	if round_setup.round_seed != 0:
+		round_seed = round_setup.round_seed
 	var versus := round_setup.challenge
 	if versus != null:
 		round_seed = versus.round_seed
@@ -308,7 +321,11 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	var wind_level := graphics.wind if versus == null else versus.wind_level
+	var wind_level := graphics.wind
+	if round_setup.wind_level >= 0:
+		wind_level = round_setup.wind_level
+	if versus != null:
+		wind_level = versus.wind_level
 	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
 	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
@@ -535,7 +552,7 @@ func _begin_turn(index: int, snap_camera: bool) -> void:
 ## dim the screen until they're at the keyboard. Computer golfers don't need
 ## it, and a person playing against them alone never sees it.
 func _hand_over() -> void:
-	if opponents[shooter] != null:
+	if opponents[shooter] != null or online != null:
 		return
 	if _last_human >= 0 and _last_human != shooter:
 		var detail := "Hole %d    Shot %d    %s to the pin" % [hole.number, strokes + 1, _pin_text()]
@@ -617,12 +634,20 @@ func play_shot(power: float, accuracy: float) -> void:
 	rec.help = null if rec.computer else _mouse_help
 	rec.wind_level = wind.level
 	rec.wind = wind.velocity()
+	if _incoming != null:
+		rec.skill = _incoming.skill
 	_mouse_stroke = null
 	_mouse_help = null
 	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
 	record.shots.append(rec)
+	if online != null:
+		if _incoming == null:
+			online.send_shot(rec)
+		elif rec.outcome != _incoming.outcome or rec.rest.distance_to(_incoming.rest) > RoundReplay.REST_TOLERANCE_M:
+			online.report_mismatch(online.seq - 1)
+			hud.show_message("%s's shot stopped somewhere else here: the round is marked not agreed." % scoring.names[shooter], 3.0)
 	wind.next_shot()
 	_update_wind_shaders()
 	if free_ambience != null:
@@ -677,6 +702,9 @@ func auto_play_step() -> void:
 			_finish_drop()
 		State.HOLE_DONE:
 			_next_hole()
+		State.REMOTE:
+			_poll_online()
+			_apply_remote()
 
 
 func _process(delta: float) -> void:
@@ -687,6 +715,8 @@ func _process(delta: float) -> void:
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
 	hud.meter.visible = state != State.DROP
+	if online != null:
+		_poll_online()
 	if paused:
 		pass
 	elif _replaying:
@@ -704,8 +734,11 @@ func _process(delta: float) -> void:
 					_after_result()
 			State.COMPUTER:
 				_process_computer(delta)
+			State.REMOTE:
+				_apply_remote()
 			State.HOLE_DONE:
-				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
+				# Online, every game moves on by itself so nobody waits.
+				if (round_setup.all_computer() or online != null) and not pause_menu.visible and not settings_panel.visible:
 					result_timer -= delta
 					if result_timer <= 0.0:
 						_next_hole()
@@ -849,7 +882,10 @@ func _on_swing_pressed() -> void:
 		State.HOLE_DONE:
 			_next_hole()
 		State.ROUND_DONE:
-			start_round()
+			if online != null:
+				_quit_to_menu()
+			else:
+				start_round()
 
 
 ## Esc: the pause menu. A mouse swing in progress is called off, since the
@@ -967,6 +1003,9 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_aim_camera(snap_camera)
 	_update_green_grid()
 	_save_progress()
+	if _is_remote():
+		_wait_remote()
+		return
 	_caddie_read()
 	if opponents[shooter] != null:
 		_start_computer_turn()
@@ -1310,8 +1349,8 @@ func _record_rounds() -> String:
 	var date := Time.get_date_string_from_system()
 	var lines: Array[String] = []
 	for i in scoring.player_count():
-		# Computer golfers keep no profile.
-		if round_setup.is_computer(i):
+		# Computer golfers keep no profile, nor do the other people online.
+		if round_setup.is_computer(i) or (online != null and not online.owns(i)):
 			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
@@ -1366,6 +1405,11 @@ func _begin_drop(reason: int) -> void:
 		return
 	_drop_choice = DropRules.best(_drop_zones, hole.pin)
 	_drop_spot = _drop_zones[_drop_choice].spot
+	if _is_remote():
+		# Their game picks the spot; it arrives as an event.
+		state = State.REMOTE
+		hud.hint.text = HINT_REMOTE % scoring.names[shooter]
+		return
 	if opponents[shooter] != null:
 		_finish_drop()
 		return
@@ -1486,6 +1530,8 @@ func _finish_drop() -> void:
 	record.drops.append({"ball": current, "hole": hole_index, "reason": reason,
 		"penalty": 0 if reason == DropRules.Reason.WATER else DropRules.penalty(reason),
 		"spot": [ball_at.x, ball_at.y, ball_at.z]})
+	if online != null and not _is_remote():
+		online.send_drop(shooter, reason, _drop_choice, ball_at)
 	var what := DropRules.OPTION_NAMES[z.option]
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()
@@ -1502,6 +1548,64 @@ func _finish_drop() -> void:
 		_store_turn()  # so the saved round has the dropped ball
 		_prepare_shot(false)
 	hud.show_message(msg, 2.0)
+
+
+# --- Online ------------------------------------------------------------------
+
+## True when another game in the online round plays the current shooter.
+func _is_remote() -> bool:
+	return online != null and not online.owns(shooter)
+
+
+func _wait_remote() -> void:
+	state = State.REMOTE
+	aim_marker.visible = false
+	hud.hint.text = HINT_REMOTE % scoring.names[shooter]
+	_apply_remote()
+
+
+func _poll_online() -> void:
+	online.poll()
+	if not online.notices.is_empty():
+		hud.show_message("\n".join(online.notices), 3.0)
+		online.notices.clear()
+	# Someone left and their seats came to this game: play them from here.
+	if state == State.REMOTE and not _is_remote() and _drop_reason < 0:
+		_prepare_shot(false)
+
+
+## Plays the next event of the online round if it has arrived: another
+## player's shot (their inputs, through this game's physics) or drop.
+func _apply_remote() -> void:
+	if state != State.REMOTE:
+		return
+	var ev := online.next_event()
+	if ev.is_empty():
+		return
+	if int(ev.get("player", -1)) != shooter:
+		hud.show_message("This game is out of step with the round.", 3.0)
+		return
+	online.done_event()
+	if str(ev.get("kind", "")) == "drop":
+		var reason := int(ev.get("reason", -1))
+		if _drop_reason != reason:
+			_begin_drop(reason)
+		if _drop_zones.is_empty():
+			return
+		_drop_choice = clampi(int(ev.get("choice", 0)), 0, _drop_zones.size() - 1)
+		var sp: Array = ev.get("spot", [])
+		if sp.size() == 3:
+			_drop_spot = Vector3(float(sp[0]), float(sp[1]), float(sp[2]))
+		_finish_drop()
+		return
+	var rec := ShotRecord.from_dict(ev.get("shot", {}))
+	club_index = clampi(rec.club, 0, clubs.size() - 1)
+	aim_deg = rec.aim_deg
+	_mouse_stroke = rec.stroke
+	_mouse_help = rec.help
+	_incoming = rec
+	play_shot(rec.power, rec.accuracy)
+	_incoming = null
 
 
 # --- Computer golfers --------------------------------------------------------
@@ -1755,7 +1859,8 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 	_set_caddie(graphics.caddie)
-	if wind != null:
+	# A round on set conditions (online, or a friend's result code) keeps them.
+	if wind != null and online == null and round_setup.wind_level < 0 and round_setup.challenge == null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
 		if hole != null:

@@ -19,6 +19,7 @@ var _buttons: HBoxContainer
 var _play: Button
 var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
+var _online: OnlinePanel
 var _settings: SettingsPanel
 var _players: PlayersPanel
 var _graphics: GraphicsSettings
@@ -73,6 +74,10 @@ func _build_ui() -> void:
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
 	center.add_child(_players)
+	_online = OnlinePanel.new()
+	_online.start_pressed.connect(_on_online_start)
+	_online.back_pressed.connect(_close_online)
+	center.add_child(_online)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -275,6 +280,8 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 		_status.text += "
 Saved round: %s." % SavedRound.describe()
 	var items: Array = [["Play a round", _open_setup]]
+	if OnlineSettings.available():
+		items.append(["Play online", _open_online])
 	if _can_resume():
 		items.append(["Resume round", _resume_round])
 	items += extra + [["Players", _open_players], ["Course designer", _open_designer], ["Settings", _open_settings]]
@@ -312,6 +319,35 @@ func _open_setup() -> void:
 	_setup.course_paths = _setup_paths
 	_setup.open(names, selected, saved)
 	SceneFade.pop_in(_setup)
+
+
+## Play online: the same course list as the setup page.
+func _open_online() -> void:
+	if _busy:
+		return
+	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	_setup_paths = _all_courses()
+	for path in _setup_paths:
+		names.append(CourseFiles.display_name(path))
+	var saved := RoundSetup.load_saved()
+	var me := saved.names[0] if not saved.names.is_empty() and saved.names[0] != RoundSetup.DEFAULT_NAMES[0] else ""
+	_main_box.visible = false
+	_online.course_paths = _setup_paths
+	_online.open(names, me)
+	SceneFade.pop_in(_online)
+
+
+func _close_online() -> void:
+	_online.visible = false
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+
+
+func _on_online_start(chosen: RoundSetup, course_index: int, online_round: OnlineRound) -> void:
+	_online.visible = false
+	GolfRound.next_online = online_round
+	GolfRound.resume = {}
+	_launch(chosen, course_index)
 
 
 func _close_setup() -> void:

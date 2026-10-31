@@ -115,6 +115,8 @@ feel) still need a working install.
   - [ ] Online play, leaderboards and fair play ([online-play.md](docs/online-play.md))
     - [x] Phase 1: replayable rounds (round seed, shot records, replay checker in CI), challenge and result codes
     - [ ] Phase 2: server (Cloudflare Worker), rooms by code over WebSocket, every client checks every shot, rounds in your own time
+      - [x] Server (not deployed yet: needs a Cloudflare account), live rounds played in step with every game checking every shot, lobby by room code
+      - [ ] Deploy, rejoining a round, timeouts, quick-chat buttons, rounds in your own time in the game
     - [ ] Phase 3: olcore in wasm, server-checked leaderboards on open courses, daily and weekly challenges, replays and ghosts
     - [ ] Phase 4: simultaneous play, GitHub or Discord sign-in, handicap boards, swing plausibility checks, reports
 - [ ] Player profiles and saves (original format optional)
