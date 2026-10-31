@@ -335,7 +335,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_L:
 				_ask_for_folder()
 			KEY_ESCAPE:
-				get_tree().change_scene_to_file("res://scenes/main.tscn")
+				SceneFade.change_scene(get_tree(), "res://scenes/main.tscn")
 
 
 func _process(delta: float) -> void:

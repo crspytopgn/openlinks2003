@@ -6,6 +6,7 @@ extends SceneTree
 ##
 ##   godot --path game --rendering-method gl_compatibility -s res://tests/render_check.gd -- out.png
 
+const FLYOVER_FRAME := 20
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
 
@@ -39,6 +40,10 @@ func _process(_delta: float) -> bool:
 		_game.scenery.set_backdrop(_test_horizon())
 	elif _frames == 3:
 		print("post process: visible %s, covers %s" % [_game.post.visible, _game.post.covered_size()])
+	elif _frames == FLYOVER_FRAME:
+		# The Broadcast presentation opens the hole with a flyover.
+		_save_jpg(root.get_texture().get_image(), "-flyover")
+		_game.camera.end_flyover()
 	elif _frames == SHOT_FRAME:
 		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()

@@ -16,6 +16,9 @@ var _done := false
 
 
 func _initialize() -> void:
+	# Rounds the tests finish go here, not into the player's own profiles.
+	PlayerProfiles.path = "user://test_profiles.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	_run("physics_matches_olcore", _test_physics_matches_olcore)
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
@@ -24,16 +27,22 @@ func _initialize() -> void:
 	_run("wind_conditions", _test_wind_conditions)
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
+	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
+	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("game_modes_match_olcore", _test_game_modes)
+	_run("handicaps_match_olcore", _test_handicaps)
+	_run("player_profiles", _test_player_profiles)
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
+	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
+	_run("broadcast_pieces", _test_broadcast_pieces)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
 	_run("free_assets", _test_free_assets)
@@ -58,6 +67,9 @@ func _process(_delta: float) -> bool:
 	_done = true
 	_run("full_round", _test_full_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("rounds_recorded", _test_rounds_recorded)
+	_run("broadcast_round", _test_broadcast_round)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
 		quit(1)
@@ -303,6 +315,123 @@ func _test_game_modes() -> void:
 	_check(GameModes.match_text(GameModes.match_status(_ints([0, 0]), _ints([0, 0]))) == "All square", "all square")
 
 
+## The same cases as test_handicaps in libs/olcore/tests/test_main.cpp.
+func _test_handicaps() -> void:
+	_check(Handicap.div_round(95, 10) == 10 and Handicap.div_round(94, 10) == 9, "div_round")
+	_check(Handicap.div_round(-95, 10) == -10 and Handicap.div_round(-94, 10) == -9, "div_round negative")
+	var r := Handicap.stroke_ranks(_ints([8, 2, 16, 4, 12, 18, 6, 14, 10]))
+	_check(r == _ints([4, 1, 8, 2, 6, 9, 3, 7, 5]), "back nine ranks: %s" % [r])
+	r = Handicap.stroke_ranks(_ints([0, 3, 0, 1]))
+	_check(r == _ints([3, 2, 4, 1]), "missing index ranks last: %s" % [r])
+	var ranks := _ints([3, 1, 2])
+	_check(Handicap.strokes(4, ranks) == _ints([1, 2, 1]), "4 over 3 holes")
+	_check(Handicap.strokes(6, ranks) == _ints([2, 2, 2]), "6 over 3 holes")
+	_check(Handicap.strokes(0, ranks) == _ints([0, 0, 0]), "scratch")
+	_check(Handicap.strokes(-1, ranks) == _ints([-1, 0, 0]), "plus 1 gives back on the easiest")
+	_check(Handicap.strokes(-4, ranks) == _ints([-2, -1, -1]), "plus 4")
+	_check(Handicap.net_scores(_ints([5, 3, 0, 2]), _ints([1, 2, 1, 3])) == _ints([4, 1, 0, 1]), "net scores")
+	_check(Handicap.net_scores(_ints([4, 4]), _ints([-1, 0])) == _ints([5, 4]), "net with a plus handicap")
+	_check(Handicap.playing_handicap(100, 18, 95) == 10, "9.5 rounds up")
+	_check(Handicap.playing_handicap(184, 18, 100) == 18, "18.4")
+	_check(Handicap.playing_handicap(184, 9, 100) == 9, "9.2 over nine")
+	_check(Handicap.playing_handicap(-14, 18, 100) == -1, "plus 1.4")
+	_check(Handicap.playing_handicap(Handicap.NONE, 18, 100) == 0, "no index plays scratch")
+	var card := Scorecard.new(_ints([4, 3, 5]))
+	card.record(0, 9)
+	card.record(1, 4)
+	card.record(2, 5)
+	_check(Handicap.adjusted_gross(card, _ints([1, 0, 0]), true) == 16, "net double bogey cap")
+	_check(Handicap.adjusted_gross(card, _ints([0, 0, 0]), false) == 18, "par + 5 cap")
+	_check(Handicap.score_differential(85, 72, 18) == 130, "differential")
+	_check(Handicap.score_differential(42, 36, 9) == 120, "nine-hole differential")
+	_check(Handicap.score_differential(70, 72, 18) == -20, "under par")
+	_check(Handicap.score_differential(41, 35, 7) == 154, "seven holes")
+	_check(Handicap.index(_ints([130, 120])) == Handicap.NONE, "two rounds: no index")
+	_check(Handicap.index(_ints([130, 120, 150])) == 100, "three rounds")
+	_check(Handicap.index(_ints([130, 120, 150, 140])) == 110, "four rounds")
+	_check(Handicap.index(_ints([130, 125, 150, 140, 160, 170])) == 118, "six rounds")
+	var many: Array[int] = []
+	for i in 25:
+		many.append(100 + i * 10)
+	_check(Handicap.index(many) == 185, "most recent 20: %d" % Handicap.index(many))
+	_check(Handicap.index(_ints([700, 650, 800])) == Handicap.MAX_TENTHS, "capped at 54")
+	_check(Handicap.index(_ints([-300, -250, -200])) == Handicap.MIN_TENTHS, "capped at +10")
+	_check(Handicap.format(123) == "12.3" and Handicap.format(-14) == "+1.4", "format")
+	_check(Handicap.format(0) == "0.0" and Handicap.format(Handicap.NONE) == "-", "format scratch and none")
+	_check(Handicap.parse("12.3") == 123 and Handicap.parse("+1.4") == -14 and Handicap.parse("8") == 80, "parse")
+	_check(Handicap.parse("") == Handicap.NONE and Handicap.parse("abc") == Handicap.NONE, "parse rejects")
+
+
+func _test_player_profiles() -> void:
+	var p := PlayerProfiles.load_saved()
+	_check(not p.has_player("Ann"), "no profile yet")
+	_check(p.index_of("Ann") == Handicap.NONE, "no index yet")
+	p.set_start_index("Ann", 200)
+	_check(p.index_of("ann ") == 200, "names match without case or spaces")
+	var pars := _ints([4, 4, 3, 5, 4, 4, 3, 5, 4])
+	var ranks := Handicap.stroke_ranks(_ints([1, 3, 5, 7, 9, 11, 13, 15, 17]))
+	var short := Scorecard.new(_ints([4, 4, 3]))
+	for h in 3:
+		short.record(h, 5)
+	_check(not p.record_round("Ann", short, _ints([1, 2, 3]), "Test", "2026-10-31"), "three holes don't count")
+	var card := Scorecard.new(pars)
+	_check(not p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "an unfinished round doesn't count")
+	# 45 on a par 36: 9 over, so 18.0 scaled to 18 holes.
+	for h in 9:
+		card.record(h, pars[h] + 1)
+	for _n in 3:
+		_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "a full nine counts")
+	_check(p.rounds("Ann").size() == 3 and p.rounds("Ann")[0].differential == 180, "rounds kept: %s" % [p.rounds("Ann")])
+	_check(p.has_record("Ann") and p.index_of("Ann") == 160, "index from three rounds: %d" % p.index_of("Ann"))
+	p.save()
+	var again := PlayerProfiles.load_saved()
+	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 160, "profiles saved")
+	again.remove("Ann")
+	_check(not again.has_player("Ann"), "profile removed")
+	again.save()
+
+
+func _test_handicap_scoring() -> void:
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.mode = GameModes.Mode.MATCH
+	s.handicaps = true
+	s.indexes = _ints([20, 80])  # 2.0 and 8.0: 1 and 4 strokes over nine at 100%
+	var pars := _ints([4, 3, 5, 4, 4, 3, 5, 4, 4])
+	var numbers := _ints([1, 2, 3, 4, 5, 6, 7, 8, 9])
+	var si := _ints([5, 15, 3, 7, 1, 17, 11, 9, 13])
+	var r := RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([0, 3]), "match plays off the low: %s" % [r.playing])
+	# Bob gets his strokes on the three hardest holes: 5, 3 and 1.
+	_check(r.received[1] == _ints([1, 0, 1, 0, 1, 0, 0, 0, 0]), "strokes on the hardest: %s" % [r.received[1]])
+	_check(r.label(1) == "Bob (3)", "label: %s" % r.label(1))
+	r.cards[0].record(0, 4)
+	r.cards[1].record(0, 5)
+	_check(r.hole_result(0) == "Hole halved.", "a stroke halves the hole: %s" % r.hole_result(0))
+	r.cards[0].record(1, 3)
+	r.cards[1].record(1, 4)
+	_check(r.hole_result(1) == "Ann wins the hole.", "no stroke on hole 2")
+	_check(r.status_text() == "Match: Ann 1 up", "net match: %s" % r.status_text())
+
+	s.mode = GameModes.Mode.STROKE
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([1, 4]), "stroke play at 95%%: %s" % [r.playing])
+	for h in 9:
+		r.cards[0].record(h, pars[h] + 1)
+		r.cards[1].record(h, pars[h] + 1)
+	_check(r.scored_card(1).total_strokes() == 41 and r.scored_card(0).total_strokes() == 44, "net totals")
+	_check(r.standings()[0] == ["Bob", "net 41 (+5)"], "net standings: %s" % [r.standings()])
+
+	s.mode = GameModes.Mode.STABLEFORD
+	r = RoundScoring.new(s, pars, numbers, si)
+	r.cards[1].record(4, 5)  # bogey with a stroke on the hardest hole: net par
+	_check(GameModes.stableford_total(r.scored_card(1)) == 2, "net Stableford")
+	s.handicaps = false
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([0, 0]) and r.label(0) == "Ann", "handicaps off")
+
+
 func _ints(values: Array) -> Array[int]:
 	var out: Array[int] = []
 	for v: int in values:
@@ -349,6 +478,10 @@ func _test_round_setup() -> void:
 	var loaded := RoundSetup.load_saved(path)
 	_check(loaded.mode == GameModes.Mode.BEST_BALL and loaded.holes == RoundSetup.Holes.FRONT_NINE and loaded.tees == RoundSetup.Tees.MIDDLE, "setup saved")
 	_check(loaded.names == s.names and loaded.teams == s.teams, "players saved")
+	_check(not loaded.handicaps, "handicaps off by default")
+	s.handicaps = true
+	s.save(path)
+	_check(RoundSetup.load_saved(path).handicaps, "handicaps saved")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
@@ -454,6 +587,7 @@ func _test_graphics_settings() -> void:
 	s.render_scale = 0.75
 	s.fov = 70.0
 	s.wind = Wind.Level.STRONG
+	s.presentation = GraphicsSettings.Presentation.CLASSIC
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -461,6 +595,8 @@ func _test_graphics_settings() -> void:
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
 	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
+	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
+	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
 	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
@@ -638,6 +774,92 @@ static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: Lin
 
 ## Same cases and numbers as the links_* tests in the C++ core, which come
 ## from the game's own code.
+func _test_links_lie_matches_olcore() -> void:
+	var s := LinksLaunch.Strike.new()
+	s.face_error = 0.05
+	LinksLaunch.apply_lie(s, LinksGround.surface_for_class(LinksGround.ROUGH))
+	_check_near(s.spin_scale, 0.406505, 1e-6, "rough spin")
+	_check_near(s.speed_scale, 0.927315, 1e-6, "rough speed")
+	_check_near(s.face_error, 0.05, 1e-9, "rough keeps the face")
+	# contact, speed, spin, loft: as test_links_lie in libs/olcore/tests.
+	for c in [[0, 0.4, 1.5, 1.0], [3, 0.38, 1.25, 1.0], [10, 0.333333, 0.666667, 1.0], [-3, 0.7, 1.2, 1.0], [-5, 0.9, 1.0, 1.0], [-8, 0.705, 0.7, 0.73]]:
+		var t := LinksLaunch.Strike.new()
+		t.face_error = 0.05
+		LinksLaunch.apply_lie(t, LinksGround.surface_for_class(LinksGround.SAND), c[0])
+		_check_near(t.face_error, 0.0, 1e-9, "sand drops the face error")
+		_check_near(t.speed_scale, c[1], 1e-5, "sand speed %d" % c[0])
+		_check_near(t.spin_scale, c[2], 1e-5, "sand spin %d" % c[0])
+		_check_near(t.loft_scale, c[3], 1e-6, "sand loft %d" % c[0])
+
+
+func _test_links_launch_matches_olcore() -> void:
+	# The made-up club table of test_links_launch in libs/olcore/tests.
+	var exe := PackedByteArray()
+	exe.resize(36)
+	exe.fill(0x11)
+	var rows: Array[Callable] = [
+		func(i: int) -> float: return 1.5 + 0.2 * i,
+		func(i: int) -> float: return 2.0 + 0.01 * i,
+		func(i: int) -> float: return 10.0 + 2.0 * i if i < 7 else 14.0 + 4.0 * (i - 7),
+		func(i: int) -> float: return 0.05 + 0.01 * i,
+		func(i: int) -> float: return 10.0 + 0.5 * i,
+	]
+	for row in rows:
+		for i in 20:
+			var at := exe.size()
+			exe.resize(at + 4)
+			exe.encode_float(at, row.call(i) if i < 19 else 0.0)
+	var t := LinksLaunch.from_exe(exe)
+	_check(t != null, "club table found")
+	var empty := PackedByteArray()
+	empty.resize(600)
+	_check(LinksLaunch.from_exe(empty) == null, "no club table in zeros")
+	if t == null:
+		return
+	var s := LinksLaunch.Strike.new()
+	_check_launch(t, s, [0, 195.679363, 24.503551, 73.860581, 0, 0], "square driver")
+	s = LinksLaunch.Strike.new()
+	s.club = 12
+	s.aim = 0.4
+	s.power = 85
+	s.face_error = 0.03
+	s.path_error = -0.02
+	s.setup.ball_position = 6
+	s.setup.face = 33
+	s.setup.stance = 27
+	_check_launch(t, s, [-60.178063, 130.934603, 58.414966, 135.705451, 62.62540, -0.570758], "set-up iron")
+	s = LinksLaunch.Strike.new()
+	s.club = 5
+	s.aim = -1.2
+	s.power = 70
+	s.face_error = -0.05
+	s.path_error = 0.04
+	s.spin_scale = 0.9
+	s.speed_scale = 1.05
+	s.loft_scale = 1.1
+	s.setup.face = 26
+	s.setup.stance = 32
+	s.ground_normal = Vector3(0.2, -0.1, sqrt(1 - 0.05))
+	_check_launch(t, s, [130.663751, 47.660517, 18.457195, 27.686730, -73.138883, -7.141661], "on a slope")
+	s = LinksLaunch.Strike.new()
+	s.club = 18
+	s.aim = 2.5
+	s.power = 60
+	s.setup.ball_position = 1
+	s.ground_normal = Vector3(-0.3, 0.25, sqrt(1 - 0.09 - 0.0625))
+	_check_launch(t, s, [-24.752554, -31.449690, 48.410392, -62.535463, 46.668793, -1.656532], "steep slope")
+	var b := t.launch_state(LinksLaunch.Strike.new())
+	_check_near(b.velocity.z, 195.679363 * 0.3048, 1e-3, "SI speed")
+	_check_near(b.spin.x, -73.860581 * TAU, 1e-2, "SI backspin")
+
+
+func _check_launch(t: LinksLaunch, s: LinksLaunch.Strike, want: Array, what: String) -> void:
+	var l := t.launch(s)
+	var got := [l[0].x, l[0].y, l[0].z, l[1].x, l[1].y, l[1].z]
+	for i in 6:
+		_check_near(got[i], want[i], 2e-3, "%s [%d]" % [what, i])
+
+
 func _test_links_ground_matches_olcore() -> void:
 	var rng := LinksGround.Rng.new()
 	_check(rng.next_u32() == 0x79a8b120, "first random number")
@@ -852,6 +1074,15 @@ func _test_multiplayer_rounds() -> void:
 	GolfRound.setup = null
 
 
+## The full and multiplayer rounds above went into the test profiles.
+func _test_rounds_recorded() -> void:
+	var p := PlayerProfiles.load_saved()
+	_check(p.rounds("Player 1").size() >= 1, "the full round is on Player 1's record")
+	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
+	for r: Dictionary in p.rounds("Player 1"):
+		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
+
+
 ## The readers behind LinksGolfer, on synthetic data (no original files).
 func _test_golfer_file_readers() -> void:
 	_check(GolferAnimData.name_hash("123456789") == 0xcbf43926, "name_hash is CRC-32")
@@ -882,3 +1113,110 @@ func _test_golfer_file_readers() -> void:
 	var parsed := LinksGolfer.parse_script("[Driver]\nAddress=DriverAddress ; comment\n[file_locations]\ngolfer.skl=a_bound.skl")
 	_check(parsed.get("Driver", {}).get("Address", "") == "DriverAddress", "script value")
 	_check(parsed.get("file_locations", {}).get("golfer.skl", "") == "a_bound.skl", "script file location")
+
+
+## The broadcast cameras, green grid, hole map and commentary on their own.
+func _test_broadcast_pieces() -> void:
+	# A straight 200 m drive down +z on flat ground, landing 40 m from the pin.
+	var shot := ShotResult.new()
+	for i in 121:
+		var t := i * 0.05
+		var u := t / 6.0
+		shot.add_sample(t, Vector3(0.0, 30.0 * 4.0 * u * (1.0 - u), 200.0 * u))
+	shot.first_landing = Vector3(0, 0, 200)
+	shot.rest = Vector3(0, 0, 215)
+	shot.carry_m = 200.0
+	shot.total_m = 215.0
+	shot.time_s = 6.0
+	shot.bounces = 2
+	var terrain := FlatTerrain.new()
+	var behind := Vector3(0, 1.75, -4.2)
+	var pin := Vector3(0, 0, 240)
+	var d := ShotDirector.plan(shot, pin, terrain, behind, false, 0)
+	_check(d.cut_cams.size() == 3, "drive gets three cameras (got %d)" % d.cut_cams.size())
+	_check(d.cut_cams[0] == ShotDirector.Cam.BEHIND, "starts behind the ball")
+	_check(d.cut_cams[1] == ShotDirector.Cam.CHASE, "variant 0 chases the ball")
+	_check(d.cut_cams[2] == ShotDirector.Cam.PIN, "landing near the pin cuts to the pin camera")
+	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
+	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
+	var late: Array = d.step(5.5, shot.position_at(5.5), behind, 0.016)
+	_check(late[2], "the pin camera starts with a cut")
+	_check((late[0] as Vector3).z > 240.0, "pin camera stands beyond the pin")
+	var side := ShotDirector.plan(shot, Vector3(0, 0, 400), terrain, behind, false, 2)
+	_check(side.cut_cams[1] == ShotDirector.Cam.SIDE, "variant 2 cuts side-on")
+	_check(side.cut_cams[2] == ShotDirector.Cam.LANDING, "far from the pin: landing camera")
+	var putt := ShotDirector.plan(shot, pin, terrain, behind, true, 0)
+	_check(putt.cut_cams.size() == 1 and putt.cut_cams[0] == ShotDirector.Cam.PUTT, "putts track the ball")
+
+	_check_near(GreenGrid.slope_percent(Vector3.UP), 0.0, 1e-6, "flat green has no slope")
+	_check_near(GreenGrid.slope_percent(Vector3(0.03, 1.0, 0.04).normalized()), 5.0, 1e-3, "slope in percent")
+	var grid := GreenGrid.new()
+	grid.build(terrain, Vector3(0, 0, 0), Vector3(0, 0, 8))
+	_check(grid.mesh.get_surface_count() == 1, "green grid builds")
+	grid.free()
+
+	var course := PlaceholderCourseLoader.new().load_course("")
+	var map := HoleMap.make(course.holes[0])
+	_check(map.get_width() == HoleMap.WIDTH and map.get_height() == HoleMap.HEIGHT, "hole map size")
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	var holed := ShotResult.new()
+	holed.outcome = ShotResult.Outcome.HOLED
+	var line: Array = Commentary.pick(holed, Surface.Type.GREEN, false, 0.0, 140.0, rng)
+	_check(line[1] == Commentary.Crowd.ROAR and Commentary.HOLED_LONG.has(line[0]), "holed approach roars")
+	var wet := ShotResult.new()
+	wet.outcome = ShotResult.Outcome.WATER
+	_check(Commentary.pick(wet, Surface.Type.WATER, false, 50.0, 150.0, rng)[1] == Commentary.Crowd.GROAN, "water groans")
+
+
+## A round in each presentation, with a replay, a flyover and the green grid.
+func _test_broadcast_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var panel := Control.new()
+	root.add_child(panel)
+	SceneFade.pop_in(panel)
+	_check(panel.modulate.a == 0.0, "panels fade in from transparent")
+	panel.free()
+	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
+	game._apply_graphics()
+	game.start_round()
+	_check(game.camera.flying(), "broadcast holes open with a flyover")
+	for i in 60:
+		game._process(0.2)
+	_check(not game.camera.flying(), "the flyover ends by itself")
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.FLIGHT, "shot in flight")
+	_check(game.camera.director != null, "broadcast cameras direct the shot")
+	for i in 3:
+		game._process(0.5)
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.SHOT_RESULT, "shot result")
+	_check(game.start_replay(), "replay starts")
+	var frames := 0
+	while game._replaying and frames < 400:
+		game._process(0.1)
+		frames += 1
+	_check(not game._replaying, "replay ends")
+	_check(game.state == GolfRound.State.SHOT_RESULT, "replay leaves the result up")
+	var steps := 0
+	while not (game.state == GolfRound.State.AIM and game.clubs[game.club_index].is_putter) and steps < 40 \
+			and game.state != GolfRound.State.ROUND_DONE:
+		game.auto_play_step()
+		steps += 1
+	if game.state == GolfRound.State.AIM and game.lie == Surface.Type.GREEN:
+		_check(game.green_grid.visible, "green grid on the green")
+	game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
+	game._apply_graphics()
+	_check(not game.hud.overlay.visible and not game.green_grid.visible, "classic hides the broadcast pieces")
+	game.start_round()
+	_check(not game.camera.flying(), "classic has no flyover")
+	steps = 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "classic round finishes")
+	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
+	game._apply_graphics()

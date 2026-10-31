@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient tables are read from the player's executable, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Still to do: the launch (club tables, lie effects), the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) are in too. Still to do: the swing meters' accuracy windows, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -43,6 +43,7 @@ feel) still need a working install.
 - [x] Scoring basics: stroke play, putting and holing out, water drop, out of bounds, scorecard
 - [ ] Rules: unplayable lies, lateral hazards, provisional balls, drop options
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
+  - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound
@@ -70,7 +71,8 @@ feel) still need a working install.
 
 - [ ] Game modes: stroke, match, skins, best ball and others
   - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
-  - [ ] Handicaps, alternate shot, scramble and the other original modes
+  - [x] Handicaps: player profiles with their rounds, a WHS-style index, and net scoring in every mode ([game-shell.md](docs/game-shell.md#handicaps-and-player-profiles))
+  - [ ] Alternate shot, scramble and the other original modes
 - [ ] AI opponents
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
@@ -83,6 +85,8 @@ feel) still need a working install.
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
 - [ ] Player profiles and saves (original format optional)
+  - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
+  - [ ] A players page to view and delete profiles; saving a round in progress
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [ ] Photoscanned 3D trees with impostors, baked shadows and AO per hole, texture compression tiers, a performance budget in CI
