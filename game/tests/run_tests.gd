@@ -251,6 +251,28 @@ func _test_caddie_and_buggy_in_round() -> void:
 				game.buggy.step(1.0 / 30.0, 1.0, 0.0, game.hole.terrain)
 			_check(game.buggy.drive.position.distance_to(from) > 1.0 or game.buggy.drive.blocked, "the buggy drives")
 			game._process_drive(1.0 / 30.0)
+			# By touch: a drag up drives, sideways steers, a tap skips.
+			var down := InputEventScreenTouch.new()
+			down.index = 0
+			down.pressed = true
+			down.position = Vector2(400, 500)
+			_check(game._drive_touch_input(down), "a finger takes the wheel")
+			var drag := InputEventScreenDrag.new()
+			drag.index = 0
+			drag.position = Vector2(445, 410)
+			game._drive_touch_input(drag)
+			_check(game._drive_stick.y < -0.9 and game._drive_stick.x > 0.4, "dragging up and right is pedal down and steering right")
+			var speed := game.buggy.drive.speed
+			for i in 30:
+				game._process_drive(1.0 / 30.0)
+			_check(game.buggy.drive.speed > speed or game.buggy.drive.blocked, "the touch pedal drives")
+			var up := InputEventScreenTouch.new()
+			up.index = 0
+			game._drive_touch_input(up)
+			_check(game._drive_stick == Vector2.ZERO and game.state == GolfRound.State.DRIVE, "letting go after a drag doesn't skip")
+			game._drive_touch_input(down)
+			game._drive_touch_input(up)
+			_check(game.state != GolfRound.State.DRIVE, "a tap skips to the ball")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE, "the round finishes with the caddie and buggy")

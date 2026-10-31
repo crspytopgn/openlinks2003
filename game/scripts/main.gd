@@ -47,6 +47,9 @@ const HINT_AIM_PAD := "    Pad: right stick swing, A meter, D-pad club, LB fine 
 const HINT_STICK_SWING := "Right stick: pull it back, then push it forward briskly and straight    B: call it off"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_DRIVE := "Up/Down or W/S: drive    Left/Right or A/D: steer    Space or click: skip to the ball    %d yd to go"
+const HINT_DRIVE_TOUCH := "Hold and drag up to drive, down to reverse, sideways to steer    Tap: skip to the ball    %d yd to go"
+const DRIVE_STICK_PX := 90.0  ## a drag this far is full pedal or full lock
+const DRIVE_TAP_PX := 14.0  ## a touch that moves less than this is a tap
 const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
 const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
 const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
@@ -168,6 +171,11 @@ var _swing_input := SwingInput.MOUSE
 var _analog: AnalogSwing.Tracker = null
 ## The finger that touched down while aiming (-1 none) and where.
 var _touch_index := -1
+## Driving the buggy by touch: the finger, where it went down, and the stick it makes.
+var _drive_touch := -1
+var _drive_touch_from := Vector2.ZERO
+var _drive_touch_moved := false
+var _drive_stick := Vector2.ZERO
 var _touch_from := Vector2.ZERO
 ## The right stick as the last motion events left it, and its pad.
 var _stick_raw := Vector2.ZERO
@@ -993,6 +1001,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.AIM and opponents[shooter] == null and practice == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
+	if state == State.DRIVE and _drive_touch_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -1893,27 +1904,65 @@ func _start_drive(next: int) -> bool:
 
 
 func _process_drive(delta: float) -> void:
-	var throttle := 0.0
-	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+	# Arrows, WASD, a pad's stick or d-pad (analog), or a finger dragged on the screen.
+	var throttle := Input.get_axis("ui_down", "ui_up") - _drive_stick.y
+	if Input.is_key_pressed(KEY_W):
 		throttle += 1.0
-	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+	if Input.is_key_pressed(KEY_S):
 		throttle -= 1.0
-	var steer := 0.0
-	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+	var steer := Input.get_axis("ui_right", "ui_left") - _drive_stick.x
+	if Input.is_key_pressed(KEY_A):
 		steer += 1.0
-	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+	if Input.is_key_pressed(KEY_D):
 		steer -= 1.0
+	throttle = clampf(throttle, -1.0, 1.0)
+	steer = clampf(steer, -1.0, 1.0)
 	buggy.step(delta, throttle, steer, hole.terrain)
 	var view: Array = buggy.chase(delta, hole.terrain)
 	camera.position = view[0]
 	camera.look_at(view[1])
 	var to := players[_drive_to].at
 	var left := _flat_distance(buggy.drive.position, to)
-	hud.hint.text = HINT_DRIVE % roundi(left * YARDS_PER_METRE)
+	hud.hint.text = (HINT_DRIVE_TOUCH if hud.touch_pad.visible else HINT_DRIVE) % roundi(left * YARDS_PER_METRE)
 	var s := hole.terrain.surface_at(to.x, to.z)
 	var arrive := DRIVE_ARRIVE_GREEN_M if s == Surface.Type.GREEN or s == Surface.Type.FRINGE else DRIVE_ARRIVE_M
 	if left < arrive and absf(buggy.drive.speed) < 0.5 and throttle <= 0.0:
 		_end_drive()
+
+
+## A finger on the screen while driving is a stick: drag up from where it
+## went down to drive, down to reverse, sideways to steer. A tap skips the
+## drive. Clicks the platform makes up from touches are ignored, so a drag
+## doesn't also skip.
+func _drive_touch_input(event: InputEvent) -> bool:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).device == InputEvent.DEVICE_ID_EMULATION:
+		return true
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			if _drive_touch >= 0 or hud.touch_pad.covers(t.position):
+				return false
+			_drive_touch = t.index
+			_drive_touch_from = t.position
+			_drive_touch_moved = false
+			return true
+		if t.index != _drive_touch:
+			return false
+		_drive_touch = -1
+		_drive_stick = Vector2.ZERO
+		if not _drive_touch_moved:
+			_skip_drive()
+		return true
+	if event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if d.index != _drive_touch:
+			return false
+		var off := d.position - _drive_touch_from
+		if off.length() > DRIVE_TAP_PX:
+			_drive_touch_moved = true
+		_drive_stick = (off / DRIVE_STICK_PX).clamp(-Vector2.ONE, Vector2.ONE)
+		return true
+	return false
 
 
 ## Space during a drive: the buggy is parked by the ball and play goes on.
@@ -1925,6 +1974,8 @@ func _skip_drive() -> void:
 func _end_drive() -> void:
 	var next := _drive_to
 	_drive_to = -1
+	_drive_touch = -1
+	_drive_stick = Vector2.ZERO
 	state = State.SHOT_RESULT  # in between, until the turn begins
 	_take_turn(next)
 
