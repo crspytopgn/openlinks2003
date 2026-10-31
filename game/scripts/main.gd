@@ -38,7 +38,7 @@ const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the whi
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
-const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
+const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
 const REPLAY_SLOW := 0.35
@@ -245,6 +245,10 @@ func start_round() -> void:
 	course = AssetProviders.load_course(course_path)
 	round_setup.course_name = course.course_name
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
+	# A friend's round: the same wind, shot for shot.
+	var versus := round_setup.challenge
+	if versus != null:
+		round_seed = versus.round_seed
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
@@ -301,10 +305,12 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	wind = Wind.new(graphics.wind, round_seed)
+	var wind_level := graphics.wind if versus == null else versus.wind_level
+	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
-	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", graphics.wind)
+	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
 	record.course_hash = RoundRecord.file_hash(course_path)
+	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
 	round_stats.clear()
 	for _i in scoring.player_count():
@@ -754,6 +760,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_M:
 					if state == State.ROUND_DONE:
 						_quit_to_menu()
+						return
+				KEY_X:
+					if state == State.ROUND_DONE:
+						DisplayServer.clipboard_set(record.to_code())
+						hud.show_message("Result code copied. Send it to a friend: their game checks it and can play the same course and wind.", 4.0)
 						return
 				KEY_O:
 					_visit("res://scenes/object_viewer.tscn")
@@ -1230,6 +1241,8 @@ func _next_hole() -> void:
 			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
 	var records := _record_rounds()
 	_save_record()
+	if round_setup.challenge != null:
+		text += "\nTheir round: " + round_setup.challenge.summary()
 	if not records.is_empty():
 		text += "\n" + records
 	hud.show_message(text)

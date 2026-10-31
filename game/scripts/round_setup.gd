@@ -30,6 +30,9 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
+## A friend's round (from their result code) whose course, tees and wind
+## this round plays. Not saved with the setup.
+var challenge: RoundRecord = null
 ## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
 ## from their profile. Not saved with the setup.
 var indexes: Array[int] = []
