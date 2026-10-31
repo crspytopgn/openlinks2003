@@ -37,6 +37,11 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
+## The round seed (every random draw in the round), or 0 for a new one. An
+## online round plays the host's.
+var round_seed := 0
+## Wind strength (Wind.Level) for this round, or -1 for the player's setting.
+var wind_level := -1
 ## Putting practice (PuttingPractice): the first player on a practice green
 ## with several cups on each chosen hole's green. Not saved with the setup.
 var putting := false

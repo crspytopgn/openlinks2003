@@ -99,6 +99,7 @@ func _process(_delta: float) -> bool:
 	_done = true
 	_run("full_round", _test_full_round)
 	_run("round_replay", _test_round_replay)
+	_run("online_round", _test_online_round)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("putting_practice_round", _test_putting_practice_round)
@@ -2633,6 +2634,106 @@ func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
 	_check(game.round_seed == 4243 and game.wind.level == Wind.Level.STRONG and game.record.wind_level == Wind.Level.STRONG,
 		"a challenge round plays the friend's seed and wind")
 	GolfRound.setup = null
+
+
+## Two games in one online room play the same round in step: each plays its
+## own player's shots and replays the other's, and they agree on every shot,
+## drop and card. A computer golfer belongs to the host.
+func _test_online_round() -> void:
+	var setup := RoundSetup.single("")
+	setup.names.assign(["Ann", "Bo", "Club pro"])
+	setup.computer.assign([RoundSetup.HUMAN, RoundSetup.HUMAN, 1])
+	setup.teams.assign([0, 1, 0])
+	setup.holes = RoundSetup.Holes.FRONT_NINE
+	setup.round_seed = 4321
+	setup.wind_level = Wind.Level.STRONG
+	var owners: Array[int] = [0, 1, 0]
+	var msg := OnlineRound.setup_message(setup, 4321, Wind.Level.STRONG, owners, "")
+	var copy := OnlineRound.setup_from(JSON.parse_string(JSON.stringify(msg)))
+	_check(copy != null and copy.names == setup.names and copy.computer == setup.computer and copy.round_seed == 4321 and copy.wind_level == Wind.Level.STRONG,
+		"the setup message carries the round")
+	_check(OnlineRound.owners_from(msg) == owners, "and who plays each seat")
+	var links := LoopbackLink.room(2)
+	var scene: PackedScene = load("res://scenes/main.tscn")
+	var games: Array[GolfRound] = []
+	for seat in 2:
+		GolfRound.setup = OnlineRound.setup_from(JSON.parse_string(JSON.stringify(msg)))
+		var g := scene.instantiate() as GolfRound
+		g.online = OnlineRound.new(links[seat], seat, owners)
+		root.add_child(g)
+		games.append(g)
+	GolfRound.setup = null
+	var a := games[0]
+	var b := games[1]
+	_check(a.round_seed == 4321 and b.round_seed == 4321 and b.wind.level == Wind.Level.STRONG, "both games play the host's seed and wind")
+	var dropped := false
+	var steps := 0
+	while not (a.state == GolfRound.State.ROUND_DONE and b.state == GolfRound.State.ROUND_DONE) and steps < 6000:
+		# Bo takes an unplayable lie once, on his own machine.
+		if not dropped and b.state == GolfRound.State.AIM and b.shooter == 1 and b.lie != Surface.Type.TEE and b.lie != Surface.Type.GREEN:
+			b._start_drop(DropRules.Reason.UNPLAYABLE)
+			b._move_drop(1.0, 0.0)
+			dropped = true
+		a.auto_play_step()
+		b.auto_play_step()
+		steps += 1
+	_check(a.state == GolfRound.State.ROUND_DONE and b.state == GolfRound.State.ROUND_DONE, "both games finish the round (%d steps, states %d %d)" % [steps, a.state, b.state])
+	_check(dropped and a.record.drops.size() == b.record.drops.size() and b.record.drops.size() >= 1, "Bo's drop reached the host: %d %d" % [a.record.drops.size(), b.record.drops.size()])
+	_check(a.record.shots.size() == b.record.shots.size() and a.record.shots.size() > 20, "the same shots: %d and %d" % [a.record.shots.size(), b.record.shots.size()])
+	var same := true
+	for i in mini(a.record.shots.size(), b.record.shots.size()):
+		var x := a.record.shots[i]
+		var y := b.record.shots[i]
+		same = same and x.player == y.player and x.rest.distance_to(y.rest) < 1e-3 and x.wind.distance_to(y.wind) < 1e-4
+	_check(same, "every shot stops in the same place on both machines")
+	_check(a.online.mismatches == 0 and b.online.mismatches == 0, "no shot disagreed")
+	for i in 3:
+		_check(str(a.scoring.cards[i].strokes) == str(b.scoring.cards[i].strokes), "%s's card agrees: %s" % [setup.names[i], a.scoring.cards[i].strokes])
+	var computer_shots := 0
+	for r in b.record.shots:
+		computer_shots += 1 if r.player == 2 else 0
+	_check(computer_shots > 0, "the host's computer golfer played on the guest's machine too")
+	print("  online: %d shots, %d events, cards %s / %s / %s" % [a.record.shots.size(), a.online.seq,
+		a.scoring.cards[0].strokes, a.scoring.cards[1].strokes, a.scoring.cards[2].strokes])
+	for g in games:
+		g.queue_free()
+	_test_online_lobby()
+
+
+## The lobby: the host picks the course and starts; the guest's game gets the
+## same setup, seed and seats, and refuses a course it doesn't have.
+func _test_online_lobby() -> void:
+	var links := LoopbackLink.room(2)
+	var panels: Array[OnlinePanel] = []
+	var started: Array = []
+	for seat in 2:
+		var p := OnlinePanel.new()
+		root.add_child(p)
+		p.open(PackedStringArray(["Placeholder Nine (built in)"]), ["Ann", "Bo"][seat])
+		p.use_link(links[seat])
+		p.handle({"type": "welcome", "you": seat + 1, "seat": seat, "host": 1, "code": "ABCD"})
+		p.handle({"type": "members", "host": 1, "members": [{"id": 1, "name": "Ann", "seat": 0}, {"id": 2, "name": "Bo", "seat": 1}]})
+		p.start_pressed.connect(func(s: RoundSetup, i: int, r: OnlineRound) -> void: started.append([s, i, r]))
+		panels.append(p)
+	_check(panels[0]._host_box.visible and not panels[1]._host_box.visible, "only the host picks the course")
+	panels[0]._computers.select(1)
+	panels[0]._on_start()
+	panels[1]._process(0.0)
+	_check(started.size() == 2, "both games start")
+	if started.size() == 2:
+		var host_setup: RoundSetup = started[0][0]
+		var guest_setup: RoundSetup = started[1][0]
+		var guest: OnlineRound = started[1][2]
+		_check(guest_setup.names == host_setup.names and host_setup.names.size() == 3 and guest_setup.computer == host_setup.computer,
+			"the guest plays the host's players: %s" % [guest_setup.names])
+		_check(guest_setup.round_seed == host_setup.round_seed and guest_setup.round_seed != 0, "and the host's seed")
+		_check(guest.my_seat == 1 and str(guest.owners) == "[0, 1, 0]" and started[1][1] == 0, "Bo plays seat 1; the host plays the computer golfer")
+	panels[1].use_link(links[1])
+	panels[1].handle({"type": "setup", "course_file": "Nowhere.crz", "course_name": "Nowhere", "names": ["Ann", "Bo"],
+		"computer": [-1, -1], "teams": [0, 1], "owners": [0, 1], "seed": 5})
+	_check(panels[1]._status.text.contains("isn't among your courses"), "a course the guest doesn't have: %s" % panels[1]._status.text)
+	for p in panels:
+		p.queue_free()
 
 
 ## The free recordings: every event has takes, the ambience loops, and clubs
