@@ -65,7 +65,7 @@ CLIPS = {
                          glance=(0.9, 0.45, 0.8, 75.0)),
     "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=329, putt=False),
     "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=329,
-                  downswing=0.30, follow=0.7, hold=2.5, putt=False, strike=(0.0, 0.012, -0.755)),
+                  downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
                          frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
@@ -73,7 +73,7 @@ CLIPS = {
     "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=329,
                            putt=False),
     "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=329,
-                       downswing=0.30, follow=0.7, hold=2.5, putt=False),
+                       downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
 }
@@ -270,6 +270,7 @@ def facing_transform(bvh, f):
 # impact; the ball sits at (0, 0, -0.75). An iron bottoms out just under
 # the turf.
 IMPACT_AT = (0.0, -0.004, -0.755)
+TWIRL_KEYS = 12
 ADDRESS_CLEAR = 0.004  # the club head's lowest point at address, metres
 IMPACT_WINDOW = 30  # mocap frames either side of impact the correction fades over
 
@@ -409,9 +410,22 @@ def retarget(glb, rig, clip, cache):
     out_rots = [out_rots[i] for i in keep]
     out_root = [out_root[i] for i in keep]
     if clip.get("hold"):
-        times.append(times[-1] + clip["hold"])
-        out_rots.append(out_rots[-1])
-        out_root.append(out_root[-1])
+        end, last, last_root = times[-1], out_rots[-1], out_root[-1]
+        if clip.get("twirl"):
+            # Held at the finish, then the club spun once in the fingers.
+            start, seconds = clip["twirl"]
+            club_j = rig.index["club"]
+            shaft = iron.poser(rig).club_dir_rest["l"]  # the spin axis, along the shaft
+            for k in range(TWIRL_KEYS + 1):
+                u = k / TWIRL_KEYS
+                key = list(last)
+                key[club_j] = last[club_j] @ pose.rot(shaft, 360.0 * u * u * (3 - 2 * u))
+                times.append(end + start + seconds * u)
+                out_rots.append(key)
+                out_root.append(last_root)
+        times.append(end + clip["hold"])
+        out_rots.append(last)
+        out_root.append(last_root)
     return np.array(times, dtype=np.float32), out_rots, np.array(out_root, dtype=np.float32)
 
 
@@ -485,8 +499,6 @@ def write_clip(glb, rig, name, times, rots, root, filtered=True):
     t_one = None
     samplers, channels = [], []
     for j, node in enumerate(rig.joints):
-        if rig.names[j] == "club":
-            continue
         q = np.array([pose.quat(r[j]) for r in rots])
         q = (smooth(q) if filtered and len(q) > 2 else q).astype(np.float32)
         if len(q) > 1 and np.max(1.0 - np.abs(q @ q[0])) < 1e-7:
