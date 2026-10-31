@@ -529,7 +529,7 @@ static func _bake(tree: SceneTree) -> void:
 	vp.own_world_3d = true
 	vp.transparent_bg = true
 	vp.size = Vector2i(FRAMES * FRAME_PIXELS, rows * FRAME_PIXELS)
-	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.keep_aspect = Camera3D.KEEP_HEIGHT
@@ -558,7 +558,12 @@ static func _bake(tree: SceneTree) -> void:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			vp.add_child(mi)
 	tree.root.add_child.call_deferred(vp)
-	for i in 3:
+	# WebGL (Compatibility on the web) needs the viewport to keep drawing for
+	# a few frames before the read-back holds the whole atlas: with
+	# UPDATE_ONCE and three frames it came back almost empty, and the far
+	# trees drew as dark wedges. It is freed straight after, so the cost is
+	# a handful of frames at load.
+	for i in 8:
 		await RenderingServer.frame_post_draw
 	var img := vp.get_texture().get_image()
 	vp.queue_free()
