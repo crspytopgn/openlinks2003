@@ -1055,7 +1055,8 @@ func _on_file_action(action: String) -> void:
 
 
 func _save() -> bool:
-	var p := course.default_path()
+	# Never write over a different course that happens to share the name.
+	var p := course.save_path(path)
 	var err := course.save_file(p)
 	if err != OK:
 		_set_status("Couldn't save the course (%s)." % error_string(err))
@@ -1132,19 +1133,25 @@ func _on_imported(text: String, file_name: String) -> void:
 func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 	# The aerial photo is kept beside the course file, not in it.
 	var photo: Image = summary.get("photo", null)
+	var target := c.save_path()
 	if photo != null:
-		var file := c.default_path().get_basename().get_file() + ".photo.jpg"
+		var file := target.get_basename().get_file() + ".photo.jpg"
 		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
 		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
 			c.source["photo"] = file
 		c.set_photo(photo)
 	var cover: Image = summary.get("ground_cover", null)
 	if photo == null and cover != null:
-		var gfile := c.default_path().get_basename().get_file() + ".ground.png"
+		var gfile := target.get_basename().get_file() + ".ground.png"
 		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
 		if cover.save_png(DesignedCourse.FOLDER.path_join(gfile)) == OK:
 			c.source["ground"] = gfile
 		c.set_ground_cover(cover)
+	_photo_on = true
+	_set_course(c, "")
+	_unsaved = true
+	# Saved first, so the other courses can't take its file name.
+	var saved := _save()
 	# Other courses at the same club are saved beside it.
 	var others: Array = summary.get("others", [])
 	for o: DesignedCourse in others:
@@ -1154,11 +1161,7 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 			for key in ["photo", "ground"]:
 				if c.source.has(key):
 					o.source[key] = c.source[key]
-		o.save_file(o.default_path())
-	_photo_on = true
-	_set_course(c, "")
-	_unsaved = true
-	var saved := _save()
+		o.save_file(o.save_path())
 	_set_status("Built %s: %d holes, %d areas, %d trees%s%s. %s" % [c.course_name, int(summary.get("holes", 0)),
 		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
 		_filled_note(summary),

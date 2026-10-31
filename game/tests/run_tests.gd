@@ -213,6 +213,18 @@ func _test_designed_round() -> void:
 	GolfRound.setup = null
 	DirAccess.remove_absolute(path)
 
+	# Saving never writes over a different course with the same name.
+	var a := DesignedCourse.starter()
+	a.course_name = "Save path test"
+	var own := a.save_path()
+	_check(own == a.default_path(), "a new course saves under its name")
+	_check(a.save_file(own) == OK, "save path test course saves")
+	_check(a.save_path(own) == own, "a course saves over its own file")
+	var b := DesignedCourse.starter()
+	b.course_name = "Save path test"
+	_check(b.save_path().get_file() == "Save path test 2.olc", "a second course with the name gets its own file: %s" % b.save_path())
+	DirAccess.remove_absolute(own)
+
 
 func _test_format_readers() -> void:
 	var tests: RefCounted = load("res://tests/format_tests.gd").new()
@@ -2118,6 +2130,8 @@ func _test_pause_stops_play() -> void:
 	_check("mouse swing" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
 	game.graphics.swing_method = 0
 	_check("Space or click: swing" in game._aim_hint(), "aim hint names the meter")
+	var desktop := not OS.has_feature("web")
+	_check(("O: objects" in game._aim_hint()) == desktop, "aim hint offers the object viewer only off the web")
 	game.graphics.swing_method = method
 	game.open_pause_menu()
 	game._process(0.1)
