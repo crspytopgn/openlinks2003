@@ -1377,6 +1377,27 @@ func _take_mulligan() -> void:
 	_prepare_shot(false)
 
 
+# --- Pick up -----------------------------------------------------------------
+
+## The score at which `par`'s hole is picked up for Settings > Pick up
+## (GraphicsSettings.pickup), never past MAX_STROKES.
+static func pickup_limit(setting: int, par: int) -> int:
+	match setting:
+		1:
+			return mini(MAX_STROKES, 2 * par)
+		2:
+			return mini(MAX_STROKES, par + 3)
+	return MAX_STROKES
+
+
+## This hole's pick-up score. A friend's round keeps the usual limit so the
+## result codes compare.
+func _pickup_at() -> int:
+	if round_setup.challenge != null:
+		return MAX_STROKES
+	return pickup_limit(graphics.pickup, hole.par)
+
+
 # --- Gimmes -------------------------------------------------------------------
 
 ## Settings > Gimmes: the ball stopped on the green close enough to concede.
@@ -1672,7 +1693,7 @@ func _complete_flight() -> void:
 		return
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
-	if strokes >= MAX_STROKES:
+	if strokes >= _pickup_at():
 		_hole_out(true)
 		return
 	if players.size() > 1 and not msg.is_empty():
@@ -1858,8 +1879,8 @@ func _end_drive() -> void:
 	_take_turn(next)
 
 
-## The current player is done with the hole: holed, or picked up after
-## MAX_STROKES. The hole ends when everyone is.
+## The current player is done with the hole: holed, or picked up at the
+## pick-up score (_pickup_at). The hole ends when everyone is.
 func _hole_out(picked_up: bool) -> void:
 	_store_turn()
 	_drop_pending = false
@@ -2184,7 +2205,7 @@ func _finish_drop() -> void:
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()
 	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
-	if strokes >= MAX_STROKES:
+	if strokes >= _pickup_at():
 		_hole_out(true)
 		return
 	var msg := what + "."

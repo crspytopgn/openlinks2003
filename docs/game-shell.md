@@ -107,6 +107,13 @@ counted as a putt. The conceded stroke is kept with the round's drops
 Never in a friend's round from a result code, nor in a scramble, whose best
 ball is picked only after everyone has played.
 
+### Pick up
+
+Settings > Pick up ends a hole for a player who reaches double par or
+triple bogey without holing out (never more than the usual 10), to keep
+casual rounds moving. The card keeps the strokes played. Off in a friend's
+round, so the result codes compare.
+
 ### Interface size
 
 Settings > Interface size scales the menus and HUD (the window's content

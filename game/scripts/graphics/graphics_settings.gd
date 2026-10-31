@@ -111,6 +111,11 @@ var gimme := 0
 ## Never in a friend's round or the team modes.
 var mulligans := 0
 const MULLIGAN_NAMES := ["Off", "One per nine holes", "One per hole"]
+## Pick up: end a hole at this score instead of the usual limit
+## (GolfRound.MAX_STROKES). 0 off, 1 at double par, 2 at triple bogey.
+## Never in a friend's round.
+var pickup := 0
+const PICKUP_NAMES := ["Off (at 10)", "At double par", "At triple bogey"]
 ## Take real swings from a launch monitor app over OpenConnect (desktop).
 var launch_monitor := false
 const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
@@ -247,6 +252,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	s.launch_monitor = bool(cfg.get_value(GAME_SECTION, "launch_monitor", s.launch_monitor))
+	s.pickup = clampi(int(cfg.get_value(GAME_SECTION, "pickup", s.pickup)), 0, PICKUP_NAMES.size() - 1)
 	s.mulligans = clampi(int(cfg.get_value(GAME_SECTION, "mulligans", s.mulligans)), 0, MULLIGAN_NAMES.size() - 1)
 	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
 	if force_look >= 0:
@@ -302,6 +308,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	cfg.set_value(GAME_SECTION, "mulligans", mulligans)
+	cfg.set_value(GAME_SECTION, "pickup", pickup)
 	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
