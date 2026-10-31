@@ -59,6 +59,8 @@ int links_ground_class(Surface s);
 enum class LinksGreenFirmness { Soft, Medium, Firm };
 enum class LinksGreenSpeed { Slow, Normal, Fast };
 LinksSurface links_green(LinksGreenFirmness firmness, LinksGreenSpeed speed);
+// The ground of every 3D object (class 0): the game's default record.
+LinksSurface links_object_surface();
 
 struct LinksConstants {
   static constexpr double kRadius = 0.07;             // ft
@@ -71,7 +73,9 @@ struct LinksConstants {
 // CupAir falling or bouncing inside the hole's circle above the rim, CupRim
 // rolling round the rim's edge, CupWall sliding down the wall and CupDrop
 // falling inside the cup below the rim. Holed is at rest in the cup.
-enum class LinksMode { Flight, Skid, Roll, Rest, CupAir, CupRim, CupWall, CupDrop, Holed };
+// OnObject is rolling on a 3D object (a bridge deck), which the game treats
+// as rolling on ground of its own (links_object_surface).
+enum class LinksMode { Flight, Skid, Roll, Rest, CupAir, CupRim, CupWall, CupDrop, Holed, OnObject };
 
 // Ball state in the game's frame (see above). `position` is the centre.
 struct LinksBall {
@@ -89,6 +93,8 @@ struct LinksBall {
   bool flagstick_out = false;
   // The billboard it last hit (an index into LinksObjects), or -1.
   int last_object = -1;
+  // In OnObject mode: the 3D object it rolls on (LinksObjects::models()).
+  int on_object = -1;
 };
 
 // The game's random numbers: a 32-bit shift register, seeded at launch from

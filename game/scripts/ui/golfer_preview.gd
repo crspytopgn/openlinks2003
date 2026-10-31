@@ -82,6 +82,7 @@ func show_look(look: PlayerLook) -> bool:
 		golfer = FreeGolfer.create(look)
 		if golfer == null:
 			return false
+		golfer.walk_in = false
 		_pivot.add_child(golfer)
 		_pose()
 		return true

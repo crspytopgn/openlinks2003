@@ -2,23 +2,34 @@ class_name FreeGolfer
 extends GolferRig
 ## The golfer used without the original game files: a realistic person built
 ## from MakeHuman's CC0 assets, dressed and shaped by the player's look
-## (PlayerLook, from the player creator). The skeleton, clubs and the
-## swing, putt and celebration are in the glTF written by
-## tools/golfer/build_free_golfer.py (the swing and putt are motion capture,
-## from tools/golfer/mocap_swing.py); the body, clothes and hair come from
-## the look pack (GolferParts), baked into plain meshes for the look.
+## (PlayerLook, from the player creator). The skeleton, clubs and animations
+## are in the glTF written by tools/golfer/build_free_golfer.py, moving with
+## motion capture retargeted by tools/golfer/mocap_swing.py: the address
+## (with a look at the target), swing, putt, walk and reactions. At each new
+## ball the golfer walks up to it before settling over it. The body, clothes
+## and hair come from the look pack (GolferParts), baked into plain meshes
+## for the look.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if either file is
 ## missing.
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
 const BLEND_TIME := 0.15
-const LOOPING: Array[StringName] = [&"address", &"address_putt"]
+const LOOPING: Array[StringName] = [&"address", &"address_putt", &"walk"]
+## The walk up to a new ball: from this far behind the address spot, at the
+## mocap walk's own speed (so the feet don't slide), easing into address.
+const WALK_FROM := 2.2
+const WALK_SPEED := 0.89
+const WALK_SETTLE := 0.35
+## A move of more than this between addresses is a new ball.
+const NEW_BALL := 0.5
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
 const SHAFT_COLOURS := {"steel": Color(0.75, 0.76, 0.78), "graphite": Color(0.16, 0.17, 0.19), "black": Color(0.04, 0.04, 0.045)}
 
 var look: PlayerLook
+## False to settle into address on the spot (the player creator's preview).
+var walk_in := true
 var _model: Node3D
 var _player: AnimationPlayer
 var _skeleton: Skeleton3D
@@ -27,6 +38,11 @@ var _look_nodes: Array[Node] = []
 var _driver: Array[Node3D] = []
 var _putter: Array[Node3D] = []
 var _putting := false
+## Where the model sits at address: off the origin when it is scaled for
+## height (it is scaled about the ball).
+var _rest := Vector3.ZERO
+var _walk: Tween
+var _last_spot := Vector3.INF
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -91,7 +107,9 @@ func apply_look(p_look: PlayerLook) -> void:
 		_look_nodes.append(mi)
 	var s := clampf(look.height_cm / 100.0 / parts.standing_height(weights), 0.7, 1.4)
 	_model.scale = Vector3.ONE * s
-	_model.position = BALL * (1.0 - s)
+	_rest = BALL * (1.0 - s)
+	if _walk == null:
+		_model.position = _rest
 	_dress_clubs()
 
 
@@ -195,6 +213,7 @@ func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
 ## The putter stays out after a putt, for the next address and the
 ## celebration, until a full swing.
 func play(animation: StringName) -> void:
+	_stop_walk()
 	match animation:
 		&"putt":
 			_putting = true
@@ -204,8 +223,34 @@ func play(animation: StringName) -> void:
 	if animation == &"address" and _putting:
 		clip = &"address_putt"
 	_show_putter(_putting)
+	if animation == &"address" and walk_in and is_inside_tree() and _player.has_animation(&"walk"):
+		var spot := global_position
+		var new_ball := _last_spot == Vector3.INF or spot.distance_to(_last_spot) > NEW_BALL
+		_last_spot = spot
+		if new_ball:
+			_walk_in(clip)
+			return
 	if _player.has_animation(clip):
 		_player.play(clip, BLEND_TIME)
+
+
+## Walks forward to the address spot, then settles into the clip.
+func _walk_in(clip: StringName) -> void:
+	_model.position = _rest + Vector3(0, 0, WALK_FROM)
+	_player.play(&"walk", BLEND_TIME)
+	_walk = create_tween()
+	_walk.tween_property(_model, "position", _rest, WALK_FROM / WALK_SPEED)
+	_walk.tween_callback(func() -> void:
+		if _player.has_animation(clip):
+			_player.play(clip, WALK_SETTLE))
+
+
+func _stop_walk() -> void:
+	if _walk and _walk.is_valid():
+		_walk.kill()
+	_walk = null
+	if _model:
+		_model.position = _rest
 
 
 func _show_putter(on: bool) -> void:

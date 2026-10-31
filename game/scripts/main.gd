@@ -11,7 +11,7 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, DRIVE }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -39,6 +39,10 @@ const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
+const HINT_DRIVE := "Up/Down or W/S: drive    Left/Right or A/D: steer    Space or click: skip to the ball    %d yd to go"
+const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
+const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
+const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
@@ -163,6 +167,7 @@ var _golfers: Array[GolferRig] = []
 ## Each player's look (PlayerLook), or null to use the game's own golfer.
 var _looks: Array = []
 var hole_root: Node3D
+var marks: CourseMarks  ## divots, pitch marks and sand craters on this hole
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
@@ -176,6 +181,8 @@ var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
 var caddie: Caddie  ## Settings > Caddie; null when off
+var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
+var _drive_to := -1  ## the ball the buggy is driving to
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
 
@@ -451,6 +458,8 @@ func start_hole(index: int) -> void:
 		hole_root.add_child(node)
 	_add_flag()
 	_add_tee_markers()
+	marks = CourseMarks.new()
+	hole_root.add_child(marks)
 	if scenery.sun != null:
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	_make_golfers()
@@ -481,6 +490,8 @@ func start_hole(index: int) -> void:
 		_tint_ball(p.marker, i)
 	_clear_trail()
 	hud.scorecard.visible = false
+	if buggy != null:
+		_park_buggy(hole.tee)
 	_begin_turn(_next_player(), true)
 	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
 	if broadcast:
@@ -630,6 +641,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
 	record.shots.append(rec)
+	if marks != null:
+		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
 	wind.next_shot()
 	_update_wind_shaders()
 	if free_ambience != null:
@@ -682,12 +695,15 @@ func auto_play_step() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.HOLE_DONE:
 			_next_hole()
 
 
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
+	_update_wind_shaders()
 	# The pause menu and settings stop the round: the swing meter, the ball
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
@@ -711,6 +727,8 @@ func _process(delta: float) -> void:
 					_after_result()
 			State.COMPUTER:
 				_process_computer(delta)
+			State.DRIVE:
+				_process_drive(delta)
 			State.HOLE_DONE:
 				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
 					result_timer -= delta
@@ -720,7 +738,8 @@ func _process(delta: float) -> void:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
 			start_replay()
-	camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	if state != State.DRIVE:
+		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
 	grass.update_around(camera.global_position)
 	_update_ball_size()
 	if broadcast:
@@ -848,6 +867,8 @@ func _on_swing_pressed() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.COMPUTER:
 			# Hurry up: finish the plan and swing now.
 			opponents[shooter].finish()
@@ -969,6 +990,9 @@ func _prepare_shot(snap_camera: bool) -> void:
 		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
+	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
+		_footprints_at = ball_at
+		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()))
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
@@ -1055,8 +1079,27 @@ func _process_flight(delta: float) -> void:
 func _play_landing() -> void:
 	var t := RoundCamera.time_near(shot, shot.first_landing)
 	var speed := (shot.position_at(t) - shot.position_at(t - 0.05)).length() / 0.05
-	sounds.play_detail(&"land", {
-		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed})
+	_play_heard(&"land", {
+		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed},
+		shot.first_landing)
+	if marks != null:
+		var came := shot.position_at(t) - shot.position_at(t - 0.05)
+		marks.add_landing(hole.terrain, shot.first_landing, Vector3(came.x, 0.0, came.z), speed)
+
+
+## Plays a sound made at `at` as it would be heard where the camera
+## stands: late by the time sound takes to get there, and fainter with
+## distance (SoundBank.heard_from). From the tee a drive's bounce arrives
+## most of a second after you see it; from a camera beside the green it's
+## instant.
+func _play_heard(event: StringName, detail: Dictionary, at: Vector3) -> void:
+	var cam := get_viewport().get_camera_3d()
+	var heard := SoundBank.heard_from(cam.global_position.distance_to(at) if cam != null else 0.0)
+	detail["gain_db"] = heard.gain_db
+	if heard.delay_s < 0.03:
+		sounds.play_detail(event, detail)
+	else:
+		get_tree().create_timer(heard.delay_s).timeout.connect(sounds.play_detail.bind(event, detail))
 
 
 func _complete_flight() -> void:
@@ -1082,21 +1125,25 @@ func _complete_flight() -> void:
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
-			sounds.play(&"cup")
+			_play_heard(&"cup", {}, hole.pin)
 			ball.visible = false
 			_hole_out(false)
 			return
 		ShotResult.Outcome.WATER:
-			sounds.play(&"splash")
+			_play_heard(&"splash", {}, shot.rest)
 			strokes += 1
 			ball_at = shot.rest
 			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
 			_drop_pending = true
 			msg = "Water hazard. One-stroke penalty, take a drop."
+			if golfer:
+				golfer.play(&"upset")
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			strokes += 1
 			ball_at = shot_from
 			msg = "Out of bounds. Stroke and distance."
+			if golfer:
+				golfer.play(&"upset")
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
@@ -1187,12 +1234,102 @@ func _pass_turn() -> void:
 	if next < 0:
 		_finish_hole()
 		return
+	if _start_drive(next):
+		return
+	_take_turn(next)
+
+
+func _take_turn(next: int) -> void:
 	if next == current and _shooter_of(next) == shooter:
 		_prepare_shot(false)
 	else:
 		_begin_turn(next, true)
 		if players.size() > 1:
 			hud.show_message("%s to play" % scoring.names[shooter], 1.5)
+
+
+# --- Golf buggy --------------------------------------------------------------
+
+## Settings > Golf buggy switched on or off.
+func _set_buggy(on: bool) -> void:
+	if on == (buggy != null):
+		return
+	if not on:
+		if state == State.DRIVE:
+			_skip_drive()
+		buggy.queue_free()
+		buggy = null
+		return
+	buggy = GolfBuggy.new()
+	add_child(buggy)
+	if hole != null:
+		_park_buggy(ball_at)
+
+
+## Leaves the buggy beside `p`, off the line to the pin.
+func _park_buggy(p: Vector3) -> void:
+	var spot := BuggyDrive.parking_spot(hole.terrain, p, hole.pin)
+	buggy.park(spot, rad_to_deg(atan2(hole.pin.x - spot.x, hole.pin.z - spot.z)), hole.terrain)
+
+
+## Drives to ball `next` if the buggy is on, a person plays it and it is
+## far enough away; false to play on at once.
+func _start_drive(next: int) -> bool:
+	if buggy == null or opponents[_shooter_of(next)] != null:
+		return false
+	var to := players[next].at
+	if _flat_distance(buggy.drive.position, to) < DRIVE_MIN_M:
+		return false
+	_drive_to = next
+	state = State.DRIVE
+	# The golfer (and caddie) are aboard.
+	if golfer:
+		golfer.visible = false
+	if caddie != null:
+		caddie.step_aside()
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
+	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.visible = true
+	ball.visible = true
+	hud.show_message("")
+	return true
+
+
+func _process_drive(delta: float) -> void:
+	var throttle := 0.0
+	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+		throttle += 1.0
+	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+		throttle -= 1.0
+	var steer := 0.0
+	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+		steer += 1.0
+	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+		steer -= 1.0
+	buggy.step(delta, throttle, steer, hole.terrain)
+	var view: Array = buggy.chase(delta, hole.terrain)
+	camera.position = view[0]
+	camera.look_at(view[1])
+	var to := players[_drive_to].at
+	var left := _flat_distance(buggy.drive.position, to)
+	hud.hint.text = HINT_DRIVE % roundi(left * YARDS_PER_METRE)
+	var s := hole.terrain.surface_at(to.x, to.z)
+	var arrive := DRIVE_ARRIVE_GREEN_M if s == Surface.Type.GREEN or s == Surface.Type.FRINGE else DRIVE_ARRIVE_M
+	if left < arrive and absf(buggy.drive.speed) < 0.5 and throttle <= 0.0:
+		_end_drive()
+
+
+## Space during a drive: the buggy is parked by the ball and play goes on.
+func _skip_drive() -> void:
+	_park_buggy(players[_drive_to].at)
+	_end_drive()
+
+
+func _end_drive() -> void:
+	var next := _drive_to
+	_drive_to = -1
+	state = State.SHOT_RESULT  # in between, until the turn begins
+	_take_turn(next)
 
 
 ## The current player is done with the hole: holed, or picked up after
@@ -1577,8 +1714,12 @@ func _auto_club() -> void:
 	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
 	var power := Surface.lie_power(lie)
 	var target := hole.aim_point(ball_at, clubs[0].total_m * shot_model.reach_scale(clubs[0]) * power)
-	var d := _flat_distance(ball_at, target)
 	club_index = 0
+	# Off the tee with the green out of reach, take the driver: picking the
+	# shortest club that reaches a route point leaves a hybrid off a par 4.
+	if lie == Surface.Type.TEE and target != hole.pin:
+		return
+	var d := _flat_distance(ball_at, target)
 	for i in clubs.size():
 		if not clubs[i].is_putter and clubs[i].total_m * shot_model.reach_scale(clubs[i]) * power >= d:
 			club_index = i
@@ -1623,6 +1764,7 @@ func _build_world() -> void:
 
 	ball = _make_ball_mesh()
 	add_child(ball)
+	_build_ball_details()
 
 	trail = MeshInstance3D.new()
 	trail.mesh = _trail_mesh
@@ -1762,6 +1904,7 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 	_set_caddie(graphics.caddie)
+	_set_buggy(graphics.buggy)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
@@ -1796,46 +1939,64 @@ func _drift_clouds(delta: float) -> void:
 
 
 ## Tells the grass, trees and water which way the wind blows.
+## The steady wind is the hole's own; WindGust adds the gusts and lulls
+## the eye sees each frame (visual only: the ball flies in `wind`).
 func _update_wind_shaders() -> void:
+	if wind == null:
+		return
 	var v := wind.velocity()
-	RenderingServer.global_shader_parameter_set("wind_vector", Vector2(v.x, v.z))
+	var t := Time.get_ticks_msec() * 0.001
+	var seen := WindGust.visual_wind(Vector2(v.x, v.z), t, float(hole_index) if hole != null else 0.0)
+	RenderingServer.global_shader_parameter_set("wind_vector", seen)
+
+
+## Flagstick height: the Rules ask for at least 7 ft (2.13 m).
+const FLAGSTICK_M := 2.13
 
 
 func _add_flag() -> void:
 	var pin := hole.pin
 	var pole := MeshInstance3D.new()
 	var pole_mesh := CylinderMesh.new()
-	pole_mesh.top_radius = 0.04
-	pole_mesh.bottom_radius = 0.04
-	pole_mesh.height = 2.4
+	# True to scale: tour flagsticks are about 3/4 in (19 mm) thick.
+	pole_mesh.top_radius = 0.0095
+	pole_mesh.bottom_radius = 0.0095
+	pole_mesh.height = FLAGSTICK_M
+	pole_mesh.radial_segments = 8
 	pole.mesh = pole_mesh
-	pole.position = pin + Vector3(0, 1.2, 0)
+	pole.position = pin + Vector3(0, FLAGSTICK_M * 0.5, 0)
 	var white := StandardMaterial3D.new()
-	white.albedo_color = Color(0.95, 0.95, 0.95)
+	white.albedo_color = Color(0.95, 0.95, 0.92)
 	pole.material_override = white
 	hole_root.add_child(pole)
 
+	# The flag flies with the wind (shaders/flag.gdshader).
 	var flag := MeshInstance3D.new()
-	var cloth := BoxMesh.new()
-	cloth.size = Vector3(0.02, 0.5, 0.8)
+	var cloth := PlaneMesh.new()
+	cloth.orientation = PlaneMesh.FACE_Z
+	cloth.size = Vector2(0.51, 0.36)
+	cloth.subdivide_width = 16
+	cloth.subdivide_depth = 6
 	flag.mesh = cloth
-	flag.position = pin + Vector3(0, 2.15, 0.42)
-	var red := StandardMaterial3D.new()
-	red.albedo_color = Color(0.85, 0.1, 0.1)
-	red.cull_mode = BaseMaterial3D.CULL_DISABLED
-	flag.material_override = red
+	flag.position = pin + Vector3(0, FLAGSTICK_M - 0.02, 0)
+	flag.extra_cull_margin = 1.0  # the shader moves it well off the plane
+	var cloth_mat := ShaderMaterial.new()
+	cloth_mat.shader = load("res://shaders/flag.gdshader")
+	flag.material_override = cloth_mat
+	flag.name = "Flag"
 	hole_root.add_child(flag)
 
+	# The hole at its real size (4.25 in across), liner and all
+	# (shaders/cup.gdshader).
 	var cup := MeshInstance3D.new()
-	var cup_mesh := CylinderMesh.new()
-	cup_mesh.top_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.bottom_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.height = 0.02
+	var cup_mesh := PlaneMesh.new()
+	cup_mesh.size = Vector2.ONE * BallPhysics.CUP_RADIUS * 2.0
 	cup.mesh = cup_mesh
-	cup.position = pin + Vector3(0, 0.005, 0)
-	var black := StandardMaterial3D.new()
-	black.albedo_color = Color(0.03, 0.03, 0.03)
-	cup.material_override = black
+	cup.position = pin + Vector3(0, 0.004, 0)
+	var cup_mat := ShaderMaterial.new()
+	cup_mat.shader = load("res://shaders/cup.gdshader")
+	cup.material_override = cup_mat
+	cup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hole_root.add_child(cup)
 
 
@@ -1871,9 +2032,90 @@ func _update_ball_size() -> void:
 
 func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
 	var d := camera.position.distance_to(base)
-	var r := maxf(BallPhysics.RADIUS, d * 0.0045)
+	var r := BallPhysics.RADIUS if graphics != null and graphics.true_size_ball \
+		else maxf(BallPhysics.RADIUS, d * 0.0045)
 	m.scale = Vector3.ONE * r
-	m.position = base + Vector3.UP * r
+	var gap := _tee_gap() if m == ball else 0.0
+	m.position = base + Vector3.UP * (r + gap)
+	if m == ball:
+		_update_ball_details(base, r, gap)
+
+
+## Driver tee height: about half the ball above the club's crown.
+const TEE_GAP_DRIVER := 0.025
+const TEE_GAP_WOOD := 0.012  ## fairway woods and hybrids, teed low
+const TEE_GAP_IRON := 0.005  ## irons, the ball just off the grass
+var _tee_peg: MeshInstance3D
+var _ball_shadow: MeshInstance3D
+var _footprints_at := Vector3.INF  ## the bunker lie that last got footprints
+
+
+## How far the ball sits above the ground on a tee peg while aiming from
+## the teeing ground; 0 anywhere else, and once the ball is struck.
+func _tee_gap() -> float:
+	if lie != Surface.Type.TEE or not (state == State.AIM or state == State.COMPUTER) \
+			or _ball_base.distance_to(ball_at) > 0.01 or clubs.is_empty():
+		return 0.0
+	var club := clubs[club_index]
+	if club.is_putter:
+		return 0.0
+	match SoundBank.club_kind(club):
+		&"driver":
+			return TEE_GAP_DRIVER
+		&"wood":
+			return TEE_GAP_WOOD
+	return TEE_GAP_IRON
+
+
+func _build_ball_details() -> void:
+	# A white wooden tee: a thin shank with a cup on top.
+	_tee_peg = MeshInstance3D.new()
+	var shank := CylinderMesh.new()
+	shank.top_radius = 0.0055
+	shank.bottom_radius = 0.0022
+	shank.height = 0.012
+	shank.radial_segments = 8
+	shank.rings = 1
+	_tee_peg.mesh = shank
+	var peg_mat := StandardMaterial3D.new()
+	peg_mat.albedo_color = Color(0.92, 0.9, 0.84)
+	peg_mat.roughness = 0.8
+	_tee_peg.material_override = peg_mat
+	_tee_peg.visible = false
+	add_child(_tee_peg)
+	_ball_shadow = MeshInstance3D.new()
+	var quad := PlaneMesh.new()
+	quad.size = Vector2.ONE
+	_ball_shadow.mesh = quad
+	var shadow_mat := ShaderMaterial.new()
+	shadow_mat.shader = load("res://shaders/ball_shadow.gdshader")
+	_ball_shadow.material_override = shadow_mat
+	_ball_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_ball_shadow)
+
+
+## The tee peg under a teed-up ball (it stays in the ground after the
+## shot, as they mostly do), and the soft shadow that sits the ball in the
+## grass and follows it along the ground in flight, fading as it climbs.
+func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
+	if _tee_peg == null or hole == null:
+		return
+	if gap > 0.0:
+		var ground := hole.terrain.height_at(base.x, base.z)
+		var shank := _tee_peg.mesh as CylinderMesh
+		shank.height = gap + 0.004  # its cup holds the ball; the rest is in the ground
+		_tee_peg.position = Vector3(base.x, ground + shank.height * 0.5, base.z)
+		_tee_peg.visible = ball.visible
+	elif state == State.AIM or state == State.COMPUTER:
+		_tee_peg.visible = false
+	var ground_y := hole.terrain.height_at(base.x, base.z)
+	var height := maxf(base.y - ground_y, 0.0)
+	var fade := 1.0 - clampf(height / 2.0, 0.0, 1.0)
+	_ball_shadow.visible = ball.visible and fade > 0.0
+	if _ball_shadow.visible:
+		_ball_shadow.position = Vector3(base.x, ground_y + 0.006, base.z)
+		_ball_shadow.scale = Vector3.ONE * r * 2.6 * (1.0 + height)
+		(_ball_shadow.material_override as ShaderMaterial).set_shader_parameter("strength", 0.6 * fade)
 
 
 ## Each player's look: the golfer they made in the player creator, or the
@@ -2030,7 +2272,7 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 ## Behind the ball, looking down the aim line. Links cuts straight to the
 ## new view rather than gliding, so this always snaps.
 func _aim_camera(_snap: bool) -> void:
-	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter)
+	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter, _flat_distance(ball_at, _aim_target()))
 
 
 # --- Broadcast presentation ---------------------------------------------------

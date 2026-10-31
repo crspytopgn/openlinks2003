@@ -899,12 +899,57 @@ and the GDScript port follow this. The game reads the full-size picture;
 the Godot course loader keeps a copy reduced to 128 pixels on its longest
 side, which moves the edges of the opaque parts by up to a few percent.
 
+### 3D objects
+
+Walls, bridges, buildings and other meshes are tested in the same pass as
+billboards, as the ray from the step's start towards its end, reaching as
+far as the end.
+
+- **Candidates.** The ray must meet the object's placed bounding box
+  (nearer than the end of the step). A 3D object is never skipped as the
+  one hit last.
+- **Faces.** Each face is cut into a fan of triangles from its first
+  corner, and each triangle is met from one side only: a triangle seen from
+  behind (its corners turning clockwise), or one the ray runs along, is no
+  hit. The nearest hit across all faces wins.
+- **See-through textures.** When the face's texture is marked see-through
+  (see [course-objects.md](course-objects.md)) the game finds the texel at
+  the hit and lets the ball through where its alpha is zero. It blends the
+  texture coordinates of the mesh's first corner and the triangle's two
+  other corners as numbered in the whole mesh (not in the face), a quirk we
+  keep. The coordinates wrap round the picture.
+- **Fast hit.** If the ball meets the face at 2 ft/s or more along its
+  normal, its velocity (as at the end of the step) is mirrored off the face
+  and scaled by 0.7. Its position and spin are those of the step at the
+  point where it met the face.
+- **Slow hit.** Otherwise the ball goes on to the object: its velocity is
+  scaled by 0.7 and loses its part along the normal, and it sits 0.07 ft
+  (its radius) off the face. Its mode is "on an object".
+- **On an object.** The ground step runs as for rolling, but with the
+  object's own surface (class 0; restitution 0.27, impact friction and skid
+  friction 0.13, impact drag 0.44, roll resistance 0.2, stop speed 5, no
+  spin grip, no lie effect) and the object's normal under the ball, found by
+  a ray straight down from 5 ft above it. If the object is not above the
+  terrain there, or no object is found under the ball's next spot, the
+  ball flies off. If the height under the next spot differs from the
+  ball's by more than about 0.32 ft (squared difference over 0.1), the game
+  looks along the ball's path, both ways, from halfway between the two
+  heights: a face within 2 ft of the next spot is a wall, and the ball
+  bounces off it (velocity mirrored, no loss); otherwise it is a step it
+  can't climb, and the ball stops where it is.
+
+olcore (`LinksObjects::add_model`, `hit_model`) and the GDScript port follow
+this; the course loader passes each placed mesh in.
+
 ### Not ported
 
 - Hole size options other than 1 (the game uses a different cup routine).
-- 3D objects (walls, bridges, buildings): the game asks them through the
-  same routine, but their own test is not decoded; olcore and the game use
-  their boxes. Balls rolling on objects such as bridges.
+- Where the ball is when it flies off an object: the game flies on from the
+  step's end in a way that is hard to follow; olcore flies the step again
+  from its start.
+- Tournament-only 3D objects (kind 6): the game drops them outside
+  tournaments; we always keep them, and all 3D objects are tested against
+  the whole step.
 
 ## Open questions
 
