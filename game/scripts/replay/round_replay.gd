@@ -33,7 +33,9 @@ static func run_shot(model: ShotModel, r: ShotRecord, club: Club, terrain: Cours
 	var start := model.launch(club, r.power, r.accuracy, r.aim_deg, r.lie, r.from)
 	# Back to square, so planners (computer golfers, the caddie) see plain shots.
 	model.setup = LinksLaunch.Setup.new()
-	return model.simulate(start, terrain, pin, wind)
+	var result := model.simulate(start, terrain, pin, wind)
+	result.launch = start
+	return result
 
 
 ## The PowerStroke mouse swing of shot `index`, with that shot's draws.

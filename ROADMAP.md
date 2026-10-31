@@ -34,9 +34,10 @@ product lead builds it.
    auto club also picks a 3 hybrid on a 389-yard par 4. Owner: bug-hunt.
 4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
    rounds (off in Classic Links). Owner: lead.
-5. [ ] **Driving range with launch-monitor numbers**: ball speed, launch,
-   spin, carry, total and dispersion per club, on the `.RNG` range or a
-   built-in one. Owner: lead.
+5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
+   spin, carry, total and dispersion per club. Done: Play > Practice range
+   on any course ([game-shell.md](docs/game-shell.md#practice-range)).
+   Still to do: a built-in range course with yardage targets.
 6. [ ] **Launch monitor input** (desktop): take real swings from home
    simulators through the open GSPro-style connect API, the golf version of
    a sim-racing wheel. Owner: new thread, after item 5.

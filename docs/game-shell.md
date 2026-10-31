@@ -72,6 +72,18 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Practice range
+
+Round setup > Play > Practice range: one person hits from the tee of the
+chosen course as often as they like. The ball comes back after each shot,
+nothing is scored or saved, and N and B move to the next or previous hole
+for other targets. A launch monitor (`LaunchMonitor`, `LaunchMonitorPanel`)
+shows each shot's ball speed, launch angle, back and side spin (from the
+launch the shot model made, `ShotResult.launch`), carry, total, offline,
+apex and descent angle, and the session's average carry, total and
+left-right spread with that club. With the game's files on the `.RNG`
+driving range course this is the range Links 2003 has.
+
 ### Drops
 
 Water costs a stroke and a drop. **D** while aiming declares the ball

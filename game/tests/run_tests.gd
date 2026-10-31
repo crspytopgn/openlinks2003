@@ -94,6 +94,7 @@ func _process(_delta: float) -> bool:
 	_run("round_replay", _test_round_replay)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("practice_range", _test_practice_range)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2433,6 +2434,46 @@ func _test_free_golfer() -> void:
 
 ## Hot-seat rounds through the real round: skins over the front nine for three
 ## players, and a match that can end early.
+## The practice range: the ball comes back to the tee, nothing is scored,
+## and the launch monitor reads every shot.
+func _test_practice_range() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.practice = true
+	_check(s.problem().is_empty(), "one person can practise")
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN])
+	_check(not s.problem().is_empty(), "the range is for one person")
+	s = RoundSetup.new()
+	s.practice = true
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.monitor_panel != null, "the launch monitor is up")
+	var tee: Vector3 = game.hole.tee
+	for i in 6:
+		var steps := 0
+		while game.state != GolfRound.State.AIM or steps == 0:
+			game.auto_play_step()
+			steps += 1
+			if steps > 10:
+				break
+		_check(game.state == GolfRound.State.AIM and game.ball_at.distance_to(tee) < 0.01, "shot %d: the ball is back on the tee" % i)
+	_check(game.practice_session.readings.size() == 6, "six readings (%d)" % game.practice_session.readings.size())
+	_check(game.card.holes_played() == 0, "nothing is scored")
+	var r: LaunchMonitor.Reading = game.practice_session.readings[0]
+	_check(r.ball_mph > 60.0 and r.ball_mph < 200.0, "ball speed %.0f mph" % r.ball_mph)
+	_check(r.launch_deg > 2.0 and r.launch_deg < 40.0, "launch %.1f deg" % r.launch_deg)
+	_check(r.back_rpm > 500.0, "back spin %.0f rpm" % r.back_rpm)
+	_check(r.carry_yd > 50.0 and r.total_yd >= r.carry_yd - 1.0, "carry %.0f, total %.0f yd" % [r.carry_yd, r.total_yd])
+	_check(r.descent_deg > 5.0 and r.descent_deg < 80.0, "descent %.0f deg" % r.descent_deg)
+	_check(not game.practice_session.summary(r.club).is_empty(), "session summary")
+	print("  range: %s" % game.practice_session.summary(r.club))
+	GolfRound.setup = null
+
+
 func _test_multiplayer_rounds() -> void:
 	var game := _game
 	if not game.is_node_ready():
