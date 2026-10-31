@@ -150,6 +150,16 @@ at Medium and grass at Low.
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat
   colour, with finer, wind-driven ripples.
+- **Gusts** (`WindGust`): the wind the eye sees surges and settles every
+  few seconds (55% to 145% of the hole's wind, swinging up to 8 degrees),
+  through the `wind_vector` shader global, so the flag, grass, trees and
+  water ripples move together. Visual only: the ball flies in the game's
+  own per-shot wind.
+- **Flag** (`shaders/flag.gdshader`): a 20 by 14 inch flag on a 7 ft
+  stick, as the Rules ask. It swings round the pole to fly downwind, lifts
+  from hanging limp to straight out at about 20 mph, ripples faster as the
+  wind gets up, and glows when the sun is behind it. Players can read the
+  wind from it, as real golfers do.
 
 ## Performance budget
 

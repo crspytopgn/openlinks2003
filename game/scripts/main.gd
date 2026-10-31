@@ -637,6 +637,7 @@ func auto_play_step() -> void:
 
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
+	_update_wind_shaders()
 	# The pause menu and settings stop the round: the swing meter, the ball
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
@@ -1681,34 +1682,52 @@ func _drift_clouds(delta: float) -> void:
 
 
 ## Tells the grass, trees and water which way the wind blows.
+## The steady wind is the hole's own; WindGust adds the gusts and lulls
+## the eye sees each frame (visual only: the ball flies in `wind`).
 func _update_wind_shaders() -> void:
+	if wind == null:
+		return
 	var v := wind.velocity()
-	RenderingServer.global_shader_parameter_set("wind_vector", Vector2(v.x, v.z))
+	var t := Time.get_ticks_msec() * 0.001
+	var seen := WindGust.visual_wind(Vector2(v.x, v.z), t, float(hole_index) if hole != null else 0.0)
+	RenderingServer.global_shader_parameter_set("wind_vector", seen)
+
+
+## Flagstick height: the Rules ask for at least 7 ft (2.13 m).
+const FLAGSTICK_M := 2.13
 
 
 func _add_flag() -> void:
 	var pin := hole.pin
 	var pole := MeshInstance3D.new()
 	var pole_mesh := CylinderMesh.new()
-	pole_mesh.top_radius = 0.04
-	pole_mesh.bottom_radius = 0.04
-	pole_mesh.height = 2.4
+	# A real stick is about an inch thick; a little thicker reads better
+	# from the tee without looking like a post up close.
+	pole_mesh.top_radius = 0.016
+	pole_mesh.bottom_radius = 0.016
+	pole_mesh.height = FLAGSTICK_M
+	pole_mesh.radial_segments = 8
 	pole.mesh = pole_mesh
-	pole.position = pin + Vector3(0, 1.2, 0)
+	pole.position = pin + Vector3(0, FLAGSTICK_M * 0.5, 0)
 	var white := StandardMaterial3D.new()
-	white.albedo_color = Color(0.95, 0.95, 0.95)
+	white.albedo_color = Color(0.95, 0.95, 0.92)
 	pole.material_override = white
 	hole_root.add_child(pole)
 
+	# The flag flies with the wind (shaders/flag.gdshader).
 	var flag := MeshInstance3D.new()
-	var cloth := BoxMesh.new()
-	cloth.size = Vector3(0.02, 0.5, 0.8)
+	var cloth := PlaneMesh.new()
+	cloth.orientation = PlaneMesh.FACE_Z
+	cloth.size = Vector2(0.51, 0.36)
+	cloth.subdivide_width = 16
+	cloth.subdivide_depth = 6
 	flag.mesh = cloth
-	flag.position = pin + Vector3(0, 2.15, 0.42)
-	var red := StandardMaterial3D.new()
-	red.albedo_color = Color(0.85, 0.1, 0.1)
-	red.cull_mode = BaseMaterial3D.CULL_DISABLED
-	flag.material_override = red
+	flag.position = pin + Vector3(0, FLAGSTICK_M - 0.02, 0)
+	flag.extra_cull_margin = 1.0  # the shader moves it well off the plane
+	var cloth_mat := ShaderMaterial.new()
+	cloth_mat.shader = load("res://shaders/flag.gdshader")
+	flag.material_override = cloth_mat
+	flag.name = "Flag"
 	hole_root.add_child(flag)
 
 	var cup := MeshInstance3D.new()

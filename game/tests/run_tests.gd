@@ -50,6 +50,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
+	_run("wind_gusts", _test_wind_gusts)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1090,6 +1091,23 @@ func _test_ground_shade() -> void:
 	_check(rough.s >= 0.3 and rough.v < 0.6, "pale rough becomes straw")
 	var sand := Color(0.85, 0.8, 0.65)
 	_check(absf(CrzTerrain.realistic(sand, Surface.Type.SAND).h - sand.h) < 0.01, "sand keeps its hue")
+
+
+func _test_wind_gusts() -> void:
+	var low := 9.0
+	var high := 0.0
+	for i in 2000:
+		var f := WindGust.factor(i * 0.1, 3.0)
+		low = minf(low, f)
+		high = maxf(high, f)
+	_check(low >= WindGust.LULL - 1e-4 and high <= WindGust.PEAK + 1e-4, "gusts stay between lull and peak")
+	_check(high - low > 0.4, "gusts really vary (%.2f to %.2f)" % [low, high])
+	_check(WindGust.visual_wind(Vector2.ZERO, 5.0) == Vector2.ZERO, "no gusts in a calm")
+	var seen := WindGust.visual_wind(Vector2(4, 0), 7.0)
+	_check(absf(rad_to_deg(seen.angle())) <= 8.01, "gusts swing the direction only a few degrees")
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/flag.gdshader")
+	_check(mat.shader != null and mat.shader.get_code().contains("wind_vector"), "flag shader reads the wind")
 
 
 func _test_grass() -> void:
