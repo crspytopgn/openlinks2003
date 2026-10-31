@@ -2112,6 +2112,39 @@ void test_links_computer_putt() {
   CHECK_NEAR(w.power, 1, 1e-12);
 }
 
+void test_links_mouse_swing() {
+  // power, release, drift, height, skill, seed, then power, face, path, whiff.
+  struct Case {
+    double power, release, drift, height;
+    int skill;
+    unsigned seed;
+    double want_power, want_face, want_path;
+    bool whiff;
+  };
+  const Case cases[] = {
+      {100.0, 0.0, 0.0, 100.0, 3, 1u, 100.0, 0.0, 0.0, false},
+      {100.0, 4.0, 10.0, 200.0, 3, 7u, 95.0, 2.584, -1.67552598, false},
+      {90.0, -12.0, -20.0, 150.0, 2, 99u, 81.0, -13.9536, 12.7073864, false},
+      {120.0, 20.0, 0.0, 100.0, 0, 5u, 103.0, 28.10525, 0.0, false},
+      {100.0, 19.0, 0.0, 100.0, 3, 5u, 0.0, 0.0, 0.0, true},
+      {150.0, -3.0, 5.0, 80.0, 1, 42u, 150.51, -1.943, -7.58009526, false},
+  };
+  for (const Case& c : cases) {
+    LinksMouseStroke m;
+    m.power = c.power;
+    m.release = c.release;
+    m.drift = c.drift;
+    m.height = c.height;
+    m.skill = c.skill;
+    LinksRand rng(c.seed);
+    LinksMouseSwing w = links_mouse_swing(m, rng);
+    CHECK_NEAR(w.power, c.want_power, 1e-6);
+    CHECK_NEAR(w.face_deg, c.want_face, 1e-6);
+    CHECK_NEAR(w.path_deg, c.want_path, 1e-6);
+    CHECK(w.whiff == c.whiff);
+  }
+}
+
 void test_links_putt() {
   // The putt's miss, checked against the game's own routine (rand seeded 777):
   // only the face turns, by a draw scaled by the skill.
@@ -2264,6 +2297,7 @@ int main() {
       {"links_swing", test_links_swing},
       {"links_computer_miss", test_links_computer_miss},
       {"links_putt", test_links_putt},
+      {"links_mouse_swing", test_links_mouse_swing},
       {"links_computer_putt", test_links_computer_putt},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},

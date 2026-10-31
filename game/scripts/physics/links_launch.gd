@@ -217,6 +217,66 @@ static func lie_miss(ground_class: int) -> float:
 	return 1.0
 
 
+## The PowerStroke mouse swing's stroke; mirrors olcore::LinksMouseStroke.
+## `release` is how far past the snap line the button came up (negative is
+## early) and `drift` how far right the stroke moved from the top of the
+## backswing to the line, over `height`, all in the game's meter units.
+class MouseStroke:
+	var power := 100.0
+	var release := 0.0
+	var drift := 0.0
+	var height := 100.0
+	var skill := 3
+
+
+## What the stroke makes of the swing; mirrors olcore::LinksMouseSwing.
+class MouseSwing:
+	var power := 100.0
+	var face_deg := 0.0
+	var path_deg := 0.0
+	var whiff := false
+
+
+const MOUSE_STROKE_SCALE: Array[float] = [1.0, 1.3, 1.7, 2.0]
+
+
+## Mirrors olcore::links_mouse_swing (see there).
+static func mouse_swing(m: MouseStroke, rng: Rand) -> MouseSwing:
+	var skill := clampi(m.skill, 0, SKILL_COUNT - 1)
+	var out := MouseSwing.new()
+	var path := rad_to_deg(atan2(-m.drift * MOUSE_STROKE_SCALE[skill], m.height)) if m.height > 0.0 else 0.0
+	path = clampf(path, -20.0, 20.0)
+	var x := m.release
+	if skill == 0 and absf(x) >= 18.0:
+		x = 17.0 if x > 0.0 else -17.0
+	var face := 0.0
+	if absf(x) > 10.0:
+		if absf(x) >= 18.0:
+			out.whiff = true
+		else:
+			face = absf(x) * 0.1 * x
+	else:
+		path += x
+		face += x * (2.0 / 3.0)
+	var power := m.power * absf(1.0 - absf(x / (80.0 if skill == 3 else 120.0)))
+	if power < 1.0:
+		power = 1.0
+	if power > 145.0:
+		power = _wobble(145.0, rng)
+	out.face_deg = _wobble(face, rng)
+	out.path_deg = _wobble(path, rng)
+	out.power = 0.0 if out.whiff else power
+	return out
+
+
+## The game's random wobble: up to 5% either way, from three draws.
+static func _wobble(x: float, rng: Rand) -> float:
+	var j := (rng.next() % 100 + 1) * 1e-4 * 5.0
+	var a := rng.next() % 100
+	var b := rng.next() % 100
+	return (1.0 + j) * x if a < b else x - j * x
+
+
 ## A computer golfer's steadiness with each kind of shot, 0 to 100 (more is
 ## steadier). Mirrors olcore::LinksGolferRatings.
 class GolferRatings:

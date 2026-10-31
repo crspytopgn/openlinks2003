@@ -318,6 +318,46 @@ void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& 
   }
 }
 
+namespace {
+
+// The game's random wobble: up to 5% either way, from three draws.
+double wobble(double x, LinksRand& rng) {
+  double j = (rng.next() % 100 + 1) * 1e-4 * 5;
+  int a = rng.next() % 100;
+  int b = rng.next() % 100;
+  return a < b ? (1 + j) * x : x - j * x;
+}
+
+}  // namespace
+
+LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng) {
+  static const double kStrokeScale[kLinksSkillCount] = {1, 1.3, 1.7, 2};
+  const int skill = std::clamp(m.skill, 0, kLinksSkillCount - 1);
+  LinksMouseSwing out;
+  double path = m.height > 0 ? std::atan2(-m.drift * kStrokeScale[skill], m.height) / kDeg : 0;
+  path = std::clamp(path, -20.0, 20.0);
+  double x = m.release;
+  if (skill == 0 && std::abs(x) >= 18) x = x > 0 ? 17 : -17;
+  double face = 0;
+  if (std::abs(x) > 10) {
+    if (std::abs(x) >= 18) {
+      out.whiff = true;
+    } else {
+      face = std::abs(x) * 0.1 * x;
+    }
+  } else {
+    path += x;
+    face += x * (2 / 3.0);
+  }
+  double power = m.power * std::abs(1 - std::abs(x / (skill == 3 ? 80.0 : 120.0)));
+  if (power < 1) power = 1;
+  if (power > 145) power = wobble(145, rng);
+  out.face_deg = wobble(face, rng);
+  out.path_deg = wobble(path, rng);
+  out.power = out.whiff ? 0 : power;
+  return out;
+}
+
 void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int club, bool teed_up, bool chip,
                          int ground_class, double feet_to_hole, LinksRand& rng) {
   // The game works in single precision; every stored value is rounded to it.

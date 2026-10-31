@@ -461,14 +461,48 @@ It agrees with the game's code in an emulator on 360 random cases, and the
 C++ port with a reference on 50,000. The game shell gives both putt ratings
 the golfer's level rating.
 
+### The mouse swing
+
+In the PowerStroke mouse swing the player holds the button, pulls the mouse
+back, pushes it forward through the snap line and lets go there. The game
+turns the stroke into a swing like this (full swings):
+
+- **Path:** the stroke's angle, `atan2(drift x k, height)` with the
+  sideways drift magnified by k = 1, 1.3, 1.7 or 2 by level, at most 20
+  degrees either way.
+- **Release** (x, in the meter's units, positive late): within 10 units
+  the release pulls or pushes, turning the path by x degrees and the face
+  by two thirds of x. From 10 to 18 units the face alone turns, by `0.1 x
+  |x|` degrees, a big hook or slice. Past 18 the club misses the ball. On
+  the easiest level the release is held to 17, so it never misses.
+- **Power** comes from the speed through the line (with a random wobble of
+  up to 5%) and loses `|1 - x / 120|` (`/ 80` on the hardest level) for the
+  release. It is kept between 1 and 145 percent.
+- Face and path each get the same up-to-5% wobble: `j = (rand % 100 + 1) x
+  0.0005`, then `x (1 + j)` or `x - j x` as one of two further draws is
+  below the other.
+
+Those face and path angles then go through the lie and strike model above
+(`links_apply_swing` with the mouse method). Ported as `links_mouse_swing`
+(olcore) and `LinksLaunch.mouse_swing`, read from the game's code (not yet
+checked in an emulator). The game shell's `MouseSwingControl` measures the
+stroke itself. One meter unit is 1/600 of the screen height. 100% power is
+1300 units a second through the line, and the release counts 5 ms of
+early or late as one unit, judged from where the button comes up at the
+stroke's speed. Those calibrations are ours. Putts use the full-swing
+reading of the stroke for now.
+
 ### Not ported
 
 - A flag from the caller that adds 10 degrees of loft and removes all spin;
   what sets it is not known yet.
 - The screen geometry of the PowerStroke meter (where its perfect zone sits
-  and how its speed depends on the level), the meter's own face value, and
-  the mouse swing's maths that produce its face and path. The game shell
-  has no mouse swing yet.
+  and how its speed depends on the level) and the meter's own face value.
+- How the mouse swing samples the mouse (the speed, sideways drift and
+  release are read from a ring of recent mouse positions, in screen units
+  set per level), the putt and chip branches of the mouse swing, and the
+  game's "you may be having trouble with your swing" help, which nudges the
+  path of a struggling player.
 - Chips and one other shot type skip or flip parts of the swing model;
   full swings and putts are ported. A game option that doubles every
   PowerStroke miss is left out.
