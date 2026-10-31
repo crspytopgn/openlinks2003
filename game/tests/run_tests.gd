@@ -37,6 +37,7 @@ func _initialize() -> void:
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
+	_run("shot_shape", _test_shot_shape)
 	_run("swing_meter", _test_swing_meter)
 	_run("analog_swing", _test_analog_swing)
 	_run("scorecard", _test_scorecard)
@@ -401,6 +402,47 @@ func _test_swing_accuracy() -> void:
 	var rough := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.ROUGH), fairway)
 	var clean := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), fairway)
 	_check(rough.carry_m < clean.carry_m, "rough costs distance")
+
+
+func _test_shot_shape() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var model := StandardShotModel.new()
+	var shape := ShotShape.new()
+	var results := {}
+	for name: String in ["square", "fade", "draw", "high", "low"]:
+		shape.reset()
+		match name:
+			"fade": shape.nudge_curve(5)
+			"draw": shape.nudge_curve(-5)
+			"high": shape.nudge_height(2)
+			"low": shape.nudge_height(-2)
+		model.setup = shape.to_setup("7i")
+		results[name] = model.simulate(model.launch(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY, Vector3.ZERO), fairway, Vector3(0, 0, 999))
+	var square: ShotResult = results["square"]
+	_check(absf(square.rest.x) < 0.5, "a square shot goes straight")
+	_check((results["fade"] as ShotResult).rest.x < -5.0, "a fade finishes right")
+	_check((results["draw"] as ShotResult).rest.x > 5.0, "a draw finishes left")
+	_check((results["high"] as ShotResult).apex_m > square.apex_m + 1.0, "ball forward flies higher")
+	_check((results["low"] as ShotResult).apex_m < square.apex_m - 1.0, "ball back flies lower")
+	# Through the game's own launch: square is the game's default setup, and
+	# a fade spins the other way from a draw.
+	shape.reset()
+	var setup := shape.to_setup("Dr")
+	_check(setup.ball_position == -1 and setup.face == 30 and setup.stance == 30, "square is the game's default setup")
+	shape.nudge_curve(2)
+	setup = shape.to_setup("Dr")
+	_check(setup.stance == 28 and setup.face == 32, "a fade turns the path left and the face back square")
+	shape.nudge_height(1)
+	_check(shape.to_setup("7i").ball_position == 3, "higher moves the ball one step forward")
+	_check(shape.describe() == "Fade 2, high 1", "shape text")
+	# A shaped shot's setup survives a result code.
+	var rec := ShotRecord.new()
+	rec.face = 32
+	rec.stance = 28
+	rec.ball_position = 3
+	var back := ShotRecord.from_dict(rec.to_dict())
+	_check(back.face == 32 and back.stance == 28 and back.ball_position == 3, "setup round-trips")
+	_check(not ShotRecord.new().to_dict().has("setup"), "square shots add nothing to the record")
 
 
 func _test_club_ratings() -> void:

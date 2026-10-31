@@ -11,6 +11,8 @@ the browser and on desktop today.
 | --- | --- |
 | Left / Right | Aim (hold Shift for fine aim) |
 | Up / Down | Change club (the game picks one for you each shot) |
+| Q / E | Shape the shot: draw or fade, one degree at a time (up to 6) |
+| W / S | Hit it higher or lower: the ball one step forward or back (up to 3) |
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
@@ -57,6 +59,18 @@ and hooks the ball left, late pushes and slices it right.
 The yellow ring shows where a full swing would land (for putts, the hole
 distance). Holes run tee to cup, then on to the next. Out of bounds is
 stroke and distance. A hole is picked up at 10 strokes.
+
+Shot shaping uses Links 2003's own shot setup (ball position, club face and
+stance, `LinksLaunch.Setup`) through `ShotShape`: a fade turns the stance,
+and so the swing path, left of the target and the face back square to it,
+so the ball starts on line and curves right; a draw is the reverse. Moving
+the ball forward launches it higher with more spin, back lower with less.
+The shape resets to square each shot and is kept in the shot record, so
+replays and result codes play it back. With the game's executable the
+game's own launch does the rest; the stand-in physics starts the ball 75%
+along the face and adds 160 rpm of sidespin per degree of face to path, and
+1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
+3 steps) are ours: the game's setup screen limits are not read yet.
 
 ### Drops
 

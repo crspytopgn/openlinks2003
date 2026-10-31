@@ -35,6 +35,11 @@ var chip := false
 ## count before it (null without one).
 var stroke: LinksMouse.Stroke = null
 var help: LinksMouse.Help = null
+## Links 2003's shot setup (LinksLaunch.Setup): square unless the person
+## shaped the shot (ShotShape).
+var ball_position := -1
+var face := 30
+var stance := 30
 ## What happened.
 var rest := Vector3.ZERO
 var outcome: int = ShotResult.Outcome.REST
@@ -48,6 +53,8 @@ func to_dict() -> Dictionary:
 		"to_hole_m": to_hole_m, "chip": chip, "wind_level": wind_level, "wind": _vec(wind),
 		"rest": _vec(rest), "outcome": outcome,
 	}
+	if ball_position >= 0 or face != 30 or stance != 30:
+		d["setup"] = [ball_position, face, stance]
 	if stroke != null:
 		d["stroke"] = {
 			"skill": stroke.skill, "shot": stroke.shot, "club": stroke.club, "speed": stroke.speed,
@@ -82,6 +89,11 @@ static func from_dict(d: Dictionary) -> ShotRecord:
 	r.wind = _to_vec(d.get("wind", []))
 	r.rest = _to_vec(d.get("rest", []))
 	r.outcome = int(d.get("outcome", ShotResult.Outcome.REST))
+	var setup: Variant = d.get("setup")
+	if setup is Array and (setup as Array).size() == 3:
+		r.ball_position = int(setup[0])
+		r.face = int(setup[1])
+		r.stance = int(setup[2])
 	var s: Variant = d.get("stroke")
 	if s is Dictionary:
 		var m := LinksMouse.Stroke.new()
@@ -102,6 +114,15 @@ static func from_dict(d: Dictionary) -> ShotRecord:
 		r.help.strokes = int(h.get("strokes", 0))
 		r.help.still_strokes = int(h.get("still_strokes", 0))
 	return r
+
+
+## The setup as the shot model takes it.
+func setup() -> LinksLaunch.Setup:
+	var s := LinksLaunch.Setup.new()
+	s.ball_position = ball_position
+	s.face = face
+	s.stance = stance
+	return s
 
 
 static func _vec(v: Vector3) -> Array:

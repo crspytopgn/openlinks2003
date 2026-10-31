@@ -21,9 +21,11 @@ web build and comparing it with Links 2003 and modern golf sims. Highest
 value first. The owner is the thread that should build it; "lead" means the
 product lead builds it.
 
-1. [ ] **Shot shaping**: draw, fade, high and low shots from Links 2003's shot
+1. [x] **Shot shaping**: draw, fade, high and low shots from Links 2003's shot
    setup (ball position, club face, stance). The launch already reads the
-   setup bytes but nothing sets them. Owner: lead.
+   setup bytes but nothing set them. Done: Q/E and W/S in the round
+   ([game-shell.md](docs/game-shell.md#playing)); the setup screen's own
+   limits are still to read from the game.
 2. [ ] **Touch and controller swings**: a swipe swing on phones and tablets
    (the web build), and an analog-stick swing on gamepads, both feeding the
    PowerStroke model. Owner: new thread.

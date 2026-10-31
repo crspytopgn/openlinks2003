@@ -24,7 +24,7 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard%s    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Q/E: draw/fade    W/S: high/low    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
 const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
@@ -129,6 +129,8 @@ var strokes := 0
 var ball_at := Vector3.ZERO
 var lie: int = Surface.Type.TEE
 var aim_deg := 0.0
+## Draw, fade, high or low for the next shot (Links 2003's shot setup).
+var shape := ShotShape.new()
 var shot: ShotResult
 var shot_from := Vector3.ZERO
 var shot_time := 0.0
@@ -646,6 +648,11 @@ func play_shot(power: float, accuracy: float) -> void:
 	rec.chip = _chip and not club.is_putter
 	rec.stroke = null if rec.computer else _mouse_stroke
 	rec.help = null if rec.computer else _mouse_help
+	if not rec.computer and not club.is_putter:
+		var setup := shape.to_setup(club.short_name)
+		rec.ball_position = setup.ball_position
+		rec.face = setup.face
+		rec.stance = setup.stance
 	rec.wind_level = wind.level
 	rec.wind = wind.velocity()
 	_mouse_stroke = null
@@ -819,6 +826,9 @@ func _unhandled_input(event: InputEvent) -> void:
 						hud.scorecard.visible = false
 					else:
 						hud.scorecard.show_round(scoring, _round_name())
+					return
+				KEY_Q, KEY_E, KEY_W, KEY_S:
+					_shape_key(key.keycode)
 					return
 				KEY_UP:
 					_change_club(-1)
@@ -1128,6 +1138,25 @@ func _change_club(step: int) -> void:
 	_aim_camera(false)
 
 
+## Q/E draw and fade, W/S high and low, for a person's full swing or chip.
+func _shape_key(keycode: Key) -> void:
+	if state != State.AIM or opponents[shooter] != null or clubs[club_index].is_putter:
+		return
+	var changed := false
+	match keycode:
+		KEY_Q:
+			changed = shape.nudge_curve(-1)
+		KEY_E:
+			changed = shape.nudge_curve(1)
+		KEY_W:
+			changed = shape.nudge_height(1)
+		KEY_S:
+			changed = shape.nudge_height(-1)
+	if changed:
+		sounds.play(&"club")
+		_update_hud()
+
+
 # --- Shot flow ---------------------------------------------------------------
 
 func _prepare_shot(snap_camera: bool) -> void:
@@ -1138,6 +1167,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	# course paints there.
 	if ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
 		lie = Surface.Type.TEE
+	shape.reset()
 	_auto_club()
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
@@ -2330,6 +2360,8 @@ func _update_hud() -> void:
 		club_text += " chip"
 	elif not club.is_putter:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+	if not club.is_putter and not shape.is_square():
+		club_text += "  " + shape.describe()
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())
 	var text := "%s    Hole %d    Par %d    %d yd\n" % [course.course_name, hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
@@ -2405,6 +2437,8 @@ func _status(aiming: bool) -> Dictionary:
 	var club_text := club.full_name
 	if not club.is_putter:
 		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+		if not shape.is_square():
+			club_text += "  " + shape.describe()
 	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
 	var elev := "Level" if absf(rise) < 1.0 else "%s%d ft" % ["+" if rise > 0.0 else "", roundi(rise)]
 	return {
