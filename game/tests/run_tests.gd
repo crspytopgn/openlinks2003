@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_run("player_profiles", _test_player_profiles)
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
+	_run("drop_rules_match_olcore", _test_drop_rules_match_olcore)
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("handicap_scoring", _test_handicap_scoring)
@@ -69,6 +70,7 @@ func _process(_delta: float) -> bool:
 		return false
 	_done = true
 	_run("full_round", _test_full_round)
+	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("rounds_recorded", _test_rounds_recorded)
@@ -600,6 +602,70 @@ func _test_round_scoring() -> void:
 	r.cards[2].record(0, 6)
 	_check(r.standings()[0] == ["Ann", "3 points"], "stableford leader: %s" % [r.standings()])
 	_check(r.winner_text() == "Ann wins: 3 points", "stableford winner: %s" % r.winner_text())
+
+
+## The hole of test_drop_rules in libs/olcore/tests/test_main.cpp: a stream
+## from z = 40 to 60, out of bounds beyond x = 30, a bunker round (10, 80),
+## a cart path from x = -12 to -10 and the green within 5 m of the pin.
+class RulesTerrain extends CourseTerrain:
+	func height_at(x: float, z: float) -> float:
+		return 0.01 * x + 0.02 * z
+
+	func surface_at(x: float, z: float) -> int:
+		if x > 30:
+			return Surface.Type.OUT_OF_BOUNDS
+		if Vector2(x, z - 100).length() < 5:
+			return Surface.Type.GREEN
+		if z >= 40 and z <= 60:
+			return Surface.Type.WATER
+		if Vector2(x - 10, z - 80).length() < 4:
+			return Surface.Type.SAND
+		return Surface.Type.FAIRWAY
+
+	func free_drop_at(x: float, _z: float) -> bool:
+		return x > -12 and x < -10
+
+
+func _check_spot(actual: Vector3, x: float, z: float, what: String) -> void:
+	_check_near(actual.x, x, 2e-3, what + " x")
+	_check_near(actual.z, z, 2e-3, what + " z")
+
+
+## Expected spots printed by test_drop_rules.
+func _test_drop_rules_match_olcore() -> void:
+	var t := RulesTerrain.new()
+	var pin := Vector3(0, 2, 100)
+	var tee := Vector3.ZERO
+	_check(DropRules.penalty(DropRules.Reason.WATER) == 1 and DropRules.penalty(DropRules.Reason.FREE_RELIEF) == 0, "penalties")
+	_check(DropRules.options(DropRules.Reason.WATER, false).size() == 2, "water options")
+	_check(DropRules.options(DropRules.Reason.WATER, true).size() == 3, "lateral water options")
+	var path := PackedVector3Array()
+	for i in 14:
+		path.append(Vector3(6.0 * i / 13, 3.0, 52.0 * i / 13))
+	var entry := DropRules.water_entry(path, t)
+	_check_spot(entry, 4.6154, 40.0, "entry")
+	_check_near(entry.y, 0.8462, 2e-3, "entry height")
+	var back := DropRules.zone(DropRules.Option.BACK_ON_LINE, entry, tee, pin, false, t)
+	var side := DropRules.zone(DropRules.Option.LATERAL, entry, tee, pin, false, t)
+	var again := DropRules.zone(DropRules.Option.STROKE_AND_DISTANCE, entry, tee, pin, false, t)
+	_check(back.found and side.found and again.found, "water drops found")
+	_check_spot(back.spot, 4.7113, 38.7537, "back on the line")
+	_check_near(back.spot.y, 0.8222, 2e-3, "back on the line height")
+	_check_spot(side.spot, 4.6346, 39.7507, "lateral")
+	var zones: Array[DropRules.Zone] = [back, side, again]
+	_check(DropRules.best(zones, pin) == 1, "lateral is nearer the pin")
+	_check(DropRules.check(back, Vector3(entry.x, 0, 45), pin, t) == DropRules.Check.HAZARD, "in the water")
+	_check(DropRules.check(side, Vector3(entry.x - 0.5, 0, entry.z - 0.01), pin, t) == DropRules.Check.NEARER_PIN, "nearer the pin")
+	var sand := Vector3(10, 0, 80)
+	var sand_back := DropRules.zone(DropRules.Option.BACK_ON_LINE, sand, tee, pin, true, t)
+	var sand_side := DropRules.zone(DropRules.Option.LATERAL, sand, tee, pin, true, t)
+	_check_spot(sand_back.spot, 10.4472, 79.1056, "sand back on the line")
+	_check_spot(sand_side.spot, 10.1118, 79.7764, "sand lateral")
+	_check(DropRules.check(sand_back, Vector3(10, 0, 75.5), pin, t) == DropRules.Check.NOT_SAND, "stays in the bunker")
+	var free := DropRules.zone(DropRules.Option.FREE_DROP, Vector3(-11, 0, 20), tee, pin, false, t)
+	_check(free.found, "free relief found")
+	_check_spot(free.reference, -12.0581, 19.3344, "nearest point of relief")
+	_check(DropRules.check(free, Vector3(-11, 0, 20), pin, t) == DropRules.Check.STILL_ON_PATH, "still on the path")
 
 
 ## Same seeds and inputs as test_opponent_rng_and_swings and
@@ -1144,6 +1210,36 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
+
+
+## An unplayable lie and a water drop through the real round.
+func _test_drops_in_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	var steps := 0
+	while not (game.state == GolfRound.State.AIM and game.lie != Surface.Type.TEE and game.lie != Surface.Type.GREEN) and steps < 50:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.AIM, "off the tee and aiming")
+	var before := game.strokes
+	game._start_drop(DropRules.Reason.UNPLAYABLE)
+	_check(game.state == GolfRound.State.DROP, "unplayable opens the drop menu")
+	_check(game._drop_zones.size() == 3, "three unplayable options")
+	game._move_drop(1.0, 0.0)
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.AIM, "back to aiming after the drop")
+	_check(game.strokes == before + 1, "an unplayable lie costs a stroke")
+	game._water_entry = game.ball_at
+	game._begin_drop(DropRules.Reason.WATER)
+	_check(game.state == GolfRound.State.DROP, "water opens the drop menu")
+	game._cancel_drop()
+	_check(game.state == GolfRound.State.DROP, "a water drop can't be cancelled")
+	game._finish_drop()
+	_check(game.state == GolfRound.State.AIM, "playing on after the water drop")
+	_check(game.strokes == before + 1, "the water penalty is counted at the splash, not the drop")
 
 
 ## The MakeHuman golfer used without the original files.

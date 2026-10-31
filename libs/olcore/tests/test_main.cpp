@@ -28,6 +28,7 @@
 #include "olcore/obstacles.hpp"
 #include "olcore/object_library.hpp"
 #include "olcore/opponent.hpp"
+#include "olcore/rules.hpp"
 #include "olcore/ssf.hpp"
 #include "olcore/wav.hpp"
 #include "olcore/scoring.hpp"
@@ -1761,6 +1762,82 @@ void test_opponent_rng_and_swings() {
   }
 }
 
+// Drops. A hole running up +z to a pin at z = 100: a stream across it from
+// z = 40 to 60, out of bounds beyond x = 30, a bunker round (10, 80), a cart
+// path from x = -12 to -10 and the green within 5 m of the pin. The printed
+// spots are checked by the GDScript port (game/tests/run_tests.gd,
+// _test_drop_rules_match_olcore).
+class RulesTerrain : public Terrain {
+ public:
+  double height(double x, double z) const override { return 0.01 * x + 0.02 * z; }
+  Surface surface(double x, double z) const override {
+    if (x > 30) return Surface::OutOfBounds;
+    if (std::hypot(x, z - 100) < 5) return Surface::Green;
+    if (z >= 40 && z <= 60) return Surface::Water;
+    if (std::hypot(x - 10, z - 80) < 4) return Surface::Sand;
+    return Surface::Fairway;
+  }
+  bool free_drop(double x, double) const override { return x > -12 && x < -10; }
+};
+
+void test_drop_rules() {
+  RulesTerrain t;
+  Vec3 pin{0, 2, 100};
+  CHECK(drop_penalty(DropReason::Water) == 1);
+  CHECK(drop_penalty(DropReason::Unplayable) == 1);
+  CHECK(drop_penalty(DropReason::FreeRelief) == 0);
+  CHECK(drop_options(DropReason::Water, false).size() == 2);
+  CHECK(drop_options(DropReason::Water, true).size() == 3);
+  CHECK(drop_options(DropReason::FreeRelief, true).size() == 1);
+
+  // A shot from (0, 0) that finishes in the stream at (6, 52).
+  std::vector<Vec3> path;
+  for (int i = 0; i <= 13; ++i) path.push_back({6.0 * i / 13, 3.0, 52.0 * i / 13});
+  Vec3 entry = water_entry(path, t);
+  CHECK_NEAR(entry.z, 40.0, 1e-3);
+  CHECK_NEAR(entry.x, 6.0 * 40 / 52, 1e-3);
+  Vec3 tee{0, 0, 0};
+  DropZone back = drop_zone(DropOption::BackOnLine, entry, tee, pin, false, t);
+  DropZone side = drop_zone(DropOption::Lateral, entry, tee, pin, false, t);
+  DropZone again = drop_zone(DropOption::StrokeAndDistance, entry, tee, pin, false, t);
+  CHECK(back.found && side.found && again.found);
+  CHECK(check_drop(back, back.spot, pin, t) == DropCheck::Ok);
+  CHECK(check_drop(side, side.spot, pin, t) == DropCheck::Ok);
+  CHECK(std::hypot(side.spot.x - entry.x, side.spot.z - entry.z) <= 2 * kClubLength + 1e-9);
+  CHECK(again.spot.z == 0.0);
+  CHECK(best_drop({back, side, again}, pin) == 1);  // the lateral drop is nearer the pin
+  CHECK(best_drop({again}, pin) == 0);
+  CHECK(check_drop(back, {entry.x, 0, 45}, pin, t) == DropCheck::Hazard);
+  CHECK(check_drop(back, {back.spot.x + 2, 0, back.spot.z}, pin, t) == DropCheck::OutsideZone);
+  CHECK(check_drop(side, {entry.x, 0, 37.5}, pin, t) == DropCheck::OutsideZone);
+  CHECK(check_drop(side, {entry.x - 0.5, 0, entry.z - 0.01}, pin, t) == DropCheck::NearerPin);
+
+  // Unplayable in the bunker: the drop stays in the sand.
+  Vec3 sand{10, 0, 80};
+  DropZone sand_back = drop_zone(DropOption::BackOnLine, sand, tee, pin, true, t);
+  DropZone sand_side = drop_zone(DropOption::Lateral, sand, tee, pin, true, t);
+  CHECK(sand_back.found && sand_side.found);
+  CHECK(t.surface(sand_back.spot.x, sand_back.spot.z) == Surface::Sand);
+  CHECK(check_drop(sand_back, {10, 0, 75.5}, pin, t) == DropCheck::NotSand);
+  CHECK(check_drop(sand_back, {35, 0, 80}, pin, t) == DropCheck::OutOfBounds);
+  Vec3 near_green{0, 0, 94};
+  DropZone green_side = drop_zone(DropOption::Lateral, near_green, tee, pin, false, t);
+  CHECK(check_drop(green_side, {0, 0, 95.5}, pin, t) == DropCheck::Green);
+
+  // Free relief from the cart path, away from the pin side.
+  Vec3 path_ball{-11, 0, 20};
+  DropZone free = drop_zone(DropOption::FreeDrop, path_ball, tee, pin, false, t);
+  CHECK(free.found);
+  CHECK(!t.free_drop(free.reference.x, free.reference.z));
+  CHECK(std::hypot(free.reference.x - pin.x, free.reference.z - pin.z) >=
+        std::hypot(path_ball.x - pin.x, path_ball.z - pin.z) - 1e-3);
+  CHECK(check_drop(free, path_ball, pin, t) == DropCheck::StillOnPath);
+  std::printf("  drops: entry %.4f %.4f %.4f, back %.4f %.4f %.4f, lateral %.4f %.4f, sand %.4f %.4f / %.4f %.4f, free %.4f %.4f / %.4f %.4f\n",
+              entry.x, entry.y, entry.z, back.spot.x, back.spot.y, back.spot.z, side.spot.x, side.spot.z,
+              sand_back.spot.x, sand_back.spot.z, sand_side.spot.x, sand_side.spot.z, free.reference.x,
+              free.reference.z, free.spot.x, free.spot.z);
+}
+
 void test_opponent_levels_are_ordered() {
   for (int level = 1; level < kSkillLevelCount; ++level) {
     const SkillProfile& a = skill_profile(static_cast<SkillLevel>(level - 1));
@@ -1857,6 +1934,7 @@ int main() {
       {"swing_accuracy_curves_ball", test_swing_accuracy_curves_ball},
       {"opponent_rng_and_swings", test_opponent_rng_and_swings},
       {"opponent_levels_are_ordered", test_opponent_levels_are_ordered},
+      {"drop_rules", test_drop_rules},
       {"expected_strokes", test_expected_strokes},
       {"putt_drops_at_holing_speed", test_putt_drops_at_holing_speed},
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},
