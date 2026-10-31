@@ -17,6 +17,7 @@ add_library(olcore STATIC
   src/inflate.cpp
   src/links_flight.cpp
   src/links_ground.cpp
+  src/links_objects.cpp
   src/links_launch.cpp
   src/links_mouse.cpp
   src/ls_archive.cpp

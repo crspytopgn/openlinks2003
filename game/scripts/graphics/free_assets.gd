@@ -10,7 +10,7 @@ const DIR := "res://free_assets/"
 const GROUNDS: Array[String] = ["grass", "rough", "sand"]
 
 
-## `slot` is "grass", "rough" or "sand"; `map` is "albedo", "normal" or
+## `slot` is "grass", "rough", "sand", "path" or "dirt"; `map` is "albedo", "normal", "height" or
 ## "roughness".
 static func ground(slot: String, map: String) -> Texture2D:
 	return _load("%s_%s.jpg" % [slot, map])

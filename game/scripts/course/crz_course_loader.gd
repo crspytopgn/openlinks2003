@@ -12,7 +12,7 @@ extends CourseLoader
 const FEET := 0.3048
 const KEYS_PATH := "user://crz_keys.cfg"
 const CACHE_DIR := "user://course_cache"
-const CACHE_VERSION := 4
+const CACHE_VERSION := 5
 const EXE_NAMES := ["LINKSM_1.EXE", "LinksMMIII.exe", "LinksM~1.exe"]
 const TEXTURE_LIBRARIES := ["STDTER_1.LIB", "StdTerrain.lib", "StdTer~1.lib"]
 ## How far one repeat of a free ground texture spans.
@@ -155,18 +155,23 @@ static func decode(archive: CrzArchive) -> Dictionary:
 	var material_layers: Array[Dictionary] = []
 	for m in parse_materials(archive.read_named("Materials")):
 		# A plain material is one texture layer; a blended one has a mask
-		# ("Fairway To Rough Alpha.tga") and two layers. Detail variants of
-		# a layer are skipped.
+		# ("Fairway To Rough Alpha.tga") and two layers. A layer may have
+		# coarser variants for farther away ("details": the middle and far
+		# variant per layer, "" for none).
 		var layers := TerrainMappings.material_layers(m)
 		var names := PackedStringArray()
 		for t in layers.layers as PackedInt32Array:
 			names.append(textures[t] if t < textures.size() else "")
+		var details := PackedStringArray()
+		for t in layers.details as PackedInt32Array:
+			details.append(textures[t] if t >= 0 and t < textures.size() else "")
 		var mask: int = layers.mask
 		material_textures.append(names[0] if not names.is_empty() else "")
 		material_layers.append({
 			"blended": layers.blended and names.size() >= 2,
 			"mask": textures[mask] if mask >= 0 and mask < textures.size() else "",
 			"layers": names,
+			"details": details,
 		})
 
 	return {
@@ -185,6 +190,7 @@ static func decode(archive: CrzArchive) -> Dictionary:
 		"triangle_mapping": terrain.triangle_mapping,
 		"mappings": TerrainMappings.parse(archive.read_named("Mappings")) if archive.has("Mappings") else [],
 		"objects": CourseObjects.decode(archive.read_named),
+		"scenery": parse_course_scenery(archive.read_named("header")),
 	}
 
 
@@ -236,6 +242,39 @@ static func parse_holes(b: PackedByteArray) -> Array[Dictionary]:
 		hole.aim = aim
 		holes.append(hole)
 	return holes
+
+
+## The scenery the course asks for, from the end of its `header` entry
+## (olcore::parse_course_scenery): {sky (1 to 12 for skyNN.btc, 0 for none
+## set), panorama (1 to 13 for PanNN.btc, 0 for the course's own),
+## values (four floats, not decoded)}. Empty when the trailer is missing.
+static func parse_course_scenery(b: PackedByteArray) -> Dictionary:
+	const HOLE_SIZE := 16 + TEES_PER_HOLE * 24 + PINS_PER_HOLE * 16 + 8 + AIM_POINTS_PER_HOLE * 12 + 12 + 6
+	const OWN_PANORAMA := 0x80000000
+	if b.size() < 22 or b.decode_u32(4) != HEADER_VERSION:
+		return {}
+	var count := b.decode_u32(18)
+	if count > 18:
+		return {}
+	var o := 22 + count * HOLE_SIZE
+	if o + 4 > b.size():
+		return {}
+	var records := b.decode_u32(o)  # 12 bytes each, not decoded
+	if records > 64:
+		return {}
+	o += 4 + records * 12 + 16  # and four u32 settings, zero on the disc courses
+	if o + 36 > b.size():
+		return {}
+	var sky := b.decode_u32(o)
+	var values := PackedFloat32Array()
+	for i in 4:
+		values.append(b.decode_float(o + 12 + 4 * i))
+	var pan := b.decode_u32(o + 32)
+	return {
+		"sky": sky if sky <= 12 else 0,
+		"panorama": 0 if pan == OWN_PANORAMA or pan > 13 else pan,
+		"values": values,
+	}
 
 
 ## `english.txt` entry: UTF-16 "Key = Value" lines.
@@ -379,17 +418,29 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 	var mappings: Array = data.get("mappings", [])
 	terrain.mappings.assign(mappings)
 	_add_blend_layers(terrain, data.get("material_layers", []), data.material_textures, archive)
+	_add_detail_variants(terrain, data.get("material_layers", []), archive)
 	_library = null
-	CourseObjects.shadow_shapes = _shadow_shapes(path)
+	var shade := _shadow_file(path)
+	CourseObjects.shadow_shapes = shade.get("shapes", [])
+	CourseObjects.object_shapes = shade.get("object_shapes", [])
+	CourseObjects.billboard_light = shade.get("billboard_light", PackedFloat32Array())
 
 	var course := CourseData.new()
 	course.course_name = data.name
+	var scenery: Dictionary = data.get("scenery", {})
+	course.sky = scenery.get("sky", 0)
+	var stock: int = scenery.get("panorama", 0)
+	if stock > 0:
+		# A stock horizon from PANSKY.LIB instead of the course's own.
+		course.horizon = CourseBackdrop.load_stock_horizon(stock)
 	if archive != null:
-		if archive.has("Panorama"):
+		if course.horizon == null and archive.has("Panorama"):
 			course.horizon = LinksPanorama.decode(archive.read_named("Panorama"))
 		course.read_entry = archive.read_named
 		course.objects = CourseObjects.build(archive.read_named, data.get("objects", {}), CourseObjects.find_crowd_library())
 		terrain.obstacles = course.objects.obstacles
+		terrain.links_objects = course.objects.links_objects
+		terrain.model_obstacles = course.objects.model_obstacles
 	var number := 0
 	for h in data.holes as Array:
 		number += 1
@@ -491,15 +542,40 @@ func _add_blend_layers(terrain: CrzTerrain, layers: Array, names: PackedStringAr
 			terrain.materials[m].blend = blend
 
 
-## The tree shadow shapes from the course's .SHA file (beside it), or an
-## empty array.
-static func _shadow_shapes(path: String) -> Array:
+## Gives each material's texture layers their coarser variants for the
+## middle distance and far away, where the course has them: "mid" and "far"
+## in materials[m] for the first layer, "mid_b" and "far_b" in its blend
+## for the second (Texture2D or null).
+func _add_detail_variants(terrain: CrzTerrain, layers: Array, archive: CrzArchive) -> void:
+	var library := _texture_library()
+	var loaded := {}
+	for m in mini(layers.size(), terrain.materials.size()):
+		var details: PackedStringArray = (layers[m] as Dictionary).get("details", PackedStringArray())
+		var info: Dictionary = terrain.materials[m]
+		if info.get("texture") == null or info.has("tint"):
+			continue  # no disc texture, or a free stand-in
+		for k in mini(details.size(), 4):
+			var tex_name := details[k]
+			if tex_name.is_empty():
+				continue
+			var key := tex_name.to_lower()
+			if not loaded.has(key):
+				loaded[key] = _load_texture(tex_name, archive, library)
+			var slot: String = ["mid", "far", "mid_b", "far_b"][k]
+			if k < 2:
+				info[slot] = loaded[key]
+			elif info.has("blend"):
+				(info.blend as Dictionary)[slot] = loaded[key]
+
+
+## The course's .SHA file (beside it) as ShadowFile.parse() reads it, or
+## an empty Dictionary.
+static func _shadow_file(path: String) -> Dictionary:
 	var base := path.get_basename()
 	for ext in [".SHA", ".sha", ".Sha"]:
 		if FileAccess.file_exists(base + ext):
-			var parsed := ShadowFile.parse(FileAccess.get_file_as_bytes(base + ext))
-			return parsed.get("shapes", [])
-	return []
+			return ShadowFile.parse(FileAccess.get_file_as_bytes(base + ext))
+	return {}
 
 
 ## The standard terrain texture library on the game disc, or null. Kept

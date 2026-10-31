@@ -54,6 +54,7 @@ static func water() -> ShaderMaterial:
 	if _water == null:
 		_water = ShaderMaterial.new()
 		_water.shader = WATER_SHADER
+		_reflect_sky(_water)
 	return _water
 
 
@@ -64,6 +65,7 @@ static func water_surface() -> ShaderMaterial:
 		_water_surface = ShaderMaterial.new()
 		_water_surface.shader = WATER_SHADER
 		_water_surface.set_shader_parameter("disc", false)
+		_reflect_sky(_water_surface)
 	return _water_surface
 
 
@@ -78,3 +80,14 @@ static func water_disc(radius: float) -> MeshInstance3D:
 	inst.material_override = water()
 	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return inst
+
+
+## Lets the water reflect the photographed sky, when it has been fetched.
+static func _reflect_sky(mat: ShaderMaterial) -> void:
+	var sky := FreeAssets.sky()
+	if sky == null:
+		return
+	mat.set_shader_parameter("sky_pano", sky)
+	mat.set_shader_parameter("has_pano", true)
+	# As bright as the sky itself shows (Scenery's panorama energy).
+	mat.set_shader_parameter("pano_energy", 0.8 if GraphicsSettings.is_forward_plus() else 1.5)

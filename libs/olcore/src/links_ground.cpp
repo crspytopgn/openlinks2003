@@ -56,6 +56,28 @@ Vec3 unit_or_zero(Vec3 v) {
   return l > 0 ? v * (1.0 / l) : v;
 }
 
+// Everything a step needs besides the ball. The cup's events finish the
+// rest of their step through step() again, so the game caps the nesting.
+struct StepContext {
+  const LinksGround& g;
+  const LinksAero& aero;
+  Vec3 wind;
+  LinksRandom& rng;
+  const LinksCup* cup;
+  const LinksObjects* objects = nullptr;
+  Vec3 facing{0, -1, 0};
+  int depth = 0;
+};
+
+constexpr int kMaxNesting = 5;
+
+LinksStepInfo step(StepContext& c, LinksBall& b, double dt);
+bool enter_cup_from_air(StepContext& c, LinksBall& b, double tau, double dt);
+void enter_cup_from_green(StepContext& c, LinksBall& b, const LinksBall& before);
+void cup_frame(StepContext& c, LinksBall& b, double dt);
+bool hit_flagstick(const StepContext& c, const LinksBall& old, LinksBall& b);
+bool hit_obstacles(const StepContext& c, const LinksBall& old, LinksBall& b);
+
 // Straight path p -> q: fraction where the centre first meets the ground,
 // or a negative number if it stays above.
 double ground_crossing(const LinksGround& g, Vec3 p, Vec3 q) {
@@ -101,12 +123,26 @@ Vec3 game_acceleration(Vec3 v, Vec3 spin, const LinksAero& aero, Vec3 wind) {
   return a;
 }
 
-LinksStepInfo flight_step(LinksBall& b, const LinksGround& g, const LinksAero& aero, Vec3 wind, double dt) {
+LinksStepInfo flight_step(StepContext& c, LinksBall& b, double dt) {
+  const LinksGround& g = c.g;
   LinksStepInfo info;
   Vec3 p = b.position, v = b.velocity, w = b.spin;
-  Vec3 v2 = v + game_acceleration(v, w, aero, wind) * dt;
+  Vec3 v2 = v + game_acceleration(v, w, c.aero, c.wind) * dt;
   Vec3 p2 = p + (v + v2) * (0.5 * dt);
   Vec3 w2 = w * std::pow(LinksFlightConstants::kSpinKeptPerFrame, LinksFlightConstants::kFrameRate * dt);
+  // Trees, other objects and the flagstick can turn the ball before it
+  // comes down.
+  LinksBall moved = b;
+  moved.position = p2;
+  moved.velocity = v2;
+  moved.spin = w2;
+  if (hit_obstacles(c, b, moved)) {
+    p2 = moved.position;
+    v2 = moved.velocity;
+    w2 = moved.spin;
+    b.flagstick_out = moved.flagstick_out;
+    b.last_object = moved.last_object;
+  }
   double s = ground_crossing(g, p, p2);
   if (s < 0) {
     b.position = p2;
@@ -123,10 +159,14 @@ LinksStepInfo flight_step(LinksBall& b, const LinksGround& g, const LinksAero& a
   b.velocity = v * (1 - tau) + v2 * tau;
   b.spin = w * (1 - tau) + w2 * tau;
   b.position = hit + n * C::kRadius;
-  links_impact(b, n, surf);
   info.landed = true;
   info.contact = hit;
   info.contact_class = surf.ground_class;
+  // Coming down inside the hole's circle: no bounce, the cup takes over.
+  if (enter_cup_from_air(c, b, tau, dt)) {
+    return info;
+  }
+  links_impact(b, n, surf);
   return info;
 }
 
@@ -136,8 +176,10 @@ void rest(LinksBall& b) {
   b.mode = LinksMode::Rest;
 }
 
-LinksStepInfo ground_step(LinksBall& b, const LinksGround& g, const LinksAero& aero, Vec3 wind, LinksRandom& rng,
-                          double dt) {
+LinksStepInfo ground_step(StepContext& c, LinksBall& b, double dt) {
+  const LinksGround& g = c.g;
+  LinksRandom& rng = c.rng;
+  const LinksBall before = b;
   const Vec3 p = b.position, v0 = b.velocity, w = b.spin;
   Vec3 v = v0;
   const double speed = length(v);
@@ -212,7 +254,7 @@ LinksStepInfo ground_step(LinksBall& b, const LinksGround& g, const LinksAero& a
   if ((z2 - p.z) * (z2 - p.z) > kLeaveGround) {
     b.mode = LinksMode::Flight;
     b.on_ground_started = false;
-    return flight_step(b, g, aero, wind, dt);
+    return flight_step(c, b, dt);
   }
 
   // Keep the speed, along the ground at the new point.
@@ -274,6 +316,11 @@ LinksStepInfo ground_step(LinksBall& b, const LinksGround& g, const LinksAero& a
       b.ground_time = 0;
     }
   }
+  hit_obstacles(c, before, b);
+  // Rolling across the hole's circle on the green.
+  if (cls == kLinksGreen) {
+    enter_cup_from_green(c, b, before);
+  }
   if (hop) {
     b.velocity = hop_velocity;
     b.position = p + hop_velocity * dt;
@@ -312,12 +359,454 @@ class TerrainGround : public LinksGround {
 
 double horizontal_distance(Vec3 a, Vec3 b) { return std::hypot(a.x - b.x, a.z - b.z); }
 
-double segment_distance_xz(Vec3 a, Vec3 b, Vec3 c) {
-  double abx = b.x - a.x, abz = b.z - a.z;
-  double len2 = abx * abx + abz * abz;
-  double t = len2 > 0 ? ((c.x - a.x) * abx + (c.z - a.z) * abz) / len2 : 0.0;
-  t = std::clamp(t, 0.0, 1.0);
-  return std::hypot(a.x + abx * t - c.x, a.z + abz * t - c.z);
+// ---------------------------------------------------------------------------
+// The cup. Positions here are relative to the pin's base, in the game's
+// frame. The game runs the cup in sub-steps of 1/1200 s and in four modes;
+// each finds the earliest event in its sub-step, moves the ball to it, and
+// plays the rest of the sub-step through the normal step again. See
+// docs/formats/physics.md.
+
+constexpr float kCupSubStep = 0.000833333354f;  // 1/1200 s, as the game stores it
+constexpr double kCupEdge = 0.0007;              // ft added to the radius for "in the hole"
+constexpr double kNoEvent = 2.0;                 // event times are fractions of the sub-step
+constexpr double kBisectStop = 0.000244140625;   // 1/4096
+constexpr double kRestOfStep = 0.05;             // shorter remainders are dropped
+constexpr double kRimBounce = 0.5;               // normal speed kept off the rim's edge
+constexpr double kWallBounce = 0.3;              // ... off the cup's wall
+constexpr double kStickSpeed = 0.2;              // ft/s; slower hits stay on the rim or wall
+constexpr double kCupDepth = 1.0;                // ft; the ball is holed when its centre is this deep
+constexpr double kPoleRadius = 1.0 / 24;          // ft
+constexpr double kPoleTop = 8.0;                  // ft above the pin's base
+constexpr double kPoleBottom = 0.5;               // ft below it
+constexpr double kPoleBounce = 0.3;               // speed kept off the flagstick
+constexpr double kPoleSpin = 0.09;                // spin kept
+constexpr double kSolidKept = 0.5;               // speed kept off a tree's trunk
+constexpr double kStepBack = 0.1;                // ft back along the path after a solid hit
+constexpr double kCupTop = 0.071;                // ft; above this the ball is out of the cup
+const Vec3 kGravityVector{0, 0, -C::kGravity};
+
+bool in_cup_mode(LinksMode m) {
+  return m == LinksMode::CupAir || m == LinksMode::CupRim || m == LinksMode::CupWall || m == LinksMode::CupDrop;
+}
+
+// The game's state blend: position by the fraction s of the path, velocity
+// and spin by the matching fraction of time.
+LinksBall blend(const LinksBall& a, const LinksBall& b, double s, double& tau) {
+  s = std::clamp(s, 0.0, 1.0);
+  LinksBall out = b;
+  out.position = a.position * (1 - s) + b.position * s;
+  tau = links_contact_time(a.velocity, b.velocity, s);
+  out.velocity = a.velocity * (1 - tau) + b.velocity * tau;
+  out.spin = a.spin * (1 - tau) + b.spin * tau;
+  return out;
+}
+
+// Where the path p + d t (0 < t < 1) first crosses the circle of radius r
+// round the origin, across the ground.
+bool circle_crossing(Vec3 p, Vec3 d, double r, double& t) {
+  double a = d.x * d.x + d.y * d.y;
+  double b = 2 * (d.x * p.x + d.y * p.y);
+  double k = p.x * p.x + p.y * p.y - r * r;
+  double disc = b * b - 4 * k * a;
+  if (!(disc > 0)) return false;
+  double root = std::sqrt(disc);
+  double t1 = (-b - root) / (a + a), t2 = (root - b) / (a + a);
+  if (t1 > 0 && t1 < 1) {
+    t = t1;
+    return true;
+  }
+  if (t2 > 0 && t2 < 1) {
+    t = t2;
+    return true;
+  }
+  return false;
+}
+
+Vec3 flat_unit(Vec3 p) {
+  double r = std::hypot(p.x, p.y);
+  return r != 0 ? Vec3{p.x / r, p.y / r, 0} : Vec3{p.x, p.y, 0};
+}
+
+// The game turns a velocity from the level onto a slope with normal n when
+// the ball enters or leaves the cup on sloping ground.
+Vec3 level_to_slope(Vec3 v, Vec3 n) {
+  Vec3 a = unit_or_zero(Vec3{n.y, -n.x, 0});
+  Vec3 b = unit_or_zero(cross(a, n));
+  double along = a.x * v.x + a.y * v.y;
+  double across = a.y * v.x - a.x * v.y;
+  return a * along + n * v.z + b * across;
+}
+
+// Whether the ball, centre p, overlaps the rim's edge (a circle of radius R
+// at the green's level).
+bool touches_rim(Vec3 p, double radius) { return std::hypot(radius - std::hypot(p.x, p.y), p.z) < C::kRadius; }
+
+// Whether a ball rolling on the rim's edge comes off it: the edge would have
+// to pull on it to keep it there.
+bool leaves_rim(const LinksBall& b, double dt, double radius) {
+  double r = std::hypot(b.position.x, b.position.y);
+  Vec3 u{b.position.x / r, b.position.y / r, 0};
+  Vec3 n = unit_or_zero(Vec3{u.x * (r - radius), u.y * (r - radius), b.position.z});
+  return -dot(n, kGravityVector) < dot(n, b.velocity) / dt;
+}
+
+// The ball's height above the green at a point near the cup, relative to
+// the pin's base, and the green's normal there.
+double green_height(const StepContext& c, Vec3 rel, Vec3& n) {
+  Vec3 w = rel + c.cup->pin;
+  n = c.g.normal(w.x, w.y);
+  return c.g.height(w.x, w.y) - c.cup->pin.z;
+}
+
+// Plays the rest of a sub-step after an event through the normal step.
+void finish_substep(StepContext& c, LinksBall& b, double tau, double dt) {
+  double rest_of = 1 - tau;
+  if (!(rest_of > kRestOfStep)) return;
+  b.position = b.position + c.cup->pin;
+  step(c, b, rest_of * dt);
+  b.position = b.position - c.cup->pin;
+}
+
+// Halves towards the time the test starts to hold, as the game does.
+template <typename Test>
+double bisect(Test holds) {
+  double f = 0.5, step_size = 0.25;
+  for (;;) {
+    f += holds(f) ? -step_size : step_size;
+    step_size *= 0.5;
+    if (!(step_size > kBisectStop)) return f;
+  }
+}
+
+// Rolling round the rim's edge (the game's sub-mode 0x40).
+void cup_rim(StepContext& c, LinksBall& b, double dt) {
+  const double radius = c.cup->radius;
+  const LinksBall old = b;
+  Vec3 p = b.position, v = b.velocity;
+  double r = std::hypot(p.x, p.y);
+  Vec3 along{-p.y / r, p.x / r, 0};
+  Vec3 n = unit_or_zero(p - flat_unit(p) * radius);
+  Vec3 pivot = cross(along, n);
+  Vec3 a = pivot * dot(pivot, kGravityVector) + n * (dot(n, v) * (-1 / dt));
+  Vec3 v1 = v + a * dt;
+  Vec3 p1 = p + v1 * dt;
+  Vec3 edge = flat_unit(p1) * radius;
+  Vec3 n1 = unit_or_zero(p1 - edge);
+  LinksBall next = b;
+  next.position = edge + n1 * C::kRadius;
+  next.velocity = v1;
+  next.spin = cross(v1, n1 * -C::kRevPerFps);
+
+  // The earliest of: back out over the edge onto the green, coming off the
+  // edge into the hole, or dropping below the green's level.
+  double t_out = kNoEvent;
+  if (std::hypot(next.position.x, next.position.y) > radius + kCupEdge) {
+    double t = 0;
+    t_out = circle_crossing(p, next.position - p, radius + kCupEdge, t) ? t : 0.0;
+  }
+  double t_off = kNoEvent;
+  if (leaves_rim(next, dt, radius)) {
+    t_off = bisect([&](double f) {
+      double tau = 0;
+      LinksBall m = blend(old, next, f, tau);
+      return leaves_rim(m, (1 - tau) * dt, radius);
+    });
+  }
+  double t_down = next.position.z < 0 ? -p.z / (next.position.z - p.z) : kNoEvent;
+  int event = -1;
+  double t = kNoEvent;
+  if (t_out < t) event = 0, t = t_out;
+  if (t_off < t) event = 1, t = t_off;
+  if (t_down < t) event = 2, t = t_down;
+
+  double tau = 0;
+  switch (event) {
+    case 0: {  // back onto the green, on the circle
+      LinksBall m = blend(old, next, t, tau);
+      Vec3 u = flat_unit(m.position);
+      Vec3 gn;
+      double h = green_height(c, m.position, gn);
+      m.position = Vec3{u.x * radius, u.y * radius, h + C::kRadius / gn.z};
+      if (gn.z != 1) m.velocity = level_to_slope(m.velocity, gn);
+      m.mode = LinksMode::Roll;
+      m.on_ground_started = false;
+      b = m;
+      break;
+    }
+    case 1:  // off the edge, falling into the hole
+      b = blend(old, next, t, tau);
+      b.mode = LinksMode::CupAir;
+      break;
+    case 2: {  // over the edge: slides down the wall
+      LinksBall m = blend(old, next, t, tau);
+      Vec3 u = flat_unit(m.position);
+      Vec3 tangent{-u.y, u.x, 0};
+      double vt = dot(tangent, m.velocity);
+      m.position = Vec3{u.x * radius, u.y * radius, 0};
+      m.velocity = Vec3{tangent.x * vt, tangent.y * vt, m.velocity.z};
+      m.mode = LinksMode::CupWall;
+      b = m;
+      break;
+    }
+    default:
+      b = next;
+      return;
+  }
+  finish_substep(c, b, tau, dt);
+}
+
+// Falling or bouncing in the air inside the hole's circle (sub-mode 0x20).
+void cup_air(StepContext& c, LinksBall& b, double dt) {
+  const double radius = c.cup->radius;
+  const LinksBall old = b;
+  Vec3 p = b.position;
+  LinksBall next = b;
+  next.velocity = b.velocity + kGravityVector * dt;
+  next.position = p + next.velocity * dt;
+  Vec3 p1 = next.position;
+
+  // The earliest of: hitting the rim's edge, rising out of the cup, or
+  // dropping below the green's level.
+  double t_rim = kNoEvent;
+  if (touches_rim(p1, radius)) {
+    t_rim = bisect([&](double f) { return touches_rim(p * (1 - f) + p1 * f, radius); });
+  }
+  double t_up = p1.z > kCupTop ? (C::kRadius - p.z) / (p1.z - p.z) : kNoEvent;
+  double t_down = p1.z < 0 ? -p.z / (p1.z - p.z) : kNoEvent;
+  int event = -1;
+  double t = kNoEvent;
+  if (t_rim < t) event = 0, t = t_rim;
+  if (t_up < t) event = 1, t = t_up;
+  if (t_down < t) event = 2, t = t_down;
+
+  double tau = 0;
+  switch (event) {
+    case 0: {  // hits the rim's edge
+      LinksBall m = blend(old, next, t, tau);
+      Vec3 u = flat_unit(m.position);
+      Vec3 edge = u * radius;
+      Vec3 n = unit_or_zero(m.position - edge);
+      Vec3 tangent{-u.y, u.x, 0};
+      Vec3 pivot = unit_or_zero(Vec3{u.x * n.z, u.y * n.z, -u.y * n.y - u.x * n.x});
+      Vec3 v = m.velocity;
+      double vn = dot(v, n);
+      Vec3 out = unit_or_zero(Vec3{n.x, n.y, 0});
+      m.position = edge + out * C::kRadius;
+      Vec3 kept = pivot * dot(v, pivot) + tangent * dot(v, tangent);
+      if (-vn < kStickSpeed) {
+        m.velocity = kept;
+        m.mode = LinksMode::CupRim;
+      } else {
+        m.velocity = kept + n * (-kRimBounce * vn);
+      }
+      b = m;
+      break;
+    }
+    case 1: {  // up and out of the cup, back to the normal flight
+      LinksBall m = blend(old, next, t, tau);
+      Vec3 gn;
+      double h = green_height(c, m.position, gn);
+      m.position.z = h + C::kRadius / gn.z;
+      if (gn.z != 1) m.velocity = level_to_slope(m.velocity, gn);
+      m.mode = LinksMode::Flight;
+      b = m;
+      break;
+    }
+    case 2:  // into the cup
+      b = blend(old, next, t, tau);
+      b.mode = LinksMode::CupDrop;
+      break;
+    default:
+      b = next;
+      break;
+  }
+  if (event >= 0) finish_substep(c, b, tau, dt);
+  // The flagstick stands in the middle of the cup (and objects may be near).
+  LinksBall from = old, to = b;
+  from.position = from.position + c.cup->pin;
+  to.position = to.position + c.cup->pin;
+  if (hit_obstacles(c, from, to)) {
+    b = to;
+    b.position = b.position - c.cup->pin;
+  }
+}
+
+void holed(LinksBall& b) {
+  b.velocity = {};
+  b.spin = {};
+  b.mode = LinksMode::Holed;
+}
+
+// Sliding down the cup's wall (sub-mode 0x60): held on the circle, keeping
+// only its speed round it, and falling.
+void cup_wall(LinksBall& b, double dt, double radius) {
+  Vec3 u = flat_unit(b.position);
+  double vt = u.x * b.velocity.y - u.y * b.velocity.x;
+  b.velocity = Vec3{-u.y * vt, u.x * vt, b.velocity.z} + kGravityVector * dt;
+  b.position = Vec3{radius * u.x, radius * u.y, b.position.z} + b.velocity * dt;
+  if (b.position.z < -kCupDepth) holed(b);
+}
+
+// Falling inside the cup (sub-mode 0x80), bouncing off its wall.
+void cup_drop(LinksBall& b, double dt, double radius) {
+  b.velocity = b.velocity + kGravityVector * dt;
+  b.position = b.position + b.velocity * dt;
+  if (b.position.z < -kCupDepth) {
+    holed(b);
+    return;
+  }
+  double r = std::hypot(b.position.x, b.position.y);
+  if (!(r > radius)) return;
+  Vec3 u{b.position.x / r, b.position.y / r, 0};
+  Vec3 n = u * -1.0;
+  Vec3 v = b.velocity;
+  double vn = dot(n, v);
+  double vt = u.x * v.y - u.y * v.x;
+  b.position = Vec3{radius * u.x, radius * u.y, b.position.z};
+  if (-vn < kStickSpeed) {
+    b.velocity = Vec3{-u.y * vt, u.x * vt, v.z};
+    b.mode = LinksMode::CupWall;
+  } else {
+    b.velocity = Vec3{-u.y * vt, u.x * vt, 0} + n * (-kWallBounce * vn) + Vec3{0, 0, v.z};
+  }
+}
+
+// One frame (or the rest of one) in the cup, in sub-steps.
+void cup_frame(StepContext& c, LinksBall& b, double dt) {
+  b.position = b.position - c.cup->pin;
+  float remaining = static_cast<float>(dt);
+  auto sub = [&](double h) {
+    switch (b.mode) {
+      case LinksMode::CupAir: cup_air(c, b, h); break;
+      case LinksMode::CupRim: cup_rim(c, b, h); break;
+      case LinksMode::CupWall: cup_wall(b, h, c.cup->radius); break;
+      case LinksMode::CupDrop: cup_drop(b, h, c.cup->radius); break;
+      default: break;
+    }
+  };
+  while (remaining >= kCupSubStep && in_cup_mode(b.mode)) {
+    sub(kCupSubStep);
+    remaining = remaining - kCupSubStep;
+  }
+  if (remaining > 0 && in_cup_mode(b.mode)) {
+    sub(remaining);
+  }
+  b.position = b.position + c.cup->pin;
+}
+
+bool enter_cup_from_air(StepContext& c, LinksBall& b, double tau, double dt) {
+  if (c.cup == nullptr) return false;
+  Vec3 rel = b.position - c.cup->pin;
+  if (!(std::hypot(rel.x, rel.y) <= c.cup->radius + kCupEdge)) return false;
+  b.mode = LinksMode::CupAir;
+  Vec3 n = c.g.normal(c.cup->pin.x, c.cup->pin.y);
+  if (n.z != 1) b.velocity = level_to_slope(b.velocity, n);
+  step(c, b, (1 - tau) * dt);
+  return true;
+}
+
+void enter_cup_from_green(StepContext& c, LinksBall& b, const LinksBall& before) {
+  if (c.cup == nullptr || b.mode == LinksMode::Rest) return;
+  double t = 0;
+  if (!circle_crossing(before.position - c.cup->pin, b.position - before.position, c.cup->radius, t)) return;
+  double tau = 0;
+  LinksBall m = blend(before, b, t, tau);
+  m.mode = LinksMode::CupRim;
+  Vec3 n = c.g.normal(c.cup->pin.x, c.cup->pin.y);
+  if (n.z != 1) m.velocity = level_to_slope(m.velocity, n);
+  b = m;
+}
+
+// The flagstick: a pole of radius 0.5 in (1/24 ft) on the pin. Unless it is
+// out (the shot was struck from the green), the first time the ball's centre
+// crosses it, anywhere from 0.5 ft below the pin's base to 8 ft above, the
+// ball is put at the crossing and sent off it with 0.3 of its speed, mirrored
+// about the line from the pole, and 0.09 of its spin. It can only be hit once.
+bool hit_flagstick(const StepContext& c, const LinksBall& old, LinksBall& b) {
+  if (c.cup == nullptr || b.flagstick_out) return false;
+  const Vec3 pin = c.cup->pin;
+  if (pin.z + kPoleTop < std::min(old.position.z, b.position.z)) return false;
+  if (pin.z - kPoleBottom > std::max(old.position.z, b.position.z)) return false;
+  double t = 0;
+  if (!circle_crossing(old.position - pin, b.position - old.position, kPoleRadius, t)) return false;
+  double tau = 0;
+  LinksBall m = blend(old, b, t, tau);
+  Vec3 d = unit_or_zero(Vec3{m.position.x - pin.x, m.position.y - pin.y, 0});
+  m.velocity = (m.velocity - d * (2 * dot(m.velocity, d))) * kPoleBounce;
+  m.spin = m.spin * kPoleSpin;
+  m.mode = b.mode;
+  m.flagstick_out = true;
+  b = m;
+  return true;
+}
+
+// Trees and other billboards (see links_objects.hpp), then the flagstick:
+// the game checks them in that order after each step and stops at the first
+// hit. A solid hit puts the ball 0.1 ft back along its path from the
+// billboard with its velocity mirrored off it, keeping half its speed (or
+// the object's restitution when the whole object is solid); a canopy keeps
+// the ball where it met it and slows it and its spin. The billboard just hit
+// is skipped next time.
+bool hit_obstacles(const StepContext& c, const LinksBall& old, LinksBall& b) {
+  LinksObjects::Hit hit;
+  if (c.objects != nullptr && c.objects->hit(old.position, b.position, c.facing, b.last_object, hit)) {
+    Vec3 path = b.position - old.position;
+    double len = length(path);
+    double tau = 0;
+    LinksBall m = blend(old, b, length(hit.point - old.position) / len, tau);
+    Vec3 v = b.velocity;
+    if (hit.kind == 1) {
+      const LinksObjectType& type = c.objects->types[std::size_t(c.objects->billboards()[std::size_t(hit.object)].type)];
+      double kept = (type.collision & 1u) ? hit.factor : kSolidKept;
+      b.velocity = (v - hit.normal * (2 * dot(v, hit.normal))) * kept;
+      b.position = m.position - path * (kStepBack / len);
+      b.spin = m.spin;
+    } else {
+      b.velocity = v * hit.factor;
+      b.position = m.position;
+      b.spin = m.spin * hit.factor;
+    }
+    b.last_object = hit.object;
+    return true;
+  }
+  return hit_flagstick(c, old, b);
+}
+
+// The game caps how deeply steps nest; past that a ball near the hole is
+// set down just outside it.
+void nesting_overflow(StepContext& c, LinksBall& b) {
+  if (c.cup == nullptr) return;
+  Vec3 rel = b.position - c.cup->pin;
+  double r = std::hypot(rel.x, rel.y);
+  if (!(r < c.cup->radius * 1.05)) return;
+  Vec3 u = r != 0 ? Vec3{rel.x / r, rel.y / r, 0} : Vec3{1, 0, 0};
+  Vec3 w = c.cup->pin + u * (c.cup->radius * 1.06);
+  Vec3 n = c.g.normal(w.x, w.y);
+  b.position = Vec3{w.x, w.y, c.g.height(w.x, w.y) + C::kRadius / n.z};
+  rest(b);
+}
+
+LinksStepInfo step(StepContext& c, LinksBall& b, double dt) {
+  LinksStepInfo info;
+  if (b.mode == LinksMode::Rest || b.mode == LinksMode::Holed) return info;
+  if (++c.depth > kMaxNesting) {
+    nesting_overflow(c, b);
+  } else {
+    switch (b.mode) {
+      case LinksMode::Flight: info = flight_step(c, b, dt); break;
+      case LinksMode::Skid:
+      case LinksMode::Roll: info = ground_step(c, b, dt); break;
+      default:
+        if (c.cup != nullptr) {
+          cup_frame(c, b, dt);
+        } else {
+          rest(b);
+        }
+        break;
+    }
+  }
+  --c.depth;
+  return info;
 }
 
 }  // namespace
@@ -504,15 +993,19 @@ double links_contact_time(Vec3 v0, Vec3 v1, double s) {
   return (t1 >= 0 && t1 <= 1) ? t1 : t2;
 }
 
-LinksStepInfo links_step(LinksBall& b, const LinksGround& ground, const LinksAero& aero, Vec3 wind,
-                         LinksRandom& rng, double dt) {
-  switch (b.mode) {
-    case LinksMode::Flight: return flight_step(b, ground, aero, wind, dt);
-    case LinksMode::Skid:
-    case LinksMode::Roll: return ground_step(b, ground, aero, wind, rng, dt);
-    case LinksMode::Rest: break;
+double links_cup_radius(int option) {
+  switch (option) {
+    case 0: return 0.1875;
+    case 2: return 0.29167;
+    default: return 0.17708;
   }
-  return {};
+}
+
+LinksStepInfo links_step(LinksBall& b, const LinksGround& ground, const LinksAero& aero, Vec3 wind,
+                         LinksRandom& rng, double dt, const LinksCup* cup, const LinksObjects* objects,
+                         Vec3 facing) {
+  StepContext c{ground, aero, wind, rng, cup, objects, facing};
+  return step(c, b, dt);
 }
 
 ShotResult simulate_links_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
@@ -541,8 +1034,16 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
     landed = true;
     r.first_landing = start.position;
   }
+  // The game takes the flagstick out for a shot from the green.
+  b.flagstick_out = ground.surface(b.position.x, b.position.y).ground_class == kLinksGreen;
   LinksRandom rng(LinksRandom::seed_for(b.position.x, b.position.y));
   Vec3 wind = to_game(p.wind);
+  // Billboards face the camera behind the ball: back along the shot.
+  Vec3 facing = Vec3{-b.velocity.x, -b.velocity.y, 0};
+  facing = length(facing) > 0 ? facing * (1 / length(facing)) : Vec3{0, -1, 0};
+  LinksCup cup;
+  cup.pin = to_game(opt.cup);
+  cup.radius = opt.cup_radius * kFeetPerMetre;
   auto bottom = [&](const LinksBall& ball) { return from_game(ball.position) - Vec3{0, radius_m, 0}; };
   r.path.push_back({0, start.position});
 
@@ -568,13 +1069,15 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
     Vec3 before = bottom(b);
     BallState before_si{before, from_game(b.velocity), spin_from_game(b.spin)};
     bool was_flying = b.mode == LinksMode::Flight;
-    LinksStepInfo info = links_step(b, ground, *p.links, wind, rng, dt);
+    LinksStepInfo info =
+        links_step(b, ground, *p.links, wind, rng, dt, opt.has_cup ? &cup : nullptr, opt.links_objects, facing);
     t += dt;
     ++step;
     Vec3 after = bottom(b);
     r.apex_m = std::max(r.apex_m, after.y - start.position.y);
 
-    // Trees and walls: our own handling, as in simulate_shot.
+    // Walls and the like (and trees, when no billboards are given for the
+    // game's own model): our own handling, as in simulate_shot.
     ObstacleHit hit;
     if (terrain.obstacle_hit(before, after, hit) && (was_flying || hit.kind == ObstacleKind::Solid)) {
       Vec3 pos = before + (after - before) * hit.fraction;
@@ -606,14 +1109,7 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
       if (surf == Surface::OutOfBounds) {
         return finish(ShotOutcome::OutOfBounds, contact);
       }
-      if (opt.has_cup && horizontal_distance(contact, opt.cup) < opt.cup_radius) {
-        return finish(ShotOutcome::Holed, opt.cup);
-      }
     } else if (!was_flying) {
-      if (opt.has_cup && length(from_game(b.velocity)) < opt.max_holing_speed &&
-          segment_distance_xz(before, after, opt.cup) < opt.cup_radius) {
-        return finish(ShotOutcome::Holed, opt.cup);
-      }
       Surface surf = terrain.surface(after.x, after.z);
       if (surf == Surface::Water) {
         return finish(ShotOutcome::Water, after);
@@ -621,6 +1117,9 @@ ShotResult simulate_links_shot(const BallState& start, const BallParams& p, cons
       if (surf == Surface::OutOfBounds) {
         return finish(ShotOutcome::OutOfBounds, after);
       }
+    }
+    if (b.mode == LinksMode::Holed) {
+      return finish(ShotOutcome::Holed, opt.cup);
     }
     if (b.mode == LinksMode::Rest) {
       return finish(ShotOutcome::Rest, after);

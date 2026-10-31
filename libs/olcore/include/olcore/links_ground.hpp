@@ -4,6 +4,7 @@
 
 #include "olcore/ball_physics.hpp"
 #include "olcore/links_flight.hpp"
+#include "olcore/links_objects.hpp"
 #include "olcore/shot.hpp"
 #include "olcore/terrain.hpp"
 
@@ -66,7 +67,11 @@ struct LinksConstants {
   static constexpr double kFrameDt = 1.0 / 60.0;
 };
 
-enum class LinksMode { Flight, Skid, Roll, Rest };
+// The game's ball modes. The cup has four of its own (see physics.md):
+// CupAir falling or bouncing inside the hole's circle above the rim, CupRim
+// rolling round the rim's edge, CupWall sliding down the wall and CupDrop
+// falling inside the cup below the rim. Holed is at rest in the cup.
+enum class LinksMode { Flight, Skid, Roll, Rest, CupAir, CupRim, CupWall, CupDrop, Holed };
 
 // Ball state in the game's frame (see above). `position` is the centre.
 struct LinksBall {
@@ -79,6 +84,11 @@ struct LinksBall {
   bool on_ground_started = false;
   double checkpoint_x = 0, checkpoint_y = 0;
   double ground_time = 0;
+  // The flagstick is out: the shot was struck from the green, or the ball
+  // has already hit it once.
+  bool flagstick_out = false;
+  // The billboard it last hit (an index into LinksObjects), or -1.
+  int last_object = -1;
 };
 
 // The game's random numbers: a 32-bit shift register, seeded at launch from
@@ -114,6 +124,17 @@ void links_impact(LinksBall& b, Vec3 n, const LinksSurface& s);
 // at the start and end of the step and the fraction `s` of the path covered.
 double links_contact_time(Vec3 v0, Vec3 v1, double s);
 
+// The hole, in the game's frame. The game models it as a circle of `radius`
+// round the pin's base: a rim edge the ball can roll on and a cup below.
+struct LinksCup {
+  Vec3 pin;                  // base of the flagstick, on the green
+  double radius = 0.17708;   // ft: the regulation 4.25 inch hole
+};
+
+// The cup radius the game's launch sets from its hole option: 0 for a 4.5
+// inch hole, 1 for 4.25 inches (regulation) and 2 for 7 inches.
+double links_cup_radius(int option);
+
 // What happened during a step.
 struct LinksStepInfo {
   bool landed = false;   // the ball came down onto the ground
@@ -122,13 +143,20 @@ struct LinksStepInfo {
 };
 
 // Advances the ball one step of dt seconds (the game always uses 1/60 s).
-// `wind` is in ft/s before the game's 0.5 factor.
+// `wind` is in ft/s before the game's 0.5 factor. With a cup, a ball that
+// crosses the hole's circle on the green, or lands inside it, plays out the
+// game's cup model; it ends in Holed or comes back out. With objects, the
+// ball meets trees and other billboards as the game's does; they face
+// `facing` (see LinksObjects::hit).
 LinksStepInfo links_step(LinksBall& b, const LinksGround& ground, const LinksAero& aero, Vec3 wind,
-                         LinksRandom& rng, double dt = LinksConstants::kFrameDt);
+                         LinksRandom& rng, double dt = LinksConstants::kFrameDt, const LinksCup* cup = nullptr,
+                         const LinksObjects* objects = nullptr, Vec3 facing = Vec3{0, -1, 0});
 
-// A whole shot with the Links 2003 flight, bounce and roll (used by
-// simulate_shot when p.links is set). Trees and walls, the cup, water and out
-// of bounds use our own handling, as the game's are not decoded yet.
+// A whole shot with the Links 2003 flight, bounce, roll, cup and flagstick
+// (used by simulate_shot when p.links is set), and the course's billboards
+// when opt.links_objects has them. The terrain's own obstacles (walls,
+// bridges, and trees without billboards), water and out of bounds use our
+// own handling.
 ShotResult simulate_links_shot(const BallState& start, const BallParams& p, const Terrain& terrain,
                                const ShotOptions& opt = {});
 

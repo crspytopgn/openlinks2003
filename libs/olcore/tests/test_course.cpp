@@ -458,6 +458,33 @@ void test_holes() {
   CHECK(holes[0].pins.size() == 6);
   CHECK(holes[0].aim_path.size() == 2);
   CHECK(holes[0].green.x == 100);
+
+  // No trailer: the scenery can't be read.
+  bool threw = false;
+  try {
+    parse_course_scenery(b);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+  // The trailer as on the disc courses: five 12-byte records, four zero
+  // settings, the sky, eight bytes, four values, a u32, the horizon, a u32
+  // and 16 bytes.
+  put_u32(b, 5);
+  b.resize(b.size() + 60 + 16, 0);
+  put_u32(b, 7);
+  b.resize(b.size() + 8, 0);
+  for (float v : {0.785f, 0.15f, 30.0f, 0.15f}) put_f32(b, v);
+  put_u32(b, 0);
+  put_u32(b, 0x80000000u);
+  put_u32(b, 0);
+  b.resize(b.size() + 16, 0);
+  auto s = parse_course_scenery(b);
+  CHECK(s.sky == 7 && s.panorama == 0);
+  CHECK(s.values[0] == 0.785f && s.values[2] == 30.0f);
+  b[b.size() - 24] = 3;  // PanNN
+  b[b.size() - 21] = 0;
+  CHECK(parse_course_scenery(b).panorama == 3);
 }
 
 void set_u32(Bytes& b, std::size_t off, std::uint32_t v) {
@@ -499,6 +526,13 @@ void test_billboard_types() {
     std::memcpy(&bits, &aspect, 4);
     set_u32(b, rec + 0x18, bits);
     set_u32(b, rec + 0x34, 0x8401e192u + k);
+    if (k == 1) {
+      // A tree's collision record.
+      std::size_t phys = b.size();
+      put_u32(b, 0);
+      for (float v : {0.7f, 0.92f, 0.626f, 0.0f, 0.831f, 0.332f}) put_f32(b, v);
+      set_u32(b, rec + 0x14, std::uint32_t(phys));
+    }
   }
   std::size_t table = b.size();
   for (auto r : recs) put_u32(b, r);
@@ -515,6 +549,9 @@ void test_billboard_types() {
   CHECK(types[1].width == 201 && types[1].height == 150);
   CHECK(std::fabs(types[0].aspect - 200 / 150.0f) < 1e-6f);
   CHECK(types[1].id == 0x8401e193u);
+  CHECK(types[0].collision == 1 && types[0].shape[0] == 1.0f);
+  CHECK(types[1].collision == 0);
+  CHECK(types[1].shape[1] == 0.92f && types[1].shape[5] == 0.332f);
 }
 
 void test_billboard_placements() {
@@ -808,6 +845,11 @@ void test_material_layers() {
   plain.kind = 0x3;  // two detail variants of the only layer
   auto p = material_layers(plain);
   CHECK(!p.blended && p.mask == -1 && p.layers == (std::vector<std::int32_t>{4}));
+  CHECK(p.details.size() == 1 && p.details[0][0] == 5 && p.details[0][1] == 6);
+  plain.textures = {4, 6};
+  plain.kind = 0x2;  // only the far variant
+  p = material_layers(plain);
+  CHECK(p.details.size() == 1 && p.details[0][0] == -1 && p.details[0][1] == 6);
   TerrainMaterial blend;
   blend.mode = 3;
   blend.layer_count = 3;
@@ -816,56 +858,78 @@ void test_material_layers() {
   blend.kind = 0x1 | 0xc;
   auto b = material_layers(blend);
   CHECK(b.blended && b.mask == 10 && b.layers == (std::vector<std::int32_t>{20, 30}));
+  CHECK(b.details.size() == 2 && b.details[0][0] == 21 && b.details[0][1] == 22 && b.details[1][0] == -1);
 }
 
 // A shadow file: 2 light maps of 2 x 2, some undecoded words, then three
 // shapes (none, 32 x 32, none) and a tail.
-Bytes test_shadow_file() {
-  Bytes b(0x136, 0);
+Bytes shadow_file_bytes() {
+  Bytes b(0x12e, 0);
   std::memcpy(b.data(), "VER5JDHSHADOW", 14);
   std::memcpy(b.data() + 14, "test.CRZ", 8);
   set_u32(b, 0x10e, 12345);
+  set_u32(b, 0x11a, 1028330567);  // stamp
   set_u32(b, 0x11e, 2);  // models
   set_u32(b, 0x122, 3);  // billboard types
   set_u32(b, 0x126, 1);  // model placements
   set_u32(b, 0x12a, 2);  // billboards
-  set_u32(b, 0x12e, 2);
-  set_u32(b, 0x132, 2);
-  for (int i = 0; i < 8; ++i) b.push_back(0xfe);
-  put_u32(b, 5);
-  put_f32(b, 1.0f);
+  put_u32(b, 2);  // model 0: a 2 x 2 footprint
+  put_u32(b, 2);
+  for (int i = 0; i < 4; ++i) b.push_back(i == 3 ? 0 : 0xfe);
+  put_u32(b, 0);  // model 1: none
+  put_u32(b, 0);
+  put_u32(b, 2);  // placement 0 touches two cells
+  put_u32(b, 8);
+  put_u32(b, 16);
+  put_f32(b, 1.0f);  // billboard light
   put_f32(b, 0.25f);
+  put_u32(b, 0);  // type 0: no shadow
   put_u32(b, 0);
-  put_u32(b, 0);
-  put_u32(b, 32);
+  put_u32(b, 32);  // type 1
   put_u32(b, 32);
   for (int i = 0; i < 32 * 32; ++i) b.push_back(std::uint8_t(i));
+  put_u32(b, 0);  // type 2: no shadow
   put_u32(b, 0);
+  put_u32(b, 1);  // billboard 0 touches one cell, billboard 1 none
   put_u32(b, 0);
-  put_u32(b, 3);  // tail
-  put_u32(b, 3);
+  put_u32(b, 24);
   return b;
 }
 
-void test_shadow_file_shapes() {
-  auto f = parse_shadow_file(test_shadow_file());
-  CHECK(f.course == "test.CRZ" && f.course_size == 12345);
+void test_shadow_file() {
+  auto f = parse_shadow_file(shadow_file_bytes());
+  CHECK(f.course == "test.CRZ" && f.course_size == 12345 && f.stamp == 1028330567);
   CHECK(f.model_count == 2 && f.billboard_type_count == 3 && f.billboard_count == 2);
-  CHECK(f.shapes.size() == 3);
-  if (f.shapes.size() != 3) return;
-  CHECK(f.shapes[0].width == 0 && f.shapes[0].pixels.empty());
-  CHECK(f.shapes[1].width == 32 && f.shapes[1].height == 32 && f.shapes[1].pixels.size() == 1024);
-  CHECK(f.shapes[1].pixels[33] == 33);
-  CHECK(f.shapes[2].width == 0);
-  Bytes bad = test_shadow_file();
-  bad[0] = 'X';
-  bool threw = false;
-  try {
-    parse_shadow_file(bad);
-  } catch (const ReadError&) {
-    threw = true;
+  CHECK(f.object_shapes.size() == 2);
+  if (f.object_shapes.size() == 2) {
+    CHECK(f.object_shapes[0].width == 2 && f.object_shapes[0].pixels[0] == 0xfe && f.object_shapes[0].pixels[3] == 0);
+    CHECK(f.object_shapes[1].width == 0 && f.object_shapes[1].pixels.empty());
   }
-  CHECK(threw);
+  CHECK((f.placement_cells.start == std::vector<std::uint32_t>{0, 2}));
+  CHECK((f.placement_cells.cells == std::vector<std::uint32_t>{1, 2}));
+  CHECK((f.billboard_light == std::vector<float>{1.0f, 0.25f}));
+  CHECK(f.shapes.size() == 3);
+  if (f.shapes.size() == 3) {
+    CHECK(f.shapes[0].width == 0 && f.shapes[0].pixels.empty());
+    CHECK(f.shapes[1].width == 32 && f.shapes[1].height == 32 && f.shapes[1].pixels.size() == 1024);
+    CHECK(f.shapes[1].pixels[33] == 33);
+    CHECK(f.shapes[2].width == 0);
+  }
+  CHECK((f.billboard_cells.start == std::vector<std::uint32_t>{0, 1, 1}));
+  CHECK((f.billboard_cells.cells == std::vector<std::uint32_t>{3}));
+  for (int which = 0; which < 3; ++which) {
+    Bytes bad = shadow_file_bytes();
+    if (which == 0) bad[0] = 'X';
+    if (which == 1) bad.pop_back();  // short
+    if (which == 2) bad.push_back(0);  // trailing byte
+    bool threw = false;
+    try {
+      parse_shadow_file(bad);
+    } catch (const ReadError&) {
+      threw = true;
+    }
+    CHECK(threw);
+  }
 }
 
 int main() {
@@ -890,7 +954,7 @@ int main() {
       {"object_textures_and_maq", test_object_textures_and_maq},
       {"mappings", test_mappings},
       {"material_layers", test_material_layers},
-      {"shadow_file_shapes", test_shadow_file_shapes},
+      {"shadow_file", test_shadow_file},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

@@ -53,6 +53,9 @@ uniform float grade = 0.0;
 global uniform float billboard_photo;
 varying float height_frac;
 varying vec3 root_pos;
+// The MultiMeshes carry a colour per instance (COLOR), how much light
+// reaches each billboard. Without one, COLOR isn't white in every renderer.
+uniform bool lit = false;
 // Trees and plants lean and flutter in the wind (0 sway: stand still, as in
 // Links 2003). The quad runs from y 0 at the base to 1 at the top.
 global uniform vec2 wind_vector;
@@ -88,7 +91,7 @@ void vertex() {
 
 void fragment() {
 	vec4 c = texture(atlas, UV);
-	vec3 col = c.rgb;
+	vec3 col = lit ? c.rgb * COLOR.rgb : c.rgb;
 	if (billboard_photo > 0.0) {
 		const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 		float l = dot(col, LUMA);
@@ -132,16 +135,35 @@ class Sprites:
 	var species := PackedInt32Array()
 	## Per sprite: plant_shape() of its name. Empty for spectators.
 	var shape := PackedInt32Array()
+	## Per placement: how much light reaches it (1 in the open), from the
+	## course's .SHA file; empty for none.
+	var light := PackedFloat32Array()
 
 
 ## The ground shadow of each billboard type seen from above (Image, L8)
 ## or null, from the course's .SHA file (ShadowFile); set by the course
 ## loader, empty without one.
 static var shadow_shapes: Array = []
+## The same for each 3D object mesh: where it stands over the box of its
+## own x and y (ShadowFile object_shapes), or empty.
+static var object_shapes: Array = []
+## Per billboard placement, how much light reaches it (ShadowFile
+## billboard_light), or empty. Used when it has one value per placement.
+static var billboard_light := PackedFloat32Array()
+## How dark a billboard that gets no light at all is drawn: the sprites are
+## photographs lit already, so the course's shade only deepens them. A
+## guess; the game's own curve isn't known.
+const SHADE_FLOOR := 0.55
 
 var plants: Sprites
 var crowds: Sprites
 var obstacles := ObstacleField.new()
+## Only the 3D objects of `obstacles` (walls, bridges): with the Links 2003
+## shot model the billboards are met through `links_objects` instead.
+var model_obstacles := ObstacleField.new()
+## The billboards as the Links 2003 model meets them, in its frame (feet,
+## z up); null when the course has none.
+var links_objects: LinksObjects
 var _meshes: Array[ArrayMesh] = []
 var _mesh_bounds: Array[AABB] = []
 var _placements: Array[Dictionary] = []  ## {model, transform}
@@ -149,7 +171,8 @@ var _placements: Array[Dictionary] = []  ## {model, transform}
 
 # --- Parsers (port of course_objects.cpp) --------------------------------------
 
-## `MasterObj` entry: [{name, sprite, aspect, width, height}] per type.
+## `MasterObj` entry: [{name, sprite, aspect, width, height, collision,
+## shape}] per type (collision and shape: see LinksObjects.ObjType).
 ## Empty on error.
 static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -163,7 +186,15 @@ static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 		var rec := b.decode_u32(table + 4 * k)
 		if rec + 0x38 > b.size():
 			return [] as Array[Dictionary]
-		var t := {"width": b.decode_u32(rec), "height": b.decode_u32(rec + 4), "aspect": b.decode_float(rec + 0x18), "sprite": "", "name": ""}
+		var t := {"width": b.decode_u32(rec), "height": b.decode_u32(rec + 4), "aspect": b.decode_float(rec + 0x18), "sprite": "", "name": "", "collision": 1, "shape": PackedFloat32Array([1, 1, 0, 0, 1, 1])}
+		# The collision record: a u32 and six floats.
+		var phys := b.decode_u32(rec + 0x14)
+		if phys != 0 and phys + 28 <= b.size():
+			t.collision = b.decode_u32(phys)
+			var shape := PackedFloat32Array()
+			for i in 6:
+				shape.append(b.decode_float(phys + 4 + 4 * i))
+			t.shape = shape
 		var lods := b.decode_u32(rec + 8)
 		var lod_list := b.decode_u32(rec + 12)
 		if lods > 0 and lod_list + 12 <= b.size():
@@ -181,15 +212,19 @@ static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 
 
 ## `2DPlant` entry: {type: PackedInt32Array, xyzh: PackedFloat32Array (base
-## and height in Godot metres)}. Empty on error.
+## and height in Godot metres), anchors: PackedFloat32Array (per placement
+## the fractions of the width left of the base and of the height below it,
+## LinksObjects.anchor_x/z)}. Empty on error.
 static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 	if b.size() < 0x40 or b.slice(0, 4).get_string_from_ascii() != "2JBO":
 		return {}
 	var count := b.decode_u32(8)
 	var types := PackedInt32Array()
 	var xyzh := PackedFloat32Array()
+	var anchors := PackedFloat32Array()
 	types.resize(count)
 	xyzh.resize(count * 4)
+	anchors.resize(count * 2)
 	var n := 0
 	var cx := 0.0
 	var cy := 0.0
@@ -214,10 +249,20 @@ static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 			return {}
 		var word := b.decode_u32(pos)
 		pos += 4
+		var extra_byte := -1
+		var extra_word := -1
 		if word & 0x20000000:
+			if pos + 1 > end:
+				return {}
+			extra_byte = b[pos]
 			pos += 1
 		if word & 0x40000000:
+			if pos + 2 > end:
+				return {}
+			extra_word = b.decode_u16(pos)
 			pos += 2
+		anchors[2 * n] = LinksObjects.anchor_x(extra_byte)
+		anchors[2 * n + 1] = LinksObjects.anchor_z(extra_word)
 		if pos + 8 > end:
 			return {}
 		var x := cx + b.decode_u16(pos) * PLACEMENT_UNIT
@@ -233,7 +278,7 @@ static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 		n += 1
 	if n != count:
 		return {}
-	return {"type": types, "xyzh": xyzh}
+	return {"type": types, "xyzh": xyzh, "anchors": anchors}
 
 
 ## `TrnyPlant` entry: {kind, instance: PackedInt32Array, xyz:
@@ -490,8 +535,8 @@ static func decode(read: Callable) -> Dictionary:
 		return {}
 	var plain: Array = []
 	for t in types:
-		plain.append({"name": t.name, "sprite": t.sprite, "aspect": t.aspect})
-	return {"types": plain, "type": placements.type, "xyzh": placements.xyzh}
+		plain.append({"name": t.name, "sprite": t.sprite, "aspect": t.aspect, "collision": t.collision, "shape": t.shape})
+	return {"types": plain, "type": placements.type, "xyzh": placements.xyzh, "anchors": placements.anchors}
 
 
 ## Builds the course's objects from decode()'s data and the archive (`read`
@@ -505,6 +550,7 @@ static func build(read: Callable, decoded: Dictionary, crowd_library: Arc0 = nul
 	if crowd_library != null:
 		objects._load_crowds(read.call("TrnyPlant"), crowd_library)
 	objects.obstacles.finalize()
+	objects.model_obstacles.finalize()
 	return objects
 
 
@@ -531,10 +577,15 @@ func _load_plants(read: Callable, decoded: Dictionary) -> void:
 	s.aspect = aspect
 	s.xyzh = decoded.xyzh
 	s.sprite = decoded.type
+	@warning_ignore("integer_division")
+	if billboard_light.size() == s.xyzh.size() / 4:
+		s.light = billboard_light
 	var atlas := build_atlas(images)
 	s.rects = atlas.rects
+	links_objects = _links_objects(types, images, decoded)
 	s.material = _material(atlas.texture)
 	s.material.set_shader_parameter("grade", 1.0)
+	s.material.set_shader_parameter("lit", not s.light.is_empty())
 	for t: Dictionary in types:
 		s.species.append(tree_species(str(t.name)))
 	_index(s)
@@ -672,6 +723,43 @@ static func _model_material(tex: Texture2D) -> StandardMaterial3D:
 
 # --- Obstacles ----------------------------------------------------------------
 
+## Largest side of the pictures kept for the Links 2003 billboard
+## collisions: only their alpha is read, at fractions of the picture.
+const LINKS_MASK_SIZE := 128
+
+
+## The billboards for the Links 2003 model (LinksObjects), in its frame:
+## feet, x to the golfer's right... as LinksGround._to_game() gives.
+static func _links_objects(types: Array, images: Array[Image], decoded: Dictionary) -> LinksObjects:
+	if not decoded.has("anchors"):
+		return null
+	var objects := LinksObjects.new()
+	for i in types.size():
+		var t: Dictionary = types[i]
+		var type := LinksObjects.ObjType.new()
+		type.collision = int(t.get("collision", 1))
+		type.shape = t.get("shape", PackedFloat32Array([1, 1, 0, 0, 1, 1]))
+		type.aspect = float(t.aspect)
+		var img: Image = images[i] if i < images.size() else null
+		if img != null:
+			var mask := img.duplicate() as Image
+			if mask.is_compressed():
+				mask.decompress()
+			mask.convert(Image.FORMAT_RGBA8)
+			var scale := minf(1.0, LINKS_MASK_SIZE / float(maxi(mask.get_width(), mask.get_height())))
+			if scale < 1.0:
+				mask.resize(maxi(1, int(mask.get_width() * scale)), maxi(1, int(mask.get_height() * scale)), Image.INTERPOLATE_NEAREST)
+			type.mask = mask
+		objects.types.append(type)
+	var xyzh: PackedFloat32Array = decoded.xyzh
+	var sprite: PackedInt32Array = decoded.type
+	var anchors: PackedFloat32Array = decoded.anchors
+	for i in sprite.size():
+		var base := LinksGround._to_game(Vector3(xyzh[4 * i], xyzh[4 * i + 1], xyzh[4 * i + 2]))
+		objects.add(base, xyzh[4 * i + 3] * LinksGround.FEET_PER_METRE, sprite[i], anchors[2 * i], anchors[2 * i + 1])
+	return objects
+
+
 ## Trees get a solid trunk and a canopy, bushes a canopy, rocks a solid;
 ## grasses and the rest let the ball through. The proportions are guesses
 ## from the sprites, to be checked against the original game.
@@ -783,7 +871,7 @@ func shade_casters(rect: Rect2) -> PackedFloat32Array:
 					out.append_array(PackedFloat32Array([x, xyzh[4 * i + 1], z, bottom, h * 0.97, r, cast]))
 	for p in _placements:
 		var m: int = p.model
-		if m >= _mesh_bounds.size():
+		if m >= _mesh_bounds.size() or _has_footprint(m):
 			continue
 		var t: Transform3D = p.transform
 		var box: AABB = t * _mesh_bounds[m]
@@ -793,6 +881,34 @@ func shade_casters(rect: Rect2) -> PackedFloat32Array:
 		var r := 0.5 * minf(box.size.x, box.size.z)
 		out.append_array(PackedFloat32Array([centre.x, box.position.y, centre.z, 0.0, box.size.y, r, -1]))
 	return out
+
+
+## The 3D objects inside `rect` (x, z) whose course gives their footprint
+## (object_shapes), for the baked ground shade: per object the middle of
+## its footprint x, z, half its size along its own x and z, its turn about
+## +y (radians, as Basis(Vector3.UP, angle) turns +x), its height, and its
+## mesh (an index into object_shapes). Objects without one are among
+## shade_casters() instead.
+func shade_footprints(rect: Rect2) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	for p in _placements:
+		var m: int = p.model
+		if m >= _mesh_bounds.size() or not _has_footprint(m):
+			continue
+		var t: Transform3D = p.transform
+		var bounds := _mesh_bounds[m]
+		var base := t * Vector3(bounds.get_center().x, bounds.position.y, bounds.get_center().z)
+		if not rect.has_point(Vector2(base.x, base.z)):
+			continue
+		var bx := t.basis.x
+		var height := (t * bounds).size.y
+		out.append_array(PackedFloat32Array([base.x, base.z, 0.5 * bounds.size.x * bx.length(),
+			0.5 * bounds.size.z * t.basis.z.length(), atan2(-bx.z, bx.x), height, m]))
+	return out
+
+
+static func _has_footprint(m: int) -> bool:
+	return m < object_shapes.size() and object_shapes[m] != null
 
 
 ## 3D objects block the ball with their bounding box (in the model's own
@@ -823,6 +939,7 @@ func _add_model_obstacles() -> void:
 		if rise < 0.15:
 			continue
 		obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
+		model_obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
 
 
 # --- Drawing ------------------------------------------------------------------
@@ -1059,15 +1176,19 @@ static func is_3d_tree(s: Sprites, i: int) -> bool:
 
 
 ## The MultiMesh of one bucket: per instance a row-major 3x4 transform
-## (width and height as the scale, the base relative to the chunk centre)
-## and the sprite's atlas rectangle as custom data. Null when no placement
-## is left (`skip_trees` leaves out the ones drawn as 3D trees).
+## (width and height as the scale, the base relative to the chunk centre),
+## when the course has billboard light (Sprites.light) a colour that dims
+## the shaded ones, and the sprite's atlas rectangle as custom data. Null
+## when no placement is left (`skip_trees` leaves out the ones drawn as 3D
+## trees).
 static func _multimesh(s: Sprites, b: int, quad: QuadMesh, skip_trees := false) -> MultiMesh:
 	var order := s.order
 	var xyzh := s.xyzh
 	var sprite := s.sprite
 	var aspect := s.aspect
 	var rects := s.rects
+	var light := s.light
+	var lit := not light.is_empty()
 	var picked := PackedInt32Array()
 	for k in range(s.start[b], s.start[b + 1]):
 		if not (skip_trees and is_3d_tree(s, order[k])):
@@ -1085,8 +1206,9 @@ static func _multimesh(s: Sprites, b: int, quad: QuadMesh, skip_trees := false) 
 	# Origins relative to the middle: visibility ranges are measured from
 	# the node.
 	var centre := Vector3(cx, ground, cz) / count
+	var stride := 20 if lit else 16
 	var buffer := PackedFloat32Array()
-	buffer.resize(count * 16)
+	buffer.resize(count * stride)
 	var o := 0
 	for i in picked:
 		var t := sprite[i]
@@ -1097,13 +1219,22 @@ static func _multimesh(s: Sprites, b: int, quad: QuadMesh, skip_trees := false) 
 		buffer[o + 7] = xyzh[4 * i + 1] - centre.y
 		buffer[o + 10] = 1.0
 		buffer[o + 11] = xyzh[4 * i + 2] - centre.z
-		buffer[o + 12] = rects[4 * t]
-		buffer[o + 13] = rects[4 * t + 1]
-		buffer[o + 14] = rects[4 * t + 2]
-		buffer[o + 15] = rects[4 * t + 3]
-		o += 16
+		var c := o + 12
+		if lit:
+			var v := shade(light[i])
+			buffer[c] = v
+			buffer[c + 1] = v
+			buffer[c + 2] = v
+			buffer[c + 3] = 1.0
+			c += 4
+		buffer[c] = rects[4 * t]
+		buffer[c + 1] = rects[4 * t + 1]
+		buffer[c + 2] = rects[4 * t + 2]
+		buffer[c + 3] = rects[4 * t + 3]
+		o += stride
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = lit
 	mm.use_custom_data = true
 	mm.mesh = quad
 	mm.instance_count = count
@@ -1111,6 +1242,14 @@ static func _multimesh(s: Sprites, b: int, quad: QuadMesh, skip_trees := false) 
 	mm.set_meta("centre", centre)
 	mm.set_meta("buffer", buffer)
 	return mm
+
+
+## The brightness a billboard is drawn at for the light reaching it (the
+## .SHA value; 1 in the open, values that aren't numbers count as 1).
+static func shade(light_value: float) -> float:
+	if is_nan(light_value):
+		return 1.0
+	return lerpf(SHADE_FLOOR, 1.0, clampf(light_value, 0.0, 1.0))
 
 
 ## Horizontal distance from `p` to the polyline `path`.

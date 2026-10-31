@@ -619,6 +619,12 @@ int main(int argc, char** argv) {
       std::printf("%s\n%zu entries, terrain %zu vertices / %zu triangles, %zu materials, %zu textures\n",
                   c.name.c_str(), crz->entries().size(), c.terrain.vertices.size(), c.terrain.triangles.size(),
                   c.materials.size(), c.textures.size());
+      if (c.scenery.sky != 0) std::printf("sky: sky%02u.btc (PANSKY.LIB)\n", c.scenery.sky);
+      if (c.scenery.panorama != 0) {
+        std::printf("horizon: Pan%02u.btc (PANSKY.LIB)\n", c.scenery.panorama);
+      } else {
+        std::printf("horizon: the course's own Panorama\n");
+      }
       for (std::size_t h = 0; h < c.holes.size(); ++h) {
         const Hole& hole = c.holes[h];
         std::printf("%2zu  par %u  hcp %2u  %4u yd  %s\n", h + 1, hole.par, hole.handicap,

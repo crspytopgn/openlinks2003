@@ -266,7 +266,7 @@ func _value(r: ShotResult) -> float:
 ## Full-power total distance with club `i` from this lie, at this golfer's
 ## strength.
 func _reach(i: int) -> float:
-	return maxf(1.0, _clubs[i].total_m * Surface.lie_power(_lie) * skill.strength)
+	return maxf(1.0, _clubs[i].total_m * _model.reach_scale(_clubs[i]) * Surface.lie_power(_lie) * skill.strength)
 
 
 static func _heading(from: Vector3, to: Vector3) -> float:

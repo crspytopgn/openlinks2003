@@ -21,6 +21,10 @@ struct BillboardType {
   std::uint32_t width = 0, height = 0;  // pixels of the largest sprite
   float aspect = 1;                     // width / height
   std::uint32_t id = 0;                 // object id, as in the Course Designer library
+  // How the ball meets it: the library's `collision` and `shape` values
+  // (see LinksObjectType in links_objects.hpp). Solid all over when absent.
+  std::uint32_t collision = 1;
+  std::array<float, 6> shape{1, 1, 0, 0, 1, 1};
 };
 
 // `MasterObj` entry: one type per placement `type` index.

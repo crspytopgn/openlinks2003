@@ -69,6 +69,7 @@ const SOURCES := [
 		"id": "usgs", "name": "USGS/USDA NAIP orthoimagery, United States",
 		"boxes": [[24.4, -125.0, 49.5, -66.9], [18.8, -160.4, 22.4, -154.7]],
 		"url": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
+		"max_zoom": 16,  # no tiles past 16 (about 2 m a pixel)
 		"credit": "Aerial photo: USGS The National Map / USDA NAIP, public domain",
 	},
 ]
@@ -102,7 +103,7 @@ static func sources_for(lat: float, lon: float) -> Array[Dictionary]:
 ## needing at most MAX_TILES.
 func _init(p_source: Dictionary, box: Array) -> void:
 	source = p_source
-	for z in range(MAX_ZOOM, 12, -1):
+	for z in range(int(source.get("max_zoom", MAX_ZOOM)), 12, -1):
 		var x0 := int(TerrainTiles._tile_x(box[1], z))
 		var y0 := int(TerrainTiles._tile_y(box[2], z))
 		var n := Vector2i(int(TerrainTiles._tile_x(box[3], z)) - x0 + 1, int(TerrainTiles._tile_y(box[0], z)) - y0 + 1)

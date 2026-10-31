@@ -120,6 +120,8 @@ void fragment() {
 	}
 	ALPHA = alpha;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.15;  // leaves seen from afar: soft, no glints
 	// Godot flips the normal on back faces; keep the crown's normal.
 	NORMAL = FRONT_FACING ? NORMAL : -NORMAL;
 }

@@ -31,6 +31,7 @@ var busy := false
 ## Use national lidar and aerial photos where they cover the course.
 var use_lidar := true
 var use_photos := true
+var use_land_cover := true
 ## Called with each HTTPRequest before it is sent (tools use it to set a
 ## proxy); empty in the game.
 var configure_request: Callable
@@ -157,6 +158,21 @@ func _build(place: Dictionary) -> DesignedCourse:
 			builder.photo_trees = AerialPhotos.find_trees(photo, builder.area, builder.grass_points())
 		break
 
+	# Land cover everywhere: trees the map lacks and, without a photo, the
+	# ground colours round the course.
+	var cover: Image = null
+	if use_land_cover:
+		var land := LandCover.new(gb)
+		var lgot := await _fetch_all(PackedStringArray([land.url()]), "Fetching the land cover")
+		if lgot[0][0] == 200 and land.add(lgot[0][1]) and land.coverage() >= 0.25:
+			builder.extra_credits.append(LandCover.CREDIT)
+			if builder.lidar_trees.is_empty() and builder.photo_trees.is_empty():
+				builder.land_trees = land.tree_points(builder.frame, builder.area)
+			if photo == null:
+				cover = land.ground_image(builder.frame, builder.area)
+
+	builder.photo = photo
+	builder.lidar_heights = lidar != null
 	progress.emit("Building %s..." % builder.course_name)
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -182,6 +198,9 @@ func _build(place: Dictionary) -> DesignedCourse:
 	_last_summary["photo_trees"] = builder.photo_trees.size()
 	if photo != null:
 		_last_summary["photo"] = photo
+	if cover != null:
+		_last_summary["ground_cover"] = cover
+	_last_summary["land_trees"] = builder.land_trees.size()
 	if not others.is_empty():
 		_last_summary["others"] = others
 	if lidar == null:

@@ -165,8 +165,8 @@ static func career_text(c: Dictionary) -> String:
 ## The player's golfer from the player creator, or null if they haven't
 ## made one.
 func look_of(player_name: String) -> PlayerLook:
-	var saved: Variant = _cfg.get_value(_section(player_name), "look", null)
-	return PlayerLook.from_dict(saved) if saved is Dictionary else null
+	var saved: Variant = _cfg.get_value(_section(player_name), "look", {})
+	return PlayerLook.from_dict(saved) if saved is Dictionary and not (saved as Dictionary).is_empty() else null
 
 
 ## Saves the player's golfer; adds the player if they are new.

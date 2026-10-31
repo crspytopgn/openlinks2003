@@ -85,7 +85,7 @@ func apply_look(p_look: PlayerLook) -> void:
 		mi.name = part_name
 		mi.mesh = parts.bake(part_name, weights)
 		mi.skin = skin
-		mi.material_override = _material(parts, parts.part_material(part_name))
+		mi.material_override = _matt(_material(parts, parts.part_material(part_name)))
 		_skeleton.add_child(mi)
 		mi.skeleton = NodePath("..")
 		_look_nodes.append(mi)
@@ -133,6 +133,14 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 		var eyes: Dictionary = parts.info.get("eyes", {})
 		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
 	return parts.make_material(material_name)
+
+
+## Cloth, skin and hair as matt as they are in daylight: shinier materials
+## look like plastic under the Photoreal sun.
+static func _matt(mat: StandardMaterial3D) -> StandardMaterial3D:
+	mat.roughness = maxf(mat.roughness, 0.8)
+	mat.metallic_specular = minf(mat.metallic_specular, 0.3)
+	return mat
 
 
 ## Moves each joint by the shape's offsets (bone name -> offset in the rig).

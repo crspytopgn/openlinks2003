@@ -84,8 +84,8 @@ void fragment() {
 	vec3 c = COLOR.rgb;
 	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
 	vec3 col = base * (1.0 + patches * variation * 2.0);
-	ROUGHNESS = 0.92;
-	SPECULAR = 0.25;
+	ROUGHNESS = 0.95;
+	SPECULAR = 0.1;
 
 	if (textured) {
 		vec2 uv = p / texture_metres;

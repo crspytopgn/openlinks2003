@@ -621,6 +621,55 @@ void test_arc0_reads_entries() {
   CHECK(!a.find("missing"));
 }
 
+// An ARC0 archive of stored zlib entries.
+std::vector<std::uint8_t> make_arc0(const std::vector<std::string>& names, const std::vector<std::string>& bodies) {
+  std::vector<std::uint8_t> blob(16, 0);
+  std::vector<std::uint32_t> offs, sizes;
+  for (auto& b : bodies) {
+    auto z = stored_zlib(b);
+    offs.push_back(static_cast<std::uint32_t>(blob.size()));
+    sizes.push_back(static_cast<std::uint32_t>(z.size()));
+    blob.insert(blob.end(), z.begin(), z.end());
+  }
+  auto dir = static_cast<std::uint32_t>(blob.size());
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    put_u32(blob, 0);
+    std::string n = names[i];
+    n.resize(32, '\0');
+    blob.insert(blob.end(), n.begin(), n.end());
+    put_u32(blob, offs[i]);
+    put_u32(blob, sizes[i]);
+    put_u32(blob, static_cast<std::uint32_t>(bodies[i].size()));
+    put_u32(blob, 2);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+  }
+  std::vector<std::uint8_t> head = {'A', 'R', 'C', '0'};
+  put_u32(head, static_cast<std::uint32_t>(blob.size()));
+  put_u32(head, static_cast<std::uint32_t>(names.size()));
+  put_u32(head, dir);
+  std::copy(head.begin(), head.end(), blob.begin());
+  return blob;
+}
+
+// Uncompressed 32-bit TGA (bottom-up rows) of one colour.
+std::string flat_tga(int edge, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+  std::string t(18, '\0');
+  t[2] = 2;
+  t[12] = static_cast<char>(edge);
+  t[14] = static_cast<char>(edge);
+  t[16] = 32;
+  t[17] = 8;
+  for (int i = 0; i < edge * edge; ++i) {
+    t.push_back(static_cast<char>(b));
+    t.push_back(static_cast<char>(g));
+    t.push_back(static_cast<char>(r));
+    t.push_back(static_cast<char>(255));
+  }
+  return t;
+}
+
 void put_u16(std::vector<std::uint8_t>& v, std::uint16_t x) {
   v.push_back(static_cast<std::uint8_t>(x & 0xff));
   v.push_back(static_cast<std::uint8_t>(x >> 8));
@@ -776,6 +825,29 @@ void test_btcv_places_tiles_from_bottom() {
   CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 0, 0)[3] == 255);  // tile row 58
   CHECK(pixel(img, 10, 5)[0] < 140 && pixel(img, 10, 5)[0] > 120);  // tile row 63, grey
   CHECK(pixel(img, 66, 3)[3] == 0);
+}
+
+void test_sky_archive() {
+  // Two 8-pixel tiles (red, green), then five 4-pixel ones (blue): 16 x 12,
+  // the narrowest row's width.
+  std::vector<std::string> names, bodies;
+  for (int i = 0; i < 7; ++i) {
+    names.push_back("_s_k_y_" + std::to_string(i + 1) + ".tga");
+    bodies.push_back(i < 2 ? flat_tga(8, i == 0 ? 255 : 0, i == 1 ? 255 : 0, 0) : flat_tga(4, 0, 0, 255));
+  }
+  names.push_back("sky.prv");
+  bodies.push_back("preview");
+  RgbaImage img = decode_sky_archive(Arc0Archive(make_arc0(names, bodies)));
+  CHECK(img.width == 16 && img.height == 12);
+  CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 15, 7)[1] == 255);
+  CHECK(pixel(img, 15, 11)[2] == 255 && pixel(img, 15, 11)[3] == 255);
+  bool threw = false;
+  try {
+    decode_sky_archive(Arc0Archive(make_arc0({"sky.prv"}, {"preview"})));
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
 }
 
 void test_panorama_tiles() {
@@ -1720,6 +1792,132 @@ void test_links_landing() {
   CHECK_NEAR(b.position.y, 2.761, 2e-3);
 }
 
+// Steps a ball near a hole at the origin until it is holed or stops; returns
+// the step, or -1. `seen` gets the state after step `at`.
+int run_cup_ball(LinksBall& b, LinksBall* seen = nullptr, int at = -1) {
+  TestGround green(kLinksGreen);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  LinksCup cup;
+  for (int k = 0; k < 600; ++k) {
+    links_step(b, green, air, {}, rng, LinksConstants::kFrameDt, &cup);
+    if (k == at && seen != nullptr) *seen = b;
+    if (b.mode == LinksMode::Rest || b.mode == LinksMode::Holed) return k;
+  }
+  return -1;
+}
+
+// A billboard type for the object tests: a 20 x 20 picture, opaque where
+// `opaque` says.
+LinksObjectType test_object_type(std::uint32_t collision, std::array<float, 6> shape, bool (*opaque)(int, int)) {
+  LinksObjectType t;
+  t.collision = collision;
+  t.shape = shape;
+  t.mask.width = t.mask.height = 20;
+  t.mask.alpha.resize(400);
+  for (int y = 0; y < 20; ++y) {
+    for (int x = 0; x < 20; ++x) t.mask.alpha[std::size_t(y * 20 + x)] = opaque(x, y) ? 255 : 0;
+  }
+  return t;
+}
+
+// Flies a ball at a 10 ft billboard 20 ft away until it hits something or
+// lands; returns the ball.
+LinksBall fly_at_billboard(const LinksObjectType& type, Vec3 start = {0, 0, 3}) {
+  LinksObjects objects;
+  objects.types.push_back(type);
+  LinksBillboard b;
+  b.base = {0, 20, 0};
+  b.height = 10;
+  objects.add(b);
+  LinksBall ball = links_ball(start, {0, 60, 0}, {}, LinksMode::Flight);
+  TestGround ground(kLinksFairway);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  for (int k = 0; k < 30 && ball.last_object < 0 && ball.mode == LinksMode::Flight; ++k) {
+    links_step(ball, ground, air, {}, rng, LinksConstants::kFrameDt, nullptr, &objects, {0, -1, 0});
+  }
+  return ball;
+}
+
+// Trees and other billboards, as the game's routine treats them.
+void test_links_objects() {
+  CHECK_NEAR(links_anchor_x(-1), 0.5, 1e-12);
+  CHECK_NEAR(links_anchor_x(0xf6), 0.5 - 10 / 128.0, 1e-12);
+  CHECK_NEAR(links_anchor_z(58), 58 / 256.0, 1e-12);
+  auto all = [](int, int) { return true; };
+  auto none = [](int, int) { return false; };
+  // A solid object (a rock) sends the ball back with its restitution.
+  LinksBall b = fly_at_billboard(test_object_type(1, {0.8f, 1, 0, 0, 1, 1}, all));
+  CHECK(b.last_object == 0);
+  CHECK(b.velocity.y < 0);
+  CHECK_NEAR(b.velocity.y, -0.8 * 60, 1e-5);
+  CHECK(b.position.y < 20 - 0.09 && b.position.y > 20 - 0.11);
+  // A canopy the ball always meets keeps 0.9 of its speed and spin and lets
+  // it through.
+  b = fly_at_billboard(test_object_type(2, {0.5f, 1, 0, 0, 1, 1}, all));
+  CHECK(b.last_object == 0);
+  CHECK_NEAR(b.velocity.y, 0.9 * 60, 1e-5);
+  // Transparent parts let it by.
+  b = fly_at_billboard(test_object_type(1, {0.8f, 1, 0, 0, 1, 1}, none));
+  CHECK(b.last_object < 0);
+  // A tree's trunk turns the ball by where across the trunk it struck: here
+  // the trunk is columns 8 to 11 and the ball meets column 10.
+  auto trunk = [](int x, int y) { return y >= 12 || (x >= 8 && x <= 11); };
+  b = fly_at_billboard(test_object_type(0, {0.7f, 1, 0.35f, 0, 0.65f, 0.6f}, trunk));
+  CHECK(b.last_object == 0);
+  double turn = (3.0 / 5 - 0.5) * 2.09440565;
+  CHECK_NEAR(b.velocity.x, 0.5 * 60 * std::sin(2 * turn), 1e-6);
+  CHECK_NEAR(b.velocity.y, -0.5 * 60 * std::cos(2 * turn), 1e-6);
+}
+
+// The cup and flagstick. Every case was run through the game's own code (see
+// docs/formats/physics.md) and matches it step for step; game/tests/run_tests.gd
+// checks the GDScript port against the same numbers.
+void test_links_cup() {
+  CHECK_NEAR(links_cup_radius(1), 0.17708, 1e-9);
+  CHECK_NEAR(links_cup_radius(0), 0.1875, 1e-9);
+  CHECK_NEAR(links_cup_radius(2), 0.29167, 1e-9);
+  // A putt slightly off line, flagstick in: over the rim, into the hole's
+  // air, off the flagstick and down.
+  LinksBall seen;
+  LinksBall b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b, &seen, 18) == 35);
+  CHECK(b.mode == LinksMode::Holed);
+  CHECK(seen.mode == LinksMode::CupRim);
+  b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  run_cup_ball(b, &seen, 21);
+  CHECK(seen.mode == LinksMode::CupAir);
+  CHECK(seen.flagstick_out);
+  CHECK_NEAR(seen.velocity.x, 0.9429, 1e-4);
+  CHECK_NEAR(seen.velocity.y, -0.6037, 1e-4);
+  CHECK_NEAR(seen.velocity.z, -0.7611, 1e-4);
+  // The same putt with the flagstick out.
+  b = links_ball({0.02, -1.5, 0.07}, {0, 6, 0}, {}, LinksMode::Skid);
+  b.flagstick_out = true;
+  CHECK(run_cup_ball(b) == 34);
+  CHECK(b.mode == LinksMode::Holed);
+  // Firm, nearer the edge: in.
+  b = links_ball({0.12, -1, 0.07}, {0, 5, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 31);
+  CHECK(b.mode == LinksMode::Holed);
+  // Near the edge at 4 ft/s: round the rim and out. (The roll after it
+  // differs by about 1e-3 ft between compilers, as the other roll tests do.)
+  b = links_ball({0.16, -1, 0.07}, {0, 4, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 63);
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK_NEAR(b.position.x, -0.08464, 2e-3);
+  CHECK_NEAR(b.position.y, 0.64145, 2e-3);
+  // Outside the hole's circle: it passes by.
+  b = links_ball({0.19, -1, 0.07}, {0, 3.5, 0}, {}, LinksMode::Skid);
+  CHECK(run_cup_ball(b) == 47);
+  CHECK(b.mode == LinksMode::Rest);
+  // Dropping in from above.
+  b = links_ball({0.05, -0.05, 0.06}, {0, 1, -3}, {}, LinksMode::CupAir);
+  CHECK(run_cup_ball(b) == 10);
+  CHECK(b.mode == LinksMode::Holed);
+}
+
 void test_links_shot() {
   std::optional<LinksAero> aero = find_links_aero(synthetic_aero_exe());
   if (!aero) {
@@ -2381,6 +2579,7 @@ int main() {
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"panorama_tiles", test_panorama_tiles},
+      {"sky_archive", test_sky_archive},
       {"tga_rle_bottom_up", test_tga_rle_bottom_up},
       {"png_round_trip", test_png_round_trip},
       {"pad_and_bleed", test_pad_and_bleed},
@@ -2421,6 +2620,8 @@ int main() {
       {"links_roll", test_links_roll},
       {"links_green", test_links_green},
       {"links_landing", test_links_landing},
+      {"links_cup", test_links_cup},
+      {"links_objects", test_links_objects},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},

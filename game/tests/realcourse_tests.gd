@@ -17,6 +17,9 @@ func run_all() -> Array[String]:
 	_test_photo_trees()
 	_test_extra_trees()
 	_test_photo_ground()
+	_test_land_cover()
+	_test_guesser()
+	_test_detector()
 	return failures
 
 
@@ -126,7 +129,8 @@ func _test_builder() -> void:
 		check(h.route.size() == 1, "the dogleg point is an aim point (%d)" % h.route.size())
 	var counts := {}
 	for s in c.shapes:
-		counts[s.surface] = int(counts.get(s.surface, 0)) + 1
+		if not s.guessed:
+			counts[s.surface] = int(counts.get(s.surface, 0)) + 1
 	check(counts.get(Surface.Type.FAIRWAY, 0) == 1, "the fairway relation became one area")
 	check(counts.get(Surface.Type.GREEN, 0) == 1 and counts.get(Surface.Type.SAND, 0) == 1 and counts.get(Surface.Type.TEE, 0) == 2, "green, bunker, tees")
 	check(counts.get(Surface.Type.WATER, 0) >= 2, "pond and stream are water (%d)" % counts.get(Surface.Type.WATER, 0))
@@ -338,8 +342,12 @@ func _test_extra_trees() -> void:
 
 
 ## A strip GeoTIFF of float heights, 0.001 degree pixels from (51 N, 1 W).
-static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool) -> PackedByteArray:
+static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool, u8 := false) -> PackedByteArray:
 	var pixels := v.to_byte_array()
+	if u8:
+		pixels = PackedByteArray()
+		for x in v:
+			pixels.append(int(x))
 	if packed:
 		# Floating-point predictor: per row, bytes split into planes (most
 		# significant first), then differenced.
@@ -365,9 +373,9 @@ static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool)
 			swapped.append_array([pixels[k + 3], pixels[k + 2], pixels[k + 1], pixels[k]])
 		pixels = swapped
 	var entries := [
-		[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 32], [259, 3, 1, 8 if packed else 1],
+		[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 8 if u8 else 32], [259, 3, 1, 8 if packed else 1],
 		[273, 4, 1, 0], [277, 3, 1, 1], [278, 3, 1, h], [279, 4, 1, pixels.size()],
-		[317, 3, 1, 3 if packed else 1], [339, 3, 1, 3],
+		[317, 3, 1, 3 if packed else 1], [339, 3, 1, 1 if u8 else 3],
 		[33550, 12, 3, [0.001, 0.001, 0.0]], [33922, 12, 6, [0.0, 0.0, 0.0, -1.0, 51.0, 0.0]],
 	]
 	var ifd_size := 2 + entries.size() * 12 + 4
@@ -436,3 +444,143 @@ func _test_photo_ground() -> void:
 	check(west.get_luminance() > east.get_luminance(), "the photo's west half is the course's +x half")
 	var m := tinted.ground_color_at(0, 0)
 	check(m.g > m.r and absf(m.r - mown.r) + absf(m.g - mown.g) + absf(m.b - mown.b) < 0.2, "the fairway stays green: %s" % m)
+
+
+## Land cover: an 8-bit class GeoTIFF, trees where the class says so, and
+## the ground picture in the photo's layout (north-west pixel first).
+func _test_land_cover() -> void:
+	var v := PackedFloat32Array()
+	for j in 20:
+		for i in 20:
+			v.append(LandCover.TREES if i < 10 else LandCover.CROPS)
+	var land := LandCover.new([50.98, -1.0, 51.0, -0.98])
+	check(land.url().contains("bbox=-1.0000000,50.9800000,-0.9800000,51.0000000") and land.url().contains("pixelType=U8"), "land cover url")
+	check(land.add(_tiff(v, 20, 20, false, false, true)), "8-bit class GeoTIFF loads")
+	check(land.class_at(50.99, -0.995) == LandCover.TREES and land.class_at(50.99, -0.985) == LandCover.CROPS, "classes by place")
+	check(absf(land.coverage() - 1.0) < 0.001, "coverage")
+	var f := GeoFrame.new(50.99, -0.99)
+	var area := Rect2(-800, -1200, 1600, 2400)
+	var trees := land.tree_points(f, area)
+	check(trees.size() == 200, "one tree per tree pixel: %d" % trees.size())
+	var west_side := true
+	for p in trees:
+		west_side = west_side and p.x > 0.0
+	check(west_side, "the trees are in the west (+x) half")
+	var img := land.ground_image(f, Rect2(-600, -1000, 1200, 2000), 50.0)
+	var nw := img.get_pixel(1, 1)
+	var ne := img.get_pixel(img.get_width() - 2, 1)
+	var want_nw: Color = LandCover.COLORS[LandCover.TREES]
+	var want_ne: Color = LandCover.COLORS[LandCover.CROPS]
+	check(absf(nw.r - want_nw.r) + absf(nw.g - want_nw.g) < 0.02 and absf(ne.r - want_ne.r) + absf(ne.g - want_ne.g) < 0.02, "ground picture: woods to the north-west, fields to the north-east")
+
+
+## A hole mapped only as a line gets a green, a tee, a fairway and bunkers
+## at typical sizes, all marked guessed; a fully mapped hole gets nothing.
+func _test_guesser() -> void:
+	var c := DesignedCourse.blank(Vector2(600, 600))
+	var h := DesignedHole.new()
+	h.tees = PackedVector2Array([Vector2(0, -200)])
+	h.pin = Vector2(0, 180)
+	h.par = 4
+	c.holes.append(h)
+	var added := CourseGuesser.fill(c, 7)
+	var by := {}
+	for s in added:
+		check(s.guessed, "guessed shapes are marked")
+		by[s.surface] = int(by.get(s.surface, 0)) + 1
+	check(by.get(Surface.Type.GREEN, 0) == 1 and by.get(Surface.Type.TEE, 0) == 1 and by.get(Surface.Type.FAIRWAY, 0) == 1, "green, tee and fairway: %s" % by)
+	check(int(by.get(Surface.Type.SAND, 0)) >= 3, "greenside and fairway bunkers: %s" % by)
+	var green: CourseShape = null
+	var fairway: CourseShape = null
+	for s in added:
+		if s.surface == Surface.Type.GREEN:
+			green = s
+		elif s.surface == Surface.Type.FAIRWAY:
+			fairway = s
+	if green != null:
+		var ring := green.outline()
+		var a := absf(_ring_area_of(ring))
+		check(a > 380.0 and a < 800.0, "green size: %.0f m2" % a)
+		check(Geometry2D.is_point_in_polygon(h.pin, ring), "the pin is on the green")
+		check(green.bounds().size.y > green.bounds().size.x, "the green is longer along the approach")
+	if fairway != null:
+		check(Geometry2D.is_point_in_polygon(Vector2(0, 30), fairway.outline()), "the fairway covers the landing area")
+		check(fairway.bounds().size.x > 25.0 and fairway.bounds().size.x < 45.0, "fairway width: %.1f" % fairway.bounds().size.x)
+		check(not Geometry2D.is_point_in_polygon(Vector2(0, -190), fairway.outline()), "no fairway at the tee")
+	var saved := DesignedCourse.from_json(c.to_json())
+	var kept := 0
+	for s in saved.shapes:
+		if s.guessed:
+			kept += 1
+	check(kept == added.size(), "the guessed mark is saved")
+	check(CourseGuesser.fill(c, 7).is_empty(), "a hole with everything gets nothing more")
+
+
+static func _ring_area_of(ring: PackedVector2Array) -> float:
+	var a := 0.0
+	for k in ring.size():
+		var p := ring[k]
+		var q := ring[(k + 1) % ring.size()]
+		a += p.x * q.y - q.x * p.y
+	return a * 0.5
+
+
+## Greens and bunkers found in a photo, and bunkers as lidar hollows, take
+## the place of guesses.
+func _test_detector() -> void:
+	var c := DesignedCourse.blank(Vector2(600, 600))
+	var h := DesignedHole.new()
+	h.tees = PackedVector2Array([Vector2(0, -150)])
+	h.pin = Vector2(0, 180)
+	h.par = 4
+	c.holes.append(h)
+	# 1 m photo: rough, a lighter round green of 13 m radius at the pin
+	# (pixel (300 - x, 300 - z)), a bunker to its +x side, and a long sandy
+	# track that isn't a bunker.
+	var photo := Image.create(600, 600, false, Image.FORMAT_RGB8)
+	photo.fill(Color(0.25, 0.4, 0.17))
+	for j in 600:
+		for i in 600:
+			var p := Vector2(300 - i, 300 - j)
+			if p.distance_to(h.pin) < 13.0:
+				photo.set_pixel(i, j, Color(0.36, 0.6, 0.3))
+			elif absf(p.x) < 15.0 and p.y > -60.0 and p.y < 160.0:
+				photo.set_pixel(i, j, Color(0.33, 0.52, 0.24))
+			elif Rect2(16, 176, 8, 6).has_point(p):
+				photo.set_pixel(i, j, Color(0.86, 0.8, 0.64))
+	photo.fill_rect(Rect2i(250, 80, 3, 100), Color(0.8, 0.76, 0.66))
+	var added := CourseGuesser.fill(c, 5, photo, false)
+	var green: CourseShape = null
+	var sand: Array[CourseShape] = []
+	for s in added:
+		if s.surface == Surface.Type.GREEN:
+			green = s
+		elif s.surface == Surface.Type.SAND:
+			sand.append(s)
+	check(green != null and green.has_meta("detected"), "the green is found in the photo")
+	var fairway: CourseShape = null
+	for s in added:
+		if s.surface == Surface.Type.FAIRWAY:
+			fairway = s
+	check(fairway != null and fairway.has_meta("detected"), "the fairway is found in the photo")
+	if fairway != null:
+		var fb := fairway.bounds()
+		check(absf(fb.size.x - 30.0) < 7.0 and fb.position.y > -80.0 and fb.end.y < 180.0, "found fairway in place: %s" % fb)
+	if green != null:
+		var a := absf(_ring_area_of(green.outline()))
+		check(a > 420.0 and a < 650.0, "found green size: %.0f m2" % a)
+	check(sand.size() == 1 and sand[0].has_meta("detected"), "one bunker found, the track left out (%d)" % sand.size())
+	if sand.size() == 1:
+		check(sand[0].bounds().get_center().distance_to(Vector2(20, 179)) < 2.0, "bunker in place: %s" % sand[0].bounds().get_center())
+	# Lidar: flat ground with a 0.8 m hollow beside the pin, no photo.
+	var c2 := DesignedCourse.blank(Vector2(600, 600))
+	c2.holes.append(h)
+	for j in c2.rows:
+		for i in c2.cols:
+			var p := c2.sample_pos(i, j)
+			c2.heights[j * c2.cols + i] = -0.8 if Rect2(-26, 176, 7, 5).has_point(p) else 0.0
+	var sand2: Array[CourseShape] = []
+	for s in CourseGuesser.fill(c2, 5, null, true):
+		if s.surface == Surface.Type.SAND:
+			sand2.append(s)
+	check(sand2.size() == 1 and sand2[0].has_meta("detected"), "one bunker found as a lidar hollow (%d)" % sand2.size())

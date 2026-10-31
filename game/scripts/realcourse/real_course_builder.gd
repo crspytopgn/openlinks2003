@@ -12,6 +12,7 @@ const MARGIN := 80.0  ## metres of ground kept round the course boundary
 const MAX_SIZE := 3600.0  ## largest course side, metres
 const SEARCH_RADIUS := 1500.0  ## metres round the picked point with no boundary
 const MAX_TREES := 6000
+const LAND_TREE_CLEAR := 25.0  ## metres from a hole's line kept free of land-cover trees
 const NEAR_CELL := 8.0  ## metres, for spacing checks between trees
 const WOOD_SPACING := 9.0  ## metres between trees in a wood
 const ROW_SPACING := 7.0  ## metres between trees in a tree row
@@ -56,6 +57,14 @@ var _buildings: Array[Dictionary] = []  ## {"ring", "box"}, grown 2 m
 ## photo (course points). With lidar trees, woods aren't filled by guesswork.
 var lidar_trees: Array[Dictionary] = []
 var photo_trees := PackedVector2Array()
+## Trees from the land cover (LandCover.tree_points), used when there are
+## no lidar or photo trees, outside the mapped woods.
+var land_trees := PackedVector2Array()
+## The course photo (AerialPhotos.course_photo) and whether the heights
+## came from lidar, for finding greens and bunkers the map lacks.
+var photo: Image
+var lidar_heights := false
+var _guessed: Array[Dictionary] = []  ## CourseGuesser's shapes: {"ring", "box"}
 ## With several courses at one club (golf:course:name on the holes),
 ## build only this one; empty builds every hole.
 var course_filter := ""
@@ -141,9 +150,20 @@ func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	_fill_heights(c, height, fallback)
 	_add_shapes(c)
 	_add_holes(c)
+	# Paths first: sandy tracks found in the photo aren't bunkers.
 	_add_paths(c)
+	_guessed.clear()
+	var detected := 0
+	for s in CourseGuesser.fill(c, hash(c.course_name), photo, lidar_heights):
+		if s.has_meta("detected"):
+			detected += 1
+		var ring := s.outline()
+		var r := Rect2(ring[0], Vector2.ZERO)
+		for p in ring:
+			r = r.expand(p)
+		_guessed.append({"ring": ring, "box": r})
 	_add_trees(c)
-	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size()}
+	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size() - detected, "detected": detected}
 	return c
 
 
@@ -566,6 +586,7 @@ func _add_trees(c: DesignedCourse) -> void:
 		return
 	for p in photo_trees:
 		_plant(c, p, _leaf_at(p), 0.0, clear, 4.0)
+	_add_land_trees(c, clear)
 	# Woods are filled on a jittered grid, thinned to keep within MAX_TREES.
 	var wood_area := 0.0
 	for d in _polys:
@@ -591,6 +612,34 @@ func _add_trees(c: DesignedCourse) -> void:
 					_plant(c, p, d["leaf"], 0.0, clear, spacing * 0.5)
 				x += spacing
 			z += spacing
+
+
+## Land-cover trees outside the mapped woods (which are filled below),
+## nearest the holes first. Only without lidar or photo trees.
+func _add_land_trees(c: DesignedCourse, clear: Array[Dictionary]) -> void:
+	if not photo_trees.is_empty():
+		return
+	var found: Array[Dictionary] = []
+	for p in land_trees:
+		var in_wood := false
+		for d in _polys:
+			if d.has("wood") and Geometry2D.is_point_in_polygon(p, d["ring"]):
+				in_wood = true
+				break
+		var d := _hole_distance(p, c.holes)
+		# At 10 m, tree-lined fairways read as woods: keep the line of play
+		# clear even where its fairway isn't mapped.
+		if not in_wood and d > LAND_TREE_CLEAR:
+			found.append({"p": p, "d": d})
+	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["d"] < b["d"])
+	# Keep room for the mapped woods.
+	var budget := MAX_TREES >> 1
+	for t in found:
+		if budget <= 0:
+			break
+		var before := c.objects.size()
+		_plant(c, t["p"], _leaf_at(t["p"]), 0.0, clear, 5.0)
+		budget -= c.objects.size() - before
 
 
 ## Distance from a point to the nearest hole's line of play.
@@ -661,7 +710,7 @@ func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: A
 
 ## The play areas trees keep off, grown 2 m, with their bounds.
 func _play_rings() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
+	var out: Array[Dictionary] = _guessed.duplicate()
 	for d in _polys:
 		if d.has("wood") or not d["surface"] in [Surface.Type.FAIRWAY, Surface.Type.GREEN, Surface.Type.TEE, Surface.Type.SAND, Surface.Type.WATER]:
 			continue

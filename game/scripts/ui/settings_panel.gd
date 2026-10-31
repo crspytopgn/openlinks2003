@@ -28,12 +28,15 @@ var _scale: OptionButton
 var _fov: OptionButton
 var _wind: OptionButton
 var _presentation: OptionButton
+var _sky: OptionButton
+var _sky_values := PackedStringArray()  ## CourseBackdrop sky settings, per _sky item
 var _disc_sounds: OptionButton  ## web only
 var _skill: OptionButton
 var _swing: OptionButton
 var _swing_help: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
+var _caddie: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -87,6 +90,8 @@ func _ready() -> void:
 		fovs.append("%d deg" % roundi(f))
 	_fov = _row(grid, "Field of view", fovs)
 	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
+	_sky = _row(grid, "Sky (next course)", [], false)
+	_sky.item_selected.connect(_on_sky_selected)
 	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
 	if OS.has_feature("web"):
 		# The disc's crowd, menu and voice sounds are tens of MB to copy into
@@ -97,6 +102,7 @@ func _ready() -> void:
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
+	_caddie = _row(grid, "Caddie", ["Off", "On (advice follows swing skill)"])
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -127,6 +133,7 @@ func open(s: GraphicsSettings) -> void:
 	_fov.select(_closest(FOV_CHOICES, s.fov))
 	_wind.select(s.wind)
 	_presentation.select(s.presentation)
+	_fill_skies()
 	if _disc_sounds != null:
 		_disc_sounds.select(1 if s.web_disc_sounds else 0)
 	_skill.select(s.skill)
@@ -134,6 +141,7 @@ func open(s: GraphicsSettings) -> void:
 	_swing_help.select(1 if s.swing_help else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
+	_caddie.select(1 if s.caddie else 0)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -296,6 +304,21 @@ func _on_hd_selected(index: int) -> void:
 	_show_hd()
 
 
+## The sky choices: the course's own, random, the disc's skies and any
+## custom skies in the player's skies folder (the 1.07 patch).
+func _fill_skies() -> void:
+	_sky.clear()
+	_sky_values = CourseBackdrop.sky_choices()
+	for v in _sky_values:
+		_sky.add_item(CourseBackdrop.display_name(v))
+	_sky.select(maxi(0, _sky_values.find(CourseBackdrop.sky_setting())))
+
+
+func _on_sky_selected(index: int) -> void:
+	if index >= 0 and index < _sky_values.size():
+		CourseBackdrop.save_sky_setting(_sky_values[index])
+
+
 func _row(grid: GridContainer, label: String, items: Array, connect_change := true) -> OptionButton:
 	var l := Label.new()
 	l.text = label
@@ -328,6 +351,7 @@ func _on_selected() -> void:
 	settings.swing_help = _swing_help.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
+	settings.caddie = _caddie.selected == 1
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

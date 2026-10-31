@@ -44,6 +44,8 @@ var credits := ""
 var source := {}
 var _photo: Image
 var _photo_tried := false
+var _cover: Image
+var _cover_tried := false
 
 
 ## A flat course of the given size, centred on the origin.
@@ -354,12 +356,7 @@ static func from_json(text: String) -> DesignedCourse:
 func photo_image() -> Image:
 	if not _photo_tried:
 		_photo_tried = true
-		var file := str(source.get("photo", ""))
-		var path := FOLDER.path_join(file)
-		if not file.is_empty() and file.get_file() == file and FileAccess.file_exists(path):
-			var img := Image.load_from_file(path)
-			if img != null and not img.is_empty():
-				_photo = img
+		_photo = _sidecar(str(source.get("photo", "")))
 	return _photo
 
 
@@ -367,6 +364,34 @@ func photo_image() -> Image:
 func set_photo(img: Image) -> void:
 	_photo = img
 	_photo_tried = true
+
+
+## The land-cover colour picture kept beside the course (source.ground), in
+## the photo's layout; used for the ground colours when there is no photo.
+func ground_cover_image() -> Image:
+	if not _cover_tried:
+		_cover_tried = true
+		_cover = _sidecar(str(source.get("ground", "")))
+	return _cover
+
+
+func set_ground_cover(img: Image) -> void:
+	_cover = img
+	_cover_tried = true
+
+
+## What the ground takes its colours from: the photo, else the land cover.
+func tint_image() -> Image:
+	var p := photo_image()
+	return p if p != null else ground_cover_image()
+
+
+static func _sidecar(file: String) -> Image:
+	var path := FOLDER.path_join(file)
+	if file.is_empty() or file.get_file() != file or not FileAccess.file_exists(path):
+		return null
+	var img := Image.load_from_file(path)
+	return img if img != null and not img.is_empty() else null
 
 
 static func load_file(path: String) -> DesignedCourse:
@@ -392,6 +417,19 @@ func default_path() -> String:
 	if file.is_empty():
 		file = "Untitled"
 	return FOLDER.path_join(file + "." + EXTENSION)
+
+
+## Where to save: the file named after the course, unless a different
+## course already has it; then "Name 2", "Name 3" and so on. `own` is the
+## file this course was opened from or last saved to.
+func save_path(own := "") -> String:
+	var base := default_path()
+	var p := base
+	var n := 2
+	while p != own and FileAccess.file_exists(p):
+		p = "%s %d.%s" % [base.get_basename(), n, EXTENSION]
+		n += 1
+	return p
 
 
 ## Saved designed courses, sorted by file name.

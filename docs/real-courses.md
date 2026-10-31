@@ -24,6 +24,7 @@ and the next import picks them up.
 | Ground heights | National lidar where a service covers the course (below), else the [Terrain Tiles on AWS Open Data](https://registry.opendata.aws/terrain-tiles/) (Mapzen "Terrarium" PNG tiles, zoom 15) | Per source, below |
 | Trees | Lidar canopy height (surface model minus ground) where offered, else the aerial photo, plus OpenStreetMap's trees and woods | As the source |
 | Aerial photo | National orthophoto tile services (below) | Per source, below |
+| Land cover (trees the map lacks, ground colours without a photo) | [Impact Observatory / Microsoft / Esri Sentinel-2 10 m land cover](https://www.arcgis.com/home/item.html?id=cfcb7609de5f478eb7666240902d4d3d), Esri image service | CC BY 4.0 |
 
 ### Elevation by country
 
@@ -104,7 +105,7 @@ photo**), to check and trace the course against.
 | France | IGN BD ORTHO via the Geoplateforme | Licence Ouverte 2.0 |
 | Spain | PNOA (IGN Espana) | CC BY 4.0 |
 | Japan | GSI seamless photo | GSI terms (credit) |
-| United States | USGS The National Map orthoimagery (NAIP) | Public domain |
+| United States | USGS The National Map orthoimagery (NAIP), zoom 16 at most | Public domain |
 
 WMS services are asked for each web mercator tile's box. Services answer
 white or empty tiles outside their country; those don't count, and the next
@@ -116,12 +117,29 @@ and kept near the game's own brightness: most beyond the course (fields,
 tracks, car parks), a lot in the rough (worn and dry patches), and only a
 touch on fairways, tees and greens, which keep their stripes. Deep shade
 and water in the photo are skipped. This works in the designer and in the
-round (`DesignedTerrain`, `DesignedCourse.photo_image()`).
+round (`DesignedTerrain`, `DesignedCourse.tint_image()`).
 
 The photo also helps with trees. With lidar trees, the crown colour picks
 pines (dark green) or broadleaves (lighter, or brown in a winter photo).
 Without lidar, cells of 5 m that are mostly dark leafy pixels or deep shade,
 darker than the fairways' grass, become trees.
+
+### Land cover (everywhere)
+
+`LandCover` (`game/scripts/realcourse/land_cover.gd`) fetches the 10 m
+Sentinel-2 land cover for the course box in one request (8-bit classes:
+water, trees, flooded vegetation, crops, built-up, bare, snow, clouds,
+grass and scrub). It is used where the finer data is missing:
+
+- **Trees:** without lidar or photo trees, each tree pixel outside the
+  mapped woods gets a tree, nearest the holes first, at most half of the
+  tree budget, and none within 25 m of a hole's line (at 10 m a tree-lined
+  fairway reads as woods).
+- **Ground colours:** without a photo, a picture of the classes in their
+  typical colours (fields, bare ground, towns, grass, woods) is saved
+  beside the course as `<course>.ground.png` (`source.ground`) and tints the
+  ground the same way a photo does. It is coarse (10 m) and doesn't show in
+  the designer's photo overlay.
 
 ### Not covered yet
 
@@ -179,6 +197,40 @@ OpenStreetMap from the club's own published scorecard.
   `landuse=forest`) filled on a jittered 9 m grid, thinned to keep the
   course under 5000 trees. `leaf_type` picks pines or broadleaves. No tree
   is planted on a fairway, green, tee, bunker or in water.
+- **What the map lacks:** many clubs are mapped with their hole lines but
+  not every green, tee, fairway or bunker. `CourseGuesser`
+  (`game/scripts/realcourse/course_guesser.gd`) fills in whatever a hole is
+  missing. First it looks for the real thing (`CourseDetector`,
+  `course_detector.gd`):
+  - **Greens in the photo:** the evenly coloured grass grown out from the
+    pin (its colour the median within 4 m of the pin), with the loosest
+    colour match that doesn't yet leak 26 m out (into the fringe and
+    fairway), 150 to 1200 m2.
+  - **Bunkers in the photo:** compact patches of bright, whitish or pale
+    yellow sand by the green and at the driving distance, 15 to 600 m2, at
+    least 3 m wide in every direction and not on a mapped path (sandy
+    tracks).
+  - **Fairways in the photo:** on a softened copy (about 2.5 m a pixel),
+    cross-sections every 10 m along the line find the band of grass of the
+    line's own colour that crosses it; the longest run of 15 to 60 m wide
+    sections, at least half the hole, with steady widths (spread under a
+    quarter of the mean), becomes the fairway. Ragged bands (rough,
+    heather, a winter photo) are left to the fallback.
+  - **Bunkers in lidar:** without a photo, hollows at least 0.3 m below
+    the ground 6 to 8 m round them.
+  On Hilversum (greens and bunkers removed from the map, then found
+  again), 13 of 20 greens were found, 10 of them within half their mapped
+  size; most bunkers were found, plus some unmapped ones. Its winter
+  photo is too low in contrast for fairways, so they fall back.
+  Whatever isn't found is drawn at typical sizes along the line: a green
+  round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
+  longer than wide), a tee box at each tee, on par 4s and 5s a fairway
+  from the landing area (at most 140 m out) to the green, about 34 m wide
+  and narrower at its ends, and, on holes with no bunker within 45 m of
+  the line, two or three greenside bunkers and a fairway bunker at 230 m.
+  Found and guessed shapes are saved with `"guessed": true`, and the
+  designer's message says how many of each there are, so they can be
+  checked against the photo and redrawn.
 - **Cart paths:** `golf=cartpath` and `golf_cart=designated` ways.
 - **Ground:** the lidar or tile heights at every 2 m sample, bilinear. Heights below
   -12 m (the sea floor) are raised to -12 m, then the grid is stored round
@@ -208,6 +260,9 @@ game/scripts/realcourse/
   geo_raster.gd           GeoRaster: GeoTIFF and BIL height grids
   national_lidar.gd       NationalLidar: the lidar services, and trees from the canopy
   aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
+  land_cover.gd           LandCover: 10 m land cover, trees and ground colours from it
+  course_guesser.gd       CourseGuesser: greens, tees, fairways and bunkers the map lacks
+  course_detector.gd      CourseDetector: real greens and bunkers in the photo and lidar
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests
@@ -217,6 +272,8 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
+- Greens in the lidar (smooth, raised) where there is no photo, and
+  fairways in low-contrast photos.
 - More lidar and photo services (above); reprojecting from national
   grids would open most of the rest.
 - Buildings (`building=*`, already read to keep trees off them) as
