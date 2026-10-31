@@ -1073,13 +1073,12 @@ func _build_ui() -> void:
 		_holes_changed()
 		_focus_hole())
 	panel.hole_action.connect(func(a: String) -> void:
-		match a:
-			"add":
-				_add_hole()
-			"delete":
-				_delete_hole()
-			"flyover":
-				_start_flyover())
+		if a == "add":
+			_add_hole()
+		elif a == "delete":
+			_delete_hole()
+		else:
+			_start_flyover())
 	panel.par_changed.connect(func(v: int) -> void:
 		if hole_index >= 0:
 			_push_undo()
