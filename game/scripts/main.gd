@@ -150,6 +150,10 @@ var settings_panel: SettingsPanel
 var pause_menu: PauseMenu
 var ambience: CourseAmbience
 var voice: GolferVoice
+## Golfer voice lines still to come during the shot playing now.
+var _voice_flight := ""
+var _voice_flight_at := INF
+var _voice_landing := ""
 var post: PostProcess
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
@@ -159,6 +163,15 @@ var _trail_mesh := ImmediateMesh.new()
 var broadcast := false
 var tracer: BallTracer
 var green_grid: GreenGrid
+## The Tour presentation (GraphicsSettings.Presentation.TOUR): the tour
+## graphics package on top of Broadcast.
+var tour := false
+var driving_zone: DrivingZone
+var putt_read: PuttRead
+var _tour_map: HoleMap
+var _tour_dots: Array = []  ## [where a shot finished, player] this hole
+var _putt := {}
+var _putt_from := Vector3.INF
 var grid_on := true
 var _replaying := false
 var _replay_time := 0.0
@@ -396,6 +409,9 @@ func start_hole(index: int) -> void:
 	if broadcast:
 		text = ""
 		hud.overlay.wipe()
+		_tour_dots.clear()
+		_putt_from = Vector3.INF
+		_tour_map = HoleMap.build(hole) if tour else null
 		hud.overlay.hole_card({"number": hole.number, "par": hole.par,
 			"yards": roundi(hole.length_m() * YARDS_PER_METRE), "name": course.course_name}, HoleMap.make(hole))
 		camera.start_flyover(hole)
@@ -517,6 +533,7 @@ func play_shot(power: float, accuracy: float) -> void:
 	shot_time = 0.0
 	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
 	camera.follow(shot, hole.pin, club.is_putter)
+	_plan_voice(power, accuracy)
 	aim_marker.visible = false
 	green_grid.visible = false
 	if broadcast:
@@ -531,6 +548,7 @@ func play_shot(power: float, accuracy: float) -> void:
 	hud.show_message("")
 	hud.hint.text = "Space or click: skip"
 	state = State.FLIGHT
+	_update_tour()
 
 
 ## Advances the game one step without input, playing sensible shots: used by
@@ -786,9 +804,15 @@ func _process_flight(delta: float) -> void:
 	var p := shot.position_at(shot_time)
 	_place_ball(p)
 	_draw_trail(shot.sample_index_at(shot_time), p)
+	if shot_time >= _voice_flight_at:
+		_voice_flight_at = INF
+		if voice != null:
+			voice.say(_voice_flight)
 	if shot_time >= _land_time:
 		_land_time = INF
 		sounds.play(&"land")
+		if voice != null:
+			voice.say(_voice_landing)
 	if shot_time >= shot.time_s:
 		_complete_flight()
 
@@ -811,6 +835,8 @@ func _complete_flight() -> void:
 			strokes == 1, hole.par, strokes, rest_pin, _shot_from_pin, past))
 	if broadcast:
 		_report_shot()
+	if tour:
+		_tour_dots.append([shot.rest, shooter])
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
@@ -1321,6 +1347,12 @@ func _build_world() -> void:
 	add_child(trail)
 	tracer = BallTracer.new()
 	add_child(tracer)
+	driving_zone = DrivingZone.new()
+	driving_zone.visible = false
+	add_child(driving_zone)
+	putt_read = PuttRead.new()
+	putt_read.visible = false
+	add_child(putt_read)
 	green_grid = GreenGrid.new()
 	add_child(green_grid)
 
@@ -1418,10 +1450,17 @@ func _apply_graphics() -> void:
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)
 	broadcast = graphics.broadcast()
+	tour = broadcast and graphics.tour()
 	camera.broadcast = broadcast
-	hud.set_broadcast(broadcast)
+	hud.set_broadcast(broadcast, tour)
 	trail.visible = not broadcast
 	tracer.visible = broadcast
+	tracer.set_style(tour)
+	if tour and hole != null and _tour_map == null:
+		_tour_map = HoleMap.build(hole)
+	if not tour:
+		driving_zone.clear()
+		putt_read.clear()
 	if not broadcast:
 		hud.overlay.show_pip(false)
 		camera.end_flyover()
@@ -1587,6 +1626,7 @@ func _update_hud() -> void:
 	hud.show_shot(club, reach_text, rise, Surface.name_of(lie), 1.0 if club.is_putter else Surface.lie_power(lie))
 	if broadcast:
 		hud.overlay.set_status(_status(state == State.AIM or state == State.SWING))
+	_update_tour()
 
 
 ## The player's name, with the level of a computer golfer unless the name
@@ -1787,3 +1827,91 @@ func _update_green_grid() -> void:
 	green_grid.visible = on
 	if on:
 		green_grid.build(hole.terrain, ball_at, hole.pin)
+
+
+# --- Golfer voice -------------------------------------------------------------
+
+## Picks the golfer's lines for the shot just struck: one at impact now, one
+## during the flight or roll, one at the landing (GolferVoice). Timings are
+## best guesses: a third of the way through a putt, a second into a flight.
+func _plan_voice(power: float, accuracy: float) -> void:
+	_voice_flight_at = INF
+	_voice_landing = ""
+	if voice == null:
+		return
+	var putting := clubs[club_index].is_putter
+	var from_tee := strokes == 0 and hole.par > 3
+	voice.say(GolferVoice.swing_event(power, accuracy, putting))
+	var dir := _aim_dir()
+	var land := shot.first_landing if shot.bounces > 0 else shot.rest
+	var left_m := (land - shot_from).dot(Vector3.UP.cross(dir))
+	var to_pin := 0.0 if shot.outcome == ShotResult.Outcome.HOLED else _flat_distance(shot.rest, hole.pin)
+	var to_hole := Vector2(hole.pin.x - shot_from.x, hole.pin.z - shot_from.z)
+	var past := Vector2(shot.rest.x - hole.pin.x, shot.rest.z - hole.pin.z).dot(to_hole) > 0.0
+	_voice_flight = GolferVoice.flight_event(shot, putting, from_tee, to_pin, past, left_m)
+	_voice_flight_at = shot.time_s * 0.35 if putting else minf(1.0, shot.time_s * 0.4)
+	if not putting and shot.bounces > 0:
+		var land_past := Vector2(land.x - hole.pin.x, land.z - hole.pin.z).dot(to_hole) > 0.0
+		_voice_landing = GolferVoice.landing_event(shot, from_tee, _flat_distance(land, hole.pin), land_past)
+
+
+# --- Tour graphics ------------------------------------------------------------
+
+## Feeds TourGraphics and draws the driving zone or the putt read while a
+## shot is being set up; hides them once it's struck.
+func _update_tour() -> void:
+	if not tour or hole == null:
+		return
+	var aiming := state == State.AIM or state == State.SWING
+	var putting := clubs[club_index].is_putter
+	var to_pin := _flat_distance(ball_at, hole.pin)
+	var zone := {}
+	if aiming and not putting and strokes == 0 and hole.par > 3:
+		var spread: float = DrivingZone.SPREAD_DEG[clampi(graphics.skill, 0, DrivingZone.SPREAD_DEG.size() - 1)]
+		zone = DrivingZone.compute(hole, ball_at, aim_deg, _club_reach(), strokes, spread)
+		driving_zone.show_zone(zone, hole, ball_at, aim_deg)
+	else:
+		driving_zone.clear()
+	hud.tour.zone = zone
+	var read := {}
+	if aiming and putting and (lie == Surface.Type.GREEN or (lie == Surface.Type.FRINGE and to_pin < 15.0)):
+		if not _putt_from.is_equal_approx(ball_at):
+			_putt = PuttRead.read(shot_model, clubs, hole, ball_at, lie)
+			_putt_from = ball_at
+		read = _putt
+		putt_read.show_read(read, ball_at)
+	else:
+		putt_read.clear()
+	hud.tour.putt = read
+	if _tour_map == null:
+		_tour_map = HoleMap.build(hole)
+	if aiming and not putting:
+		hud.overlay.hide_shot_card()  # the map has that corner while aiming
+	hud.tour.set_map(_tour_map, _tour_dots, ball_at, aiming and not putting)
+	hud.tour.set_state(_tour_state(aiming, putting, to_pin))
+
+
+func _tour_state(aiming: bool, putting: bool, to_pin: float) -> Dictionary:
+	var club := clubs[club_index]
+	var rows: Array = []
+	for i in scoring.names.size():
+		var c := scoring.cards[i]
+		rows.append({"name": scoring.names[i], "player": i, "current": i == shooter,
+			"score": c.to_par(), "to_par": "E" if c.holes_played() == 0 or c.to_par() == 0 else Scorecard.format_to_par(c.to_par())})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.score < b.score or (a.score == b.score and a.player < b.player))
+	for i in rows.size():
+		var score: int = rows[i].score
+		var first := i
+		while first > 0 and int(rows[first - 1].score) == score:
+			first -= 1
+		var tied: bool = first < i or (i + 1 < rows.size() and int(rows[i + 1].score) == score)
+		rows[i].pos = ("T%d" if tied else "%d") % (first + 1)
+	return {
+		"to_play": holes.size() - hole_index, "round": "%s  \u00b7  %s" % [course.course_name, GameModes.MODE_NAMES[round_setup.mode]] if round_setup != null else course.course_name,
+		"rows": rows, "hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
+		"stroke": strokes + 1, "aiming": aiming, "putting": putting, "club": club.full_name,
+		"carry_yd": roundi(club.carry_m * Surface.lie_power(lie) * YARDS_PER_METRE),
+		"total_yd": roundi(_club_reach() * YARDS_PER_METRE), "to_pin_yd": roundi(to_pin * YARDS_PER_METRE),
+		"wind_mph": 0.0 if wind.is_calm() else wind.speed_mph(), "wind_rel_deg": wind.relative_deg(aim_deg),
+		"expected": strokes + OpponentSkill.expected_strokes(to_pin, lie),
+	}

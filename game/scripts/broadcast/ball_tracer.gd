@@ -11,6 +11,11 @@ const MIN_WIDTH := 0.04
 const WIDTH_PER_METRE := 0.0035  ## of distance from the camera
 const MAX_POINTS := 400  ## older samples are skipped evenly beyond this
 
+## The ribbon's colours and width; set_style changes them (the Tour
+## presentation draws a taller teal tracer).
+var color := COLOR
+var core := CORE
+var width_scale := 1.0
 var _mesh := ImmediateMesh.new()
 
 
@@ -25,6 +30,12 @@ func _init() -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.no_depth_test = false
 	material_override = mat
+
+
+func set_style(tour: bool) -> void:
+	color = Color(0.15, 0.85, 0.8) if tour else COLOR
+	core = Color(0.75, 1.0, 0.95) if tour else CORE
+	width_scale = 1.6 if tour else 1.0
 
 
 func clear() -> void:
@@ -47,8 +58,8 @@ func draw(points: PackedVector3Array, upto: int, head: Vector3, eye: Vector3) ->
 		return
 	# Two passes: a wide soft glow and a thin bright core.
 	for pass_i in 2:
-		var scale := 2.6 if pass_i == 0 else 0.8
-		var tint := COLOR if pass_i == 0 else CORE
+		var scale := (2.6 if pass_i == 0 else 0.8) * width_scale
+		var tint := color if pass_i == 0 else core
 		var strength := 0.45 if pass_i == 0 else 0.9
 		_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 		for i in n:

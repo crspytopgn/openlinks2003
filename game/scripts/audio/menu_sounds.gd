@@ -22,7 +22,7 @@ var _music_player: AudioStreamPlayer
 
 ## Null without SOUNDS.LS in the game folder.
 static func from_game_folder(with_music: bool) -> MenuSounds:
-	if OS.has_feature("web"):
+	if not GraphicsSettings.disc_sounds():
 		return null
 	var path := GameFolder.find_file(PackedStringArray(["sounds.ls", "SOUNDS.LS"]))
 	if path.is_empty():
@@ -40,7 +40,10 @@ func _ready() -> void:
 	_music_player = AudioStreamPlayer.new()
 	_music_player.volume_db = MUSIC_DB
 	add_child(_music_player)
-	_task = WorkerThreadPool.add_task(_load)
+	if OS.has_feature("web"):
+		_load()  # single-threaded build
+	else:
+		_task = WorkerThreadPool.add_task(_load)
 	get_tree().node_added.connect(_hook)
 	_hook_all(get_tree().current_scene if get_tree().current_scene != null else get_parent())
 
