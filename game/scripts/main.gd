@@ -286,6 +286,8 @@ func start_round() -> void:
 	if versus != null:
 		round_seed = versus.round_seed
 	holes.clear()
+	if round_setup.pin_seed == 0 or resume.is_empty():
+		round_setup.pin_seed = round_seed
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
 	var stroke_index: Array[int] = []
@@ -293,6 +295,7 @@ func start_round() -> void:
 		var h := course.holes[i]
 		if h.tees.size() > 1:
 			h.tee = h.tees[round_setup.tee_index(h.tees.size())]
+		h.pin = RoundSetup.pick_pin(h, round_setup.pins if versus == null else versus.pins, round_setup.pin_seed)
 		holes.append(h)
 		pars.append(h.par)
 		numbers.append(h.number)

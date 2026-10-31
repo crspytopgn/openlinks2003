@@ -106,6 +106,17 @@ counted as a putt. The conceded stroke is kept with the round's drops
 Never in a friend's round from a result code, nor in a scramble, whose best
 ball is picked only after everyone has played.
 
+### Hole positions
+
+Links 2003 courses keep 18 hole positions for each hole, in three groups of
+six (`HoleData.pins`, [crz.md](formats/crz.md)). Round setup > Pins plays
+the usual one (the first) or a random one per hole, picked from the round
+seed (`RoundSetup.pick_pin`), so a friend's round from a result code and a
+resumed round play the same positions. What the three groups stand for
+(days of a tournament, or difficulty) isn't known yet, so the choice is
+over all of them. Courses with one position (the placeholder and designed
+courses) keep it.
+
 ### Practice range
 
 Round setup > Play > Practice range: one person hits from the tee of the

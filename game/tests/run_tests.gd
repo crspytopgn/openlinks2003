@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("shot_shape", _test_shot_shape)
+	_run("pin_positions", _test_pin_positions)
 	_run("swing_meter", _test_swing_meter)
 	_run("analog_swing", _test_analog_swing)
 	_run("scorecard", _test_scorecard)
@@ -407,6 +408,25 @@ func _test_swing_accuracy() -> void:
 	var rough := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.ROUGH), fairway)
 	var clean := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), fairway)
 	_check(rough.carry_m < clean.carry_m, "rough costs distance")
+
+
+func _test_pin_positions() -> void:
+	var h := HoleData.new()
+	h.number = 3
+	h.pin = Vector3(1, 0, 1)
+	_check(RoundSetup.pick_pin(h, 1, 1234) == h.pin, "a hole with one position keeps it")
+	for i in 18:
+		h.pins.append(Vector3(i, 0, 100))
+	_check(RoundSetup.pick_pin(h, 0, 1234) == h.pins[0], "usual positions play the first")
+	var seen := {}
+	for round_seed in range(1, 200):
+		var p := RoundSetup.pick_pin(h, 1, round_seed)
+		_check(p == RoundSetup.pick_pin(h, 1, round_seed), "the same seed, the same position")
+		seen[p] = true
+	_check(seen.size() >= 12, "random positions use most of the course's (%d of 18)" % seen.size())
+	var rec := RoundRecord.new()
+	rec.pins = 1
+	_check(RoundRecord.from_dict(rec.to_dict()).pins == 1, "the record keeps the pin setting")
 
 
 func _test_shot_shape() -> void:

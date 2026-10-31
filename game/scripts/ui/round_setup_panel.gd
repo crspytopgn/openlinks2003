@@ -21,6 +21,7 @@ var _teams: Array[OptionButton] = []
 var _who: Array[OptionButton] = []
 var _handicaps: OptionButton
 var _play: OptionButton
+var _pins: OptionButton
 var _indexes: Array[LineEdit] = []
 var _records: Array[Label] = []
 var _profiles := PlayerProfiles.new()
@@ -54,6 +55,7 @@ func _ready() -> void:
 	_course.custom_minimum_size = Vector2(380, 36)
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
+	_pins = _row(grid, "Pins", RoundSetup.PINS_NAMES)
 	_play = _row(grid, "Play", ["A round", "Practice range"])
 	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
@@ -161,6 +163,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_course.select(clampi(selected, 0, courses.size() - 1))
 	_tees.select(saved.tees)
 	_holes.select(saved.holes)
+	_pins.select(saved.pins)
 	_mode.select(saved.mode)
 	_handicaps.select(1 if saved.handicaps else 0)
 	_play.select(0)
@@ -183,6 +186,7 @@ func current_setup() -> RoundSetup:
 	var s := RoundSetup.new()
 	s.tees = _tees.selected as RoundSetup.Tees
 	s.holes = _holes.selected as RoundSetup.Holes
+	s.pins = _pins.selected
 	s.mode = _mode.selected as GameModes.Mode
 	s.handicaps = _handicaps.selected == 1
 	s.practice = _play.selected == 1
@@ -317,6 +321,7 @@ func _open_code() -> void:
 	_course.select(slot)
 	_tees.select(rec.tees)
 	_holes.select(rec.holes)
+	_pins.select(rec.pins)
 	var where := rec.course_name
 	var wind: String = Wind.LEVEL_NAMES[clampi(rec.wind_level, 0, Wind.LEVEL_NAMES.size() - 1)]
 	var path := "" if slot == 0 else course_paths[slot - 1]

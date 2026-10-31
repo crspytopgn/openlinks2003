@@ -80,7 +80,7 @@ static func mouse_inputs(stroke: LinksMouse.Stroke, outcome: LinksMouse.Outcome)
 
 ## The holes a round with these RoundSetup holes and tees plays on `course`,
 ## in order, with the tee set as GolfRound sets it.
-static func holes_for(course: CourseData, holes_setting: int, tees: int) -> Array[HoleData]:
+static func holes_for(course: CourseData, holes_setting: int, tees: int, pins := 0, round_seed := 0) -> Array[HoleData]:
 	var s := RoundSetup.new()
 	s.holes = holes_setting as RoundSetup.Holes
 	s.tees = tees as RoundSetup.Tees
@@ -89,6 +89,7 @@ static func holes_for(course: CourseData, holes_setting: int, tees: int) -> Arra
 		var h := course.holes[i]
 		if h.tees.size() > 1:
 			h.tee = h.tees[s.tee_index(h.tees.size())]
+		h.pin = RoundSetup.pick_pin(h, pins, round_seed)
 		out.append(h)
 	return out
 
@@ -108,7 +109,7 @@ static func check(record: RoundRecord, course_path: String) -> Dictionary:
 	if not errors.is_empty():
 		return {"ok": false, "checked": 0, "errors": errors, "cards_checked": false, "course_ok": false}
 	var course := AssetProviders.load_course(course_path)
-	var answer := verify(record, model, Club.standard_set(), holes_for(course, record.holes, record.tees))
+	var answer := verify(record, model, Club.standard_set(), holes_for(course, record.holes, record.tees, record.pins, record.round_seed))
 	answer["course_ok"] = true
 	return answer
 
