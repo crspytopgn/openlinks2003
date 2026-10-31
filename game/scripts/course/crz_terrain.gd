@@ -57,7 +57,7 @@ var _cell_items := PackedInt32Array()
 var _last := -1
 var _mesh: ArrayMesh
 var _mesh_photo := false
-var _ground_colors := {}  ## material -> Color, see ground_color_at()
+var _ground_colors := {}  ## material * 2 + photo -> Color, see ground_color_at()
 
 
 ## Builds the lookup grid. Call once after filling the arrays.
@@ -183,15 +183,21 @@ func ground_color_at(x: float, z: float) -> Color:
 	if t < 0:
 		return super(x, z)
 	var m := triangle_material[t]
-	if not _ground_colors.has(m):
+	# Keyed by the ground style too: grass tufts take the photo ground's
+	# deeper colour when it is on.
+	var key := m * 2 + (1 if photo_ground else 0)
+	if not _ground_colors.has(key):
 		var info: Dictionary = materials[m] if m < materials.size() else {}
 		var c: Color = info.get("colour", Color(0.3, 0.5, 0.2))
 		var tex: Texture2D = info.get("texture")
 		if tex != null:
 			var tint: Color = info.get("tint", Color.WHITE)
 			c = FreeAssets.mean_color(tex) * tint
-		_ground_colors[m] = c
-	return _ground_colors[m]
+		var ground := ground_classes[m] if m < ground_classes.size() else 3
+		if photo_ground and ground in PHOTO_CLASSES:
+			c = realistic(c, CLASS_SURFACE.get(ground, Surface.Type.ROUGH))
+		_ground_colors[key] = c
+	return _ground_colors[key]
 
 
 func normal_at(x: float, z: float) -> Vector3:

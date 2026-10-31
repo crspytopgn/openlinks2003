@@ -17,8 +17,8 @@ const AMBIENT_ENERGY := 0.5
 const SUN_ENERGY := 0.85
 ## Photoreal: a brighter sun under the ACES curve, which rolls the highlights
 ## off instead of clipping them.
-const PHOTO_SUN_ENERGY := 1.7
-const PHOTO_AMBIENT_ENERGY := 0.75
+const PHOTO_SUN_ENERGY := 2.0
+const PHOTO_AMBIENT_ENERGY := 0.5
 const PHOTO_EXPOSURE := 1.05
 
 var environment: Environment

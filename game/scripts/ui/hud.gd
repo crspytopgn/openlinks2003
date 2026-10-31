@@ -71,9 +71,7 @@ func use_art(hud_art: HudArt) -> void:
 		return
 	info.visible = false
 	meter.art = art
-	var want := meter.wanted_size()
-	_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
-	meter.queue_redraw()
+	_place_meter()
 	shot_panel = ShotPanel.new(art)
 	var panel := shot_panel.wanted_size()
 	_place(shot_panel, Control.PRESET_BOTTOM_LEFT, Rect2(12, -panel.y - 40.0, panel.x, panel.y))
@@ -126,6 +124,23 @@ func set_broadcast(on: bool) -> void:
 	# The wind sits below the LIVE bug, and the hints above the ticker.
 	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 50 if on else 12, 90, 112))
 	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+	meter.modern = on
+	_place_meter()
+
+
+## The meter: the modern bar bottom right above the ticker, clear of the
+## lower third and the golfer (Broadcast), the
+## original's bar centred at the bottom, or the arc bottom right.
+func _place_meter() -> void:
+	var want := meter.wanted_size()
+	meter.custom_minimum_size = want
+	if meter.modern:
+		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 24.0, -want.y - 100.0, want.x, want.y))
+	elif art != null:
+		_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
+	else:
+		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))
+	meter.queue_redraw()
 
 
 func _process(delta: float) -> void:
