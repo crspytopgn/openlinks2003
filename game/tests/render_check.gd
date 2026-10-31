@@ -2,14 +2,17 @@ extends SceneTree
 ## Renders the round with a real GPU driver (Mesa's software renderers in CI)
 ## so shader and material errors show up, which the headless test run can't
 ## catch. Shows hole 2 (it has a pond), plays one shot, saves a screenshot
-## and checks that the sky is blue and the ground green.
+## and checks that the sky is blue and the ground green. Then opens the
+## course designer and saves a screenshot of it too (out-designer.jpg).
 ##
 ##   godot --path game --rendering-method gl_compatibility -s res://tests/render_check.gd -- out.png
 
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
+const DESIGNER_FRAME := 150
 
 var _game: GolfRound
+var _designer: Node
 var _frames := 0
 var _out := ""
 
@@ -34,17 +37,26 @@ func _process(_delta: float) -> bool:
 		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()
 	elif _frames == CAPTURE_FRAME:
-		_capture()
+		if not _capture():
+			return true
+		_game.queue_free()
+		_designer = (load("res://scenes/course_designer.tscn") as PackedScene).instantiate()
+		root.add_child(_designer)
+	elif _frames == DESIGNER_FRAME:
+		_save_jpg(root.get_texture().get_image(), "-designer")
+		print("RENDER CHECK DONE")
+		quit(0)
 		return true
 	return false
 
 
-func _capture() -> void:
+## Saves the round's screenshot; false (and quits) if it looks wrong.
+func _capture() -> bool:
 	var img := root.get_texture().get_image()
 	if img == null or img.is_empty():
 		print("RENDER CHECK FAILED: no image")
 		quit(1)
-		return
+		return false
 	img.save_png(_out)
 	_save_jpg(img, "")
 	print("saved %s (%dx%d)" % [_out, img.get_width(), img.get_height()])
@@ -52,12 +64,10 @@ func _capture() -> void:
 	var bottom := _mean(img, Rect2i(img.get_width() / 4, img.get_height() * 3 / 4, img.get_width() / 2, img.get_height() / 8))
 	print("sky %s  ground %s" % [top, bottom])
 	var ok := top.b > top.r and top.b > 0.3 and bottom.g > bottom.b and bottom.g > 0.08
-	if ok:
-		print("RENDER CHECK DONE")
-		quit(0)
-	else:
+	if not ok:
 		print("RENDER CHECK FAILED: unexpected colours")
 		quit(1)
+	return ok
 
 
 ## A smaller JPEG copy next to the PNG (out-tee.jpg for the view from the

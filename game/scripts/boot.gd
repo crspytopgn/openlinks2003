@@ -8,6 +8,7 @@ extends Control
 ## be played with placeholder content.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
+const DESIGNER_SCENE := "res://scenes/course_designer.tscn"
 
 var _web: WebGameFiles
 var _title: Label
@@ -22,6 +23,9 @@ var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
 var _course_paths: PackedStringArray = []
+## What the setup page offers after the placeholder: the game's courses, then
+## the player's own designs.
+var _setup_paths: PackedStringArray = []
 var _stored := {}  ## browser build: picked relative path -> size
 var _busy := false
 
@@ -165,6 +169,7 @@ func _ask_for_files(problem := "") -> void:
 		["Load disc images...", _pick.bind(false)],
 		["Load a game folder...", _pick.bind(true)],
 		["Play with placeholders", _play_placeholders],
+		["Course designer", _open_designer],
 	])
 
 
@@ -255,7 +260,7 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 		_status.text = "Your game files are ready. No course files were found among them."
 	else:
 		_status.text = "Your game files are ready: %d courses." % courses.size()
-	var items: Array = [["Play a round", _open_setup]] + extra + [["Settings", _open_settings]]
+	var items: Array = [["Play a round", _open_setup]] + extra + [["Course designer", _open_designer], ["Settings", _open_settings]]
 	if not OS.has_feature("web"):
 		items.append(["Quit", get_tree().quit])
 	_set_buttons(items)
@@ -275,14 +280,15 @@ func _open_setup() -> void:
 	if _busy:
 		return
 	var names := PackedStringArray(["Placeholder Nine (built in)"])
-	for path in _course_paths:
+	_setup_paths = _course_paths + DesignedCourse.saved_paths()
+	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))
 	var saved := RoundSetup.load_saved()
 	# The last course played, or the first real one.
 	var selected := 0 if _course_paths.is_empty() else 1
 	var last := _last_course()
-	if not last.is_empty() and _course_paths.has(last):
-		selected = _course_paths.find(last) + 1
+	if not last.is_empty() and _setup_paths.has(last):
+		selected = _setup_paths.find(last) + 1
 	_main_box.visible = false
 	_settings.close()
 	_setup.open(names, selected, saved)
@@ -321,7 +327,7 @@ func _on_setup_start(chosen: RoundSetup, course_index: int) -> void:
 	chosen.save()
 	var cfg := ConfigFile.new()
 	cfg.load(GameFolder.SETTINGS_PATH)
-	cfg.set_value("round", "course", "" if course_index <= 0 else _course_paths[course_index - 1])
+	cfg.set_value("round", "course", "" if course_index <= 0 else _setup_paths[course_index - 1])
 	cfg.save(GameFolder.SETTINGS_PATH)
 	GolfRound.setup = chosen
 	if course_index <= 0:
@@ -330,8 +336,8 @@ func _on_setup_start(chosen: RoundSetup, course_index: int) -> void:
 		_start()
 		return
 	_close_setup()
-	var path := _course_paths[course_index - 1]
-	if _web != null:
+	var path := _setup_paths[course_index - 1]
+	if _web != null and not path.begins_with("user://"):
 		# In the browser the course is copied into memory only when chosen.
 		_busy = true
 		_bar.visible = true
@@ -374,6 +380,7 @@ func _show_desktop_choice() -> void:
 	_set_buttons([
 		["Choose game folder...", _choose_folder],
 		["Play with placeholders", _play_placeholders],
+		["Course designer", _open_designer],
 	])
 
 
@@ -413,3 +420,15 @@ static func _folder_ok(path: String) -> bool:
 
 func _start() -> void:
 	get_tree().change_scene_to_file(MAIN_SCENE)
+
+
+## Opens the course designer on the last course designed, if any.
+func _open_designer() -> void:
+	if _busy:
+		return
+	if CourseDesigner.last_path.is_empty():
+		var saved := DesignedCourse.saved_paths()
+		var last := _last_course()
+		if saved.has(last):
+			CourseDesigner.last_path = last
+	get_tree().change_scene_to_file(DESIGNER_SCENE)
