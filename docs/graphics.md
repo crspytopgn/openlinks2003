@@ -106,7 +106,9 @@ at Medium and grass at Low.
 `tests/render_check.gd` fails CI when the round goes over its budget, both
 at the flyover and from the tee, in Compatibility and Forward+, with the
 Photoreal look: 1,500 draw calls (shadow passes included), 2 million
-triangles, 2,500 scene objects and 512 MB of video memory per frame. These
+triangles, 2,500 scene objects and 512 MB of video memory per frame
+(1 GB in Forward+, which is desktop only: at Ultra its 8192-pixel shadow
+atlas alone takes 256 MB, and CI measured 590 MB at the flyover). These
 are counts rather than frame times, because CI renders in software and its
 timings say nothing about a player's GPU. Counts are what make a scene slow
 on phones and in the browser. The placeholder course used about 580 draw

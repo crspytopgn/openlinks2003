@@ -17,13 +17,16 @@ const DESIGNER_FRAME := 150
 ## software, so their frame times say nothing about a player's GPU, but
 ## draw calls, triangles, scene objects and video memory are the same
 ## everywhere and are what make a scene slow on phones and in the browser.
-## Raise a limit only with a reason in docs/graphics.md.
+## Raise a limit only with a reason in docs/graphics.md. Video memory is
+## the browser and phone limit in Compatibility; Forward+ is desktop only
+## and its Ultra shadow atlas alone (8192 squared) takes 256 MB.
 const BUDGET := {
 	"draw calls": 1500,
 	"triangles (millions)": 2.0,
 	"objects": 2500,
 	"video memory (MB)": 512.0,
 }
+const FORWARD_PLUS_VIDEO_MB := 1024.0
 
 var _game: GolfRound
 var _designer: Node
@@ -109,12 +112,15 @@ func _check_budget(view: String) -> bool:
 		"objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
 		"video memory (MB)": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
 	}
+	var limits := BUDGET.duplicate()
+	if GraphicsSettings.is_forward_plus():
+		limits["video memory (MB)"] = FORWARD_PLUS_VIDEO_MB
 	var ok := true
 	var line := "budget %s:" % view
-	for key: String in BUDGET:
+	for key: String in limits:
 		var value: float = used[key]
-		line += "  %s %.1f/%.1f" % [key, value, float(BUDGET[key])]
-		if value > float(BUDGET[key]):
+		line += "  %s %.1f/%.1f" % [key, value, float(limits[key])]
+		if value > float(limits[key]):
 			ok = false
 	print(line)
 	if not ok:
