@@ -11,7 +11,7 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, DRIVE }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -39,6 +39,10 @@ const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
+const HINT_DRIVE := "Up/Down or W/S: drive    Left/Right or A/D: steer    Space or click: skip to the ball    %d yd to go"
+const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
+const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
+const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
@@ -172,6 +176,8 @@ var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
 var caddie: Caddie  ## Settings > Caddie; null when off
+var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
+var _drive_to := -1  ## the ball the buggy is driving to
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
 
@@ -476,6 +482,8 @@ func start_hole(index: int) -> void:
 		p.putts = 0
 	_clear_trail()
 	hud.scorecard.visible = false
+	if buggy != null:
+		_park_buggy(hole.tee)
 	_begin_turn(_next_player(), true)
 	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
 	if broadcast:
@@ -675,6 +683,8 @@ func auto_play_step() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.HOLE_DONE:
 			_next_hole()
 
@@ -704,6 +714,8 @@ func _process(delta: float) -> void:
 					_after_result()
 			State.COMPUTER:
 				_process_computer(delta)
+			State.DRIVE:
+				_process_drive(delta)
 			State.HOLE_DONE:
 				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
 					result_timer -= delta
@@ -713,7 +725,8 @@ func _process(delta: float) -> void:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
 			start_replay()
-	camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	if state != State.DRIVE:
+		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
 	grass.update_around(camera.global_position)
 	_update_ball_size()
 	if broadcast:
@@ -841,6 +854,8 @@ func _on_swing_pressed() -> void:
 			_after_result()
 		State.DROP:
 			_finish_drop()
+		State.DRIVE:
+			_skip_drive()
 		State.COMPUTER:
 			# Hurry up: finish the plan and swing now.
 			opponents[shooter].finish()
@@ -1180,12 +1195,102 @@ func _pass_turn() -> void:
 	if next < 0:
 		_finish_hole()
 		return
+	if _start_drive(next):
+		return
+	_take_turn(next)
+
+
+func _take_turn(next: int) -> void:
 	if next == current and _shooter_of(next) == shooter:
 		_prepare_shot(false)
 	else:
 		_begin_turn(next, true)
 		if players.size() > 1:
 			hud.show_message("%s to play" % scoring.names[shooter], 1.5)
+
+
+# --- Golf buggy --------------------------------------------------------------
+
+## Settings > Golf buggy switched on or off.
+func _set_buggy(on: bool) -> void:
+	if on == (buggy != null):
+		return
+	if not on:
+		if state == State.DRIVE:
+			_skip_drive()
+		buggy.queue_free()
+		buggy = null
+		return
+	buggy = GolfBuggy.new()
+	add_child(buggy)
+	if hole != null:
+		_park_buggy(ball_at)
+
+
+## Leaves the buggy beside `p`, off the line to the pin.
+func _park_buggy(p: Vector3) -> void:
+	var spot := BuggyDrive.parking_spot(hole.terrain, p, hole.pin)
+	buggy.park(spot, rad_to_deg(atan2(hole.pin.x - spot.x, hole.pin.z - spot.z)), hole.terrain)
+
+
+## Drives to ball `next` if the buggy is on, a person plays it and it is
+## far enough away; false to play on at once.
+func _start_drive(next: int) -> bool:
+	if buggy == null or opponents[_shooter_of(next)] != null:
+		return false
+	var to := players[next].at
+	if _flat_distance(buggy.drive.position, to) < DRIVE_MIN_M:
+		return false
+	_drive_to = next
+	state = State.DRIVE
+	# The golfer (and caddie) are aboard.
+	if golfer:
+		golfer.visible = false
+	if caddie != null:
+		caddie.step_aside()
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
+	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.visible = true
+	ball.visible = true
+	hud.show_message("")
+	return true
+
+
+func _process_drive(delta: float) -> void:
+	var throttle := 0.0
+	if Input.is_action_pressed("ui_up") or Input.is_key_pressed(KEY_W):
+		throttle += 1.0
+	if Input.is_action_pressed("ui_down") or Input.is_key_pressed(KEY_S):
+		throttle -= 1.0
+	var steer := 0.0
+	if Input.is_action_pressed("ui_left") or Input.is_key_pressed(KEY_A):
+		steer += 1.0
+	if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+		steer -= 1.0
+	buggy.step(delta, throttle, steer, hole.terrain)
+	var view: Array = buggy.chase(delta, hole.terrain)
+	camera.position = view[0]
+	camera.look_at(view[1])
+	var to := players[_drive_to].at
+	var left := _flat_distance(buggy.drive.position, to)
+	hud.hint.text = HINT_DRIVE % roundi(left * YARDS_PER_METRE)
+	var s := hole.terrain.surface_at(to.x, to.z)
+	var arrive := DRIVE_ARRIVE_GREEN_M if s == Surface.Type.GREEN or s == Surface.Type.FRINGE else DRIVE_ARRIVE_M
+	if left < arrive and absf(buggy.drive.speed) < 0.5 and throttle <= 0.0:
+		_end_drive()
+
+
+## Space during a drive: the buggy is parked by the ball and play goes on.
+func _skip_drive() -> void:
+	_park_buggy(players[_drive_to].at)
+	_end_drive()
+
+
+func _end_drive() -> void:
+	var next := _drive_to
+	_drive_to = -1
+	state = State.SHOT_RESULT  # in between, until the turn begins
+	_take_turn(next)
 
 
 ## The current player is done with the hole: holed, or picked up after
@@ -1755,6 +1860,7 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 	_set_caddie(graphics.caddie)
+	_set_buggy(graphics.buggy)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
