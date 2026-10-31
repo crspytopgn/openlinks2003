@@ -1138,20 +1138,30 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
 			c.source["photo"] = file
 		c.set_photo(photo)
+	var cover: Image = summary.get("ground_cover", null)
+	if photo == null and cover != null:
+		var gfile := c.default_path().get_basename().get_file() + ".ground.png"
+		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
+		if cover.save_png(DesignedCourse.FOLDER.path_join(gfile)) == OK:
+			c.source["ground"] = gfile
+		c.set_ground_cover(cover)
 	# Other courses at the same club are saved beside it.
 	var others: Array = summary.get("others", [])
 	for o: DesignedCourse in others:
 		# The photo covers the first course's area; another course shares it
 		# only if its area is the same.
-		if c.source.has("photo") and o.area == c.area:
-			o.source["photo"] = c.source["photo"]
+		if o.area == c.area:
+			for key in ["photo", "ground"]:
+				if c.source.has(key):
+					o.source[key] = c.source[key]
 		o.save_file(o.default_path())
 	_photo_on = true
 	_set_course(c, "")
 	_unsaved = true
 	var saved := _save()
-	_set_status("Built %s: %d holes, %d areas, %d trees%s. %s" % [c.course_name, int(summary.get("holes", 0)),
+	_set_status("Built %s: %d holes, %d areas, %d trees%s%s. %s" % [c.course_name, int(summary.get("holes", 0)),
 		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
+		(" (%d areas the map lacked were guessed at standard sizes; check them)" % int(summary["guessed"])) if int(summary.get("guessed", 0)) > 0 else "",
 		(", ground every %.1f m" % float(summary.get("metres_per_pixel", 0))) if summary.has("metres_per_pixel") else "",
 		("Saved; polish it here, then play it." if saved else "Save it to keep it.") +
 		(" Also saved: %s (Open)." % ", ".join(others.map(func(o: DesignedCourse) -> String: return o.course_name)) if not others.is_empty() else "")])
