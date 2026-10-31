@@ -1,7 +1,7 @@
 # Ball physics (`LinksMMIII.exe`)
 
-Status: partial (flight, bounce and roll complete; launch located but not
-yet worked through)
+Status: partial (flight, launch, bounce and roll complete; the swing meter,
+lies and putting are next)
 Seen in: the main executable, `LINKSM_1.EXE` on CD1 and `LinksMMIII.exe` in
 the 1.07 patch (same model and tables in both), plus the `TerrainTypes`
 entry of every course (see [crz.md](crz.md)).
@@ -127,17 +127,83 @@ a course's own settings "could produce unexpected results".
 
 ## Launch
 
-The launch routine turns the swing into the ball's starting velocity and
-spin. It uses per-club tables of 19 entries: seven woods (lofts 12, 15, 17,
-19, 21, 23 and 25 degrees), irons 1 to 9 (16 to 44 degrees), and pitching,
-sand and lob wedges (49, 55, 60 degrees). Beside the lofts there are four
-more per-club tables (a speed factor from 2.0 to 2.8, a spin factor from 1.6
-to 5, a small value from 0.05 to 0.2, and a value from 10 to 15.9), and the
-ball speed looks like a club head speed in mph times 2.3436 (1.46667 ft/s
-per mph times about 1.6) times the dot product of two directions, probably
-the face and the swing path. Two launch angles are clamped, one to plus or
-minus 15 degrees and one to plus or minus 30. Not ported yet: our launch
-still uses tour-average launch monitor data.
+The launch turns a strike into the ball's starting velocity and spin. It is
+ported as `olcore::links_launch` (`links_launch.cpp`) and `LinksLaunch`
+(`links_launch.gd`), and matches the game on 300 random strikes (every club,
+aim, slope and setup) to within 1e-5.
+
+### Club table
+
+Five per-club rows of 19 floats, each followed by a spare zero, lie together
+in the executable's data. The clubs are seven woods (driver first, lofts 12
+to 25 degrees) and then twelve irons and wedges (1 iron at 16 degrees to the
+lob wedge at 60). The putter is not in the table. Rows, in order:
+
+| Row | Our name | Meaning | Range |
+|-----|----------|---------|-------|
+| 0 | `spin` | spin per unit of strike | 1.6 (driver) to 5 |
+| 1 | `speed` | ball ft/s per percent of power | 2.0 to 2.8 |
+| 2 | `loft_deg` | face loft in degrees | 12 to 60 |
+| 3 | `glance` | share of speed left along the face | 0.05 to 0.2 |
+| 4 | `ball_position` | degrees of loft per 14 ball-position steps | 10 to 15.9 |
+
+As with the coefficient tables, the values are read from the player's
+executable (`find_links_clubs` looks for five rows of plausible values with
+zeros after the first four), and both versions of the game carry the same
+numbers.
+
+### Inputs
+
+The shot record the launch reads holds the club, the aim heading, the power
+in percent (100 is a full swing), a face error and a path error in radians,
+a speed and a spin multiplier (both 1 for a clean strike), a loft multiplier
+(normally 1) and three setup bytes: ball position, club face and stance, as
+on the shot setup screen. Face and stance are square at 30. The neutral ball
+position is 2 for the driver and 4 for every other club.
+
+### The model
+
+In the aim frame (x right, y along the aim line, z up), angles in degrees:
+
+- Loft = loft multiplier x table loft + (neutral position - ball position)
+  x table ball-position value / 14. Moving the ball back delofts the club.
+- Path angle = (stance - 30) - path error. Face angle = (face - 30) +
+  (stance - 30) - face error. So the stance turns both, the face setting
+  turns only the face.
+- Face normal F = (cos loft sin face, cos loft cos face, sin loft). Path
+  P = (sin path, cos path, 0).
+- Slope: the ground normal under the ball is turned into the aim frame and
+  two angles are taken from it, across = atan2(n.x, n.z) clamped to +/-30
+  and along = atan2(n.y, n.z) clamped to +/-15. F is turned about z by
+  -across/10 (a side slope nudges the face), then F and P are both turned
+  about x by -along (an up or down slope tilts the whole swing).
+- d = F . P, how square the blow is. G = the unit part of P at right
+  angles to F (the glancing direction).
+- Strike speed S = speed multiplier x table speed x power.
+- Velocity = (F d + G d glance) S: the ball leaves along the face normal
+  with a little of the path left over along the face.
+- Spin = (G x F) S x spin multiplier x table spin x 0.25 x d, in rev/s.
+  With a square face this is pure backspin; a face open to the path tilts
+  the axis for a slice, closed for a hook.
+- Velocity and spin are turned from the aim frame to the course by the aim
+  heading.
+
+A full square driver leaves at 63.4 m/s (142 mph), 9.1 degrees up, with
+5,050 rpm of backspin; through the Links flight, bounce and roll on flat
+fairway it carries 231 yards and finishes at 252. The pitching wedge
+carries 135 yards.
+
+The launch also seeds the random numbers (see Rough and rocks) and sets the
+ball on the ground at 0.07 / n.z above its lie.
+
+### Not ported
+
+- A flag from the caller that adds 10 degrees of loft and removes all spin;
+  what sets it is not known yet.
+- How the swing meters (PowerStroke and the mouse swing) fill the power,
+  face and path errors and the multipliers, and how the lie changes them.
+  Until then the game shell maps the meter's accuracy to a face error of up
+  to 4 degrees and scales speed and spin by its stand-in lie values.
 
 ## Ground
 
@@ -234,8 +300,7 @@ low bit of each), seeded at launch from the ball's position in whole feet
 ## Open questions
 
 - How green hardness and speed change the green's values.
-- The full launch: where club head speed comes from (golfer profile, swing
-  power) and how the four extra club tables are used.
+- How the swing meters fill the launch inputs (next step).
 - Whether the HUD shows the stored wind speed, which the flight halves.
 - When the step is 1/35 s instead of 1/60 s.
 

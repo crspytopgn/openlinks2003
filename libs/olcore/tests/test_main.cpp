@@ -21,6 +21,7 @@
 #include "olcore/inflate.hpp"
 #include "olcore/links_flight.hpp"
 #include "olcore/links_ground.hpp"
+#include "olcore/links_launch.hpp"
 #include "olcore/ls_archive.hpp"
 #include "olcore/lzw.hpp"
 #include "olcore/model.hpp"
@@ -1633,6 +1634,82 @@ void test_links_shot() {
   CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, water).outcome == ShotOutcome::Water);
 }
 
+// A made-up club table in the layout the game uses: five rows of 19 values
+// and a spare zero, behind some unrelated bytes.
+std::vector<std::uint8_t> synthetic_club_exe() {
+  std::vector<std::uint8_t> out(36, 0x11);
+  auto f32 = [&](float v) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &v, sizeof bits);
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<std::uint8_t>(bits >> (8 * i)));
+  };
+  for (int i = 0; i < 19; ++i) f32(1.5f + 0.2f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(2.0f + 0.01f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(i < 7 ? 10.0f + 2.0f * i : 14.0f + 4.0f * (i - 7));
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(0.05f + 0.01f * i);
+  f32(0);
+  for (int i = 0; i < 19; ++i) f32(10.0f + 0.5f * i);
+  f32(0);
+  return out;
+}
+
+void check_launch(const LinksClubTable& t, const LinksStrike& s, std::array<double, 6> want) {
+  LinksLaunch l = links_launch(t, s);
+  double got[6] = {l.velocity.x, l.velocity.y, l.velocity.z, l.spin.x, l.spin.y, l.spin.z};
+  for (int i = 0; i < 6; ++i) CHECK_NEAR(got[i], want[i], 2e-4);
+}
+
+void test_links_launch() {
+  std::optional<LinksClubTable> t = find_links_clubs(synthetic_club_exe());
+  CHECK(t.has_value());
+  CHECK(!find_links_clubs(std::vector<std::uint8_t>(600, 0)).has_value());
+  if (!t) {
+    return;
+  }
+  CHECK_NEAR(t->loft_deg[7], 14.0, 1e-6);
+  // A square driver: straight down the line with pure backspin.
+  LinksStrike s;
+  check_launch(*t, s, {0, 195.679363, 24.503551, 73.860581, 0, 0});
+  // Aimed left, ball back, face open, stance closed, a little closed at impact.
+  s = LinksStrike{};
+  s.club = 12;
+  s.aim = 0.4;
+  s.power = 85;
+  s.face_error = 0.03;
+  s.path_error = -0.02;
+  s.setup = {6, 33, 27};
+  check_launch(*t, s, {-60.178063, 130.934603, 58.414966, 135.705451, 62.62540, -0.570758});
+  // On a slope, with the multipliers away from 1.
+  s = LinksStrike{};
+  s.club = 5;
+  s.aim = -1.2;
+  s.power = 70;
+  s.face_error = -0.05;
+  s.path_error = 0.04;
+  s.spin_scale = 0.9;
+  s.speed_scale = 1.05;
+  s.loft_scale = 1.1;
+  s.setup = {4, 26, 32};
+  s.ground_normal = {0.2, -0.1, std::sqrt(1 - 0.05)};
+  check_launch(*t, s, {130.663751, 47.660517, 18.457195, 27.686730, -73.138883, -7.141661});
+  // A steep slope is clamped to 30 degrees across and 15 along the line.
+  s = LinksStrike{};
+  s.club = 18;
+  s.aim = 2.5;
+  s.power = 60;
+  s.setup.ball_position = 1;
+  s.ground_normal = {-0.3, 0.25, std::sqrt(1 - 0.09 - 0.0625)};
+  check_launch(*t, s, {-24.752554, -31.449690, 48.410392, -62.535463, 46.668793, -1.656532});
+  // In olcore's frame (+y up, +z downrange) backspin turns about -x.
+  BallState b = links_launch_state(*t, LinksStrike{});
+  CHECK_NEAR(b.velocity.z, 195.679363 * 0.3048, 1e-4);
+  CHECK_NEAR(b.velocity.y, 24.503551 * 0.3048, 1e-4);
+  CHECK_NEAR(b.spin.x, -73.860581 * 2 * 3.14159265358979, 1e-3);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1682,6 +1759,7 @@ int main() {
       {"links_roll", test_links_roll},
       {"links_landing", test_links_landing},
       {"links_shot", test_links_shot},
+      {"links_launch", test_links_launch},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},
