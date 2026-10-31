@@ -5,6 +5,12 @@ extends MeshInstance3D
 ## with a short tick in each square pointing downhill. It reads the slopes
 ## the physics uses (CourseTerrain.normal_at); it doesn't predict the putt,
 ## so reading the break is still up to the player.
+##
+## Three looks (`style`): Links 2003's plain yellow grid, its grid coloured
+## by height (low blue, high red), and the TV grid coloured by steepness
+## with the downhill ticks.
+
+enum Style { YELLOW, HEIGHT, SLOPE }
 
 const SPACING := 1.0
 const MARGIN := 4.0  ## metres past the ball and the hole
@@ -14,6 +20,16 @@ const FLAT := Color(0.55, 0.8, 1.0, 0.55)
 const MEDIUM := Color(1.0, 0.9, 0.3, 0.7)
 const STEEP := Color(1.0, 0.3, 0.2, 0.85)
 const STEEP_PERCENT := 4.0
+const YELLOW := Color(1.0, 0.9, 0.2, 0.7)
+const LOW := Color(0.2, 0.45, 1.0, 0.75)
+const MIDDLE := Color(0.35, 0.9, 0.4, 0.75)
+const HIGH := Color(1.0, 0.3, 0.2, 0.8)
+## Below this spread of heights (m) the height colours show it as flat.
+const LEVEL_SPREAD := 0.05
+
+var style: Style = Style.SLOPE
+var _low := 0.0
+var _high := 0.0
 
 var _mesh := ImmediateMesh.new()
 
@@ -34,6 +50,13 @@ static func slope_percent(n: Vector3) -> float:
 	return 100.0 * Vector2(n.x, n.z).length() / maxf(n.y, 0.01)
 
 
+## Height colours: blue at the lowest point of the grid, green, red at the
+## highest. `f` is 0 (lowest) to 1.
+static func height_color(f: float) -> Color:
+	f = clampf(f, 0.0, 1.0)
+	return LOW.lerp(MIDDLE, f * 2.0) if f < 0.5 else MIDDLE.lerp(HIGH, f * 2.0 - 1.0)
+
+
 static func slope_color(percent: float) -> Color:
 	var f := clampf(percent / STEEP_PERCENT, 0.0, 1.0)
 	return FLAT.lerp(MEDIUM, f * 2.0) if f < 0.5 else MEDIUM.lerp(STEEP, f * 2.0 - 1.0)
@@ -47,6 +70,14 @@ func build(terrain: CourseTerrain, ball: Vector3, pin: Vector3) -> void:
 	var x0 := snappedf(centre.x - half, SPACING)
 	var z0 := snappedf(centre.z - half, SPACING)
 	var cells := int(ceil(half * 2.0 / SPACING))
+	if style == Style.HEIGHT:
+		_low = INF
+		_high = -INF
+		for a in cells + 1:
+			for b in cells + 1:
+				var y := terrain.height_at(x0 + a * SPACING, z0 + b * SPACING)
+				_low = minf(_low, y)
+				_high = maxf(_high, y)
 	_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	for a in cells + 1:
 		for b in cells:
@@ -55,7 +86,7 @@ func build(terrain: CourseTerrain, ball: Vector3, pin: Vector3) -> void:
 			_segment(terrain, along_z, along_z + Vector2(0.0, SPACING))
 			var along_x := Vector2(x0 + b * SPACING, z0 + a * SPACING)
 			_segment(terrain, along_x, along_x + Vector2(SPACING, 0.0))
-	for a in cells:
+	for a in (cells if style == Style.SLOPE else 0):
 		for b in cells:
 			var c := Vector2(x0 + (a + 0.5) * SPACING, z0 + (b + 0.5) * SPACING)
 			var n := terrain.normal_at(c.x, c.y)
@@ -71,7 +102,13 @@ func build(terrain: CourseTerrain, ball: Vector3, pin: Vector3) -> void:
 
 func _segment(terrain: CourseTerrain, a: Vector2, b: Vector2) -> void:
 	var mid := (a + b) * 0.5
-	var col := slope_color(slope_percent(terrain.normal_at(mid.x, mid.y)))
+	var col := YELLOW
+	match style:
+		Style.SLOPE:
+			col = slope_color(slope_percent(terrain.normal_at(mid.x, mid.y)))
+		Style.HEIGHT:
+			var spread := _high - _low
+			col = MIDDLE if spread < LEVEL_SPREAD else height_color((terrain.height_at(mid.x, mid.y) - _low) / spread)
 	_vertex(terrain, a, col)
 	_vertex(terrain, b, col)
 

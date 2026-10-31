@@ -65,6 +65,8 @@ func _initialize() -> void:
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
+	_run("green_reading", _test_green_reading)
+	_run("putting_practice", _test_putting_practice)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
 	_run("free_assets", _test_free_assets)
@@ -95,6 +97,7 @@ func _process(_delta: float) -> bool:
 	_run("round_replay", _test_round_replay)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("putting_practice_round", _test_putting_practice_round)
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
@@ -891,6 +894,211 @@ func _test_round_scoring() -> void:
 ## The hole of test_drop_rules in libs/olcore/tests/test_main.cpp: a stream
 ## from z = 40 to 60, out of bounds beyond x = 30, a bunker round (10, 80),
 ## a cart path from x = -12 to -10 and the green within 5 m of the pin.
+## A green tilted by `grad` (rise per metre along x and z), green within
+## `radius` of the origin and fringe beyond.
+class TiltTerrain extends CourseTerrain:
+	var grad := Vector2.ZERO
+	var radius := 15.0
+
+	func _init(g: Vector2, r := 15.0) -> void:
+		grad = g
+		radius = r
+
+	func height_at(x: float, z: float) -> float:
+		return grad.x * x + grad.y * z
+
+	func surface_at(x: float, z: float) -> int:
+		return Surface.Type.GREEN if Vector2(x, z).length() <= radius else Surface.Type.FRINGE
+
+	func normal_at(_x: float, _z: float) -> Vector3:
+		return Vector3(-grad.x, 1.0, -grad.y).normalized()
+
+
+func _test_green_reading() -> void:
+	# A stimpmeter on the game's greens: the roll at 6 ft/s, frame by frame.
+	var stimp := GreenRead.stimp(1, 1, true)
+	_check_near(stimp, 5.263, 0.01, "stimp of medium, normal-speed greens")
+	_check_near(GreenRead.stimp(2, 2, true), 7.453, 0.01, "stimp of firm, fast greens")
+	_check(GreenRead.stimp(1, 2, true) > stimp and GreenRead.stimp(1, 0, true) < stimp, "faster greens roll further")
+	_check(GreenRead.stimp(0, 1, true) < stimp, "soft greens roll less")
+	_check(GreenRead.stimp(1, 1, false) > 1.0, "the standard model's greens have a stimp")
+	_check(GreenRead.speed_text(1, 1, true) == "Medium, normal speed (stimp 5.3)", "speed text: %s" % GreenRead.speed_text(1, 1, true))
+
+	# Rises to the golfer's left (+x) facing +z, so it falls right.
+	var side_hill := TiltTerrain.new(Vector2(0.02, 0.0))
+	var r := GreenRead.line(side_hill, Vector3.ZERO, Vector3(0, 0, 5))
+	_check_near(r.side_percent, -2.0, 0.01, "falls right across the line")
+	_check_near(r.rise_m, 0.0, 1e-6, "level along the line")
+	_check(GreenRead.break_text(r.side_percent) == "Breaks left to right (moderate)", "break: %s" % GreenRead.break_text(r.side_percent))
+	_check(GreenRead.break_text(0.1) == "Straight", "a flat line is straight")
+	_check(GreenRead.break_text(0.6) == "Breaks right to left (gentle)", "gentle right to left")
+	var up := GreenRead.line(TiltTerrain.new(Vector2(0, 0.01)), Vector3.ZERO, Vector3(0, 0.05, 5))
+	_check_near(up.rise_m, 0.05, 1e-5, "uphill putt rises 5 cm")
+	_check(GreenRead.lie_text(side_hill, Vector3.ZERO, Vector2(0, 1)) == "2.0%, falls right", "lie: %s" % GreenRead.lie_text(side_hill, Vector3.ZERO, Vector2(0, 1)))
+	_check(GreenRead.length_text(0.7112) == "2' 4\"", "feet and inches")
+	_check(GreenRead.length_text(0.1) == "4\"", "inches")
+
+	# Links 2003's aids by skill: Amateur, Professional, Championship, Elite.
+	_check(GreenRead.assistant_level(0) == 2 and GreenRead.assistant_level(1) == 1, "assistant at Amateur and Professional")
+	_check(GreenRead.assistant_level(2) == 0 and GreenRead.assistant_level(3) == 0, "no assistant at Championship and Elite")
+	_check(GreenRead.grid_allowed(2) and not GreenRead.grid_allowed(3), "no grid at Elite")
+	_check(GreenRead.views_for(0).size() == 5 and not GreenRead.views_for(3).has(GreenRead.View.OVERHEAD), "no Green Analyzer at Elite")
+	var flat := FlatTerrain.new(Surface.Type.GREEN)
+	var crouch: Array = GreenRead.view_pose(GreenRead.View.CROUCH, flat, Vector3.ZERO, Vector3(0, 0, 6))
+	_check((crouch[0] as Vector3).z < 0.0 and (crouch[0] as Vector3).y < 1.0, "crouched low behind the ball")
+	var behind: Array = GreenRead.view_pose(GreenRead.View.BEHIND_HOLE, flat, Vector3.ZERO, Vector3(0, 0, 6))
+	_check((behind[0] as Vector3).z > 6.0, "behind the hole")
+	var low: Array = GreenRead.view_pose(GreenRead.View.LOW_SIDE, side_hill, Vector3.ZERO, Vector3(0, 0, 6))
+	_check((low[0] as Vector3).x < 0.0, "the low side is the side it falls to")
+
+	# The breakline indicator stands taller on steeper ground.
+	_check(BreaklineIndicator.height_for(3.0) > BreaklineIndicator.height_for(1.0), "steeper, taller breakline")
+	var bl := BreaklineIndicator.new()
+	bl.show_at(side_hill, Vector3(0, 0, 3))
+	_check(bl.visible and bl.mesh.get_surface_count() == 1, "breakline builds")
+	bl.free()
+	# The grid's three looks build.
+	var grid := GreenGrid.new()
+	for style in [GreenGrid.Style.YELLOW, GreenGrid.Style.HEIGHT, GreenGrid.Style.SLOPE]:
+		grid.style = style
+		grid.build(side_hill, Vector3.ZERO, Vector3(0, 0, 6))
+		_check(grid.mesh.get_surface_count() == 1, "grid style %d builds" % style)
+	_check(GreenGrid.height_color(0.0).b > GreenGrid.height_color(0.0).r and GreenGrid.height_color(1.0).r > GreenGrid.height_color(1.0).b, "low blue, high red")
+	grid.free()
+
+
+func _test_putting_practice() -> void:
+	# Rises toward +z: putts from -z are uphill.
+	var green := TiltTerrain.new(Vector2(0.0, 0.015))
+	var hole := HoleData.new()
+	hole.terrain = green
+	hole.pin = Vector3.ZERO
+	var pr := PuttingPractice.new(7)
+	var spot := pr.setup(hole)
+	_check(pr.cups.size() == PuttingPractice.MAX_CUPS, "six cups on a big green (%d)" % pr.cups.size())
+	_check(pr.cups[0].is_equal_approx(Vector3.ZERO), "the hole's own pin is the first cup")
+	for i in pr.cups.size():
+		_check(green.surface_at(pr.cups[i].x, pr.cups[i].z) == Surface.Type.GREEN, "cup %d on the green" % i)
+		for j in i:
+			_check(Vector2(pr.cups[i].x - pr.cups[j].x, pr.cups[i].z - pr.cups[j].z).length() >= PuttingPractice.CUP_SPACING - 1e-4, "cups %d and %d apart" % [j, i])
+	_check_near(Vector2(spot.x, spot.z).length(), 10.0 * 0.3048, 1e-3, "first ball 10 ft from the cup")
+	var same := PuttingPractice.new(7)
+	same.setup(hole)
+	_check(same.cups == pr.cups and same.spot.is_equal_approx(pr.spot), "a seed gives the same green")
+
+	pr.slope = PuttingPractice.Slope.UPHILL
+	pr.new_spot()
+	_check(pr.slope_found and float(GreenRead.line(green, pr.spot, pr.cup_position()).rise_m) > 0.03, "uphill putt")
+	pr.slope = PuttingPractice.Slope.DOWNHILL
+	pr.new_spot()
+	_check(pr.slope_found and float(GreenRead.line(green, pr.spot, pr.cup_position()).rise_m) < -0.03, "downhill putt")
+	pr.slope = PuttingPractice.Slope.LEFT_TO_RIGHT
+	pr.new_spot()
+	_check(pr.slope_found and float(GreenRead.line(green, pr.spot, pr.cup_position()).side_percent) < -0.5, "left-to-right putt")
+	pr.slope = PuttingPractice.Slope.RIGHT_TO_LEFT
+	pr.new_spot()
+	_check(pr.slope_found and float(GreenRead.line(green, pr.spot, pr.cup_position()).side_percent) > 0.5, "right-to-left putt")
+	pr.change_distance(3)
+	_check_near(Vector2(pr.spot.x - pr.cup_position().x, pr.spot.z - pr.cup_position().z).length(), 20.0 * 0.3048, 1e-3, "20 ft putt")
+
+	# Free putting keeps the spot and the tally.
+	var at := pr.spot
+	pr.record(pr.cup_position(), true)
+	var miss := pr.record(pr.cup_position() + Vector3(0.3, 0, 0), false)
+	_check(pr.spot.is_equal_approx(at), "free putting comes back to the same spot")
+	_check(pr.putts == 2 and pr.holed == 1 and miss.contains("Holed 1 of 2 (50%)"), "tally: %s" % miss)
+	_check(PuttingPractice.miss_text(Vector3(0, 0, -3), Vector3.ZERO, Vector3(0.1, 0, 0.3)) == "1' 0\" long, 4\" left", "miss text: %s" % PuttingPractice.miss_text(Vector3(0, 0, -3), Vector3.ZERO, Vector3(0.1, 0, 0.3)))
+
+	# Around the clock: six in a row from 3 ft; a miss starts again.
+	pr.next_drill()
+	_check(pr.drill == PuttingPractice.Drill.CLOCK, "clock drill")
+	_check_near(Vector2(pr.spot.x - pr.cup_position().x, pr.spot.z - pr.cup_position().z).length(), 3.0 * 0.3048, 1e-3, "clock ball 3 ft out")
+	pr.record(pr.cup_position(), true)
+	pr.record(pr.cup_position() + Vector3(0.2, 0, 0), false)
+	_check(pr.status_text().contains("Ball 1 of 6"), "a miss starts the clock again")
+	var last := ""
+	for i in PuttingPractice.CLOCK_BALLS:
+		last = pr.record(pr.cup_position(), true)
+	_check(last.contains("all 6 in a row") and pr.clock_best == 6, "round the clock: %s" % last)
+
+	# The lag ladder scores the putts that finish within 3 ft.
+	pr.next_drill()
+	_check(pr.drill == PuttingPractice.Drill.LADDER, "ladder drill")
+	_check_near(Vector2(pr.spot.x - pr.cup_position().x, pr.spot.z - pr.cup_position().z).length(), 20.0 * 0.3048, 1e-3, "first rung 20 ft")
+	pr.record(pr.cup_position() + Vector3(0.5, 0, 0), false)
+	pr.record(pr.cup_position() + Vector3(2.0, 0, 0), false)
+	pr.record(pr.cup_position(), true)
+	var ladder := pr.record(pr.cup_position() + Vector3(0, 0, 0.8), false)
+	_check(ladder.contains("Ladder: 3 of 4") and pr.ladder_best == 3, "ladder: %s" % ladder)
+
+	pr.next_cup()
+	_check(pr.cup == 1, "next cup")
+	_check(PuttingPractice.find_cups(FlatTerrain.new(Surface.Type.FAIRWAY), Vector3.ZERO, RandomNumberGenerator.new()).size() == 1, "no green, just the pin")
+
+
+func _test_putting_practice_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, 1])
+	s.putting = true
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.practice != null and game.players.size() == 1, "practice is for one player")
+	_check(game.practice.cups.size() >= 3, "a practice green with several cups (%d)" % game.practice.cups.size())
+	_check(game.lie == Surface.Type.GREEN and game.clubs[game.club_index].is_putter, "practice ball on the green, putter out")
+	_check(game.hole.pin.is_equal_approx(game.practice.cup_position()), "the chosen cup is the hole")
+	_check(game.putting_panel.visible and game.putting_panel.label.text.contains("Free putting"), "the practice panel shows")
+	var from := game.ball_at
+	game.auto_play_step()
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.SHOT_RESULT and game.practice.putts == 1, "a practice putt is counted")
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.AIM and game.ball_at.is_equal_approx(from), "the ball comes back to its spot")
+	_check(game.strokes == 0 and game.card.holes_played() == 0, "practice keeps no score")
+	game._on_putting_action(&"further")
+	_check(game.practice.distance_index == PuttingPractice.DEFAULT_DISTANCE + 1, "] moves the ball further")
+	game._on_putting_action(&"next_cup")
+	_check(game.practice.cup == 1 and game.hole.pin.is_equal_approx(game.practice.cups[1]), "next cup is the hole")
+	game._on_putting_action(&"read")
+	_check(game.read_view == GreenRead.View.CROUCH, "read: crouched behind the ball")
+	_check(game.camera.position.y - game.ball_at.y < 1.0, "the camera crouches")
+	game._on_putting_action(&"drill")
+	_check(game.practice.drill == PuttingPractice.Drill.CLOCK and game.read_view == GreenRead.View.PLAY, "clock drill, back behind the ball")
+	_check_near(game._flat_distance(game.ball_at, game.hole.pin), 3.0 * 0.3048, 0.01, "clock ball 3 ft out")
+	for i in 3:
+		game.auto_play_step()
+		game.auto_play_step()
+		game.auto_play_step()
+	_check(game.practice.putts == 4 and game.state == GolfRound.State.AIM, "clock putts counted")
+	var before := game.hole_index
+	game._on_putting_action(&"next_green")
+	_check(game.hole_index == (before + 1) % game.holes.size() and game.lie == Surface.Type.GREEN, "next green")
+	# The original's aids, on at Amateur skill.
+	var keep := [game.graphics.skill, game.graphics.putting_assistant, game.graphics.breakline, game.graphics.putting_grid]
+	game.graphics.skill = 0
+	game.graphics.putting_assistant = true
+	game.graphics.breakline = true
+	game.graphics.putting_grid = 2
+	game._apply_graphics()
+	_check(game.green_grid.visible and game.green_grid.style == GreenGrid.Style.HEIGHT, "grid coloured by height")
+	_check(game.assistant.visible and game.hud.meter.target > 0.0, "assistant line and power dot")
+	_check(game.breakline.visible, "breakline at the aiming marker")
+	game.graphics.skill = 3
+	game._apply_graphics()
+	_check(not game.green_grid.visible or game.broadcast, "no grid at Elite outside Broadcast")
+	_check(not game.assistant.visible and game.hud.meter.target < 0.0, "no assistant at Elite")
+	game.graphics.skill = keep[0]
+	game.graphics.putting_assistant = keep[1]
+	game.graphics.breakline = keep[2]
+	game.graphics.putting_grid = keep[3]
+	game._apply_graphics()
+	GolfRound.setup = null
+
+
 class RulesTerrain extends CourseTerrain:
 	func height_at(x: float, z: float) -> float:
 		return 0.01 * x + 0.02 * z

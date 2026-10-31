@@ -86,6 +86,10 @@ product lead builds it.
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
   - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
   - [x] Tour presentation (off by default): leaderboard rail, shot-data bar, driving zone, putt read, hole map with shots ([game-shell.md](docs/game-shell.md#tour))
+  - [x] Green reading: Links 2003's grid (yellow or by height), breakline indicator and putting assistant, scaled by skill as the game does; crouch, behind-the-hole, low-side and overhead read views; green speed as a stimp reading ([green-reading.md](docs/formats/green-reading.md))
+  - [ ] The Green Analyzer's free orbit camera, and the mouse swing's backswing mark for the putting assistant
+- [x] Putting practice: a practice green with several cups on each hole's green, free putting with distance and slope, around the clock and a lag ladder ([game-shell.md](docs/game-shell.md#putting-practice-and-green-reading))
+  - [ ] Links 2003's other practice options on a course's holes: driving only, chipping only, play through (the practice range is in)
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound

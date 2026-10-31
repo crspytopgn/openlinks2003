@@ -84,6 +84,15 @@ func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 	look_at(_look_now)
 
 
+## Stands at `pos` looking at `look`, for reading a putt (GreenRead.View).
+func look_from(pos: Vector3, look: Vector3) -> void:
+	_shot = null
+	if flying():
+		end_flyover()
+	position = pos
+	_look = look
+	_look_now = look
+	look_at(look)
 ## The aim view when a rise hides the target: the camera climbs until it
 ## sees over, and backs off until the golfer and ball are still in frame
 ## below the target.
