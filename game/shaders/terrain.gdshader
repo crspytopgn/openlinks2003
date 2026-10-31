@@ -39,9 +39,25 @@ uniform float stripe_strength = 0.07;
 // the bunker edge is drawn crisp from the sand weight instead.
 uniform vec3 sand_vertex = vec3(0.78, 0.72, 0.55);
 
+// Splat map (designed and real courses, DesignedTerrain): the surface
+// raster itself, one Surface.Type per texel (R8), so each surface's edge is
+// drawn where it really is instead of blended over a 2 m grid cell. The
+// mesh then carries in CUSTOM0 the surface colour it blended per vertex,
+// which is swapped for the raster's; the photo tint and mowing stripes in
+// the vertex colour stay.
+uniform bool has_splat = false;
+uniform sampler2D splat_tex : filter_nearest, repeat_disable;
+uniform vec2 splat_origin = vec2(0.0); // world x, z of the raster's corner
+uniform vec2 splat_size = vec2(1.0); // metres it covers
+uniform vec3 surface_colors[9]; // sRGB, by Surface.Type
+uniform vec2 surface_weights[9]; // rough and sand weight, by Surface.Type
+uniform float surface_mown[9]; // 1 where the surface gets mowing stripes
+uniform float splat_stripe_metres = 6.0;
+
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
 varying vec2 stripes; // across the hole (m), stripe strength
+varying vec3 vertex_palette; // the surface colour blended into COLOR (splat map only)
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -75,6 +91,32 @@ void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	weights = UV2;
 	stripes = vec2(UV.x, clamp(-UV.y, 0.0, 1.0));
+	vertex_palette = has_splat ? CUSTOM0.rgb : vec3(0.0);
+}
+
+// The raster's colour and weights at ground point p, blended over a
+// fraction of a texel with a ragged, natural line.
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown) {
+	vec2 size = vec2(textureSize(splat_tex, 0));
+	// Two independent wobbles, so the edge wanders rather than steps.
+	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5
+		+ 0.5 * (vec2(value_noise(p * 4.1), value_noise(p * 4.1 + vec2(9.0, 23.0))) - 0.5);
+	vec2 q = (p - splat_origin) / splat_size * size - 0.5 + wobble * 1.2;
+	vec2 i = floor(q);
+	vec2 f = q - i;
+	col = vec3(0.0);
+	w = vec2(0.0);
+	mown = 0.0;
+	for (int k = 0; k < 4; k++) {
+		ivec2 o = ivec2(k & 1, k >> 1);
+		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
+		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 8);
+		float a = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+		col += surface_colors[s] * a;
+		w += surface_weights[s] * a;
+		mown += surface_mown[s] * a;
+	}
+
 }
 
 // A texture sampled at two scales, so its repeat is hard to see.
@@ -96,7 +138,22 @@ void fragment() {
 	float edge_noise = value_noise(p * 1.7) - 0.5;
 	float sand = smoothstep(0.42, 0.5, wy + edge_noise * 0.12);
 	vec3 c = COLOR.rgb;
-	if (wy > 0.0 && wy < 0.97) {
+	float w_rough_in = weights.x;
+	vec2 sq = (p - splat_origin) / splat_size;
+	if (has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)))) {
+		vec3 crisp;
+		vec2 w;
+		float mown;
+		splat_at(p, crisp, w, mown);
+		c = max(c + crisp - vertex_palette, vec3(0.0));
+		sand = w.y;
+		w_rough_in = w.x;
+		// Mowing stripes cut with the surface, alternately lighter and darker.
+		float u = (p.x + p.y * 0.15) / splat_stripe_metres;
+		float aa = max(fwidth(u), 0.001);
+		float band = smoothstep(-aa, aa, sin(u * 3.14159));
+		c *= 1.0 + (band - 0.5) * 0.09 * mown;
+	} else if (wy > 0.0 && wy < 0.97) {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
 		c = mix(turf, sand_vertex, sand);
 	}
@@ -110,7 +167,7 @@ void fragment() {
 	if (textured) {
 		vec2 uv = p / texture_metres;
 		float w_sand = sand;
-		float w_rough = clamp(weights.x, 0.0, 1.0) * (1.0 - w_sand);
+		float w_rough = clamp(w_rough_in, 0.0, 1.0) * (1.0 - w_sand);
 		float w_grass = 1.0 - w_sand - w_rough;
 		vec3 g = two_scale(grass_albedo, uv).rgb;
 		vec3 r = two_scale(rough_albedo, uv).rgb;

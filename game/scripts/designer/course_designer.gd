@@ -185,7 +185,7 @@ func _build_ground() -> void:
 	for cj in n.y:
 		for ci in n.x:
 			var inst := MeshInstance3D.new()
-			inst.material_override = Materials.terrain()
+			inst.material_override = terrain.material()
 			inst.material_overlay = _photo_material if _photo_on else null
 			_ground.add_child(inst)
 			_chunks[Vector2i(ci, cj)] = inst

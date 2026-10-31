@@ -165,7 +165,8 @@ product lead builds it.
   - [x] Real courses: imported areas the map lacked are dashed in the designer (guesses in orange); hole lengths checked against scorecards
   - [ ] Real courses: find fairways on more holes, and greens and bunkers where there is no open photo (England)
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
-  - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
+  - [x] Crisp surface edges (splat map) on designed and real courses
+  - [ ] Free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker
