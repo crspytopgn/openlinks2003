@@ -82,7 +82,7 @@ def ls_entries(data):
         hdr = data[off:off + BLOCK_HEADER]
         compressed = hdr[0x18] == 1
         original, stored = struct.unpack_from("<II", hdr, 0x19)
-        start = off + struct.unpack_from("<H", hdr, 6)[0]
+        start = off + BLOCK_HEADER  # untagged entries carry junk in the size field
         raw = data[start:start + stored]
 
         def read(raw=raw, compressed=compressed, original=original, xor5=hdr[0x36] != 0):
