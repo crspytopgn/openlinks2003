@@ -336,9 +336,9 @@ func _test_swing_accuracy() -> void:
 func _test_club_ratings() -> void:
 	# The game's full-swing power ratings, from its default club records.
 	var want := {"Dr": 112.0, "PW": 80.0}
-	var set := Club.standard_set()
+	var bag := Club.standard_set()
 	var last := 999.0
-	for c in set:
+	for c in bag:
 		var r := LinksShotModel.club_rating(c)
 		if c.is_putter:
 			_check(r == 100.0, "the putter keeps its own scale")
@@ -348,7 +348,7 @@ func _test_club_ratings() -> void:
 		_check(r <= last, "ratings fall through the bag (%s)" % c.short_name)
 		last = r
 	var plain := StandardShotModel.new()
-	_check(plain.reach_scale(set[0]) == 1.0, "the stand-in model keeps club distances")
+	_check(plain.reach_scale(bag[0]) == 1.0, "the stand-in model keeps club distances")
 
 
 func _test_swing_meter() -> void:
