@@ -98,7 +98,7 @@ feel) still need a working install.
   - [x] Real courses: find missing greens and bunkers in the photos before guessing
   - [x] Real courses: find missing fairways in the photos (clear photos; low-contrast ones fall back)
   - [x] Real courses: close-up photos round the greens, bunkers only where they sit in grass, and a benchmark of 21 mapped courses (`tools/realcourse_bench/`)
-  - [ ] Real courses: find more fairways, and greens and bunkers where there is no open photo (England)
+  - [ ] Real courses: find fairways on more holes, and greens and bunkers where there is no open photo (England)
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses

@@ -221,11 +221,16 @@ OpenStreetMap from the club's own published scorecard.
     (0.6 to 0.84), so a bunker touching pale ground or a track still
     stands alone at a brighter level.
   - **Fairways in the photo:** on a softened copy (about 2.5 m a pixel),
-    cross-sections every 10 m along the line find the band of grass of the
-    line's own colour that crosses it; the longest run of 15 to 60 m wide
-    sections, at least half the hole, with steady widths (spread under a
-    quarter of the mean), becomes the fairway. Ragged bands (rough,
-    heather, a winter photo) are left to the fallback.
+    cross-sections every 10 m along the line find the bands of grass of
+    the line's own colour that are 15 to 60 m wide, within 50 m of the
+    line. Mappers' hole lines often cut corners or cross water, so the
+    fairway needn't touch the line: one band per cross-section is picked
+    (or none) for the least cost of distance from the line plus sideways
+    jumps (an edge may move at most 8 m between sections). The longest
+    run of picked bands, bridging up to two missing ones (a cross bunker,
+    a path), at least 35% of the stretch looked at, with steady widths
+    (spread under a quarter of the mean), becomes the fairway. Ragged
+    bands (rough, heather, some winter photos) are left to the fallback.
   - **Not lidar hollows:** bunkers as hollows in the 2 m lidar heights
     were tried and were wrong about two times in three on the benchmark
     below, worse than a marked guess, so heights aren't used for them.
@@ -239,7 +244,9 @@ OpenStreetMap from the club's own published scorecard.
   what two careful mappers would agree on); 13 were wrong. Of bunkers
   found, 90% are on a mapped bunker (324 of 362), and a third of mapped
   greenside bunkers are found (small, shaded or winter-photo ones are
-  missed and fall back to guesses). Fairways are found on few holes yet.
+  missed and fall back to guesses). Fairways are found on 117 of 320 par
+  4 and 5 holes (37%), and on average 69% of a found fairway lies on the
+  mapped one (the rest is mostly the first cut of rough beside it).
   Whatever isn't found is drawn at typical sizes along the line: a green
   round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
   longer than wide), a tee box at each tee, on par 4s and 5s a fairway
