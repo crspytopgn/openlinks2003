@@ -68,6 +68,7 @@ func _build_ui() -> void:
 	center.add_child(_setup)
 	_settings = SettingsPanel.new()
 	_settings.changed.connect(func() -> void: _graphics.apply_display(get_viewport()))
+	_settings.back_pressed.connect(_close_settings)
 	center.add_child(_settings)
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
@@ -376,12 +377,18 @@ func _open_settings() -> void:
 	SceneFade.pop_in(_settings)
 
 
+func _close_settings() -> void:
+	_settings.close()
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
 		if _settings.visible:
-			_settings.close()
-			_main_box.visible = true
-			SceneFade.pop_in(_main_box)
+			_close_settings()
 		elif _setup.visible:
 			_close_setup()
 		elif _players.visible:

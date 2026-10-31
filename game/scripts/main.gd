@@ -1510,6 +1510,7 @@ func _build_world() -> void:
 	settings_panel = SettingsPanel.new()
 	canvas.add_child(settings_panel)
 	settings_panel.changed.connect(_apply_graphics)
+	settings_panel.back_pressed.connect(_on_settings_back)
 	pause_menu = PauseMenu.new()
 	canvas.add_child(pause_menu)
 	pause_menu.resume_pressed.connect(pause_menu.close)
@@ -1541,6 +1542,11 @@ func _on_pause_scorecard() -> void:
 func _on_pause_settings() -> void:
 	pause_menu.close()
 	settings_panel.open(graphics)
+
+
+func _on_settings_back() -> void:
+	settings_panel.close()
+	pause_menu.open()
 
 
 func _on_pause_restart() -> void:
