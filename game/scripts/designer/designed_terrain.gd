@@ -19,6 +19,10 @@ const TEE_BLEND := 3.0
 const BUNKER_DEPTH := 0.7
 const BUNKER_LIP := 2.0
 const WATER_DROP := 0.3  ## water line below the lowest point of the bank
+## Water surfaces: grid spacing inside a pond, and how far out from the
+## bank the shallows reach (see water_surface_mesh()).
+const SHORE_STEP := 4.0
+const SHORE_REACH := 10.0
 const APRON := 700.0  ## ground drawn beyond the course edge
 ## Paint order: later layers cover earlier ones.
 const LAYERS := [
@@ -324,25 +328,25 @@ func build_water() -> Node3D:
 		if s.surface != Surface.Type.WATER:
 			continue
 		var poly := s.outline()
-		var tris := Geometry2D.triangulate_polygon(poly)
-		if tris.is_empty():
+		if Geometry2D.triangulate_polygon(poly).is_empty():
 			continue
 		var level := water_level(s)
-		var verts := PackedVector3Array()
+		var surface := water_surface_mesh(poly, level)
+		var verts: PackedVector3Array = surface[0]
+		var open: PackedColorArray = surface[1]
+		var indices: PackedInt32Array = surface[2]
 		var uvs := PackedVector2Array()
+		uvs.resize(verts.size())
+		uvs.fill(Vector2(0.5, 0.5))
 		var normals := PackedVector3Array()
-		for p in poly:
-			verts.append(Vector3(p.x, level, p.y))
-			uvs.append(Vector2(0.5, 0.5))
-			normals.append(Vector3.UP)
-		var indices := PackedInt32Array()
-		for t in range(0, tris.size(), 3):
-			_add_tri(indices, verts, tris[t], tris[t + 1], tris[t + 2])
+		normals.resize(verts.size())
+		normals.fill(Vector3.UP)
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = verts
 		arrays[Mesh.ARRAY_NORMAL] = normals
 		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_COLOR] = open
 		arrays[Mesh.ARRAY_INDEX] = indices
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -412,6 +416,48 @@ func build_apron() -> MeshInstance3D:
 
 
 ## Adds a triangle wound the way Godot draws front faces seen from above.
+## A pond's water surface at `level`: [vertices, colours, indices]. The
+## outline plus a grid of points inside it every SHORE_STEP metres,
+## triangulated (Delaunay) and kept where a triangle's middle is inside.
+## COLOR.r is how far each vertex is from the bank (0 on it, 1 from
+## SHORE_REACH metres out), for the water shader's shallows and shoreline.
+static func water_surface_mesh(poly: PackedVector2Array, level: float) -> Array:
+	var points := poly.duplicate()
+	var box := Rect2(poly[0], Vector2.ZERO)
+	for p in poly:
+		box = box.expand(p)
+	var step := maxf(SHORE_STEP, sqrt(box.get_area() / 1500.0))
+	var y := box.position.y + step * 0.5
+	while y < box.end.y:
+		var x := box.position.x + step * 0.5
+		while x < box.end.x:
+			var p := Vector2(x, y)
+			if Geometry2D.is_point_in_polygon(p, poly) and _edge_distance(p, poly) > step * 0.4:
+				points.append(p)
+			x += step
+		y += step
+	var verts := PackedVector3Array()
+	var open := PackedColorArray()
+	for p in points:
+		verts.append(Vector3(p.x, level, p.y))
+		open.append(Color(clampf(_edge_distance(p, poly) / SHORE_REACH, 0.0, 1.0), 0.0, 0.0))
+	var indices := PackedInt32Array()
+	var tris := Geometry2D.triangulate_delaunay(points)
+	for t in range(0, tris.size(), 3):
+		var mid := (points[tris[t]] + points[tris[t + 1]] + points[tris[t + 2]]) / 3.0
+		if Geometry2D.is_point_in_polygon(mid, poly):
+			_add_tri(indices, verts, tris[t], tris[t + 1], tris[t + 2])
+	return [verts, open, indices]
+
+
+static func _edge_distance(p: Vector2, poly: PackedVector2Array) -> float:
+	var best := INF
+	for i in poly.size():
+		var q := Geometry2D.get_closest_point_to_segment(p, poly[i], poly[(i + 1) % poly.size()])
+		best = minf(best, p.distance_to(q))
+	return best
+
+
 static func _add_tri(indices: PackedInt32Array, verts: PackedVector3Array, a: int, b: int, c: int) -> void:
 	var n := (verts[b] - verts[a]).cross(verts[c] - verts[a])
 	if n.y > 0.0:

@@ -40,11 +40,17 @@ product lead builds it.
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).
    Still to do: a built-in range course with yardage targets.
-6. [ ] **Launch monitor input** (desktop): take real swings from home
+6. [x] **Launch monitor input** (desktop): take real swings from home
    simulators through the open GSPro-style connect API, the golf version of
-   a sim-racing wheel. Owner: new thread, after item 5.
-7. [ ] **Career**: a season of events against the computer golfers, with a
-   money list and the handicap and stats already kept. Owner: new thread.
+   a sim-racing wheel. Done: Settings > Launch monitor
+   ([game-shell.md](docs/game-shell.md#launch-monitors)). Still to do: try
+   it with a real launch monitor app.
+7. [x] **Career**: a season of events against the computer golfers, with a
+   money list and the handicap and stats already kept. Done: main menu >
+   Career ([game-shell.md](docs/game-shell.md#career)): three tours, cuts,
+   tour-style prize money, playoffs, promotion. Still to do: playing a
+   playoff hole for real, and tuning the field against measured computer
+   golfer scores.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
@@ -84,6 +90,10 @@ product lead builds it.
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
   - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
   - [x] Tour presentation (off by default): leaderboard rail, shot-data bar, driving zone, putt read, hole map with shots ([game-shell.md](docs/game-shell.md#tour))
+  - [x] Green reading: Links 2003's grid (yellow or by height), breakline indicator and putting assistant, scaled by skill as the game does; crouch, behind-the-hole, low-side and overhead read views; green speed as a stimp reading ([green-reading.md](docs/formats/green-reading.md))
+  - [ ] The Green Analyzer's free orbit camera, and the mouse swing's backswing mark for the putting assistant
+- [x] Putting practice: a practice green with several cups on each hole's green, free putting with distance and slope, around the clock and a lag ladder ([game-shell.md](docs/game-shell.md#putting-practice-and-green-reading))
+  - [ ] Links 2003's other practice options on a course's holes: driving only, chipping only, play through (the practice range is in)
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound

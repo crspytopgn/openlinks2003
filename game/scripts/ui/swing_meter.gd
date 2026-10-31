@@ -51,6 +51,13 @@ var run: LinksPowerStroke.Run = null
 var art: HudArt
 ## Draws the modern bar (Broadcast presentation) whatever the art.
 var modern := false
+## Links 2003's Amateur Putting Assistant: a red dot on the meter at the
+## power the putt wants (a meter value, as `power`); below 0 there is none.
+var target := -1.0:
+	set(v):
+		target = v
+		queue_redraw()
+const TARGET := Color(0.95, 0.12, 0.1)
 
 
 func _ready() -> void:
@@ -176,6 +183,8 @@ func _draw() -> void:
 	for quarter in [0.25, 0.5, 0.75, 1.0]:
 		_tick(quarter, Color(1, 1, 1, 0.7), WIDTH * 0.5, 4.0, 1.5)
 	_tick(0.0, Color.WHITE, WIDTH * 0.5 + 4.0, 8.0, 3.0)
+	if target >= 0.0:
+		draw_circle(size * 0.5 + Vector2.from_angle(_angle(target)) * (RADIUS + WIDTH * 0.5 + 8.0), 5.0, TARGET)
 	if phase != Phase.IDLE:
 		_tick(value, Color(0.9, 0.1, 0.1), WIDTH * 0.5 + 2.0, 10.0, 4.0)
 
@@ -226,6 +235,8 @@ func _draw_bar() -> void:
 		draw_line(Vector2(x, mid - bar_h * 0.6), Vector2(x, mid + bar_h * 0.6), Color(1, 1, 1, 0.8), 1.5)
 	var snap := _bar_x(0.0)
 	draw_line(Vector2(snap, mid - bar_h * 1.4), Vector2(snap, mid + bar_h * 1.4), Color.WHITE, 2.5)
+	if target >= 0.0:
+		draw_circle(Vector2(_bar_x(target), mid - bar_h * 1.4), 5.0, TARGET)
 	if phase != Phase.IDLE:
 		var x := _bar_x(value)
 		draw_line(Vector2(x, mid - bar_h * 1.1), Vector2(x, mid + bar_h * 1.1), Color(0.95, 0.1, 0.1), 4.0)
@@ -292,6 +303,8 @@ func _draw_modern() -> void:
 	for quarter in [0.25, 0.5, 0.75, 1.0]:
 		draw_circle(Vector2(_modern_x(quarter), mid + h + 5.0), 1.6, Color(1, 1, 1, 0.45))
 	draw_line(Vector2(snap, mid - h * 1.6), Vector2(snap, mid + h * 1.6), Color(1, 1, 1, 0.85), 2.0, true)
+	if target >= 0.0:
+		draw_circle(Vector2(_modern_x(target), mid - h - 6.0), 4.5, TARGET)
 	if phase != Phase.IDLE:
 		var x := _modern_x(value)
 		_capsule(Rect2(x - 4.0, mid - 13.0, 8.0, 26.0), Color(1, 1, 1, 0.25))

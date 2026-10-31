@@ -72,6 +72,22 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Launch monitors
+
+Settings > Launch monitor (desktop builds; a browser can't listen on a
+port): the game listens on TCP port 921 for the open "GSPro Connect" v1
+protocol that most home launch monitors and their connector apps speak
+(`OpenConnect`, `OpenConnectServer`). Point the app at this computer's
+address and port 921. Each shot message's ball data (speed in mph, vertical
+and horizontal launch angles, total spin and spin axis, or back and side
+spin) becomes the launch of the person's next shot, played through the
+current shot model with the wind, bounce and roll as usual; rough and sand
+take off speed and spin as they do for a swing. Each message is answered
+with code 200, and the app is told which club is up (code 201, `"Club":
+"DR"`, `"7I"`, `"PT"`). HLA and spin axis are taken as positive to the
+right. Shots are recorded as measured (`ShotRecord.monitor`), so replays
+play them back and online play can tell them apart.
+
 ### Gimmes
 
 Settings > Gimmes (off by default, as in Links 2003): a ball that stops on
@@ -270,6 +286,56 @@ best score per course and round length, the longest drive (a driver from
 the tee that stays in play), and counts of birdies, eagles and holes in
 one. The players page shows them under the career line.
 
+### Career
+
+The main menu's **Career** page (`CareerPanel`, logic in `Career`,
+`game/scripts/career/career.gd`, saved in `user://career.cfg`) runs seasons
+of tour events against a field of computer golfers. A new career picks the
+player (their profile, by name), the tour to start on, 4, 8 or 12 events a
+season, 4-round events with a cut, 2 rounds or 1, full rounds or the front
+nine, and whether two, one or no computer golfers play in the person's
+group. Fewer partners and shorter events keep it quick on slow computers.
+
+| Tour | Field | Field average (per 18, to par) | Cut | Purse | Moves |
+|------|-------|-------------------------------|-----|-------|-------|
+| Regional | 59 + you | 0 to +9 | top 30 and ties | $60,000 | top 5 move up |
+| Challenge | 95 + you | -3 to +3.5 | top 50 and ties | $400,000 | top 5 move up |
+| World | 131 + you | -3.5 to +1.5 | top 65 and ties | $8,000,000 | outside the top 100 drop down |
+
+- **Schedule**: the season's events cycle through the player's courses (the
+  same list as the setup page, including designed courses), shuffled. The
+  middle event is a "Masters" at 1.5 times the purse; the last is the tour's
+  Championship at twice the purse.
+- **Rounds**: the person plays every round as stroke play from the tour's
+  tees (middle on the Regional Tour, back otherwise), with up to two field
+  golfers as computer partners (`Career.partner_level` maps their average
+  to a computer level). Partners are drawn at random before the cut, then
+  the golfers next to the person on the leaderboard. The round is tied to
+  the career by `RoundSetup.career` (kept with a saved round), so a round
+  counts once and a resumed round still counts.
+- **The rest of the field** is simulated when the person's round is in:
+  each golfer's average scaled to the holes played, plus a "day" offset
+  shared by everyone (wind, pins) and their own spread. The partners' real
+  cards replace their simulated rounds.
+- **Cut and money**: four-round events cut after round two. Places are paid
+  from a table close to the big tours' published shares (18% to the
+  winner), normalised so the places down to the cut add up to the purse;
+  everyone who makes the cut is paid, and ties split the places they fill.
+  A tie for the win goes to a sudden-death playoff (simulated, from each
+  golfer's average). Events without a cut pay down to the cut's number of
+  places. A missed cut or a withdrawal plays the event out without the
+  person.
+- **Season end**: the money list decides who moves up a tour, and on the
+  World Tour who keeps their card. The page then starts the next season.
+
+The page shows the season line (money list place and earnings), the career
+line (events, wins, top 10s, cuts, earnings, scoring average per 18), the
+handicap index and personal records from the player's profile, the event
+leaderboard, the money list and the schedule with results. In a career
+round the ticker shows the event and the leaderboard before the round;
+when the round ends the result is added and Space goes back to the Career
+page. The rounds also go on the player's profile like any other round.
+
 ### Saved rounds
 
 The round in progress is saved before every shot and at the end of each hole
@@ -294,6 +360,8 @@ game/scripts/
   game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
   round_setup.gd                RoundSetup: course, tees, holes, mode and players for a round
   round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode
+  career/
+    career.gd                   Career: tours, schedule, simulated field, cut, prize money, money list
   ai/
     computer_golfer.gd          ComputerGolfer: plans a computer opponent's shots through the ShotModel
     opponent_skill.gd           OpponentSkill: skill levels and swing mistakes (port of olcore/opponent)
@@ -331,7 +399,7 @@ game/scripts/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     mouse_swing.gd, analog_swing.gd, touch_pad.gd   the mouse swing, and touch and stick input for it
     hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
-    round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    round_setup_panel.gd, players_panel.gd, career_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
     hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
@@ -482,6 +550,38 @@ next start) and the light placeholder sounds play otherwise.
 
 In every presentation, scene changes fade through black and menu panels fade
 in (`scripts/ui/scene_fade.gd`).
+
+## Putting practice and green reading
+
+Links 2003's own green-reading aids and practice options are written up in
+[formats/green-reading.md](formats/green-reading.md). In the round:
+
+- `scripts/putting/green_read.gd` (`GreenRead`): the slope along and across
+  a putt's line, the slope at the ball, the greens' speed as a stimpmeter
+  reading from the physics, which aids each skill level gets, and the read
+  views.
+- Settings > Putting grid: Links 2003's yellow grid, its grid coloured by
+  height, or the TV grid coloured by slope (`GreenGrid.Style`). Not at
+  Elite skill, as in the game, except as the Broadcast presentation's TV
+  graphic. G shows or hides it, Ctrl+G changes the look.
+- Settings > Breakline indicator (`BreaklineIndicator`): a yellow line at
+  the aiming marker leaning the way the green falls, taller where steeper.
+- Settings > Putting assistant: at Amateur skill the line (`PuttRead`) and a
+  red dot on the meter for the power; at Professional a band round the line.
+- V (or the Read the green button): crouch behind the ball, look from behind
+  the hole, from the low side, and from above (the Green Analyzer's stand-in,
+  not at Elite). Aiming still works in these views.
+- The putting panel on the right (`scripts/ui/putting_panel.gd`) shows the
+  greens' firmness, speed and stimp and the slope at the ball.
+
+Round setup > Play > Putting practice plays a practice green
+(`scripts/putting/putting_practice.gd`, `practice_cups.gd`) on each chosen
+hole's green, for the first player, with nothing scored or saved. Keys (and
+buttons on the panel, for a mouse or a finger): N new spot, [ and ] the
+distance, L the slope (any, uphill, downhill, left to right, right to left),
+P the drill (free putting, around the clock, lag ladder), T the next cup, H
+the next green. Free putting brings the ball back to the same spot after
+each putt, like the original's Auto-Mulligan.
 
 ## Plugging in decoded data
 

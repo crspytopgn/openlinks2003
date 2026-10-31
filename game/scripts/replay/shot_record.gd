@@ -40,6 +40,9 @@ var help: LinksMouse.Help = null
 var ball_position := -1
 var face := 30
 var stance := 30
+## A real swing from a launch monitor (OpenConnect.Launch.to_array):
+## played as measured instead of through the swing. Empty otherwise.
+var monitor: Array = []
 ## What happened.
 var rest := Vector3.ZERO
 var outcome: int = ShotResult.Outcome.REST
@@ -55,6 +58,8 @@ func to_dict() -> Dictionary:
 	}
 	if ball_position >= 0 or face != 30 or stance != 30:
 		d["setup"] = [ball_position, face, stance]
+	if not monitor.is_empty():
+		d["monitor"] = monitor
 	if stroke != null:
 		d["stroke"] = {
 			"skill": stroke.skill, "shot": stroke.shot, "club": stroke.club, "speed": stroke.speed,
@@ -94,6 +99,9 @@ static func from_dict(d: Dictionary) -> ShotRecord:
 		r.ball_position = int(setup[0])
 		r.face = int(setup[1])
 		r.stance = int(setup[2])
+	var mon: Variant = d.get("monitor")
+	if mon is Array and (mon as Array).size() == 5:
+		r.monitor = (mon as Array).duplicate()
 	var s: Variant = d.get("stroke")
 	if s is Dictionary:
 		var m := LinksMouse.Stroke.new()

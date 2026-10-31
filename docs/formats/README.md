@@ -51,6 +51,9 @@ What the file holds and when the game loads it.
   models and `.CLP` clips. Container, clips and skeleton complete; meshes open.
 - [cvt.md](cvt.md): the 39 converted Links LS courses (`.CVT`): older hole
   and terrain versions and the terrain types.
+- [green-reading.md](green-reading.md): the game's green-reading aids (grid,
+  breakline indicator, putting assistant, Green Analyzer) by skill level, and
+  its practice options, from the help text.
 
 Full file listings are in [../install-listing/](../install-listing/). To dig
 into a file type, extract samples from your own discs with

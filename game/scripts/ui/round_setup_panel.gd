@@ -54,7 +54,7 @@ func _ready() -> void:
 	_course.custom_minimum_size = Vector2(380, 36)
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
-	_play = _row(grid, "Play", ["A round", "Practice range"])
+	_play = _row(grid, "Play", ["A round", "Practice range", "Putting practice"])
 	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
 	_mode.item_selected.connect(_on_mode_selected.unbind(1))
@@ -186,6 +186,7 @@ func current_setup() -> RoundSetup:
 	s.mode = _mode.selected as GameModes.Mode
 	s.handicaps = _handicaps.selected == 1
 	s.practice = _play.selected == 1
+	s.putting = _play.selected == 2
 	s.names.clear()
 	s.teams.clear()
 	s.computer.clear()
@@ -266,6 +267,9 @@ func _refresh() -> void:
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
 	if _play.selected == 1:
 		_mode_help.text = "Hit from the tee as often as you like: the ball comes back and a launch monitor shows each shot. N and B change hole."
+	if _play.selected == 2:
+		_mode_help.text = PuttingPractice.SETUP_HELP
+	_start.text = "Start round" if _play.selected == 0 else "Start practice"
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
 		var level := _who[i].selected - 1
@@ -292,7 +296,7 @@ func _on_start() -> void:
 	if _start.disabled or not s.problem().is_empty():
 		return
 	# A typed index becomes the starting index of a player without a record.
-	if s.handicaps:
+	if s.handicaps and not s.putting:
 		for i in s.player_count():
 			if not s.is_computer(i) and not _profiles.has_record(s.names[i]):
 				_profiles.set_start_index(s.names[i], s.indexes[i])
