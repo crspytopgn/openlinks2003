@@ -81,6 +81,20 @@ balls stay on the ground where they lie. The modes:
 | Skins | 2 to 4 | One skin a hole for the outright lowest score; ties carry over |
 | Best ball | 3 or 4, two teams | Each team counts its best score per hole |
 | Stableford | 1 to 4 | 2 points for par, one more per stroke under, one fewer per stroke over |
+| Scramble | 2 to 4, two teams | Everyone on the team hits; the team plays on from the best shot, one stroke per round of shots |
+| Alternate shot | 2 to 4, two teams | One ball per team; partners take turns hitting it and take turns on the tee |
+
+In scramble and alternate shot each team plays one ball (its first member's;
+the partners' own balls sit out), and every member's card carries the team's
+score, so the team rows of the scorecard show it. In a scramble the team
+plays on from the shot that leaves the fewest expected strokes
+(`OpponentSkill.expected_strokes`), so a person doesn't have to pick; a holed
+shot ends the hole at once. Alternate shot counts swings, not penalty
+strokes, when deciding whose turn it is. Team rounds don't go on the players'
+handicap records. With handicaps, scramble uses 25% and alternate shot 50% of
+each player's handicap, off the low, and the team counts its better net
+score (a simplification of the WHS team allowances). Computer golfers play
+both, taking their turns like anyone else.
 
 `GameModes` (`game_modes.gd`) does the scoring and mirrors the game-mode
 functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's

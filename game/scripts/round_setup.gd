@@ -72,8 +72,8 @@ func problem() -> String:
 		if r.x == r.y:
 			return "%s needs exactly %d players." % [GameModes.MODE_NAMES[mode], r.x]
 		return "%s needs %d to %d players." % [GameModes.MODE_NAMES[mode], r.x, r.y]
-	if mode == GameModes.Mode.BEST_BALL and (not teams.has(0) or not teams.has(1)):
-		return "Best ball needs players on both teams."
+	if GameModes.is_team(mode) and (not teams.has(0) or not teams.has(1)):
+		return "%s needs players on both teams." % GameModes.MODE_NAMES[mode]
 	return ""
 
 

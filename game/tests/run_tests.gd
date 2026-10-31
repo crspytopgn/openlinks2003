@@ -76,6 +76,7 @@ func _process(_delta: float) -> bool:
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
+	_run("team_ball_modes", _test_team_ball_modes)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("players_panel", _test_players_panel)
@@ -546,6 +547,12 @@ func _test_round_setup() -> void:
 	_check(not s.problem().is_empty(), "best ball needs both teams")
 	s.teams = _ints([0, 1, 0])
 	_check(s.problem().is_empty(), "best ball, three players")
+	s.mode = GameModes.Mode.SCRAMBLE
+	_check(s.problem().is_empty(), "scramble, three players")
+	s.teams = _ints([1, 1, 1])
+	_check(not s.problem().is_empty(), "scramble needs both teams")
+	s.teams = _ints([0, 1, 0])
+	s.mode = GameModes.Mode.BEST_BALL
 	_check(s.hole_indices(18).size() == 18, "all 18")
 	s.holes = RoundSetup.Holes.BACK_NINE
 	_check(s.hole_indices(18) == _ints([9, 10, 11, 12, 13, 14, 15, 16, 17]), "back nine")
@@ -1414,6 +1421,43 @@ func _test_computer_opponents() -> void:
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE and computer_turns > 0, "match against the computer finishes")
 	print("  match: %s" % game.scoring.winner_text())
+	GolfRound.setup = null
+
+
+## Scramble and alternate shot through the real round, with people (the
+## test's auto-play) and computer golfers on both teams.
+func _test_team_ball_modes() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	for mode: int in [GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT]:
+		var mode_name: String = GameModes.MODE_NAMES[mode]
+		var s := RoundSetup.new()
+		s.names = _strs(["Ann", "Bob", "Cy", "Di"])
+		s.teams = _ints([0, 1, 0, 1])
+		s.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, OpponentSkill.Level.TOUR, OpponentSkill.Level.CLUB])
+		s.holes = RoundSetup.Holes.FRONT_NINE
+		s.mode = mode as GameModes.Mode
+		GolfRound.setup = s
+		game.start_round()
+		_check(game.ball_of == _ints([0, 1, 0, 1]), "%s: one ball per team" % mode_name)
+		_check(game.honour == _ints([0, 1]), "%s: teams tee off in order" % mode_name)
+		var hitters := {}
+		var steps := 0
+		while game.state != GolfRound.State.ROUND_DONE and steps < 3000:
+			if game.state == GolfRound.State.AIM or game.state == GolfRound.State.COMPUTER:
+				_check(game.current == 0 or game.current == 1, "%s: only the team balls are played" % mode_name)
+				_check(game.ball_of[game.shooter] == game.current, "%s: the shooter is on the ball's team" % mode_name)
+				hitters[game.shooter] = true
+			game.auto_play_step()
+			steps += 1
+		_check(game.state == GolfRound.State.ROUND_DONE, "%s round finishes" % mode_name)
+		_check(hitters.size() == 4, "%s: everyone hit: %s" % [mode_name, hitters.keys()])
+		for t in 2:
+			var members := game.scoring.team_members(t)
+			_check(game.scoring.cards[members[0]].strokes == game.scoring.cards[members[1]].strokes, "%s: partners share the team score" % mode_name)
+			_check(game.scoring.cards[members[0]].holes_played() == game.holes.size(), "%s: team %d played every hole" % [mode_name, t])
+		print("  %s: %s" % [mode_name.to_lower(), game.scoring.winner_text()])
 	GolfRound.setup = null
 
 
