@@ -12,6 +12,10 @@ func run_all() -> Array[String]:
 	_test_terrain_tiles()
 	_test_simplify()
 	_test_builder()
+	_test_geo_raster()
+	_test_national_lidar()
+	_test_photo_trees()
+	_test_extra_trees()
 	return failures
 
 
@@ -21,7 +25,10 @@ func check(cond: bool, what: String) -> void:
 
 
 func _test_scripts_compile() -> void:
-	for path in ["res://scripts/realcourse/real_course_fetcher.gd", "res://scripts/realcourse/real_course_dialog.gd"]:
+	for path in ["res://scripts/realcourse/real_course_fetcher.gd", "res://scripts/realcourse/real_course_dialog.gd", "res://shaders/aerial_photo.gdshader"]:
+		if path.ends_with(".gdshader"):
+			check(load(path) is Shader, "%s loads" % path)
+			continue
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -156,3 +163,180 @@ static func _geom(f: GeoFrame, pts: Array) -> Array:
 
 static func _way(tags: Dictionary, f: GeoFrame, pts: Array, _closed := true) -> Dictionary:
 	return {"type": "way", "tags": tags, "geometry": _geom(f, pts)}
+
+
+## A 4 x 3 float GeoTIFF in strips, in both byte orders, plain and with the
+## floating-point predictor and Deflate, as the lidar services send them.
+func _test_geo_raster() -> void:
+	var heights := PackedFloat32Array([10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 32, 33])
+	for be in [false, true]:
+		for packed in [false, true]:
+			var r := GeoRaster.from_tiff(_tiff(heights, 4, 3, be, packed))
+			var what := "%s-endian%s" % ["big" if be else "little", " predictor+deflate" if packed else ""]
+			check(r != null, "GeoTIFF reads (%s)" % what)
+			if r == null:
+				continue
+			check(r.width == 4 and r.height == 3 and r.data == heights, "GeoTIFF samples (%s): %s" % [what, r.data])
+			check(is_equal_approx(r.west, -1.0) and is_equal_approx(r.north, 51.0) and is_equal_approx(r.dlon, 0.001), "GeoTIFF position (%s)" % what)
+			# The centre of pixel (1, 1) is 21 m.
+			check(absf(r.sample(51.0 - 0.0015, -1.0 + 0.0015) - 21.0) < 0.001, "GeoTIFF sampling (%s)" % what)
+	var bil := GeoRaster.from_bil(heights.to_byte_array(), 4, 3, [50.997, -1.0, 51.0, -0.996])
+	check(bil != null and absf(bil.sample(51.0 - 0.0015, -1.0 + 0.0015) - 21.0) < 0.001, "BIL raster")
+	var gappy := GeoRaster.from_bil(PackedFloat32Array([1, 2, -99999, 4]).to_byte_array(), 2, 2, [0.0, 0.0, 1.0, 1.0])
+	check(is_nan(gappy.sample(0.5, 0.5)) and is_equal_approx(gappy.valid_fraction(), 0.75), "no-data pixels read as NAN")
+	check(GeoRaster.from_tiff(PackedByteArray([1, 2, 3])) == null, "junk isn't a GeoTIFF")
+
+
+func _test_national_lidar() -> void:
+	check(str(NationalLidar.source_for(51.4, -0.3).get("id", "")) == "ea", "England uses the Environment Agency")
+	check(str(NationalLidar.source_for(52.2, 5.2).get("id", "")) == "ahn", "the Netherlands use AHN")
+	check(str(NationalLidar.source_for(36.57, -121.95).get("id", "")) == "3dep", "California uses 3DEP")
+	check(NationalLidar.source_for(-33.9, 151.2).is_empty(), "no service for Sydney yet")
+	var l := NationalLidar.new(NationalLidar.source_for(51.4, -0.3), [51.40, -0.31, 51.42, -0.28])
+	# About 2.1 km by 2.2 km at 1 m: 3 x 3 requests of at most 1000 px.
+	check(l.chunks.size() == 9, "chunks: %d" % l.chunks.size())
+	check(int(l.chunks[0]["cols"]) <= NationalLidar.CHUNK and int(l.chunks[0]["rows"]) <= NationalLidar.CHUNK, "chunk size")
+	var u := l.url(l.chunks[0], false)
+	check(u.contains("DTM_1m") and u.contains("subset=Lat(51.4000000,"), "WCS url: " + u)
+	check(l.url(l.chunks[0], true).contains("FZ_DSM_1m"), "surface model url")
+	# Canopy: a 12 m crown on flat ground, and a flat 8 m roof.
+	var ground := PackedFloat32Array()
+	var top := PackedFloat32Array()
+	for j in 40:
+		for i in 40:
+			ground.append(5.0)
+			var crown := maxf(0.0, 12.0 - Vector2(i - 10, j - 10).length() * 2.5)
+			var roof := 8.0 if i >= 25 and i < 35 and j >= 25 and j < 35 else 0.0
+			top.append(5.0 + maxf(crown, roof))
+	var box := [51.0, -1.0, 51.0004, -0.9994]
+	var chunk := {"box": box, "cols": 40, "rows": 40}
+	var lt := NationalLidar.new(NationalLidar.SOURCES[2], box)
+	check(lt.add(chunk, ground.to_byte_array(), false) and lt.add(chunk, top.to_byte_array(), true), "BIL chunks load")
+	var trees := lt.find_trees()
+	check(trees.size() == 1, "one tree found, the roof skipped (%d)" % trees.size())
+	if trees.size() == 1:
+		check(absf(float(trees[0]["height"]) - 12.0) < 0.01, "tree height from the canopy")
+
+
+func _test_photo_trees() -> void:
+	# A 100 x 100 m photo at 1 m: light fairway grass with a dark green
+	# 12 m clump of trees in the middle.
+	var img := Image.create(100, 100, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.55, 0.7, 0.35))
+	img.fill_rect(Rect2i(44, 44, 12, 12), Color(0.12, 0.22, 0.1))
+	var area := Rect2(-50, -50, 100, 100)
+	var found := AerialPhotos.find_trees(img, area, PackedVector2Array([Vector2(-30, -30), Vector2(30, 30)]))
+	check(found.size() >= 1 and found.size() <= 9, "the clump is found (%d cells)" % found.size())
+	for p in found:
+		check(p.length() < 10.0, "tree cells are on the clump: %s" % p)
+	check(AerialPhotos.source_for(52.2, 5.2).get("id", "") == "pdok", "Dutch photos from PDOK")
+
+
+## Lidar trees replace the guessed wood fill, and keep off buildings.
+func _test_extra_trees() -> void:
+	var f := GeoFrame.new(51.0, -1.0)
+	var els: Array = []
+	els.append(_way({"leisure": "golf_course", "name": "Lidar Links"}, f, _rect(Vector2(-150, -150), Vector2(150, 150))))
+	els.append(_way({"golf": "hole", "ref": "1", "par": "3"}, f, [Vector2(0, -80), Vector2(0, 80)], false))
+	els.append(_way({"golf": "green"}, f, _rect(Vector2(-10, 70), Vector2(10, 90))))
+	els.append(_way({"natural": "wood"}, f, _rect(Vector2(40, -100), Vector2(120, 100))))
+	els.append(_way({"building": "yes"}, f, _rect(Vector2(-100, -20), Vector2(-80, 0))))
+	var b := RealCourseBuilder.new({"elements": els}, 51.0, -1.0)
+	b.lidar_trees = [
+		{"lat": b.frame.lat_of(Vector2(60, 0)), "lon": b.frame.lon_of(Vector2(60, 0)), "height": 20.0},
+		{"lat": b.frame.lat_of(Vector2(61, 1)), "lon": b.frame.lon_of(Vector2(61, 1)), "height": 18.0},
+		{"lat": b.frame.lat_of(Vector2(-90, -10)), "lon": b.frame.lon_of(Vector2(-90, -10)), "height": 9.0},
+		{"lat": b.frame.lat_of(Vector2(-50, 40)), "lon": b.frame.lon_of(Vector2(-50, 40)), "height": 11.0},
+	]
+	b.extra_credits.append("Lidar: test")
+	check(b.course_names().is_empty(), "one course: no names to choose from")
+	var c := b.build(func(_la: float, _lo: float) -> float: return 10.0)
+	check(c.objects.size() == 2, "lidar trees only: the close pair is one tree, none on the building, no wood fill (%d)" % c.objects.size())
+	check(c.credits.ends_with("Lidar: test."), "extra credits")
+	# Two courses at one club, told apart by golf:course:name.
+	var two: Array = [els[0]]
+	for n in 18:
+		for name in ["Old", "New"]:
+			var x := -120.0 + n * 12.0 + (6.0 if name == "New" else 0.0)
+			two.append(_way({"golf": "hole", "ref": str(n + 1), "golf:course:name": name}, f, [Vector2(x, -100), Vector2(x, 100)], false))
+	var club := RealCourseBuilder.new({"elements": two}, 51.0, -1.0)
+	check(Array(club.course_names()) == ["New", "Old"], "both courses named: %s" % club.course_names())
+	club.course_filter = "Old"
+	var old := club.build(func(_la: float, _lo: float) -> float: return 10.0)
+	check(old.holes.size() == 18 and old.course_name == "Old", "the Old course alone (%d holes)" % old.holes.size())
+
+
+## A strip GeoTIFF of float heights, 0.001 degree pixels from (51 N, 1 W).
+static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool) -> PackedByteArray:
+	var pixels := v.to_byte_array()
+	if packed:
+		# Floating-point predictor: per row, bytes split into planes (most
+		# significant first), then differenced.
+		var out := PackedByteArray()
+		for y in h:
+			var row := PackedByteArray()
+			row.resize(w * 4)
+			for x in w:
+				for byte in 4:
+					var src := pixels[(y * w + x) * 4 + byte]
+					# Planes run most significant byte first in either byte order.
+					row[(3 - byte) * w + x] = src
+			var prev := 0
+			for k in row.size():
+				var cur := row[k]
+				row[k] = (cur - prev) & 0xFF
+				prev = cur
+			out.append_array(row)
+		pixels = out.compress(FileAccess.COMPRESSION_DEFLATE)
+	elif be:
+		var swapped := PackedByteArray()
+		for k in range(0, pixels.size(), 4):
+			swapped.append_array([pixels[k + 3], pixels[k + 2], pixels[k + 1], pixels[k]])
+		pixels = swapped
+	var entries := [
+		[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 32], [259, 3, 1, 8 if packed else 1],
+		[273, 4, 1, 0], [277, 3, 1, 1], [278, 3, 1, h], [279, 4, 1, pixels.size()],
+		[317, 3, 1, 3 if packed else 1], [339, 3, 1, 3],
+		[33550, 12, 3, [0.001, 0.001, 0.0]], [33922, 12, 6, [0.0, 0.0, 0.0, -1.0, 51.0, 0.0]],
+	]
+	var ifd_size := 2 + entries.size() * 12 + 4
+	var extra_at := 8 + ifd_size
+	var extra := PackedByteArray()
+	var data_at := extra_at + 3 * 8 + 6 * 8
+	var b := PackedByteArray()
+	b.append_array([0x4D, 0x4D] if be else [0x49, 0x49])
+	b.append_array(_be_or_le(42, 2, be))
+	b.append_array(_be_or_le(8, 4, be))
+	b.append_array(_be_or_le(entries.size(), 2, be))
+	for e: Array in entries:
+		b.append_array(_be_or_le(e[0], 2, be))
+		b.append_array(_be_or_le(e[1], 2, be))
+		b.append_array(_be_or_le(e[2], 4, be))
+		if e[1] == 12:
+			b.append_array(_be_or_le(extra_at + extra.size(), 4, be))
+			for d: float in e[3]:
+				var x := PackedByteArray()
+				x.resize(8)
+				x.encode_double(0, d)
+				if be:
+					x.reverse()
+				extra.append_array(x)
+		elif e[0] == 273:
+			b.append_array(_be_or_le(data_at, 4, be))
+		elif e[1] == 3:
+			b.append_array(_be_or_le(e[3], 2, be) + PackedByteArray([0, 0]))
+		else:
+			b.append_array(_be_or_le(e[3], 4, be))
+	b.append_array(PackedByteArray([0, 0, 0, 0]))
+	b.append_array(extra)
+	b.append_array(pixels)
+	return b
+
+
+static func _be_or_le(v: int, size: int, be: bool) -> PackedByteArray:
+	var out := PackedByteArray()
+	for k in size:
+		out.append((v >> (8 * k)) & 0xFF)
+	if be:
+		out.reverse()
+	return out
