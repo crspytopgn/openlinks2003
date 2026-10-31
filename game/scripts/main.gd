@@ -457,6 +457,10 @@ func play_shot(power: float, accuracy: float) -> void:
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
+	if shot_model is LinksShotModel:
+		var links := shot_model as LinksShotModel
+		links.skill = graphics.skill
+		links.computer = round_setup != null and round_setup.is_computer(shooter)
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()

@@ -814,6 +814,7 @@ func _test_graphics_settings() -> void:
 	s.fov = 70.0
 	s.wind = Wind.Level.STRONG
 	s.presentation = GraphicsSettings.Presentation.CLASSIC
+	s.skill = 1
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -822,6 +823,7 @@ func _test_graphics_settings() -> void:
 	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
 	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
+	_check(loaded.skill == 1, "swing skill saved")
 	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
