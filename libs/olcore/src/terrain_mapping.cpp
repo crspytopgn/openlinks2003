@@ -100,13 +100,17 @@ MaterialLayers material_layers(const TerrainMaterial& m) {
   out.blended = m.mode == 3 && m.layer_count >= 3;
   std::size_t slot = 0;
   for (std::uint32_t layer = 0; slot < m.textures.size(); ++layer) {
-    std::int32_t base = m.textures[slot];
+    std::int32_t base = m.textures[slot++];
     std::uint32_t details = (m.kind >> (2 * layer)) & 3u;
-    slot += 1 + (details & 1u) + ((details >> 1) & 1u);
+    std::array<std::int32_t, 2> variants = {-1, -1};
+    for (std::size_t k = 0; k < 2; ++k) {
+      if ((details >> k) & 1u) variants[k] = slot < m.textures.size() ? m.textures[slot++] : -1;
+    }
     if (out.blended && layer == 0) {
       out.mask = base;
     } else {
       out.layers.push_back(base);
+      out.details.push_back(variants);
     }
   }
   return out;

@@ -134,7 +134,12 @@ at Medium and grass at Low.
   stays, which keeps Kauri's sea, and fades 30% into the haze.
   Compatibility shows the sky brighter, since it has no sky fill light.
   The water reflects at most 60% of the sky, so a glancing view still
-  shows deep blue, not white.
+  shows deep blue, not white. When the player picks a sky in Settings
+  (anything but the course's own), Photoreal shows that disc sky instead
+  and the light follows its weather (`Scenery._apply_weather`): the sun
+  loses up to 65% of its energy and, in Forward+, its shadows soften,
+  while the fill light grows by up to 60%; Sunrise and Mojave Sunset warm
+  the sun. Classic always shows the chosen or course sky.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump
@@ -146,6 +151,16 @@ at Medium and grass at Low.
   Neutral grade under Photoreal lighting adds a gentle filmic S-curve on
   luminance, slightly warm highlights and cool shadows, so the render
   reads less flat and hazy. The other grades are unchanged.
+- **Course shading from the `.SHA` file** ([sha.md](formats/sha.md)):
+  billboards are darkened by how much light the course says reaches them
+  (an instance colour, so trees inside a wood are deeper than those in the
+  open), and 3D objects stamp their own footprint into the baked ground
+  shade as a shadow and a soft darkening underneath.
+- **Distance texture variants** (`terrain_mapped.gdshader`): disc ground
+  textures fade into their coarser `... 32.tga` and `... 128.tga` variants
+  with distance, which hides the tiling across a fairway. Only uniform
+  branches, so it costs nothing on materials without variants and works in
+  Compatibility.
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat

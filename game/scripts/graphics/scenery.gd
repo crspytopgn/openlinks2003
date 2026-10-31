@@ -27,6 +27,11 @@ var backdrop: CourseBackdrop
 var _free_sky: Material  ## the photographed sky (FreeAssets), or null
 var _backdrop_sky: Material  ## the plain sky behind the course's backdrop
 var _photo := false
+## The sun and fill light apply() set, before the weather scales them.
+var _sun_energy := SUN_ENERGY
+var _sun_color := Color(1.0, 0.95, 0.86)
+var _ambient_energy := AMBIENT_ENERGY
+var _sun_angle := 0.0
 
 
 func _init() -> void:
@@ -138,17 +143,22 @@ func apply(settings: GraphicsSettings) -> void:
 	environment.ssr_max_steps = 48
 	environment.fog_aerial_perspective = 0.5 if photo else 0.3
 	_photo = photo
+	_sun_energy = sun.light_energy
+	_sun_color = sun.light_color
+	_ambient_energy = environment.ambient_light_energy
+	_sun_angle = sun.light_angular_distance
 	_choose_sky()
 
 
 ## Shows the course's own horizon (null for none) in front of a cloud sky
-## from the player's PANSKY.LIB, when the player's files have one; otherwise
-## keeps the default sky. Called once per course.
-func set_backdrop(horizon: Image) -> void:
+## from the player's files (the course's own, `course_sky`, unless the
+## player picked one), when the player's files have one; otherwise keeps
+## the default sky. Called once per course.
+func set_backdrop(horizon: Image, course_sky := 0) -> void:
 	if backdrop != null:
 		backdrop.queue_free()
 		backdrop = null
-	var b := CourseBackdrop.create(horizon)
+	var b := CourseBackdrop.create(horizon, course_sky)
 	if not b.has_sky and not b.has_horizon:
 		b.free()
 		return
@@ -169,10 +179,11 @@ func set_backdrop(horizon: Image) -> void:
 
 
 ## Photoreal lighting shows the photographed cloud sky with distance haze
-## behind the course's horizon instead of the disc's sky; Classic keeps
-## the course's own.
+## behind the course's horizon instead of the disc's sky, unless the player
+## picked a sky; Classic keeps the course's own.
 func _choose_sky() -> void:
-	var real := _photo and _free_sky != null
+	var real := _photo and _free_sky != null and not (backdrop != null and backdrop.chosen and backdrop.has_sky)
+	_apply_weather()
 	if backdrop != null:
 		backdrop.set_photo(real, HORIZON)
 	if real or _backdrop_sky == null:
@@ -189,3 +200,23 @@ func _choose_sky() -> void:
 	environment.fog_sky_affect = 0.0
 	environment.fog_light_color = backdrop.sky_haze.lerp(backdrop.ground, 0.35)
 	environment.fog_density = 0.00035
+
+
+## Photoreal light follows a sky the player picked: under cloud the sun
+## dims and its shadows soften while the sky's fill light grows; a sunrise
+## or sunset sky warms the sun. Classic and the photographed sky keep the
+## light apply() set.
+func _apply_weather() -> void:
+	sun.light_energy = _sun_energy
+	sun.light_color = _sun_color
+	environment.ambient_light_energy = _ambient_energy
+	sun.light_angular_distance = _sun_angle
+	if not _photo or backdrop == null or not backdrop.chosen or not backdrop.has_sky:
+		return
+	var o := backdrop.overcast
+	sun.light_energy = _sun_energy * (1.0 - 0.65 * o)
+	environment.ambient_light_energy = _ambient_energy * (1.0 + 0.6 * o)
+	if backdrop.warm:
+		sun.light_color = Color(1.0, 0.78, 0.55)
+	if GraphicsSettings.is_forward_plus():
+		sun.light_angular_distance = maxf(_sun_angle, 4.0 * o)

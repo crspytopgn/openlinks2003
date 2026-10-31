@@ -10,9 +10,31 @@ extends Node3D
 ## once round, and the band's height follows from that. Above the sky band
 ## the Environment's sky colour takes over.
 
-## Which sky from PANSKY.LIB: sky01 is clear, sky12 overcast.
+## The sky when the course names none: skyNN.btc from PANSKY.LIB, where
+## sky01 is clear and sky12 overcast.
 const DEFAULT_SKY := "sky04"
 const SKY_LIBRARIES := ["PANSKY.LIB", "PanSky.lib"]
+## The player's sky setting ([game] "sky" in user://settings.cfg): the
+## course's own (the one its header names, as Links 2003 1.0 does), a random
+## one (as the 1.07 patch offers), a disc sky ("sky05") or the name of a
+## custom sky from the patch's skies folder ("Sunrise").
+const COURSE_SKY := ""
+const RANDOM_SKY := "random"
+const SKY_FOLDER := "skies"
+## The 1.07 patch's names for the twelve disc skies: its first twelve
+## custom skies are the same pictures as sky01 to sky12.
+const DISC_SKY_NAMES: Array[String] = ["Clear", "Mostly Sunny 1", "Mostly Sunny 2", "Mostly Sunny 3",
+	"Scattered Clouds 1", "Scattered Clouds 2", "Scattered Clouds 3", "Partly Cloudy 1", "Partly Cloudy 2",
+	"Broken Clouds", "Cloudy", "Overcast"]
+## How overcast each named sky is (0 clear, 1 dark and stormy) and whether
+## it is a low, warm sun (sunrise, sunset); the light follows it.
+const WEATHER := {
+	"clear": 0.0, "mostly sunny 1": 0.05, "mostly sunny 2": 0.1, "mostly sunny 3": 0.15,
+	"scattered clouds 1": 0.25, "scattered clouds 2": 0.3, "scattered clouds 3": 0.35,
+	"partly cloudy 1": 0.45, "partly cloudy 2": 0.5, "broken clouds": 0.6, "mostly cloudy": 0.7,
+	"cloudy": 0.8, "overcast": 0.9, "ominous": 0.9, "stormy": 1.0, "sunrise": 0.35, "mojave_sunset": 0.3,
+}
+const WARM_SKIES: Array[String] = ["sunrise", "mojave_sunset"]
 ## Row of the horizon panorama that sits at eye level, as a fraction of its
 ## height. The distant land in the course panoramas meets the sky about
 ## here. A guess from the images; the game's own value isn't known yet.
@@ -45,23 +67,41 @@ var sky_haze := Color(0.75, 0.82, 0.90)
 var ground := Color(0.30, 0.38, 0.20)
 var has_sky := false
 var has_horizon := false
+## The sky shown (as sky_setting() values: "sky05", "Sunrise"), "" for none.
+var sky_name := ""
+## How overcast the shown sky is (0 clear to 1 stormy), and whether its sun
+## is low and warm.
+var overcast := 0.3
+var warm := false
+## True when the player picked the sky rather than leaving the course's own.
+var chosen := false
 
 
 ## Builds the backdrop from the player's files: `horizon` is the course's
-## Panorama image (null for none); the sky comes from PANSKY.LIB.
-static func create(horizon: Image, sky_name := "") -> CourseBackdrop:
+## horizon panorama (null for none); the sky is the one the player's
+## setting picks, by default the course's own (`course_sky`: skyNN, 0 for
+## none named).
+static func create(horizon: Image, course_sky := 0) -> CourseBackdrop:
 	var b := CourseBackdrop.new()
 	b.name = "Backdrop"
 	if horizon != null:
 		horizon = HdPack.replace("horizon", HdPack.course, horizon)
-	var sky := load_sky(sky_name if not sky_name.is_empty() else GameFolder.setting("sky", DEFAULT_SKY))
+	b.chosen = sky_setting() != COURSE_SKY
+	b.sky_name = pick_sky(sky_setting(), course_sky)
+	var sky := load_sky(b.sky_name)
 	if sky != null:
 		b.has_sky = true
 		b.sky_top = _row_mean(sky, 0, 8)
 		b.sky_haze = _row_mean(sky, sky.get_height() - 8, 8)
-		var band := _band(sky, SKY_RADIUS, 0.0, 0.25, -2)
+		b.overcast = weather(b.sky_name)
+		b.warm = WARM_SKIES.has(display_name(b.sky_name).to_lower())
+		# Its bottom row at eye level (row 0 there would hang the whole sky
+		# below the horizon, behind the land).
+		var band := _band(sky, SKY_RADIUS, 1.0, 0.25, -2)
 		band.name = "SkyBand"
 		b.add_child(band)
+	else:
+		b.sky_name = ""
 	if horizon != null:
 		b.has_horizon = true
 		b.ground = _row_mean(horizon, horizon.get_height() - 16, 16)
@@ -69,6 +109,70 @@ static func create(horizon: Image, sky_name := "") -> CourseBackdrop:
 		band.name = "HorizonBand"
 		b.add_child(band)
 	return b
+
+
+## The player's sky setting (see COURSE_SKY).
+static func sky_setting() -> String:
+	return GameFolder.setting("sky", COURSE_SKY)
+
+
+static func save_sky_setting(value: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(GameFolder.SETTINGS_PATH)
+	cfg.set_value("game", "sky", value)
+	cfg.save(GameFolder.SETTINGS_PATH)
+
+
+## The sky to show for a setting and the course's own sky number.
+static func pick_sky(setting: String, course_sky: int) -> String:
+	if setting == RANDOM_SKY:
+		var choices := sky_choices()
+		choices = choices.slice(2)  # past "course" and "random"
+		return choices[randi() % choices.size()] if not choices.is_empty() else DEFAULT_SKY
+	if setting.is_empty() or setting == COURSE_SKY:
+		return "sky%02d" % course_sky if course_sky >= 1 and course_sky <= 12 else DEFAULT_SKY
+	return setting
+
+
+## The values sky_setting() can take, for a settings list: the course's
+## own, random, the twelve disc skies and the patch's other custom skies
+## found in the player's skies folder.
+static func sky_choices() -> PackedStringArray:
+	var out := PackedStringArray([COURSE_SKY, RANDOM_SKY])
+	for i in DISC_SKY_NAMES.size():
+		out.append("sky%02d" % (i + 1))
+	for path in GameFolder.list_files(SKY_FOLDER):
+		if path.get_extension().to_lower() != "sky":
+			continue
+		var n := path.get_file().get_basename()
+		if not DISC_SKY_NAMES.has(n):
+			out.append(n)
+	return out
+
+
+## A sky setting as the player sees it.
+static func display_name(value: String) -> String:
+	if value == COURSE_SKY:
+		return "Course's own"
+	if value == RANDOM_SKY:
+		return "Random"
+	var n := _disc_number(value)
+	if n > 0:
+		return DISC_SKY_NAMES[n - 1]
+	return value.replace("_", " ")
+
+
+## How overcast a sky is, 0 (clear) to 1 (stormy); 0.3 for one not known.
+static func weather(value: String) -> float:
+	return WEATHER.get(display_name(value).to_lower(), WEATHER.get(value.to_lower(), 0.3))
+
+
+## 1 to 12 for "sky01" to "sky12", else 0.
+static func _disc_number(value: String) -> int:
+	if value.length() == 5 and value.to_lower().begins_with("sky") and value.substr(3).is_valid_int():
+		var n := value.substr(3).to_int()
+		return n if n >= 1 and n <= 12 else 0
+	return 0
 
 
 ## Photoreal: the course's horizon stays (its sea and far hills), softened
@@ -85,21 +189,43 @@ func set_photo(on: bool, haze_color: Color) -> void:
 			mat.set_shader_parameter("haze_color", haze_color)
 
 
-## A sky from PANSKY.LIB by name ("sky04"), or null.
-static func load_sky(sky_name: String) -> Image:
+## A sky by its setting value: "sky04" from PANSKY.LIB, or the name of a
+## custom sky in the skies folder ("Sunrise"); a disc sky the library lacks
+## falls back to the patch's copy of it. Null when none is found.
+static func load_sky(value: String) -> Image:
+	var n := _disc_number(value)
+	if n > 0:
+		var lib := _pansky()
+		var entry := "sky%02d.btc" % n
+		if lib != null and lib.find(entry) >= 0:
+			var sky := LinksPanorama.decode(lib.read_named(entry))
+			if sky != null:
+				return HdPack.replace("sky", entry, sky)
+		value = DISC_SKY_NAMES[n - 1]
+	for path in GameFolder.list_files(SKY_FOLDER):
+		if path.get_file().get_basename().to_lower() == value.to_lower() and path.get_extension().to_lower() == "sky":
+			var sky := LinksPanorama.decode_sky_archive(Arc0.from_bytes(FileAccess.get_file_as_bytes(path)))
+			if sky != null:
+				return HdPack.replace("sky", path.get_file(), sky)
+	if value != DEFAULT_SKY and n == 0:
+		return load_sky(DEFAULT_SKY)
+	return null
+
+
+## A stock horizon from PANSKY.LIB (PanNN.btc, 1 to 13), or null.
+static func load_stock_horizon(number: int) -> Image:
+	var lib := _pansky()
+	var entry := "Pan%02d.btc" % number
+	if lib == null or lib.find(entry) < 0:
+		return null
+	return LinksPanorama.decode(lib.read_named(entry))
+
+
+static func _pansky() -> Arc0:
 	var path := GameFolder.find_file(PackedStringArray(SKY_LIBRARIES))
 	if path.is_empty():
 		return null
-	var lib := Arc0.from_bytes(FileAccess.get_file_as_bytes(path))
-	if lib == null:
-		return null
-	var entry := sky_name if sky_name.get_extension() == "btc" else sky_name + ".btc"
-	if lib.find(entry) < 0:
-		entry = DEFAULT_SKY + ".btc"
-	if lib.find(entry) < 0:
-		return null
-	var sky := LinksPanorama.decode(lib.read_named(entry))
-	return HdPack.replace("sky", entry, sky) if sky != null else null
+	return Arc0.from_bytes(FileAccess.get_file_as_bytes(path))
 
 
 func _process(_delta: float) -> void:

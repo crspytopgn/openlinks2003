@@ -53,9 +53,11 @@ feel) still need a working install.
 - [ ] Textures and skies **(unblocked: `STDTER_1.LIB`, `PANSKY.LIB`, `BTCV` sprites, patch `.sky` files)**
   - [x] HD texture packs: `tools/oltex export` writes the textures as PNG for upscaling, and the game loads an upscaled pack in their place (`HdPack`, [hd-textures.md](docs/hd-textures.md)). Still to do: packs in the browser build, the HUD and menu art, the patch `.sky` skies
   - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
-  - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
+  - [x] Which sky and horizon each course uses (`header` trailer, [crz.md](docs/formats/crz.md#the-header-trailer-sky-and-horizon)), the patch's named `.sky` skies, and a sky setting (course's own, random or any sky); a picked sky sets the Photoreal light
+  - [ ] Where exactly the game puts the horizon (eye-level row) and the sky band **(needs a screenshot of the running game)**
   - [x] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks) ([crz.md](docs/formats/crz.md#mappings-texture-projections)); `.SHA` tree shadow shapes in the baked ground shade ([sha.md](docs/formats/sha.md))
-  - [ ] The rest of `.SHA` (3D object light maps, per-billboard shade) and the detail texture variants
+  - [x] The rest of `.SHA` ([sha.md](docs/formats/sha.md)): 3D object footprints stamped as ground shadows, per-billboard light dimming trees among trees; detail texture variants (`... 32.tga`, `... 128.tga`) faded in with distance
+  - [ ] The trailer's four floats (sun direction?), the `.SHA` cell lists, and the game's exact variant distances
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
   - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))

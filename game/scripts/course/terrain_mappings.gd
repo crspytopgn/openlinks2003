@@ -124,23 +124,32 @@ static func to_course(p: Vector3) -> Vector3:
 
 ## A `Materials` record (from CrzCourseLoader.parse_materials) as texture
 ## layers: {blended, mask (texture index or -1), layers (base texture index
-## per layer)}. Each layer is a base texture followed by up to two detail
-## variants (two bits per layer in the record's kind), which are skipped.
+## per layer), details (per layer the middle and far variant, -1 for
+## none)}. Each layer is a base texture followed by up to two detail
+## variants, the same ground with a coarser grain for farther away (two bits
+## per layer in the record's kind: the middle one, then the far one).
 static func material_layers(m: Dictionary) -> Dictionary:
 	var textures: PackedInt32Array = m.textures
 	var bits: int = m.get("kind", 0)
 	var blended: bool = m.get("mode", 0) == 3 and m.get("layer_count", 1) >= 3
 	var mask := -1
 	var layers := PackedInt32Array()
+	var details := PackedInt32Array()
 	var slot := 0
 	var layer := 0
 	while slot < textures.size():
 		var base := textures[slot]
-		var details := (bits >> (2 * layer)) & 3
-		slot += 1 + (details & 1) + ((details >> 1) & 1)
+		slot += 1
+		var flags := (bits >> (2 * layer)) & 3
+		var variants := PackedInt32Array([-1, -1])
+		for k in 2:
+			if (flags >> k) & 1:
+				variants[k] = textures[slot] if slot < textures.size() else -1
+				slot += 1
 		if blended and layer == 0:
 			mask = base
 		else:
 			layers.append(base)
+			details.append_array(variants)
 		layer += 1
-	return {"blended": blended, "mask": mask, "layers": layers}
+	return {"blended": blended, "mask": mask, "layers": layers, "details": details}

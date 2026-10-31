@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "olcore/arc0.hpp"
 #include "olcore/btcv.hpp"
 
 namespace olcore {
@@ -34,5 +35,12 @@ RgbaImage decode_panorama(const std::uint8_t* data, std::size_t size);
 inline RgbaImage decode_panorama(const std::vector<std::uint8_t>& data) {
   return decode_panorama(data.data(), data.size());
 }
+
+// A custom sky from the 1.07 patch (`skies/<name>.sky`): an ARC0 archive of
+// square TGA tiles `_s_k_y_1.tga`, `_s_k_y_2.tga`, ... laid out like a sky
+// panorama's (rows top to bottom, each row's tiles left to right, one edge
+// per row), plus a `sky.prv` preview. The image is as tall as the rows and
+// as wide as the narrowest row. Throws ReadError on malformed input.
+RgbaImage decode_sky_archive(const Arc0Archive& sky);
 
 }  // namespace olcore
