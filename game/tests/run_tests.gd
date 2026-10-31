@@ -1832,6 +1832,45 @@ func _test_round_replay() -> void:
 	_check(RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 3, 2) and RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 4, 1), "shot seeds differ by shot and source")
 	for f in files:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(RoundRecord.folder + "/" + f))
+	_test_result_codes(game, rec)
+
+
+## A result code carries the round to a friend, whose game checks it and plays
+## the same course and wind.
+func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
+	var code := rec.to_code()
+	print("  result code: %d characters" % code.length())
+	_check(code.begins_with(RoundRecord.CODE_PREFIX) and code.length() < 12000, "a result code is short enough to paste")
+	var back := RoundRecord.from_code(" " + code.substr(0, 40) + "\n" + code.substr(40) + " ")
+	_check(back != null and back.shots.size() == rec.shots.size() and back.round_seed == rec.round_seed, "the code survives spaces and line breaks")
+	_check(RoundRecord.from_code("hello") == null and RoundRecord.from_code(RoundRecord.CODE_PREFIX + "!!!") == null, "junk isn't a code")
+	_check(rec.summary().begins_with("Player 1 "), "summary names the player: %s" % rec.summary())
+	if back != null:
+		var answer := RoundReplay.check(back, game.course_path)
+		_check(answer.ok and answer.course_ok, "a friend's game checks the code: %s" % [answer.errors])
+	# The setup page reads the code and plays against it.
+	var panel := RoundSetupPanel.new()
+	root.add_child(panel)
+	panel.open(PackedStringArray(["Placeholder Nine (built in)"]), 0, RoundSetup.new())
+	panel._code.text = code
+	panel._open_code()
+	_check(panel.current_setup().challenge != null, "the setup page takes the code")
+	_check(panel._challenge_info.text.contains("Checked"), "the setup page checks it: %s" % panel._challenge_info.text)
+	panel._code.text = "not a code"
+	panel._open_code()
+	_check(panel.current_setup().challenge == null and panel._challenge_info.visible, "the setup page refuses junk")
+	panel.queue_free()
+	# Playing against it: their seed and wind level, whatever the settings say.
+	var versus := RoundRecord.from_json(rec.to_json())
+	versus.round_seed = 4243
+	versus.wind_level = Wind.Level.STRONG
+	var setup := RoundSetup.single("")
+	setup.challenge = versus
+	GolfRound.setup = setup
+	game.start_round()
+	_check(game.round_seed == 4243 and game.wind.level == Wind.Level.STRONG and game.record.wind_level == Wind.Level.STRONG,
+		"a challenge round plays the friend's seed and wind")
+	GolfRound.setup = null
 
 
 ## The free recordings: every event has takes, the ambience loops, and clubs

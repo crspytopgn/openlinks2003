@@ -309,6 +309,7 @@ func _open_setup() -> void:
 	_main_box.visible = false
 	_settings.close()
 	_players.close()
+	_setup.course_paths = _setup_paths
 	_setup.open(names, selected, saved)
 	SceneFade.pop_in(_setup)
 

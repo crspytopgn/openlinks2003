@@ -39,11 +39,22 @@ That one change gives us almost everything below:
   through the same physics and gets the score itself, so a client that just
   claims "54" or quietly made its drives longer is caught.
 
-Built so far: the round seed, `ShotRecord` and `RoundRecord`
+Built so far (phase 1): the round seed, `ShotRecord` and `RoundRecord`
 (`game/scripts/replay/`), finished rounds saved to `user://replays/`, and
 `RoundReplay.verify`, which the headless tests run on the full test round
-along with a changed swing, card and seed that it must catch. Resumed rounds
-can't be checked yet (the wind is drawn again on resume).
+along with a changed swing, card and seed that it must catch.
+
+**Result codes** are also built. When a round ends, X copies a result code
+(`OLR1-` and the gzipped record, a few thousand characters). A friend
+pastes it on the round setup page. Their game finds the course by its file
+name, checks the file hash and physics, and replays every shot. It shows
+"Checked" or what didn't match, then plays the same course, tees and wind
+(the same seed). The final message shows the friend's score next to theirs.
+This works with no server.
+
+Limits: resumed rounds can't be checked, because the wind is drawn again on
+resume. In the browser the check needs the course file in memory, so it says
+it can't check there yet, though the same conditions can still be played.
 
 What it needs (phase 1 below):
 

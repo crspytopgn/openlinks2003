@@ -13,6 +13,8 @@ const KEEP := 50
 ## Salts for shot_seed, one per random source in a shot.
 const SALT_MOUSE := 1
 const SALT_MODEL := 2
+## Start of a result code (RoundRecord.to_code).
+const CODE_PREFIX := "OLR1-"
 
 var version := VERSION
 var round_seed := 0
@@ -20,6 +22,9 @@ var round_seed := 0
 var model := "standard"
 var course_key := ""
 var course_name := ""
+## The course file's name, to find it among a friend's courses ("" for the
+## placeholder course).
+var course_file := ""
 ## SHA-256 of the course file, so a checker knows it has the same course.
 var course_hash := ""
 var mode := 0
@@ -57,6 +62,7 @@ static func begin(setup: RoundSetup, p_seed: int, model_name: String, level: int
 	r.course_key = setup.course_key
 	r.course_name = setup.course_name
 	r.course_hash = file_hash(setup.course_path)
+	r.course_file = setup.course_path.get_file()
 	r.mode = setup.mode
 	r.holes = setup.holes
 	r.tees = setup.tees
@@ -87,7 +93,7 @@ func to_dict() -> Dictionary:
 		list.append(s.to_dict())
 	return {
 		"version": version, "seed": round_seed, "model": model, "course_key": course_key,
-		"course_name": course_name, "course_hash": course_hash, "mode": mode, "holes": holes,
+		"course_name": course_name, "course_file": course_file, "course_hash": course_hash, "mode": mode, "holes": holes,
 		"tees": tees, "names": names, "computer": computer, "wind_level": wind_level,
 		"resumed": resumed, "started_at": started_at, "shots": list, "drops": drops,
 		"cards": cards, "finished": finished,
@@ -102,6 +108,7 @@ static func from_dict(d: Dictionary) -> RoundRecord:
 	r.course_key = str(d.get("course_key", ""))
 	r.course_name = str(d.get("course_name", ""))
 	r.course_hash = str(d.get("course_hash", ""))
+	r.course_file = str(d.get("course_file", ""))
 	r.mode = int(d.get("mode", 0))
 	r.holes = int(d.get("holes", 0))
 	r.tees = int(d.get("tees", 0))
@@ -134,6 +141,43 @@ func to_json() -> String:
 static func from_json(text: String) -> RoundRecord:
 	var d: Variant = JSON.parse_string(text)
 	return from_dict(d) if d is Dictionary else null
+
+
+## The round as text to send to a friend: CODE_PREFIX, then the record as
+## gzipped JSON in URL-safe base64. A friend's game can check it
+## (RoundReplay.check) and play the same course, tees and wind.
+func to_code() -> String:
+	var packed := to_json().to_utf8_buffer().compress(FileAccess.COMPRESSION_GZIP)
+	return CODE_PREFIX + Marshalls.raw_to_base64(packed).replace("+", "-").replace("/", "_").replace("=", "")
+
+
+## The round in a code from to_code, or null if it isn't one. Spaces and line
+## breaks (from chat apps) are ignored.
+static func from_code(code: String) -> RoundRecord:
+	var t := code.strip_edges().replace(" ", "").replace("\n", "").replace("\r", "")
+	if not t.begins_with(CODE_PREFIX):
+		return null
+	t = t.substr(CODE_PREFIX.length()).replace("-", "+").replace("_", "/")
+	while t.length() % 4 != 0:
+		t += "="
+	var packed := Marshalls.base64_to_raw(t)
+	if packed.is_empty():
+		return null
+	var raw := packed.decompress_dynamic(4 * 1024 * 1024, FileAccess.COMPRESSION_GZIP)
+	if raw.is_empty():
+		return null
+	return from_json(raw.get_string_from_utf8())
+
+
+## Each player's name and gross total, for showing a friend's round.
+func summary() -> String:
+	var parts: Array[String] = []
+	for i in mini(names.size(), cards.size()):
+		var total := 0
+		for v: Variant in cards[i]:
+			total += int(v)
+		parts.append("%s %d" % [names[i], total])
+	return ", ".join(parts)
 
 
 ## Writes the round to the replays folder and keeps the newest KEEP; returns
