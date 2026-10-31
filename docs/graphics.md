@@ -28,7 +28,9 @@ at Medium and grass at Low.
 
 - **Lighting** (`Scenery.apply`): Classic is the linear tone map with flat
   colour ambient, tuned so the textures keep their own colours. Photoreal
-  uses ACES, a brighter, warmer sun, fill light from the sky on Forward+,
+  uses the AgX tone map (natural highlights, no lime greens), a strong,
+  warm sun against fill about a fifth as bright (from the sky on Forward+,
+  a quarter stronger flat fill on Compatibility so shade isn't black),
   stronger aerial perspective, volumetric haze with light shafts (Forward+,
   Ultra) and screen-space reflections on water (Forward+, High and up).
 - **Post pass** (`PostProcess`, `shaders/post_process.gdshader`): contrast-

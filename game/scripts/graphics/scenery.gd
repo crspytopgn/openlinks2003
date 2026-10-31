@@ -15,11 +15,12 @@ const AMBIENT := Color(0.66, 0.70, 0.76)
 const AMBIENT_ENERGY := 0.5
 ## With the sun 38 degrees up, flat ground gets 0.85 * sin(38) of it.
 const SUN_ENERGY := 0.85
-## Photoreal: a brighter sun under the ACES curve, which rolls the highlights
-## off instead of clipping them.
-const PHOTO_SUN_ENERGY := 2.0
+## Photoreal: a strong sun under the AgX curve, which rolls highlights off
+## to white without ACES's lime greens and orange skin, against a fill
+## light about a fifth as bright, as in real sunshine.
+const PHOTO_SUN_ENERGY := 3.0
 const PHOTO_AMBIENT_ENERGY := 0.5
-const PHOTO_EXPOSURE := 1.05
+const PHOTO_EXPOSURE := 1.0
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light,
@@ -137,7 +138,7 @@ func apply(settings: GraphicsSettings) -> void:
 	sun.light_energy = PHOTO_SUN_ENERGY if photo else SUN_ENERGY
 	sun.light_color = Color(1.0, 0.94, 0.84) if photo else Color(1.0, 0.95, 0.86)
 	if photo:
-		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+		environment.tonemap_mode = Environment.TONE_MAPPER_AGX
 		# Compatibility has no sky fill light, so the same sun reads hotter.
 		environment.tonemap_exposure = PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8
 		environment.tonemap_white = 6.0
@@ -292,7 +293,9 @@ func _apply_time() -> void:
 	var c: Color = _time.sun
 	sun.light_color = c
 	sun.light_energy = PHOTO_SUN_ENERGY * float(_time.energy)
-	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill)
+	# Compatibility has no sky light, so its flat fill is a little stronger,
+	# or shade goes near black.
+	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.25)
 	environment.ambient_light_color = _time.ambient
 	var fwd := GraphicsSettings.is_forward_plus()
 	environment.tonemap_exposure = (PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8) * float(_time.exposure)
