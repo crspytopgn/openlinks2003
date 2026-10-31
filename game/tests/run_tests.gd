@@ -1161,6 +1161,52 @@ func _test_links_swing_matches_olcore() -> void:
 		var got := [w.power, w.face_deg, w.path_deg]
 		for i in got.size():
 			_check_near(got[i], c[10 + i], 1e-4, "computer miss case %d value %d" % [cpu.find(c), i])
+	# Computer putts, as test_links_computer_putt: long, short, steady, feet,
+	# lie, seed, power, then power and path (radians).
+	var cputts := [
+		[80, 90, false, 20.0, LinksGround.GREEN, 12345, 8.0, 7.75, 0.266666681],
+		[95, 95, false, 40.0, LinksGround.FAIRWAY, 777, 15.0, 15.0375004, 0.0],
+		[60, 85, false, 5.0, LinksGround.GREEN, 99, 3.0, 3.03686643, -0.0166666675],
+		[40, 70, true, 10.0, LinksGround.ROUGH, 2003, 6.0, 5.66666651, 0.76666671],
+		[85, 100, false, 4.5, LinksGround.GREEN, 42, 2.5, 2.5, 0.0],
+		[70, 60, false, 2.6, LinksGround.GREEN, 5, 1.5, 1.5625, -0.0250000022],
+	]
+	for c in cputts:
+		var cg := LinksLaunch.GolferRatings.new()
+		cg.long_putts = c[0]
+		cg.short_putts = c[1]
+		cg.steady = c[2]
+		var cw := LinksLaunch.ComputerSwing.new()
+		cw.power = c[6]
+		LinksLaunch.computer_putt_miss(cw, cg, c[4], c[3], LinksLaunch.Rand.new(c[5]))
+		_check_near(cw.power, c[7], 1e-4, "computer putt %d power" % cputts.find(c))
+		_check_near(deg_to_rad(cw.path_deg), c[8], 1e-5, "computer putt %d path" % cputts.find(c))
+	# Putts, as test_links_putt: skill, contact, then the face error.
+	var putts := [[0, 1, 0.0], [1, 1, -0.0111701], [2, 1, -0.017637], [2, -2, 0.0440925],
+			[2, 3, -0.070548], [3, 1, -0.0251327], [3, -2, 0.0502655], [3, 3, -0.0753982]]
+	for c in putts:
+		var ps := LinksLaunch.Strike.new()
+		ps.club = LinksLaunch.PUTTER
+		ps.power = 10.0
+		var pw := LinksLaunch.SwingInput.new()
+		pw.skill = c[0]
+		pw.contact = c[1]
+		LinksLaunch.apply_swing(ps, pw, LinksGround.surface_for_class(LinksGround.GREEN), LinksLaunch.Rand.new(777))
+		_check_near(ps.face_error, c[2], 1e-6, "putt miss skill %d contact %d" % [c[0], c[1]])
+		_check_near(ps.power, 10.0, 1e-9, "putt keeps its power")
+	var pt := LinksLaunch.Strike.new()
+	pt.club = LinksLaunch.PUTTER
+	pt.face_error = 0.02
+	pt.path_error = -0.01
+	pt.power = 6.0
+	pt.aim = 0.3
+	var pl := LinksLaunch.putt(pt)
+	var pn := Vector3(0.1, -0.2, 0.97).normalized()
+	var pv := LinksLaunch.putt_slope(pl[0], pn)
+	var pspin := LinksLaunch.putt_slope(pl[1], pn)
+	for i in 3:
+		_check_near(pv[i], [-3.584047, 13.229612, -3.111701][i], 1e-5, "putt velocity %d" % i)
+		_check_near(pspin[i], [30.563985, 9.249282, 1.233750][i], 1e-5, "putt spin %d" % i)
 
 
 func _test_links_launch_matches_olcore() -> void:
@@ -1288,6 +1334,14 @@ func _test_links_ground_matches_olcore() -> void:
 	var aero := LinksAero.from_exe(_synthetic_aero_exe())
 	var putt := BallPhysics.simulate_shot(BallState.new(Vector3.ZERO, Vector3(0, 0, 3.55)), FlatTerrain.new(Surface.Type.GREEN), true, Vector3(0, 0, 3), Vector3.ZERO, aero)
 	_check(putt.outcome == ShotResult.Outcome.HOLED, "links putt drops")
+	# Links 2003's own putt (power 10) starts on the ground with backspin as
+	# fast as rolling: it skids, then rolls about 28 ft on a flat green.
+	var v_fps := 10.0 * LinksLaunch.PUTT_SPEED
+	var lp := BallState.new(Vector3.ZERO, Vector3(0, 0, v_fps / LinksLaunch.FEET_PER_METRE), Vector3(-v_fps * 2.273642507507853 * TAU, 0, 0))
+	lp.on_ground = true
+	var lr := BallPhysics.simulate_shot(lp, FlatTerrain.new(Surface.Type.GREEN), false, Vector3.ZERO, Vector3.ZERO, aero)
+	_check(lr.outcome == ShotResult.Outcome.REST and lr.bounces == 0, "links putt rolls without bouncing")
+	_check_near(lr.total_m, 27.84 / LinksLaunch.FEET_PER_METRE, 0.03, "links putt length")
 	var pw := BallPhysics.simulate_shot(BallPhysics.make_launch(40.0, 25.0, 0.0, 8000.0, 0.0), FlatTerrain.new(Surface.Type.FAIRWAY), false, Vector3.ZERO, Vector3.ZERO, aero)
 	_check(pw.outcome == ShotResult.Outcome.REST and pw.bounces >= 1 and pw.total_m > pw.carry_m, "links wedge lands and rolls")
 
@@ -1370,6 +1424,14 @@ func _test_web_game_files() -> void:
 	_check(", ".join(startup) == "LinksMMIII.exe, OBJECT.LIB, POLYANI/ANNIKA_1.L3, POLYANI/CLUBS.L3, PREDEF_1.SSF, StdTerrain.lib",
 		"startup set: catalog, sounds, course key, ground textures, first golfer and clubs; got %s" % [startup])
 	_check(WebGameFiles.startup_files(files, "eric.l3").has("POLYANI/ERIC.L3"), "the chosen golfer is copied")
+	_check(not startup.has("TOURNA_1.SSF"), "no disc sounds by default")
+	files["SOUNDS.LS"] = 9000000
+	files["POLYANI/MALE1_1.SSF"] = 4000000
+	files["POLYANI/ERIC_1.SSF"] = 4000000
+	var full := WebGameFiles.startup_files(files, "eric.l3", true)
+	_check(full.has("TOURNA_1.SSF") and full.has("SOUNDS.LS"), "disc sounds: crowd and menu sounds copied")
+	_check(full.has("POLYANI/ERIC_1.SSF") and full.has("POLYANI/MALE1_1.SSF"), "disc sounds: the golfer's and the default voice; got %s" % [full])
+	_check(GraphicsSettings.disc_sounds(), "desktop always uses the disc sounds")
 	_check(not WebGameFiles.is_supported(), "not the web build")
 	_check(FileAccess.file_exists(WebGameFiles.SCRIPT_PATH), "browser bridge script is in the project")
 
@@ -1799,6 +1861,27 @@ func _test_broadcast_pieces() -> void:
 	var course := PlaceholderCourseLoader.new().load_course("")
 	var map := HoleMap.make(course.holes[0])
 	_check(map.get_width() == HoleMap.WIDTH and map.get_height() == HoleMap.HEIGHT, "hole map size")
+	var h0 := course.holes[0]
+	var built := HoleMap.build(h0)
+	var tee_px := built.to_px(h0.tee)
+	var pin_px := built.to_px(h0.pin)
+	_check(pin_px.y < tee_px.y and Rect2(Vector2.ZERO, Vector2(HoleMap.WIDTH, HoleMap.HEIGHT)).has_point(pin_px), "map: pin above the tee, on the map")
+
+	# Tour graphics: the driving zone splits the lines three ways.
+	if h0.par > 3:
+		var aim := rad_to_deg(atan2(h0.pin.x - h0.tee.x, h0.pin.z - h0.tee.z))
+		var zone := DrivingZone.compute(h0, h0.tee, aim, 230.0, 0, 4.0)
+		if not zone.is_empty():
+			_check_near(zone.left + zone.hit + zone.right, 1.0, 1e-4, "driving zone chances add up")
+			_check(zone.lo < zone.hi and zone.anchors.size() == 3, "driving zone has a fairway window and three labels")
+			_check(zone.score_hit <= zone.score_left + 0.5 and zone.score_hit > 1.0, "fairway scores no worse than a miss")
+	_check_near(DrivingZone._cdf(0.0), 0.5, 1e-6, "normal cdf at 0")
+	_check_near(DrivingZone._cdf(1.0), 0.8413447, 1e-5, "normal cdf at 1")
+	_check(PuttRead.aim_text(0.0) == "Straight", "putt read: straight")
+	_check(PuttRead.aim_text(1.45) == "4' 9\" left", "putt read: feet and inches left; got %s" % PuttRead.aim_text(1.45))
+	_check(PuttRead.aim_text(-0.1) == "4\" right", "putt read: inches right")
+	_check(PuttRead.slope_text(0.2, 10.0) == "2.0% uphill", "putt read: slope")
+	_check(TourGraphics._short("JORDAN SMITH") == "J. SMITH", "rail names")
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1
@@ -1820,6 +1903,26 @@ func _test_broadcast_pieces() -> void:
 	var drive := ShotResult.new()
 	drive.total_m = 250.0
 	_check(GolferVoice.event_for(drive, Surface.Type.FAIRWAY, false, true, 4, 1, 150.0, 400.0, false) == "Great Tee Shot", "voice: big drive")
+
+	# Timed lines: at impact, in flight and on landing.
+	_check(GolferVoice.swing_event(1.0, 0.0, false) == "Perfect Swing", "voice: perfect swing")
+	_check(GolferVoice.swing_event(0.8, 0.7, false) == "Bad Swing", "voice: bad swing")
+	_check(GolferVoice.swing_event(1.0, 0.0, true) == "", "voice: no swing line on putts")
+	var flown := ShotResult.new()
+	flown.carry_m = 250.0
+	flown.total_m = 290.0
+	_check(GolferVoice.flight_event(flown, false, true, 150.0, false, 0.0) == "Crush Tee Shot", "voice: crushed drive")
+	_check(GolferVoice.flight_event(flown, false, true, 150.0, false, 30.0) == "Hook", "voice: hook")
+	_check(GolferVoice.flight_event(flown, false, true, 150.0, false, -30.0) == "Slice", "voice: slice")
+	_check(GolferVoice.flight_event(flown, false, false, 4.0, false, 0.0) == "Straight at  pin", "voice: at the pin")
+	_check(GolferVoice.flight_event(wet, false, false, 50.0, false, 0.0) == "Water", "voice: heading for water")
+	_check(GolferVoice.flight_event(rolled, true, false, 3.0, true, 0.0) == "Putt Too Hard", "voice: putt racing past")
+	_check(GolferVoice.flight_event(rolled, true, false, 1.0, false, -0.3) == "Putt Push (right hand)", "voice: pushed putt")
+	_check(GolferVoice.landing_event(flown, true, 150.0, false) == "Tee Shot Roll", "voice: drive rolls out")
+	_check(GolferVoice.landing_event(flown, false, 5.0, false) == "Approach Near-Pin", "voice: lands near the pin")
+	_check(GolferVoice.landing_event(flown, false, 20.0, true) == "Approach Long", "voice: lands long")
+	_check(GolferVoice.bank_for(PackedStringArray(["P/NONE.SSF", "P/MALE1_1.SSF", "P/ERIC_1.SSF"]), "ERIC.L3") == "P/ERIC_1.SSF", "voice bank by golfer")
+	_check(GolferVoice.bank_for(PackedStringArray(["P/NONE.SSF", "P/MALE1_1.SSF"]), "ERIC.L3") == "P/MALE1_1.SSF", "default voice bank")
 
 	# SOUNDS.LS entries keep their block header before the RIFF data.
 	var wav := PackedByteArray()
@@ -1883,3 +1986,25 @@ func _test_broadcast_round() -> void:
 	_check(game.state == GolfRound.State.ROUND_DONE, "classic round finishes")
 	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
 	game._apply_graphics()
+	# Tour: the tour graphics on top of Broadcast.
+	game.graphics.presentation = GraphicsSettings.Presentation.TOUR
+	game._apply_graphics()
+	_check(game.tour and game.hud.tour.visible and game.hud.overlay.tour, "tour graphics on")
+	game.start_round()
+	game.camera.end_flyover()
+	game._update_hud()
+	_check(not game.hud.tour.state.is_empty() and game.hud.tour.state.rows.size() == game.scoring.names.size(), "tour rail has every player")
+	if game.hole.par > 3:
+		_check(game.driving_zone.visible == not game.hud.tour.zone.is_empty(), "driving zone drawn when there is one")
+	steps = 0
+	while not (game.state == GolfRound.State.AIM and game.clubs[game.club_index].is_putter) and steps < 40 \
+			and game.state != GolfRound.State.ROUND_DONE:
+		game.auto_play_step()
+		steps += 1
+	if game.state == GolfRound.State.AIM and game.lie == Surface.Type.GREEN:
+		_check(not game.hud.tour.putt.is_empty() and game.putt_read.visible, "putt read on the green")
+		_check(not game.driving_zone.visible, "no driving zone on the green")
+	_check(game._tour_dots.size() > 0, "shots marked on the tour map")
+	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
+	game._apply_graphics()
+	_check(not game.hud.tour.visible and not game.putt_read.visible, "broadcast hides the tour graphics")

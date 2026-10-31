@@ -2,7 +2,8 @@ class_name FreeGolfer
 extends GolferRig
 ## The golfer used without the original game files: a realistic man built
 ## from MakeHuman's CC0 assets, with a hand-keyed swing, putt and celebration
-## baked into the glTF by tools/golfer/build_free_golfer.py.
+## baked into the glTF by tools/golfer/build_free_golfer.py. The swing and
+## putt are then replaced with motion capture by tools/golfer/mocap_swing.py.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if the file is
 ## missing.
 
@@ -45,6 +46,11 @@ static func create() -> FreeGolfer:
 
 func has_animation(animation: StringName) -> bool:
 	return _player.has_animation(animation)
+
+
+## Address in the putting stance with the putter on the green.
+func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
+	_putting = club.is_putter
 
 
 ## The putter stays out after a putt, for the next address and the

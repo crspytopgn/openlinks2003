@@ -3,8 +3,7 @@ extends Node
 ## Menu clicks and music from the player's own SOUNDS.LS
 ## (docs/formats/ls-archive.md): every Button in the scene clicks when
 ## pressed, and the menu can play the game's menu music on a loop. Read on
-## a worker thread; not in the browser build yet (the archive is 27 MB, most
-## of it music). Without the game files the buttons click with a free
+## a worker thread (at once in the single-threaded browser build). Without the game files the buttons click with a free
 ## recorded click (game/assets/sounds/ui_click.ogg) and there is no music.
 
 const CLICK := "BC_CLICK.WAV"
@@ -23,9 +22,11 @@ var _music_player: AudioStreamPlayer
 
 
 ## The game's own sounds from SOUNDS.LS in the game folder, or the free
-## click when there is none (and always in the browser build).
+## click when there is none or the disc sounds are turned off.
 static func from_game_folder(with_music: bool) -> MenuSounds:
-	var path := "" if OS.has_feature("web") else GameFolder.find_file(PackedStringArray(["sounds.ls", "SOUNDS.LS"]))
+	var path := ""
+	if GraphicsSettings.disc_sounds():
+		path = GameFolder.find_file(PackedStringArray(["sounds.ls", "SOUNDS.LS"]))
 	var m := MenuSounds.new()
 	m._path = path
 	m.play_music = with_music
@@ -42,6 +43,8 @@ func _ready() -> void:
 	if _path.is_empty():
 		_click = load(FREE_CLICK) as AudioStream
 		set_process(false)
+	elif OS.has_feature("web"):
+		_load()  # single-threaded build
 	else:
 		_task = WorkerThreadPool.add_task(_load)
 	get_tree().node_added.connect(_hook)

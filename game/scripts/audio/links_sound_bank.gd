@@ -47,7 +47,7 @@ static func from_game_folder() -> LinksSoundBank:
 		return null
 	var sounds := LinksSoundBank.new()
 	sounds._bank = bank
-	if not OS.has_feature("web"):
+	if GraphicsSettings.disc_sounds():
 		sounds._crowd_path = GameFolder.find_file(PackedStringArray(["tournament.ssf", "TOURNA_1.SSF"]))
 	return sounds
 
@@ -58,7 +58,10 @@ func _ready() -> void:
 	_fallback = FreeSoundBank.new()
 	add_child(_fallback)
 	if not _crowd_path.is_empty():
-		_crowd_task = WorkerThreadPool.add_task(_load_crowd)
+		if OS.has_feature("web"):
+			_load_crowd()  # single-threaded build
+		else:
+			_crowd_task = WorkerThreadPool.add_task(_load_crowd)
 
 
 func _load_crowd() -> void:

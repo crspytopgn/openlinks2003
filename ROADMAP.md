@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too. Still to do: the PowerStroke meter's screen geometry, the mouse swing's maths, chips and putts, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). Still to do: the PowerStroke meter's screen geometry, the mouse swing's maths, chips, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -45,6 +45,7 @@ feel) still need a working install.
   - [ ] Drop the ball and let it roll, re-dropping if it leaves the zone, as Links does
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
   - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
+  - [x] Tour presentation (off by default): leaderboard rail, shot-data bar, driving zone, putt read, hole map with shots ([game-shell.md](docs/game-shell.md#tour))
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound
@@ -62,15 +63,16 @@ feel) still need a working install.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
-  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets with a hand-keyed swing, putt and celebration ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
+  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, with a motion-captured swing and putt (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)) and a hand-keyed celebration ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
   - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
   - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
-  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`), on desktop
+  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`)
   - [x] Without the game files: real recordings (CC0 and CC BY, from freesound.org) for club strikes by club and lie, putts, landings by surface, the cup, water, crowd reactions, footsteps, the bag and menu clicks, and looping course ambience by kind of course, with wind and water layers ([tools/audio](tools/audio/build_free_sounds.py), [credits](game/assets/sounds/CREDITS.md))
-  - [ ] Voice event conditions (the condition block), in-flight voice lines, and these sounds in the browser build
+  - [x] Voice lines at impact, in flight and on landing (best-guess timing); the disc sounds in the browser as an opt-in setting
+  - [ ] Voice event conditions (the condition block) read from the banks instead of our own rules
 
 ## Phase 4: the full game
 

@@ -22,6 +22,8 @@ namespace olcore {
 // The game's full set: seven woods (driver first) and twelve irons and
 // wedges, ordered by loft within each group. The putter is handled apart.
 constexpr int kLinksClubCount = 19;
+// The putter's club number; it has no row in the club table.
+constexpr int kLinksPutter = 19;
 
 struct LinksClubTable {
   std::array<double, kLinksClubCount> spin{};           // spin per unit of clubhead speed
@@ -134,7 +136,10 @@ struct LinksSwing {
 };
 
 // What the swing and the lie do to a human player's strike, replacing
-// links_apply_lie. With PowerStroke a miss of the meter becomes a pull or push
+// links_apply_lie. A putt (kLinksPutter) only turns the face: the miss is
+// worked out as for a full swing but without the overswing, flipped in sign
+// and added to the face error, with no power lost, no scatter and no strike
+// quality. With PowerStroke a miss of the meter becomes a pull or push
 // (aim and path turned apart, so the ball curves), lost power and, on the
 // harder levels, a little random scatter; the mouse swing brings its own face
 // and path. Either way a miss takes spin and ball speed off according to the
@@ -155,6 +160,8 @@ struct LinksGolferRatings {
   int chips = 85;        // chips
   int max_power = 100;
   bool steady = false;
+  int long_putts = 85;   // putts from 15 ft and more
+  int short_putts = 85;  // putts up to 3 ft (blended in between)
 };
 
 // A computer golfer's planned swing; links_computer_miss adds its mistakes.
@@ -175,8 +182,35 @@ struct LinksComputerSwing {
 void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int club, bool teed_up, bool chip,
                          int ground_class, double feet_to_hole, LinksRand& rng);
 
+// A computer golfer's putt (the game's own routine). Putts closer than 2 ft
+// (3.5 ft for a steady golfer) and perfect putts are always good. Otherwise
+// two draws from the putt rating (long and short putts blended between 3
+// and 15 ft, and falling off with distance past 15 ft unless steady) turn
+// the path a little either way, which for a putt only costs pace, and leave
+// the putt short, or three times in four long, by a fraction of a power
+// unit that shrinks for longer putts and grows from the fringe (x1.5) and
+// rough (x2). `feet_to_hole` is the straight-line distance; `w.power` is the
+// putt power (links_putt) and `w.path_deg` its path.
+void links_computer_putt_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int ground_class,
+                              double feet_to_hole, LinksRand& rng);
+
+// The putter's own launch. `power` is the putt's strength: the ball leaves
+// at power x 2.3436 ft/s along the face (the face error and the face and
+// stance settings, added, not subtracted as in a full swing), less the
+// cosine of the angle between face and path. It starts with backspin as
+// fast as rolling would need, so it skids before it rolls. No lie or slope
+// is applied here: links_putt_slope tilts both vectors onto the ground.
+constexpr double kLinksPuttSpeed = 2.343600034713745;  // ft/s per unit of putt power
+LinksLaunch links_putt(const LinksStrike& s);
+
+// Tilts a putt's velocity or spin from flat ground onto ground with unit
+// normal n (z up): about x by atan2(n.y, n.z), then about y by
+// -atan2(n.x, n.z).
+Vec3 links_putt_slope(Vec3 v, Vec3 n);
+
 // The same launch in olcore's SI frame (see ball_physics.hpp), with the ball
-// at the origin.
+// at the origin. For the putter (kLinksPutter) this is links_putt, with
+// on_ground set.
 BallState links_launch_state(const LinksClubTable& clubs, const LinksStrike& s);
 
 }  // namespace olcore

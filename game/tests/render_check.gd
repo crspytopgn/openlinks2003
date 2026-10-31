@@ -3,7 +3,9 @@ extends SceneTree
 ## so shader and material errors show up, which the headless test run can't
 ## catch. Shows hole 2 (it has a pond), plays one shot, saves a screenshot
 ## and checks that the sky is blue and the ground green. Then opens the
-## course designer and saves a screenshot of it too (out-designer.jpg).
+## course designer and saves a screenshot of it too (out-designer.jpg), and
+## close-ups of the free golfer at the top, just before impact and at the
+## finish (out-golfer.jpg).
 ##
 ##   godot --path game --rendering-method gl_compatibility -s res://tests/render_check.gd -- out.png
 
@@ -11,6 +13,9 @@ const FLYOVER_FRAME := 20
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
 const DESIGNER_FRAME := 150
+const GOLFER_FRAME := 160
+## Free golfer poses for the close-up: clip and seconds into it.
+const GOLFER_POSES := [[&"backswing", 0.93], [&"swing", 0.25], [&"swing", 0.29], [&"swing", 1.2]]
 ## Performance budget for the round, per frame, checked at the flyover and
 ## from the tee (Photoreal look at Ultra trees and grass, the heaviest a
 ## player can pick). Counts, not times: the CI machines render in
@@ -32,6 +37,9 @@ var _game: GolfRound
 var _designer: Node
 var _frames := 0
 var _out := ""
+var _golfer_scene: Node3D
+var _golfer_player: AnimationPlayer
+var _golfer_shots: Array[Image] = []
 
 
 func _initialize() -> void:
@@ -78,10 +86,70 @@ func _process(_delta: float) -> bool:
 		root.add_child(_designer)
 	elif _frames == DESIGNER_FRAME:
 		_save_jpg(root.get_texture().get_image(), "-designer")
+		_designer.queue_free()
+		_golfer_stage()
+	elif _frames >= GOLFER_FRAME and _frames < GOLFER_FRAME + 4 * GOLFER_POSES.size():
+		# Each pose gets a few frames to settle, then its quarter of the image.
+		var k: int = (_frames - GOLFER_FRAME) / 4
+		if (_frames - GOLFER_FRAME) % 4 == 0:
+			var p: Array = GOLFER_POSES[k]
+			_golfer_pose(p[0], p[1])
+		elif (_frames - GOLFER_FRAME) % 4 == 3:
+			_golfer_shots.append(root.get_texture().get_image())
+	elif _frames == GOLFER_FRAME + 4 * GOLFER_POSES.size():
+		_save_golfer_sheet()
 		print("RENDER CHECK DONE")
 		quit(0)
 		return true
 	return false
+
+
+
+## A plain lit stage with the free golfer, seen from in front.
+func _golfer_stage() -> void:
+	_golfer_scene = Node3D.new()
+	root.add_child(_golfer_scene)
+	var env := WorldEnvironment.new()
+	env.environment = Environment.new()
+	env.environment.background_mode = Environment.BG_COLOR
+	env.environment.background_color = Color(0.55, 0.7, 0.85)
+	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.environment.ambient_light_color = Color(0.6, 0.6, 0.65)
+	_golfer_scene.add_child(env)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-45, 150, 0)
+	_golfer_scene.add_child(sun)
+	var golfer := FreeGolfer.create()
+	if golfer == null:
+		print("golfer close-up: no free golfer model")
+		return
+	_golfer_scene.add_child(golfer)
+	_golfer_player = golfer.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	_golfer_scene.add_child(cam)
+	cam.look_at_from_position(Vector3(0.3, 1.2, -4.2), Vector3(0, 1.0, 0))
+	cam.make_current()
+
+
+func _golfer_pose(clip: StringName, seconds: float) -> void:
+	if _golfer_player and _golfer_player.has_animation(clip):
+		_golfer_player.play(clip, 0.0)
+		_golfer_player.seek(seconds, true)
+		_golfer_player.pause()
+
+
+## The poses side by side, as out-golfer.jpg.
+func _save_golfer_sheet() -> void:
+	if _golfer_shots.is_empty():
+		return
+	var w := _golfer_shots[0].get_width()
+	var h := _golfer_shots[0].get_height()
+	var crop := Rect2i(w * 3 / 10, 0, w * 2 / 5, h)
+	var sheet := Image.create_empty(crop.size.x * _golfer_shots.size(), h, false, _golfer_shots[0].get_format())
+	for i in _golfer_shots.size():
+		sheet.blit_rect(_golfer_shots[i], crop, Vector2i(crop.size.x * i, 0))
+	_save_jpg(sheet, "-golfer")
 
 
 ## Saves the round's screenshot; false (and quits) if it looks wrong.
