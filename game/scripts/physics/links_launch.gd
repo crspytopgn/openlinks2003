@@ -9,6 +9,10 @@ extends RefCounted
 ## The club table is read from the player's own executable.
 
 const CLUB_COUNT := 19
+## The putter's club number; it has no row in the club table.
+const PUTTER := 19
+## Ball ft/s per unit of putt power.
+const PUTT_SPEED := 2.343600034713745
 const ROW_BYTES := 4 * (CLUB_COUNT + 1)  ## each row has a spare zero
 const TABLE_BYTES := 5 * ROW_BYTES
 const FEET_PER_METRE := 1.0 / 0.3048
@@ -348,6 +352,12 @@ static func apply_swing(s: Strike, w: SwingInput, lie: LinksGround.Params, rng: 
 	s.spin_scale = lie.lie_spin
 	s.speed_scale = lie.lie_power
 
+	if s.club == PUTTER:
+		_putt_miss(s, w, skill, ls.z, rng)
+		if sand:
+			s.face_error = 0.0
+		return
+
 	if w.method == Method.POWERSTROKE:
 		if skill > 0:
 			# The miss, magnified by an overswing, the skill and the lie, then
@@ -469,10 +479,57 @@ static func _sand(s: Strike, c: int) -> Vector2:
 	return Vector2(0.9 - 0.065 * (clean - 5.0), 1.5 - 0.1 * clean)
 
 
+## A putt only turns the face: the miss as for a full swing without the
+## overswing, flipped and added to the face error, with no power lost.
+static func _putt_miss(s: Strike, w: SwingInput, skill: int, snap: float, rng: Rand) -> void:
+	if w.method != Method.POWERSTROKE:
+		s.face_error = deg_to_rad(w.mouse_face_deg)
+		s.path_error = deg_to_rad(w.mouse_path_deg)
+		return
+	if skill <= 0:
+		return
+	var miss := w.contact * (6 if skill == 3 else (5 if skill == 2 else 2))
+	miss = int(miss * snap)
+	if miss != 0:
+		var sum := rng.next() % 101 + rng.next() % 101 + rng.next() % 101
+		miss = int((sum * 0.001 + 0.35) * miss)
+	miss = -clampi(miss, -60, 60)
+	var turn := ((rng.next() % 25) + 75.0) * 0.01 * miss
+	turn *= 0.5 if skill == 3 else (1.0 / 1.9 if skill == 2 else 2.0 / 3.0)
+	s.face_error += deg_to_rad(turn)
+	# The game still draws the power it would lose, then keeps it all.
+	if skill >= 2 and miss != 0:
+		rng.next()
+
+
+## The putter's launch; mirrors olcore::links_putt. Velocity (ft/s) and spin
+## (rev/s) on flat ground: putt_slope tilts them onto the slope.
+static func putt(s: Strike) -> Array[Vector3]:
+	var a := s.face_error + deg_to_rad(s.setup.face - 30 + s.setup.stance - 30)
+	var b := s.path_error + deg_to_rad(s.setup.stance - 30)
+	var spd := cos(a - b) * s.power * PUTT_SPEED
+	var vel := Vector3(sin(a), cos(a), 0.0) * spd
+	var w := Vector3(absf(spd) * 2.273642507507853, 0.0, 0.0)
+	return [_turn_z(vel, s.aim), _turn_z(w, s.aim)]
+
+
+## Tilts a putt's velocity or spin onto ground with unit normal n (game
+## frame, z up); mirrors olcore::links_putt_slope.
+static func putt_slope(v: Vector3, n: Vector3) -> Vector3:
+	var a := atan2(n.y, n.z)
+	var x := v.x
+	var y := v.y * cos(a) - v.z * sin(a)
+	var z := v.z * cos(a) + v.y * sin(a)
+	var b := -atan2(n.x, n.z)
+	return Vector3(z * sin(b) + x * cos(b), y, z * cos(b) - x * sin(b))
+
+
 ## The same launch in the game shell's SI frame, with the ball at the origin.
+## The putter's starts on the ground.
 func launch_state(s: Strike) -> BallState:
-	var l := launch(s)
+	var l := putt(s) if s.club == PUTTER else launch(s)
 	var b := BallState.new(Vector3.ZERO)
+	b.on_ground = s.club == PUTTER
 	b.velocity = Vector3(-l[0].x, l[0].z, l[0].y) / FEET_PER_METRE
 	b.spin = Vector3(-l[1].x, l[1].z, l[1].y) * TAU
 	return b

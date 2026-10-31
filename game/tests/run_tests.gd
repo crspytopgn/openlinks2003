@@ -1160,6 +1160,32 @@ func _test_links_swing_matches_olcore() -> void:
 		var got := [w.power, w.face_deg, w.path_deg]
 		for i in got.size():
 			_check_near(got[i], c[10 + i], 1e-4, "computer miss case %d value %d" % [cpu.find(c), i])
+	# Putts, as test_links_putt: skill, contact, then the face error.
+	var putts := [[0, 1, 0.0], [1, 1, -0.0111701], [2, 1, -0.017637], [2, -2, 0.0440925],
+			[2, 3, -0.070548], [3, 1, -0.0251327], [3, -2, 0.0502655], [3, 3, -0.0753982]]
+	for c in putts:
+		var ps := LinksLaunch.Strike.new()
+		ps.club = LinksLaunch.PUTTER
+		ps.power = 10.0
+		var pw := LinksLaunch.SwingInput.new()
+		pw.skill = c[0]
+		pw.contact = c[1]
+		LinksLaunch.apply_swing(ps, pw, LinksGround.surface_for_class(LinksGround.GREEN), LinksLaunch.Rand.new(777))
+		_check_near(ps.face_error, c[2], 1e-6, "putt miss skill %d contact %d" % [c[0], c[1]])
+		_check_near(ps.power, 10.0, 1e-9, "putt keeps its power")
+	var pt := LinksLaunch.Strike.new()
+	pt.club = LinksLaunch.PUTTER
+	pt.face_error = 0.02
+	pt.path_error = -0.01
+	pt.power = 6.0
+	pt.aim = 0.3
+	var pl := LinksLaunch.putt(pt)
+	var pn := Vector3(0.1, -0.2, 0.97).normalized()
+	var pv := LinksLaunch.putt_slope(pl[0], pn)
+	var pspin := LinksLaunch.putt_slope(pl[1], pn)
+	for i in 3:
+		_check_near(pv[i], [-3.584047, 13.229612, -3.111701][i], 1e-5, "putt velocity %d" % i)
+		_check_near(pspin[i], [30.563985, 9.249282, 1.233750][i], 1e-5, "putt spin %d" % i)
 
 
 func _test_links_launch_matches_olcore() -> void:
@@ -1287,6 +1313,14 @@ func _test_links_ground_matches_olcore() -> void:
 	var aero := LinksAero.from_exe(_synthetic_aero_exe())
 	var putt := BallPhysics.simulate_shot(BallState.new(Vector3.ZERO, Vector3(0, 0, 3.55)), FlatTerrain.new(Surface.Type.GREEN), true, Vector3(0, 0, 3), Vector3.ZERO, aero)
 	_check(putt.outcome == ShotResult.Outcome.HOLED, "links putt drops")
+	# Links 2003's own putt (power 10) starts on the ground with backspin as
+	# fast as rolling: it skids, then rolls about 28 ft on a flat green.
+	var v_fps := 10.0 * LinksLaunch.PUTT_SPEED
+	var lp := BallState.new(Vector3.ZERO, Vector3(0, 0, v_fps / LinksLaunch.FEET_PER_METRE), Vector3(-v_fps * 2.273642507507853 * TAU, 0, 0))
+	lp.on_ground = true
+	var lr := BallPhysics.simulate_shot(lp, FlatTerrain.new(Surface.Type.GREEN), false, Vector3.ZERO, Vector3.ZERO, aero)
+	_check(lr.outcome == ShotResult.Outcome.REST and lr.bounces == 0, "links putt rolls without bouncing")
+	_check_near(lr.total_m, 27.84 / LinksLaunch.FEET_PER_METRE, 0.03, "links putt length")
 	var pw := BallPhysics.simulate_shot(BallPhysics.make_launch(40.0, 25.0, 0.0, 8000.0, 0.0), FlatTerrain.new(Surface.Type.FAIRWAY), false, Vector3.ZERO, Vector3.ZERO, aero)
 	_check(pw.outcome == ShotResult.Outcome.REST and pw.bounces >= 1 and pw.total_m > pw.carry_m, "links wedge lands and rolls")
 

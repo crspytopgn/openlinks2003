@@ -23,6 +23,10 @@ struct BallState {
   Vec3 position;
   Vec3 velocity;
   Vec3 spin;  // angular velocity, rad/s
+  // A putt: the ball starts rolling on the ground instead of in flight, and
+  // the Links model tilts its velocity and spin onto the slope under it
+  // (see links_putt_slope).
+  bool on_ground = false;
 };
 
 // Aerodynamic constants. These are generic real-world golf ball values and
