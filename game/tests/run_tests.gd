@@ -1517,8 +1517,14 @@ func _test_graphics_settings() -> void:
 	s.green_firmness = 2
 	s.green_speed = 0
 	s.swing_method = 0
+	s.ui_scale = 3
+	s.gimme = 2
+	s.mulligans = 1
+	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
+	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
 	_check(loaded.msaa == 4, "msaa saved")
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")

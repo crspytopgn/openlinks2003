@@ -54,7 +54,8 @@ product lead builds it.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
-   marker, UI scale, captions for voice and commentary. Owner: lead.
+   marker, UI scale, captions for voice and commentary. UI scale done
+   (Settings > Interface size). Owner: lead.
 10. [x] **Personal records**: longest drive, best rounds per course, birdie,
    eagle and hole-in-one counts on the players page. Owner: lead.
 11. [x] **Hole positions**: Links 2003 courses keep 18 hole positions per

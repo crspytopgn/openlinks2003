@@ -22,6 +22,7 @@ const SKILL_NAMES := ["Level 1 (forgiving)", "Level 2", "Level 3", "Level 4 (Lin
 
 var _quality: OptionButton
 var _window: OptionButton
+var _ui_scale: OptionButton
 var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
@@ -88,6 +89,7 @@ func _ready() -> void:
 	var grid := _grid(columns)
 	_quality = _row(grid, "Quality", GraphicsSettings.QUALITY_NAMES)
 	_window = _row(grid, "Display", ["Windowed", "Fullscreen"])
+	_ui_scale = _row(grid, "Interface size", GraphicsSettings.UI_SCALE_NAMES)
 	_vsync = _row(grid, "V-sync", ["Off", "On"])
 	_msaa = _row(grid, "Anti-aliasing", ["Off (FXAA)", "MSAA 2x", "MSAA 4x", "MSAA 8x"])
 	var scales: Array = []
@@ -148,6 +150,7 @@ func open(s: GraphicsSettings) -> void:
 	settings = s
 	_quality.select(s.quality)
 	_window.select(1 if s.fullscreen else 0)
+	_ui_scale.select(s.ui_scale)
 	_vsync.select(1 if s.vsync else 0)
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
@@ -371,6 +374,7 @@ func _on_selected() -> void:
 	var before := _look_values()
 	settings.quality = _quality.selected
 	settings.fullscreen = _window.selected == 1
+	settings.ui_scale = _ui_scale.selected
 	settings.vsync = _vsync.selected == 1
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]

@@ -19,6 +19,7 @@ the browser and on desktop today.
 | Esc | Menu: resume, scorecard, settings (quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view), restart, main menu |
 | M | Back to the main menu once the round is over |
 | F11 | Toggle fullscreen |
+| U | Mulligan, right after a shot (Settings > Mulligans) |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
 ### Touch screens and game pads
@@ -105,6 +106,12 @@ counted as a putt. The conceded stroke is kept with the round's drops
 (`"gimme": true`, penalty 1), so the replay checker adds it to the card.
 Never in a friend's round from a result code, nor in a scramble, whose best
 ball is picked only after everyone has played.
+
+### Interface size
+
+Settings > Interface size scales the menus and HUD (the window's content
+scale: 0.85, 1, 1.15 or 1.3 on top of the usual stretch), larger for phones
+and TVs, smaller for a big monitor up close.
 
 ### Hole positions
 

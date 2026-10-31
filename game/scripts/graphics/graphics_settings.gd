@@ -54,6 +54,11 @@ static var force_look := -1
 
 var quality: int = Quality.HIGH
 var fullscreen := false
+## Size of the menus and HUD (an index into UI_SCALES): bigger for phones and
+## TVs, smaller for a big monitor up close.
+var ui_scale := 1
+const UI_SCALES := [0.85, 1.0, 1.15, 1.3]
+const UI_SCALE_NAMES := ["Smaller", "Normal", "Larger", "Largest"]
 var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
@@ -217,6 +222,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
+	s.ui_scale = clampi(int(cfg.get_value(SECTION, "ui_scale", s.ui_scale)), 0, UI_SCALES.size() - 1)
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))
 	var samples := int(cfg.get_value(SECTION, "msaa", s.msaa))
 	s.msaa = samples if MSAA_CHOICES.has(samples) else s.msaa
@@ -270,6 +276,7 @@ func save(path := PATH) -> void:
 	cfg.load(path)  # keep the other sections; a missing file is fine
 	cfg.set_value(SECTION, "quality", quality)
 	cfg.set_value(SECTION, "fullscreen", fullscreen)
+	cfg.set_value(SECTION, "ui_scale", ui_scale)
 	cfg.set_value(SECTION, "vsync", vsync)
 	cfg.set_value(SECTION, "msaa", msaa)
 	cfg.set_value(SECTION, "render_scale", render_scale)
@@ -341,6 +348,8 @@ func soft_shadow_quality() -> RenderingServer.ShadowQuality:
 
 ## Applies the settings that belong to the window and the renderer.
 func apply_display(viewport: Viewport) -> void:
+	if viewport is Window:
+		(viewport as Window).content_scale_factor = UI_SCALES[ui_scale]
 	if DisplayServer.get_name() != "headless":
 		var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 		if DisplayServer.window_get_mode() != mode:
