@@ -10,13 +10,13 @@ between shots. None of this touches the physics.
 Settings has a **Look** preset that sets every option below. Changing any
 single option makes the look **Custom**.
 
-| Look | Lighting | Upscaler | Effects | 3D grass |
-| --- | --- | --- | --- | --- |
-| Photoreal | Photoreal, Ultra | FSR 2 at full resolution (temporal AA) | sharpen, bloom, SSAO, far depth of field, light vignette and grain | High |
-| Natural | Photoreal, High | none, MSAA 2x | light sharpen, bloom, SSAO, vignette | Medium |
-| Cinematic | Photoreal, Ultra | FSR 2 | strong bloom, film grade, vignette, grain, depth of field | High |
-| Classic Links | Classic (Links 2003's flat colours) | none, MSAA 2x | none | off |
-| Performance | Photoreal, Low | FSR 1 at 75% (stretched in the browser), sharpened | none | Low |
+| Look | Lighting | Upscaler | Effects | 3D grass | Trees |
+| --- | --- | --- | --- | --- | --- |
+| Photoreal | Photoreal, Ultra | FSR 2 at full resolution (temporal AA) | sharpen, bloom, SSAO, far depth of field, light vignette and grain | High | 3D far |
+| Natural | Photoreal, High | none, MSAA 2x | light sharpen, bloom, SSAO, vignette | Medium | 3D |
+| Cinematic | Photoreal, Ultra | FSR 2 | strong bloom, film grade, vignette, grain, depth of field | High | 3D far |
+| Classic Links | Classic (Links 2003's flat colours) | none, MSAA 2x | none | off | classic |
+| Performance | Photoreal, Low | FSR 1 at 75% (stretched in the browser), sharpened | none | Low | 3D near |
 
 On the first run (or with settings saved before looks existed),
 `GraphicsSettings.detect_look()` picks one: Photoreal on a dedicated GPU,
@@ -56,6 +56,23 @@ at Medium and grass at Low.
 - **Trees in the wind**: the course billboards sway with the hole's wind
   (`foliage_sway` and `wind_vector` global shader uniforms, set by
   `GolfRound`). Classic Links keeps them still, as in the original.
+- **3D trees** (`TreeFactory`, `shaders/tree_*.gdshader`): generated
+  from a seed (three broadleaf and two pine variants): tapered branches
+  with the free bark photo (Poly Haven), and leaf cards that each draw a
+  grid of turned leaves from a photographed leaf set (ambientCG), or plain
+  leaf shapes and needle sprigs without it. Leaf normals point out from the
+  middle of the crown, and the leaves use their own soft light (wrapped
+  diffuse, light through the leaves, no specular), so a crown shades as
+  one mass. A solid dark core fills each crown. Up to 6,000 triangles a
+  tree. Beyond 35, 70 or 120 m (the Trees setting: 3D near, 3D, 3D far)
+  a tree becomes an impostor: one camera-facing quad showing the nearest
+  of 8 views, baked once into an atlas (a row per variant) by rendering
+  every variant into one off-screen viewport the first time a tree is
+  made. Headless runs render nothing, so they keep the full trees. The
+  3D trees replace the placeholder course's trees; the ball's obstacles
+  come from the course data, not the meshes. Leaf textures are sampled
+  with gradients from the card's UV (the turned cells jump at their
+  borders, which picks wild mip levels and sparkles in Compatibility).
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat

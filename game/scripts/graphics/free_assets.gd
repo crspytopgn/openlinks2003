@@ -33,6 +33,12 @@ static func has_grounds() -> bool:
 	return true
 
 
+## A tree texture: "bark_albedo.jpg", "bark_normal.jpg" (Poly Haven) or
+## "leaf_albedo.png", "leaf_opacity.png" (ambientCG), or null.
+static func tree_texture(file: String) -> Texture2D:
+	return _load(file)
+
+
 ## The equirectangular sky panorama, or null.
 static func sky() -> Texture2D:
 	return _load("sky_panorama.hdr")
