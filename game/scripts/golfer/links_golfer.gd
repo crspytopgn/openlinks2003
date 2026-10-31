@@ -1,17 +1,26 @@
 class_name LinksGolfer
 extends GolferRig
 ## A golfer from the player's own POLYANI/<golfer>.L3: the textured, skinned
-## model driven by the original animation clips, holding the driver (or the
-## putter on the green) from CLUBS.L3. Falls back to a stick figure of the
-## skeleton if the model has no skinned mesh.
+## model driven by the original animation clips, holding the driver, iron or
+## putter from CLUBS.L3. Falls back to a stick figure of the skeleton if the
+## model has no skinned mesh.
 ##
 ## Clip names and timings come from the archive's SCRIPT.TXT
-## (docs/formats/golfer-script.md).
+## (docs/formats/golfer-script.md): set_shot() picks its [Driver], [Iron],
+## [Chip] or [Putter] section and the swing clip (half swings, putt lengths).
+## Settings under [game] in user://settings.cfg: golfer_detail=low uses the
+## low-detail model (the default in the browser), and the customizable parts
+## in SCRIPT.TXT are chosen by their titles, for example shirts=2, pants=3.
 
 const FEET := 0.3048
 const BALL_DISTANCE := 0.75  ## GolferRig puts the ball this far in front
 const LIMB_RADIUS := 0.09  ## feet
 const EVENT_TOP_OF_BACKSWING := 0
+const EVENT_LAUNCH := 2
+const CHIP_DISTANCE := 40.0  ## metres; closer shots use the [Chip] clips
+const HALF_SWING_POWER := 0.6  ## weaker swings use a half swing if there is one
+const LONG_PUTT := 10.0  ## metres
+const MEDIUM_PUTT := 4.0
 
 var _archive: LsArchiveFile
 var _script := {}  ## section -> key -> value
@@ -25,7 +34,12 @@ var _head: MeshInstance3D
 var _head_node := -1
 var _meshes: Array[Dictionary] = []
 var _skeleton: Skeleton3D
-var _clubs := {}  ## "driver"/"putter" -> Node3D
+var _clubs := {}  ## "driver"/"iron"/"putter" -> Node3D
+var _section := "Driver"  ## SCRIPT.TXT section for the next shot
+var _distance := 100.0  ## metres to the hole for the next shot
+var _power := 1.0
+var _tops := {}  ## swing clip name (upper case) -> top of backswing frame
+var _texture_swaps := {}  ## default texture (upper case) -> chosen variety
 var _textures := {}  ## file name (upper case) -> Texture2D or null
 var _hd_dirs := {}  ## LsArchiveFile -> its folder in an HD pack ("golfers/eric")
 
@@ -45,9 +59,15 @@ static func load_from(archive_path: String) -> LinksGolfer:
 	golfer._archive = archive
 	golfer._hd_dirs[archive] = "golfers/" + archive_path.get_file().get_basename().to_lower()
 	golfer._script = parse_script(archive.read("SCRIPT.TXT").get_string_from_ascii())
-	var skl: String = golfer._script.get("file_locations", {}).get("golfer.skl", "")
+	var locations: Dictionary = golfer._script.get("file_locations", {})
+	var skl: String = locations.get("golfer.skl", "")
+	var detail := GameFolder.setting("golfer_detail", "low" if OS.has_feature("web") else "high")
+	var low: String = locations.get("golfer_low.skl", "")
+	if detail == "low" and archive.has(low):
+		skl = low
 	if skl.is_empty() or not archive.has(skl):
 		return null
+	golfer._texture_swaps = outfit_swaps(golfer._script, func(key: String) -> String: return GameFolder.setting(key))
 	var skl_bytes := archive.read(skl)
 	golfer._nodes = GolferAnimData.read_skeleton(skl_bytes)
 	if golfer._nodes.is_empty():
@@ -88,22 +108,97 @@ static func parse_clip_list(value: String) -> Array[Dictionary]:
 	return result
 
 
+## Default texture name -> chosen variety, both upper case, for the
+## "[customizable part N]" sections of a script. `choice` maps a part's
+## lower-case title ("shirts") to the variety number as text ("" = the first).
+static func outfit_swaps(script_data: Dictionary, choice: Callable) -> Dictionary:
+	var swaps := {}
+	for section: String in script_data:
+		if not section.to_lower().begins_with("customizable part"):
+			continue
+		var part: Dictionary = script_data[section]
+		var varieties := maxi(int(part.get("Varieties", "1")), 1)
+		var chosen := clampi(int(str(choice.call(str(part.get("Title", "")).to_lower()))), 1, varieties)
+		if chosen == 1:
+			continue
+		for k in range(1, int(part.get("Textures", "0")) + 1):
+			var pattern := str(part.get("Texture%d" % k, ""))
+			if pattern.contains("%%"):
+				swaps[pattern.replace("%%", "01").to_upper()] = pattern.replace("%%", "%02d" % chosen).to_upper()
+	return swaps
+
+
+## The SCRIPT.TXT section for a shot with a club (by its short name, such as
+## "Dr", "3W", "7i", "SW") from `distance_m` metres.
+static func shot_section(club_short_name: String, is_putter: bool, distance_m: float) -> String:
+	if is_putter:
+		return "Putter"
+	if distance_m < CHIP_DISTANCE:
+		return "Chip"
+	var n := club_short_name.to_upper()
+	if n == "DR" or n.ends_with("H") or (n.ends_with("W") and n not in ["PW", "SW", "LW", "GW"]):
+		return "Driver"
+	return "Iron"
+
+
+## The swing clip of a section for a shot: putts by length, a half swing for
+## a weak swing when the section has one, else the first full swing.
+static func pick_swing(swings: Array[Dictionary], section: String, distance_m: float, power: float) -> Dictionary:
+	if swings.is_empty():
+		return {}
+	var want := ""
+	if section == "Putter":
+		want = "LONG" if distance_m > LONG_PUTT else ("MEDIUM" if distance_m > MEDIUM_PUTT else "SHORT")
+	elif power < HALF_SWING_POWER:
+		want = "HALF"
+	for s in swings:
+		if not want.is_empty() and str(s["clip"]).to_upper().contains(want):
+			return s
+	for s in swings:
+		if not str(s["clip"]).to_upper().contains("HALF"):
+			return s
+	return swings[0]
+
+
+func set_shot(club: Club, distance_m: float, power: float = 1.0) -> void:
+	_section = shot_section(club.short_name, club.is_putter, distance_m)
+	_distance = distance_m
+	_power = power
+	_show_club(_club_model(_section))
+
+
+static func _club_model(section: String) -> String:
+	match section:
+		"Driver": return "driver"
+		"Putter": return "putter"
+	return "iron"
+
+
 func play(animation: StringName) -> void:
-	var shot := "Putter" if animation == &"putt" else "Driver"
-	_show_club("putter" if animation == &"putt" else "driver")
+	var shot := _section
+	if animation == &"putt":
+		shot = "Putter"
+	elif shot == "Putter":
+		shot = "Driver"
+	if not _script.has(shot):
+		shot = "Iron" if shot == "Chip" and _script.has("Iron") else "Driver"
+	_show_club(_club_model(shot))
 	var section: Dictionary = _script.get(shot, {})
-	var swing := parse_clip_list(section.get("Swing", ""))
+	var swings := parse_clip_list(section.get("Swing", ""))
+	var chosen := pick_swing(swings, shot, _distance, _power)
+	var swing: Array[Dictionary] = []
+	if not chosen.is_empty():
+		swing.append(chosen)
 	match animation:
 		&"address":
 			var idle := parse_clip_list(section.get("PreSwing", ""))
 			_start(section.get("Address", ""), 0, -1, [idle[0]["clip"]] if not idle.is_empty() else [])
 		&"backswing":
 			if not swing.is_empty():
-				var top: int = swing[0]["events"].get(EVENT_TOP_OF_BACKSWING, -1)
-				_start(swing[0]["clip"], 0, top, [])
+				_start(swing[0]["clip"], 0, _top_frame(swing[0]), [])
 		&"swing":
 			if not swing.is_empty():
-				var top: int = swing[0]["events"].get(EVENT_TOP_OF_BACKSWING, 0)
+				var top := _top_frame(swing[0])
 				var from := _frame if _clip_is(swing[0]["clip"]) else float(top)
 				_start(swing[0]["clip"], from, -1, [section.get("FinishBreath", "")])
 		&"putt":
@@ -114,6 +209,45 @@ func play(animation: StringName) -> void:
 				if "InHole" in r["clip"]:
 					_start(r["clip"], 0, -1, [section.get("NeutralBreath", "")])
 					break
+
+
+## The top of the backswing: the script's event 0, else the frame before
+## the launch event where the hands (clubJoint) are highest.
+func _top_frame(swing: Dictionary) -> int:
+	var events: Dictionary = swing["events"]
+	if events.has(EVENT_TOP_OF_BACKSWING):
+		return events[EVENT_TOP_OF_BACKSWING]
+	var key := str(swing["clip"]).to_upper()
+	if _tops.has(key):
+		return _tops[key]
+	var clip := _load_clip(key)
+	var top := 0
+	var grip := -1
+	for i in _nodes.size():
+		if str(_nodes[i]["name"]) == "clubJoint":
+			grip = i
+	if not clip.is_empty() and grip >= 0:
+		var last: int = mini(int(events.get(EVENT_LAUNCH, clip["frames"])), int(clip["frames"]) - 1)
+		var best := -INF
+		for f in last:
+			var y := _world_of(grip, _sample(clip, float(f))).origin.y
+			if y > best:
+				best = y
+				top = f
+	_tops[key] = top
+	return top
+
+
+## World transform of node i (clip space, feet) for sampled channel values.
+func _world_of(i: int, values: Array) -> Transform3D:
+	var rot: Array[Vector3] = values[0]
+	var tr: Array[Vector3] = values[1]
+	var t := Transform3D.IDENTITY
+	var n := i
+	while n >= 0:
+		t = GolferAnimData.local_transform(_nodes[n], rot[n], tr[n]) * t
+		n = _nodes[n]["parent"]
+	return t
 
 
 func _clip_is(clip_name: String) -> bool:
@@ -272,6 +406,8 @@ func _material(part: Dictionary, archive: LsArchiveFile) -> StandardMaterial3D:
 
 func _texture(file_name: String, archive: LsArchiveFile) -> Texture2D:
 	var key := file_name.to_upper()
+	if archive == _archive:
+		key = _texture_swaps.get(key, key)
 	if key.is_empty() or archive == null:
 		return null
 	if not _textures.has(key):
@@ -297,7 +433,7 @@ func _build_clubs(folder: String) -> void:
 	if grip < 0:
 		return
 	var locations: Dictionary = _script.get("file_locations", {})
-	for club in ["driver", "putter"]:
+	for club in ["driver", "iron", "putter"]:
 		var where := str(locations.get(club + ".skl", "")).split("|")
 		if where.size() != 2:
 			continue
@@ -313,7 +449,7 @@ func _build_clubs(folder: String) -> void:
 			instance.mesh = _array_mesh(m, archive)
 			attach.add_child(instance)
 		_clubs[club] = attach
-	_show_club("driver")
+	_show_club(_club_model(_section))
 
 
 func _show_club(club: String) -> void:
@@ -387,24 +523,26 @@ func _is_skin(name_lower: String) -> bool:
 	return false
 
 
-func _apply_pose() -> void:
+## [rotations, translations] of every node at a (fractional) clip frame;
+## nodes the clip doesn't drive keep their rest values.
+func _sample(clip: Dictionary, frame: float) -> Array:
 	var rot: Array[Vector3] = []
 	var tr: Array[Vector3] = []
 	for n in _nodes:
 		rot.append(n["rotate"])
 		tr.append(n["translate"])
-	if not _clip.is_empty():
-		var f0 := int(floor(_frame))
-		var f1 := mini(f0 + 1, int(_clip["frames"]) - 1)
-		var t := _frame - f0
-		var hashes: PackedInt64Array = _clip["node_hashes"]
-		var attrs: PackedInt32Array = _clip["attributes"]
+	if not clip.is_empty():
+		var f0 := int(floor(frame))
+		var f1 := mini(f0 + 1, int(clip["frames"]) - 1)
+		var t := frame - f0
+		var hashes: PackedInt64Array = clip["node_hashes"]
+		var attrs: PackedInt32Array = clip["attributes"]
 		for c in hashes.size():
 			var idx: int = _index_by_hash.get(hashes[c], -1)
 			var attr := attrs[c]
 			if idx < 0 or attr < 0:
 				continue
-			var v := lerpf(GolferAnimData.clip_value(_clip, c, f0), GolferAnimData.clip_value(_clip, c, f1), t)
+			var v := lerpf(GolferAnimData.clip_value(clip, c, f0), GolferAnimData.clip_value(clip, c, f1), t)
 			if attr < 3:
 				var t3 := tr[idx]
 				t3[attr] = v
@@ -413,6 +551,13 @@ func _apply_pose() -> void:
 				var r3 := rot[idx]
 				r3[attr - 3] = v
 				rot[idx] = r3
+	return [rot, tr]
+
+
+func _apply_pose() -> void:
+	var values := _sample(_clip, _frame)
+	var rot: Array[Vector3] = values[0]
+	var tr: Array[Vector3] = values[1]
 	if _skeleton:
 		for i in _nodes.size():
 			var pose := GolferAnimData.local_transform(_nodes[i], rot[i], tr[i])
