@@ -45,8 +45,12 @@ product lead builds it.
    a sim-racing wheel. Done: Settings > Launch monitor
    ([game-shell.md](docs/game-shell.md#launch-monitors)). Still to do: try
    it with a real launch monitor app.
-7. [ ] **Career**: a season of events against the computer golfers, with a
-   money list and the handicap and stats already kept. Owner: new thread.
+7. [x] **Career**: a season of events against the computer golfers, with a
+   money list and the handicap and stats already kept. Done: main menu >
+   Career ([game-shell.md](docs/game-shell.md#career)): three tours, cuts,
+   tour-style prize money, playoffs, promotion. Still to do: playing a
+   playoff hole for real, and tuning the field against measured computer
+   golfer scores.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
