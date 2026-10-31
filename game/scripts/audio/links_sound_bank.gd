@@ -99,19 +99,23 @@ func _crowd_stream(event: StringName) -> AudioStreamWAV:
 
 func play_detail(event: StringName, detail: Dictionary) -> void:
 	if EVENTS.has(event) or CROWD_EVENTS.has(event):
-		play(event)
+		_play_event(event, float(detail.get("gain_db", 0.0)), detail)
 	else:
 		_fallback.play_detail(event, detail)
 
 
 func play(event: StringName) -> void:
+	_play_event(event, 0.0, {})
+
+
+func _play_event(event: StringName, gain_db: float, detail: Dictionary) -> void:
 	var stream: AudioStreamWAV = null
 	if EVENTS.has(event):
 		stream = _bank.random_stream(EVENTS[event])
 	elif CROWD_EVENTS.has(event):
 		stream = _crowd_stream(event)
 	if stream == null:
-		_fallback.play(event)
+		_fallback.play_detail(event, detail)
 		return
 	# One player per event so a landing doesn't cut off the swing.
 	var p := _player if event == &"hit" or event == &"putt" else AudioStreamPlayer.new()
@@ -119,4 +123,5 @@ func play(event: StringName) -> void:
 		add_child(p)
 		p.finished.connect(p.queue_free)
 	p.stream = stream
+	p.volume_db = gain_db
 	p.play()

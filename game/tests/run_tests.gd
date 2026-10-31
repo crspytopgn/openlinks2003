@@ -56,6 +56,9 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
+	_run("wind_gusts", _test_wind_gusts)
+	_run("course_marks", _test_course_marks)
+	_run("sound_over_distance", _test_sound_over_distance)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1359,6 +1362,82 @@ func _test_ground_shade() -> void:
 	_check(rough.s >= 0.3 and rough.v < 0.6, "pale rough becomes straw")
 	var sand := Color(0.85, 0.8, 0.65)
 	_check(absf(CrzTerrain.realistic(sand, Surface.Type.SAND).h - sand.h) < 0.01, "sand keeps its hue")
+
+
+func _test_wind_gusts() -> void:
+	var low := 9.0
+	var high := 0.0
+	for i in 2000:
+		var f := WindGust.factor(i * 0.1, 3.0)
+		low = minf(low, f)
+		high = maxf(high, f)
+	_check(low >= WindGust.LULL - 1e-4 and high <= WindGust.PEAK + 1e-4, "gusts stay between lull and peak")
+	_check(high - low > 0.4, "gusts really vary (%.2f to %.2f)" % [low, high])
+	_check(WindGust.visual_wind(Vector2.ZERO, 5.0) == Vector2.ZERO, "no gusts in a calm")
+	var seen := WindGust.visual_wind(Vector2(4, 0), 7.0)
+	_check(absf(rad_to_deg(seen.angle())) <= 8.01, "gusts swing the direction only a few degrees")
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/flag.gdshader")
+	_check(mat.shader != null and mat.shader.get_code().contains("wind_vector"), "flag shader reads the wind")
+
+
+func _test_course_marks() -> void:
+	var clubs := Club.standard_set()
+	var by_name := {}
+	for c in clubs:
+		by_name[c.short_name] = c
+	_check(CourseMarks.divot_size(by_name["Dr"], Surface.Type.TEE) == Vector2.ZERO, "no divot off the tee with a driver")
+	_check(CourseMarks.divot_size(by_name["3W"], Surface.Type.FAIRWAY) == Vector2.ZERO, "fairway woods sweep the ball")
+	_check(CourseMarks.divot_size(by_name["Pt"], Surface.Type.GREEN) == Vector2.ZERO, "putts take no turf")
+	var seven := CourseMarks.divot_size(by_name["7i"], Surface.Type.FAIRWAY)
+	var wedge := CourseMarks.divot_size(by_name["SW"], Surface.Type.FAIRWAY)
+	_check(seven.x > 0.09 and seven.x < 0.18, "a 7 iron takes a hand-sized divot (%.2f m)" % seven.x)
+	_check(wedge.x > seven.x, "wedges take longer divots than irons")
+	_check(CourseMarks.divot_size(by_name["7i"], Surface.Type.TEE).x < seven.x, "an iron off a peg only nicks the tee")
+	_check(CourseMarks.divot_size(by_name["SW"], Surface.Type.FAIRWAY, true).x < wedge.x, "chips take small divots")
+	var centre := CourseMarks.divot_centre(Vector3.ZERO, Vector3(0, 0, 1), seven)
+	_check(centre.z > 0.0 and absf(centre.x) < 1e-6, "divots start ahead of the ball")
+	_check(CourseMarks.landing_mark(Surface.Type.GREEN, 25.0)[0] == CourseMarks.Kind.PITCH_MARK, "approach shots mark the green")
+	_check(CourseMarks.landing_mark(Surface.Type.GREEN, 3.0).is_empty(), "a rolling ball leaves no pitch mark")
+	_check(CourseMarks.landing_mark(Surface.Type.SAND, 20.0)[0] == CourseMarks.Kind.SAND_CRATER, "balls plug craters in sand")
+	_check(CourseMarks.landing_mark(Surface.Type.FAIRWAY, 30.0).is_empty(), "fairway landings leave no mark")
+	var course := AssetProviders.load_course("")
+	var t := course.holes[0].terrain
+	var marks := CourseMarks.new()
+	for i in CourseMarks.MAX_MARKS + 5:
+		marks.add_divot(t, course.holes[0].tee + Vector3(0, 0, 60 + i), Vector3(0, 0, 1), by_name["8i"], Surface.Type.FAIRWAY)
+	_check(marks.mark_count() == CourseMarks.MAX_MARKS, "marks are capped per hole")
+	marks.free()
+	# Footprints: find a bunker on the first hole and stand in it.
+	var sand := Vector3.INF
+	var h0 := course.holes[0]
+	for z in range(0, 400, 2):
+		for x in range(-60, 61, 2):
+			if t.surface_at(h0.tee.x + x, h0.tee.z + z) == Surface.Type.SAND \
+					and t.surface_at(h0.tee.x + x, h0.tee.z + z - 3) == Surface.Type.SAND:
+				sand = Vector3(h0.tee.x + x, 0.0, h0.tee.z + z)
+				break
+		if sand != Vector3.INF:
+			break
+	_check(sand != Vector3.INF, "the placeholder course has a bunker")
+	if sand != Vector3.INF:
+		var spots := CourseMarks.footprint_spots(t, sand, Vector3(0, 0, 1), Vector3(1, 0, 0))
+		_check(spots.size() >= 2, "footprints in the bunker (%d)" % spots.size())
+		var on_sand := true
+		for spot in spots:
+			var at: Vector3 = spot[0]
+			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
+		_check(on_sand, "footprints only on sand")
+		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+
+
+func _test_sound_over_distance() -> void:
+	var near := SoundBank.heard_from(5.0)
+	_check(near.gain_db == 0.0 and near.delay_s < 0.02, "close sounds play at once, at full level")
+	var drive := SoundBank.heard_from(250.0)
+	_check_near(drive.delay_s, 250.0 / 343.0, 1e-6, "sound takes 0.73 s to cover 250 m")
+	_check_near(SoundBank.heard_from(40.0).gain_db, -6.0206, 1e-3, "6 dB quieter each time the distance doubles")
+	_check(SoundBank.heard_from(5000.0).gain_db == SoundBank.FAINTEST_DB, "far sounds stay faintly audible")
 
 
 func _test_grass() -> void:
