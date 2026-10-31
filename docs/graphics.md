@@ -102,8 +102,12 @@ at Medium and grass at Low.
   `shaders/course_ground.gdshader`): with Photoreal lighting (every look
   but Classic), grass, fairway, green, rough, deep rough and sand draw the
   free photoscanned set of their surface (albedo, normal and roughness:
-  ambientCG's short lawn for mown grass and dense long grass for rough,
-  Poly Haven sand) instead of the disc's 2003 texture. The lawn scan's
+  ambientCG's short lawn for mown grass, dense long grass for rough, fine
+  bunker sand, concrete for cart paths and bare ground for dirt) instead
+  of the disc's 2003 texture. Paths and dirt keep their own hue
+  (`realistic_class`). Greens draw the lawn scan at 0.6 m a repeat, so
+  they read as fine putting turf next to the coarser collar. Path, dirt
+  and bark sets stay at 1024 pixels to save video memory. The lawn scan's
   light and dark is boosted (`PHOTO_GAINS`), since it is shot in soft light
   and would read flat at playing distance; its roughness map gives glossy
   and matt blades near the camera. The photo's detail sits on the course's own colour for that
@@ -133,8 +137,10 @@ at Medium and grass at Low.
   replaces the disc's painted sky. The course's own horizon panorama
   stays, which keeps Kauri's sea, and fades 30% into the haze.
   Compatibility shows the sky brighter, since it has no sky fill light.
-  The water reflects at most 60% of the sky, so a glancing view still
-  shows deep blue, not white.
+  The water reflects the photographed sky itself (its clouds), with the
+  far banks dark and green at the bottom of the reflection and a quarter
+  of every reflection taken by the banks round it; the water's own colour
+  is a dark, slightly green deep.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump

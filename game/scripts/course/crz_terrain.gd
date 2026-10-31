@@ -11,8 +11,11 @@ const TILE_METRES := 12.0 * 0.3048
 
 ## Ground class (see olcore::parse_ground_classes) to how the ball plays.
 ## Ground classes that take a free photographed texture in place of the
-## disc's own when photo_ground is on (not paths, dirt or rocks).
-const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 8, 10]
+## disc's own when photo_ground is on (not rocks).
+const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 6, 7, 8, 10]
+## Ground classes drawn with a photo set of their own rather than the one
+## of their surface (FreeAssets.slot_for): paths and dirt.
+const CLASS_SLOTS := {6: "path", 7: "dirt"}
 const GROUND_SHADER := preload("res://shaders/course_ground.gdshader")
 const MAPPED_SHADER := preload("res://shaders/terrain_mapped.gdshader")
 
@@ -21,7 +24,7 @@ const MAPPED_SHADER := preload("res://shaders/terrain_mapped.gdshader")
 ## disc's own. Takes effect on the next hole.
 ## Metres per repeat of each photo ground: the turf scans cover about a
 ## metre and a half of lawn.
-const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.5}
+const PHOTO_TILES := {"grass": 2.0, "rough": 2.2, "sand": 2.0, "path": 3.0, "dirt": 2.5}
 ## How strongly each scan's light and dark blades show: the lawn scan is
 ## shot in soft light and reads flat at playing distance.
 const PHOTO_GAINS := {"grass": 2.2, "rough": 1.4, "sand": 1.0}
@@ -245,7 +248,7 @@ func ground_color_at(x: float, z: float) -> Color:
 			c = FreeAssets.mean_color(tex) * tint
 		var ground := ground_classes[m] if m < ground_classes.size() else 3
 		if photo_ground and ground in PHOTO_CLASSES:
-			c = realistic(c, CLASS_SURFACE.get(ground, Surface.Type.ROUGH))
+			c = realistic_class(c, ground)
 		_ground_colors[key] = c
 	return _ground_colors[key]
 
@@ -425,7 +428,7 @@ func _material(m: int, mapped := false) -> Material:
 			if photo != null:
 				return photo
 		elif ground in PHOTO_CLASSES:
-			var photo := _photo_material(surface, info)
+			var photo := _photo_material(ground, info)
 			if photo != null:
 				return photo
 	var tex: Texture2D = info.get("texture")
@@ -487,8 +490,8 @@ static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Var
 ## tinted to the mean colour of the course's own texture (or its class
 ## colour), toned down to the brightness of real turf. Null without the
 ## free textures.
-static func _photo_material(surface: Surface.Type, info: Dictionary) -> ShaderMaterial:
-	var params := _photo_params(surface, info)
+static func _photo_material(ground: int, info: Dictionary) -> ShaderMaterial:
+	var params := _photo_params(ground, info)
 	if params.is_empty():
 		return null
 	var mat := ShaderMaterial.new()
@@ -506,8 +509,8 @@ static func _photo_blend(info: Dictionary, blend: Dictionary) -> ShaderMaterial:
 	var gb: int = blend.ground_b
 	if not (ga in PHOTO_CLASSES and gb in PHOTO_CLASSES):
 		return null
-	var a := _photo_params(CLASS_SURFACE.get(ga, Surface.Type.ROUGH), info)
-	var b := _photo_params(CLASS_SURFACE.get(gb, Surface.Type.ROUGH), {"texture": blend.texture_b})
+	var a := _photo_params(ga, info)
+	var b := _photo_params(gb, {"texture": blend.texture_b})
 	if a.is_empty() or b.is_empty():
 		return null
 	var mat := ShaderMaterial.new()
@@ -524,8 +527,9 @@ static func _photo_blend(info: Dictionary, blend: Dictionary) -> ShaderMaterial:
 
 ## The COURSE_GROUND parameters for one photo layer, or empty without the
 ## free textures.
-static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary:
-	var slot := FreeAssets.slot_for(surface)
+static func _photo_params(ground: int, info: Dictionary) -> Dictionary:
+	var surface: Surface.Type = CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
+	var slot: String = CLASS_SLOTS.get(ground, FreeAssets.slot_for(surface))
 	var photo := FreeAssets.ground(slot, "albedo")
 	if photo == null:
 		return {}
@@ -533,7 +537,7 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 	var target: Color = info.get("colour", Color(0.3, 0.5, 0.2))
 	if own != null and own != photo:
 		target = _mean(own)
-	target = realistic(target, surface)
+	target = realistic_class(target, ground)
 	var normal := FreeAssets.ground(slot, "normal")
 	var rough := FreeAssets.ground(slot, "roughness")
 	var p := {
@@ -553,8 +557,17 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 		"roughness_value": 0.92,
 		"variation": 0.14,
 	}
+	if CLASS_SLOTS.has(ground):
+		# Paths and dirt: no stripes, a little wear in patches.
+		p.roughness_value = 0.9
+		p.variation = 0.08
+		return p
 	match surface:
 		Surface.Type.GREEN:
+			# Cut to a few millimetres: the lawn scan smaller and softer,
+			# so it reads as fine, dense turf rather than fairway grass.
+			p.tile = 0.6
+			p.detail_gain = 1.3
 			p.stripes = 0.07
 			p.stripe_width = 3.0
 			p.roughness_value = 0.78
@@ -567,6 +580,14 @@ static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary
 			p.variation = 0.06
 			p.roughness_value = 0.95
 	return p
+
+
+## realistic() for ground class `ground`: paths and dirt keep their hue
+## and colour, a little darker, as the disc draws them pale too.
+static func realistic_class(c: Color, ground: int) -> Color:
+	if CLASS_SLOTS.has(ground):
+		return Color.from_hsv(c.h, c.s, c.v * 0.85)
+	return realistic(c, CLASS_SURFACE.get(ground, Surface.Type.ROUGH))
 
 
 ## A course colour (sRGB) as real ground of that surface would be: the 2003

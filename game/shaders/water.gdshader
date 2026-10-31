@@ -7,14 +7,21 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_disabled, specular_schlick_ggx;
 
-uniform vec3 deep_color : source_color = vec3(0.02, 0.11, 0.17);
-uniform vec3 shallow_color : source_color = vec3(0.10, 0.33, 0.33);
+uniform vec3 deep_color : source_color = vec3(0.03, 0.07, 0.07);
+uniform vec3 shallow_color : source_color = vec3(0.09, 0.15, 0.12);
 uniform vec3 sky_color : source_color = vec3(0.36, 0.52, 0.68);
 uniform vec3 foam_color : source_color = vec3(0.85, 0.90, 0.88);
 uniform float ripple_strength = 0.6;
 uniform float ripple_speed = 1.0;
 uniform float edge_width = 0.07; // as a fraction of the radius
 uniform bool disc = true;
+// The photographed sky (FreeAssets.sky), reflected by the ripples: real
+// clouds in the water instead of one flat sky colour. Below the horizon
+// the reflection shows the far banks, dark and green.
+uniform sampler2D sky_pano : source_color, filter_linear, repeat_enable;
+uniform bool has_pano = false;
+uniform float pano_energy = 1.0;
+uniform vec3 bank_color : source_color = vec3(0.10, 0.14, 0.08);
 global uniform vec2 wind_vector;
 
 varying vec3 world_pos;
@@ -49,7 +56,23 @@ void fragment() {
 	vec3 body = mix(deep_color, shallow_color, smoothstep(0.55, 1.0, r));
 	// Reflection capped: even at a glancing view, real water shows the
 	// deep blue of the sky above more than the pale horizon.
-	vec3 col = mix(body, sky_color, fresnel * 0.6);
+	vec3 refl = sky_color;
+	float reach = 0.6;
+	if (has_pano) {
+		vec3 view_dir = normalize(world_pos - CAMERA_POSITION_WORLD);
+		vec3 r_dir = reflect(view_dir, n_world);
+		r_dir.y = abs(r_dir.y);
+		vec2 uv = vec2(atan(r_dir.x, -r_dir.z) / 6.28318 + 0.5, acos(clamp(r_dir.y, -1.0, 1.0)) / 3.14159);
+		refl = texture(sky_pano, uv).rgb * pano_energy;
+		// The banks and trees round the water fill the bottom of the
+		// reflected sky.
+		refl = mix(bank_color, refl, smoothstep(0.05, 0.4, r_dir.y));
+		// Ponds and creeks sit low among banks and trees, which take
+		// some of the sky out of every reflection.
+		refl = mix(refl, bank_color, 0.25);
+		reach = 0.8;
+	}
+	vec3 col = mix(body, refl, fresnel * reach);
 
 	float foam = smoothstep(1.0 - edge_width * 2.0, 1.0 - edge_width * 0.5, r);
 	foam *= 0.6 + 0.4 * sin(p.x * 3.1 + p.y * 2.3 + TIME * 1.5);
