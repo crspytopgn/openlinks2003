@@ -22,7 +22,25 @@ func run_all() -> Array[String]:
 	_test_paths()
 	_test_object_info()
 	_test_bad_files()
+	_test_water_surface()
 	return failures
+
+
+## A pond's water carries how far each vertex is from the bank, for the
+## shallows and shoreline.
+func _test_water_surface() -> void:
+	var poly := PackedVector2Array([Vector2(0, 0), Vector2(60, 0), Vector2(60, 40), Vector2(0, 40)])
+	var m := DesignedTerrain.water_surface_mesh(poly, 1.5)
+	var verts: PackedVector3Array = m[0]
+	var open: PackedColorArray = m[1]
+	var indices: PackedInt32Array = m[2]
+	check(verts.size() > poly.size() and indices.size() >= 6 and indices.size() % 3 == 0, "water: grid inside the outline (%d vertices)" % verts.size())
+	check(open[0].r == 0.0 and open[2].r == 0.0, "water: open is 0 on the bank")
+	var deepest := 0.0
+	for c in open:
+		deepest = maxf(deepest, c.r)
+	check(deepest == 1.0, "water: open water in the middle")
+	check(is_equal_approx(verts[verts.size() - 1].y, 1.5), "water: at its level")
 
 
 func check(cond: bool, what: String) -> void:

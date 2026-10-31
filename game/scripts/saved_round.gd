@@ -37,6 +37,7 @@ static func save(setup: RoundSetup, state: Dictionary) -> void:
 	cfg.set_value("setup", "computer", PackedInt32Array(setup.computer))
 	cfg.set_value("setup", "handicaps", setup.handicaps)
 	cfg.set_value("setup", "indexes", PackedInt32Array(setup.indexes))
+	cfg.set_value("setup", "career", setup.career)
 	cfg.set_value("setup", "saved_at", Time.get_datetime_string_from_system(false, true))
 	for key: String in state:
 		cfg.set_value("round", key, state[key])
@@ -56,6 +57,7 @@ static func load_setup() -> RoundSetup:
 	s.holes = clampi(cfg.get_value("setup", "holes", 0), 0, RoundSetup.HOLES_NAMES.size() - 1) as RoundSetup.Holes
 	s.tees = clampi(cfg.get_value("setup", "tees", 0), 0, RoundSetup.TEES_NAMES.size() - 1) as RoundSetup.Tees
 	s.handicaps = cfg.get_value("setup", "handicaps", false) == true
+	s.career = str(cfg.get_value("setup", "career", ""))
 	s.pins = clampi(int(cfg.get_value("setup", "pins", 0)), 0, RoundSetup.PINS_NAMES.size() - 1)
 	s.pin_seed = int(cfg.get_value("setup", "pin_seed", 0))
 	var saved_names: PackedStringArray = cfg.get_value("setup", "names", PackedStringArray())

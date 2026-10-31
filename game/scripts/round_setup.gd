@@ -37,6 +37,9 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
+## Putting practice (PuttingPractice): the first player on a practice green
+## with several cups on each chosen hole's green. Not saved with the setup.
+var putting := false
 ## The practice range: one person hits from the tee as often as they like,
 ## the ball comes back, and a launch monitor shows each shot. No scores.
 ## Not saved with the setup.
@@ -44,6 +47,9 @@ var practice := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null
+## A Career round: the id of the career round it plays (Career.round_id),
+## or "". Kept with a saved round but not with the setup.
+var career := ""
 ## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
 ## from their profile. Not saved with the setup.
 var indexes: Array[int] = []
@@ -88,8 +94,20 @@ static func computer_index(level: int) -> int:
 	return INDEX[clampi(level, 0, INDEX.size() - 1)]
 
 
+## Practice is played alone: keeps the first player, as a person, in a
+## stroke game without handicaps.
+func trim_for_practice() -> void:
+	names = [names[0] if not names.is_empty() else DEFAULT_NAMES[0]]
+	teams = [0]
+	computer = [HUMAN]
+	mode = GameModes.Mode.STROKE
+	handicaps = false
+
+
 ## Why this setup can't be played, or "" if it can.
 func problem() -> String:
+	if putting:
+		return ""
 	if practice:
 		if player_count() != 1 or is_computer(0):
 			return "The practice range is for one person: set Players to 1 player, Human."
