@@ -1,0 +1,10 @@
+{
+  "name": "openlinks2003-server",
+  "private": true,
+  "type": "module",
+  "description": "Online rooms and rounds in your own time for OpenLinks2003 (Cloudflare Worker + Durable Objects)",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "deploy": "npx wrangler deploy"
+  }
+}
