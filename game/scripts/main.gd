@@ -26,7 +26,7 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
+const HINT_AIM := "Left/Right or right-click: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
 const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
@@ -995,6 +995,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
 		get_viewport().set_input_as_handled()
 		return
+	if _click_aim_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _mouse_swing_input(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -1093,6 +1096,50 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 			ms.motion((event as InputEventMouseMotion).screen_relative)
 		return true
 	return false
+
+
+## Right-click on the course: aim at that spot and take the club that
+## reaches it (ClickAim). Putts only turn the aim.
+func _click_aim_input(event: InputEvent) -> bool:
+	if not event is InputEventMouseButton:
+		return false
+	var mb := event as InputEventMouseButton
+	if mb.button_index != MOUSE_BUTTON_RIGHT or not mb.pressed or mb.device == InputEvent.DEVICE_ID_EMULATION:
+		return false
+	if state != State.AIM or _replaying or camera.flying() or opponents[shooter] != null:
+		return false
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return false
+	var hit: Variant = ClickAim.ray_ground(hole.terrain, cam.project_ray_origin(mb.position), cam.project_ray_normal(mb.position))
+	if hit == null:
+		return true
+	aim_at(hit as Vector3)
+	return true
+
+
+## Aims at `spot`, and away from the green takes the club whose full swing
+## reaches it.
+func aim_at(spot: Vector3) -> void:
+	if _flat_distance(ball_at, spot) < 0.5:
+		return
+	aim_deg = rad_to_deg(atan2(spot.x - ball_at.x, spot.z - ball_at.z))
+	if not clubs[club_index].is_putter and not _chip:
+		var reaches: Array[float] = []
+		for c in clubs:
+			reaches.append(-1.0 if c.is_putter else c.total_m * shot_model.reach_scale(c) * Surface.lie_power(lie))
+		var pick := ClickAim.club_for(reaches, _flat_distance(ball_at, spot))
+		if pick != club_index:
+			club_index = pick
+			sounds.play(&"club")
+			_tell_monitor()
+			_place_golfer()
+	hud.show_message("%d yd to the target" % roundi(_flat_distance(ball_at, spot) * YARDS_PER_METRE), 1.5)
+	_update_aim_marker()
+	_update_hud()
+	_aim_camera(false)
+	_update_green_grid()
+	_update_green_aids()
 
 
 ## Whether the player may start a swing now.
