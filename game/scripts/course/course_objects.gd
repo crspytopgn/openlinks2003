@@ -29,6 +29,11 @@ const CLASS_RANGE: Array[float] = [150.0, 300.0, 700.0, 0.0]
 const CLASSES := 4
 const CROWD_RANGE := 250.0
 const FAR_REACH := 900.0  ## how far from a hole the always-drawn chunks go
+## With 3D trees on (TreeFactory), tree billboards at least this tall are
+## drawn as 3D trees, in cells of TREE_CELL metres. The ball's obstacles
+## stay those of the billboards.
+const TREE_MIN_HEIGHT := 3.0
+const TREE_CELL := 50.0
 const CROWD_GROUPS: Array[String] = ["fan", "Sit", "media", "Official"]
 const CROWD_SPRITE_FEET := 6.0  ## a 128-pixel spectator sprite
 const CROWD_LIBRARIES: Array[String] = ["CROWDS.LIB", "Crowds.lib"]
@@ -95,7 +100,10 @@ class Sprites:
 	## order[start[b] .. start[b + 1]).
 	var start := PackedInt32Array()
 	var order := PackedInt32Array()
-	var cache := {}  ## bucket -> MultiMesh
+	var cache := {}  ## bucket -> MultiMesh (or null when empty)
+	## Per sprite: the TreeFactory.Species it is drawn as with 3D trees on,
+	## or -1. Empty for spectators.
+	var species := PackedInt32Array()
 
 
 var plants: Sprites
@@ -493,6 +501,8 @@ func _load_plants(read: Callable, decoded: Dictionary) -> void:
 	var atlas := build_atlas(images)
 	s.rects = atlas.rects
 	s.material = _material(atlas.texture)
+	for t: Dictionary in types:
+		s.species.append(tree_species(str(t.name)))
 	_index(s)
 	plants = s
 	_add_plant_obstacles(types)
@@ -677,6 +687,21 @@ static func plant_shape(type_name: String) -> int:
 	if n.contains("rock") or n.contains("stone") or n.contains("boulder"):
 		return 4
 	return 0
+
+
+## The TreeFactory.Species a billboard type is drawn as with 3D trees on,
+## or -1 to keep its billboard (palms and dead trees look nothing like the
+## generated trees).
+static func tree_species(type_name: String) -> int:
+	var n := type_name.to_lower()
+	if n.contains("palm") or n.contains("dead"):
+		return -1
+	match plant_shape(type_name):
+		1:
+			return TreeFactory.Species.BROADLEAF
+		2:
+			return TreeFactory.Species.PINE
+	return -1
 
 
 ## 3D objects block the ball with their bounding box (in the model's own
@@ -875,12 +900,19 @@ func build_visual(hole: HoleData) -> Node3D:
 
 func _add_billboards(root: Node3D, s: Sprites, path: PackedVector2Array) -> void:
 	var quad: QuadMesh = null
+	var trees := not s.species.is_empty() and TreeFactory.enabled()
+	# The cache holds both ways of drawing a bucket, the 3D-trees one after
+	# the plain ones.
+	var offset := s.start.size() if trees else 0
 	for row in s.rows:
 		for col in s.cols:
 			var centre := s.origin + Vector2(col + 0.5, row + 0.5) * CHUNK
 			var away := distance_to_path(centre, path) - CHUNK * 0.71
+			var chunk := row * s.cols + col
+			if trees and away <= FAR_REACH:
+				_add_trees(root, s, chunk)
 			for c in CLASSES:
-				var b := (row * s.cols + col) * CLASSES + c
+				var b := chunk * CLASSES + c
 				if s.start[b] == s.start[b + 1]:
 					continue
 				var range_end := s.fixed_range if s.fixed_range >= 0.0 else CLASS_RANGE[c]
@@ -890,10 +922,11 @@ func _add_billboards(root: Node3D, s: Sprites, path: PackedVector2Array) -> void
 					quad = QuadMesh.new()
 					quad.center_offset = Vector3(0, 0.5, 0)
 					quad.material = s.material
-				var mm: MultiMesh = s.cache.get(b)
+				if not s.cache.has(b + offset):
+					s.cache[b + offset] = _multimesh(s, b, quad, trees)
+				var mm: MultiMesh = s.cache[b + offset]
 				if mm == null:
-					mm = _multimesh(s, b, quad)
-					s.cache[b] = mm
+					continue
 				var node := MultiMeshInstance3D.new()
 				node.multimesh = mm
 				node.position = mm.get_meta("centre")
@@ -902,34 +935,69 @@ func _add_billboards(root: Node3D, s: Sprites, path: PackedVector2Array) -> void
 				root.add_child(node)
 
 
+## The 3D trees of one chunk: the full trees of each cell, hidden beyond
+## the impostor distance, and the impostors of the whole chunk.
+func _add_trees(root: Node3D, s: Sprites, chunk: int) -> void:
+	var key := "trees %d" % chunk
+	if not s.cache.has(key):
+		var trees := PackedFloat32Array()
+		var xyzh := s.xyzh
+		for b in range(chunk * CLASSES, (chunk + 1) * CLASSES):
+			for k in range(s.start[b], s.start[b + 1]):
+				var i := s.order[k]
+				if is_3d_tree(s, i):
+					trees.append_array(PackedFloat32Array([xyzh[4 * i], xyzh[4 * i + 1], xyzh[4 * i + 2], xyzh[4 * i + 3], s.species[s.sprite[i]]]))
+		s.cache[key] = TreeFactory.batches(trees, TREE_CELL)
+	var distance := TreeFactory.impostor_distance()
+	for batch: Dictionary in s.cache[key]:
+		var node := MultiMeshInstance3D.new()
+		node.multimesh = batch.multimesh
+		node.position = batch.position
+		if batch.full:
+			# A little past the farthest tree, measured from the cell's middle.
+			node.visibility_range_end = distance + float(batch.reach) + 5.0
+		else:
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(node)
+
+
+## Whether placement i of `s` is drawn as a 3D tree when they are on.
+static func is_3d_tree(s: Sprites, i: int) -> bool:
+	var t := s.sprite[i]
+	return t < s.species.size() and s.species[t] >= 0 and s.xyzh[4 * i + 3] >= TREE_MIN_HEIGHT
+
+
 ## The MultiMesh of one bucket: per instance a row-major 3x4 transform
 ## (width and height as the scale, the base relative to the chunk centre)
-## and the sprite's atlas rectangle as custom data.
-static func _multimesh(s: Sprites, b: int, quad: QuadMesh) -> MultiMesh:
-	var from := s.start[b]
-	var to := s.start[b + 1]
+## and the sprite's atlas rectangle as custom data. Null when no placement
+## is left (`skip_trees` leaves out the ones drawn as 3D trees).
+static func _multimesh(s: Sprites, b: int, quad: QuadMesh, skip_trees := false) -> MultiMesh:
 	var order := s.order
 	var xyzh := s.xyzh
 	var sprite := s.sprite
 	var aspect := s.aspect
 	var rects := s.rects
+	var picked := PackedInt32Array()
+	for k in range(s.start[b], s.start[b + 1]):
+		if not (skip_trees and is_3d_tree(s, order[k])):
+			picked.append(order[k])
+	var count := picked.size()
+	if count == 0:
+		return null
 	var ground := 0.0
 	var cx := 0.0
 	var cz := 0.0
-	for k in range(from, to):
-		var i := order[k]
+	for i in picked:
 		cx += xyzh[4 * i]
 		ground += xyzh[4 * i + 1]
 		cz += xyzh[4 * i + 2]
-	var count := to - from
 	# Origins relative to the middle: visibility ranges are measured from
 	# the node.
 	var centre := Vector3(cx, ground, cz) / count
 	var buffer := PackedFloat32Array()
 	buffer.resize(count * 16)
 	var o := 0
-	for k in range(from, to):
-		var i := order[k]
+	for i in picked:
 		var t := sprite[i]
 		var h := xyzh[4 * i + 3]
 		buffer[o] = h * aspect[t]
