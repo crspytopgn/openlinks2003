@@ -1970,7 +1970,7 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 ## Behind the ball, looking down the aim line. Links cuts straight to the
 ## new view rather than gliding, so this always snaps.
 func _aim_camera(_snap: bool) -> void:
-	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter)
+	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter, _flat_distance(ball_at, _aim_target()))
 
 
 # --- Broadcast presentation ---------------------------------------------------

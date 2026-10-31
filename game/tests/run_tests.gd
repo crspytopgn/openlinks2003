@@ -112,7 +112,11 @@ func _process(_delta: float) -> bool:
 	return true
 
 
+## OL_TEST_ONLY=name1,name2 runs just those tests (handy when iterating).
 func _run(test_name: String, fn: Callable) -> void:
+	var only := OS.get_environment("OL_TEST_ONLY")
+	if not only.is_empty() and not test_name in only.split(","):
+		return
 	_current = test_name
 	print(test_name)
 	fn.call()
