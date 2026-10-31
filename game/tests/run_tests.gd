@@ -46,6 +46,7 @@ func _initialize() -> void:
 	_run("rest_out_of_bounds", _test_rest_out_of_bounds)
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
+	_run("caddie", _test_caddie)
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
@@ -906,6 +907,66 @@ func _test_computer_golfer_plans() -> void:
 	weak.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3.ZERO)
 	weak.finish()
 	_check(weak.power <= weak.skill.strength + 1e-6, "never swings harder than its strength")
+
+
+func _test_caddie() -> void:
+	# Rules of thumb: a yard per yard of rise, 1% per mph into the wind, half that helping.
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, 0.0), 100.0, 1e-6, "flat and calm plays its length")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 10.0, 0.0), 110.0, 1e-6, "10 m uphill")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, -10.0 * CaddieAdvice.MPS_PER_MPH), 110.0, 1e-4, "10 mph into the wind")
+	_check_near(CaddieAdvice.plays_like_m(100.0, 0.0, 10.0 * CaddieAdvice.MPS_PER_MPH), 95.0, 1e-4, "10 mph helping")
+	_check(CaddieAdvice.detail_for_skill(0) == CaddieAdvice.Detail.FULL, "easiest skill hears everything")
+	_check(CaddieAdvice.detail_for_skill(3) == CaddieAdvice.Detail.SPARSE, "hardest skill hears the numbers only")
+
+	var info := {"to_pin_m": 140.0, "rise_m": 6.0, "wind_along_mps": 0.0, "wind_cross_mps": 3.0,
+		"club": "7 Iron", "power": 1.0, "aim_off_m": 5.0, "in_range": true, "lie": Surface.Type.FAIRWAY}
+	var full := CaddieAdvice.shot_text(CaddieAdvice.Detail.FULL, info)
+	var sparse := CaddieAdvice.shot_text(CaddieAdvice.Detail.SPARSE, info)
+	print("  full: " + full)
+	print("  sparse: " + sparse)
+	_check(full.begins_with("153 to the pin, playing 160 uphill."), "yardage and plays-like (%s)" % full)
+	_check(full.contains("Start it 5 yards left for the wind"), "full read gives the line (%s)" % full)
+	_check(sparse.contains("7 Iron") and not sparse.contains("left"), "sparse read gives the club, not the line (%s)" % sparse)
+	_check(CaddieAdvice.shot_text(CaddieAdvice.Detail.STANDARD, info).contains("Favour the left side"), "standard read names the side")
+	var putt := CaddieAdvice.putt_text(CaddieAdvice.Detail.FULL, 4.0, 0.1, 0.15)
+	print("  putt: " + putt)
+	_check(putt.contains("13 feet") and putt.contains("left to right") and putt.contains("6\" left"), "full putt read (%s)" % putt)
+	var hard_putt := CaddieAdvice.putt_text(CaddieAdvice.Detail.SPARSE, 4.0, 0.1, 0.15)
+	_check(hard_putt.contains("left to right") and not hard_putt.contains("\""), "sparse putt read has no inches (%s)" % hard_putt)
+	_check(CaddieAdvice.putt_text(CaddieAdvice.Detail.FULL, 0.5, 0.0, 0.0).contains("tap-in"), "tap-in")
+
+	# A real read, planned through the physics.
+	var model := StandardShotModel.new()
+	var clubs := Club.standard_set()
+	var hole := HoleData.new()
+	hole.terrain = FlatTerrain.new(Surface.Type.FAIRWAY)
+	hole.pin = Vector3(10.0, 0.0, 140.0)
+	var advice := CaddieAdvice.new()
+	advice.start(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0), 0)
+	advice.finish()
+	print("  approach: " + advice.text)
+	_check(advice.is_ready() and not clubs[advice.club_index].is_putter, "a full club for an approach")
+	_check(advice.text.to_lower().contains(clubs[advice.club_index].full_name.to_lower()), "names the club it planned")
+	hole.terrain = FlatTerrain.new(Surface.Type.GREEN)
+	hole.pin = Vector3(0.0, 0.0, 6.0)
+	advice.start(model, clubs, hole, Vector3.ZERO, Surface.Type.GREEN, Vector3.ZERO, 3)
+	advice.finish()
+	print("  green: " + advice.text)
+	_check(advice.text.begins_with("20 feet"), "putt read gives the length (%s)" % advice.text)
+
+	_check(GolfBag.shared_mesh().get_surface_count() == 3, "bag is one mesh of three materials")
+	var figure := Caddie.make_figure()
+	_check(figure != null, "caddie figure from the free golfer")
+	if figure != null:
+		_check(not figure.find_children("*", "Skeleton3D", true, false).is_empty(), "caddie figure has a skeleton")
+		figure.free()
+	var path := "user://test_caddie_settings.cfg"
+	var gs := GraphicsSettings.new()
+	_check(not gs.caddie, "caddie is off by default")
+	gs.caddie = true
+	gs.save(path)
+	_check(GraphicsSettings.load_saved(path).caddie, "caddie setting is saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func _test_placeholder_course() -> void:

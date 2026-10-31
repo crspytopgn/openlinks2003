@@ -34,6 +34,7 @@ var _swing: OptionButton
 var _swing_help: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
+var _caddie: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -97,6 +98,7 @@ func _ready() -> void:
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
+	_caddie = _row(grid, "Caddie", ["Off", "On (advice follows swing skill)"])
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -134,6 +136,7 @@ func open(s: GraphicsSettings) -> void:
 	_swing_help.select(1 if s.swing_help else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
+	_caddie.select(1 if s.caddie else 0)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -328,6 +331,7 @@ func _on_selected() -> void:
 	settings.swing_help = _swing_help.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
+	settings.caddie = _caddie.selected == 1
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

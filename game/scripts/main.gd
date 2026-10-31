@@ -169,6 +169,7 @@ var _voice_flight := ""
 var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
+var caddie: Caddie  ## Settings > Caddie; null when off
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
 
@@ -557,6 +558,8 @@ func _store_turn() -> void:
 ## tests call it directly.
 func play_shot(power: float, accuracy: float) -> void:
 	var club := clubs[club_index]
+	if caddie != null:
+		caddie.quiet()
 	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
@@ -860,6 +863,8 @@ func _on_mouse_stroke_cancelled() -> void:
 
 
 func _on_backswing_started() -> void:
+	if caddie != null:
+		caddie.quiet()
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
 
@@ -910,8 +915,35 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_aim_camera(snap_camera)
 	_update_green_grid()
 	_save_progress()
+	_caddie_read()
 	if opponents[shooter] != null:
 		_start_computer_turn()
+
+
+## The caddie (if on) reads the player's shot; computer golfers go without.
+func _caddie_read() -> void:
+	if caddie == null:
+		return
+	if opponents[shooter] != null or state != State.AIM:
+		caddie.step_aside()
+		return
+	caddie.advise(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill, _aim_dir())
+
+
+## Settings > Caddie switched on or off.
+func _set_caddie(on: bool) -> void:
+	if on == (caddie != null):
+		return
+	if not on:
+		caddie.note.queue_free()
+		caddie.queue_free()
+		caddie = null
+		return
+	caddie = Caddie.new()
+	add_child(caddie)
+	hud.add_child(caddie.note)
+	if hole != null and state == State.AIM:
+		_caddie_read()
 
 
 ## The aiming keys, with the swing the settings chose.
@@ -1250,6 +1282,8 @@ func _start_drop(reason: int) -> void:
 
 
 func _begin_drop(reason: int) -> void:
+	if caddie != null:
+		caddie.quiet()
 	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
 	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
 	_drop_reason = reason
@@ -1647,6 +1681,7 @@ func _apply_graphics() -> void:
 		camera.end_flyover()
 	if hole != null and state == State.AIM:
 		_update_green_grid()
+	_set_caddie(graphics.caddie)
 	if wind != null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
