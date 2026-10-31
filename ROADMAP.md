@@ -43,6 +43,7 @@ feel) still need a working install.
 - [x] Scoring basics: stroke play, putting and holing out, water drop, out of bounds, scorecard
 - [ ] Rules: unplayable lies, lateral hazards, provisional balls, drop options
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
+  - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)
 
 ## Phase 3: look and sound

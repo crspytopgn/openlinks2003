@@ -1,7 +1,8 @@
 class_name SettingsPanel
 extends PanelContainer
 ## Graphics options (quality, window mode, v-sync, anti-aliasing, render
-## scale, field of view), the wind strength and the HD texture pack. Changes
+## scale, field of view), the wind strength, the presentation (Classic
+## Links or Broadcast) and the HD texture pack. Changes
 ## apply at once and are saved; the HD pack applies to textures loaded from
 ## then on (HdPack).
 
@@ -18,6 +19,7 @@ var _msaa: OptionButton
 var _scale: OptionButton
 var _fov: OptionButton
 var _wind: OptionButton
+var _presentation: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -56,6 +58,7 @@ func _ready() -> void:
 		fovs.append("%d deg" % roundi(f))
 	_fov = _row(grid, "Field of view", fovs)
 	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
+	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
 	_add_hd_rows(box, grid)
 
 	var hint := Label.new()
@@ -76,6 +79,7 @@ func open(s: GraphicsSettings) -> void:
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
 	_fov.select(_closest(FOV_CHOICES, s.fov))
 	_wind.select(s.wind)
+	_presentation.select(s.presentation)
 	_show_hd()
 	visible = true
 	_quality.grab_focus()
@@ -182,6 +186,7 @@ func _on_selected() -> void:
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
 	settings.fov = FOV_CHOICES[_fov.selected]
 	settings.wind = _wind.selected
+	settings.presentation = _presentation.selected
 	settings.save()
 	changed.emit()
 

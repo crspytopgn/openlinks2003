@@ -4,7 +4,8 @@ extends Node
 ## plugs in here: subclass this and register it with AssetProviders.
 ##
 ## Events the game uses: &"swing", &"hit", &"putt", &"land", &"cup",
-## &"splash", &"applause".
+## &"splash", &"applause", and the Broadcast presentation's crowd reactions
+## &"crowd_cheer", &"crowd_roar", &"crowd_groan" and &"crowd_ooh".
 
 
 func play(_event: StringName) -> void:

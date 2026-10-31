@@ -153,6 +153,39 @@ ponds, so decoded courses match the placeholder. CI renders real frames with
 Mesa on both renderers (`game/tests/render_check.gd`) to catch shader errors,
 and uploads the screenshots as the `render-check` artifact.
 
+## Broadcast presentation
+
+Settings > Presentation switches between **Classic Links**, which frames
+and dresses the round like Links 2003, and **Broadcast** (the default),
+which presents it like a TV golf broadcast. Only the presentation changes:
+the physics, the swing and the scoring are the same in both.
+
+- `scripts/broadcast/shot_director.gd`: the camera director. It plans the
+  cuts for each shot (behind the player, then a chase or side-on camera,
+  then a landing camera or a camera behind the green looking back at the
+  ball) and `RoundCamera` follows it. Putts get a low tracking camera.
+- `RoundCamera.start_flyover()`: each hole opens with a flight from behind
+  the tee, along the hole's route, down to the green. A click skips it.
+- `scripts/broadcast/ball_tracer.gd`: the shot tracer, a camera-facing
+  glowing ribbon.
+- Replays: R between shots (and automatically after a holed approach, a
+  long holed putt or a shot to tap-in range) plays the shot again from new
+  camera angles, in slow motion round the landing and the cup.
+- `scripts/broadcast/green_grid.gd`: on the green, a grid draped over the
+  real terrain, coloured by slope, with downhill ticks. G hides it. It
+  shows the slopes, not the putt's line.
+- `scripts/broadcast/broadcast_overlay.gd`: the TV graphics, drawn from
+  plain shapes: the score bug, the shot panel, a lower third as each player
+  steps up, the shot card (carry, roll, total, height, lie, to the pin), the
+  hole card with a map (`hole_map.gd`), the LIVE and REPLAY bugs, camera
+  tags, captions, the scrolling ticker (the leaderboard with more than one
+  player), wipes, and a pin-camera picture on approach shots (Medium quality
+  and up, since it draws the scene twice).
+- `scripts/broadcast/commentary.gd`: caption lines and the crowd reaction
+  for each shot. The crowd sounds are `crowd_cheer`, `crowd_roar`,
+  `crowd_groan` and `crowd_ooh` (synthesised in `PlaceholderSoundBank` until
+  the game's own crowd sounds are mapped).
+
 ## Plugging in decoded data
 
 Each decoder implements one small interface and registers it with
