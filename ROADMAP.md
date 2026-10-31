@@ -74,6 +74,7 @@ feel) still need a working install.
   - [x] Without the game files: real recordings (CC0 and CC BY, from freesound.org) for club strikes by club and lie, putts, landings by surface, the cup, water, crowd reactions, footsteps, the bag and menu clicks, and looping course ambience by kind of course, with wind and water layers ([tools/audio](tools/audio/build_free_sounds.py), [credits](game/assets/sounds/CREDITS.md))
   - [x] Voice lines at impact, in flight and on landing (best-guess timing); the disc sounds in the browser as an opt-in setting
   - [ ] Voice event conditions (the condition block) read from the banks instead of our own rules
+  - [x] Landings, the cup and splashes heard from where the camera stands: late by the speed of sound and fainter with distance (`SoundBank.heard_from`)
 
 ## Phase 4: the full game
 

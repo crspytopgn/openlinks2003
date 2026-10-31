@@ -52,6 +52,7 @@ func _initialize() -> void:
 	_run("grass", _test_grass)
 	_run("wind_gusts", _test_wind_gusts)
 	_run("course_marks", _test_course_marks)
+	_run("sound_over_distance", _test_sound_over_distance)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1138,6 +1139,15 @@ func _test_course_marks() -> void:
 		marks.add_divot(t, course.holes[0].tee + Vector3(0, 0, 60 + i), Vector3(0, 0, 1), by_name["8i"], Surface.Type.FAIRWAY)
 	_check(marks.mark_count() == CourseMarks.MAX_MARKS, "marks are capped per hole")
 	marks.free()
+
+
+func _test_sound_over_distance() -> void:
+	var near := SoundBank.heard_from(5.0)
+	_check(near.gain_db == 0.0 and near.delay_s < 0.02, "close sounds play at once, at full level")
+	var drive := SoundBank.heard_from(250.0)
+	_check_near(drive.delay_s, 250.0 / 343.0, 1e-6, "sound takes 0.73 s to cover 250 m")
+	_check_near(SoundBank.heard_from(40.0).gain_db, -6.0206, 1e-3, "6 dB quieter each time the distance doubles")
+	_check(SoundBank.heard_from(5000.0).gain_db == SoundBank.FAINTEST_DB, "far sounds stay faintly audible")
 
 
 func _test_grass() -> void:

@@ -965,11 +965,27 @@ func _process_flight(delta: float) -> void:
 func _play_landing() -> void:
 	var t := RoundCamera.time_near(shot, shot.first_landing)
 	var speed := (shot.position_at(t) - shot.position_at(t - 0.05)).length() / 0.05
-	sounds.play_detail(&"land", {
-		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed})
+	_play_heard(&"land", {
+		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed},
+		shot.first_landing)
 	if marks != null:
 		var came := shot.position_at(t) - shot.position_at(t - 0.05)
 		marks.add_landing(hole.terrain, shot.first_landing, Vector3(came.x, 0.0, came.z), speed)
+
+
+## Plays a sound made at `at` as it would be heard where the camera
+## stands: late by the time sound takes to get there, and fainter with
+## distance (SoundBank.heard_from). From the tee a drive's bounce arrives
+## most of a second after you see it; from a camera beside the green it's
+## instant.
+func _play_heard(event: StringName, detail: Dictionary, at: Vector3) -> void:
+	var cam := get_viewport().get_camera_3d()
+	var heard := SoundBank.heard_from(cam.global_position.distance_to(at) if cam != null else 0.0)
+	detail["gain_db"] = heard.gain_db
+	if heard.delay_s < 0.03:
+		sounds.play_detail(event, detail)
+	else:
+		get_tree().create_timer(heard.delay_s).timeout.connect(sounds.play_detail.bind(event, detail))
 
 
 func _complete_flight() -> void:
@@ -995,12 +1011,12 @@ func _complete_flight() -> void:
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
-			sounds.play(&"cup")
+			_play_heard(&"cup", {}, hole.pin)
 			ball.visible = false
 			_hole_out(false)
 			return
 		ShotResult.Outcome.WATER:
-			sounds.play(&"splash")
+			_play_heard(&"splash", {}, shot.rest)
 			strokes += 1
 			ball_at = shot.rest
 			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
