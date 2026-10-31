@@ -25,6 +25,17 @@ func normal_at(x: float, z: float) -> Vector3:
 	return Vector3(-dx, 2.0 * e, -dz).normalized()
 
 
+## Roughly the colour the ground is drawn with here (sRGB), which the 3D
+## grass (GrassField) takes on so it blends into the ground under it.
+func ground_color_at(x: float, z: float) -> Color:
+	match surface_at(x, z):
+		Surface.Type.DEEP_ROUGH:
+			return Color(0.15, 0.33, 0.11)
+		Surface.Type.ROUGH:
+			return Color(0.20, 0.43, 0.14)
+	return Color(0.30, 0.58, 0.20)
+
+
 ## The first obstacle the ball meets moving from -> to, as
 ## ObstacleField.segment_hit() returns it ({} for none). Mirrors
 ## olcore::Terrain::obstacle_hit.

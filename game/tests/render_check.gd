@@ -20,9 +20,14 @@ func _initialize() -> void:
 	print("renderer: %s" % RenderingServer.get_current_rendering_method())
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
 	GolfRound.wind_seed = 20031
+	# The richest look, so every effect's shader compiles; a fixed 3D
+	# resolution, as software rendering is far too slow for 60 fps.
+	GraphicsSettings.force_look = GraphicsSettings.Look.PHOTOREAL
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
+	_game.graphics.dynamic_res = 0
+	_game._apply_graphics()
 
 
 func _process(_delta: float) -> bool:

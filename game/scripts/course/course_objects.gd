@@ -37,8 +37,21 @@ shader_type spatial;
 render_mode unshaded, cull_disabled;
 
 uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
+// Trees and plants lean and flutter in the wind (0 sway: stand still, as in
+// Links 2003). The quad runs from y 0 at the base to 1 at the top.
+global uniform vec2 wind_vector;
+global uniform float foliage_sway;
 
 void vertex() {
+	if (foliage_sway > 0.0) {
+		vec3 root = MODEL_MATRIX[3].xyz;
+		float phase = dot(root.xz, vec2(0.37, 0.23));
+		float speed = min(length(wind_vector), 15.0);
+		float gust = sin(TIME * 0.9 + phase) * 0.6 + sin(TIME * 2.1 + phase * 1.7) * 0.4;
+		float bend = (0.01 + speed * 0.0035) * gust + speed * 0.002;
+		// Sideways in the sprite's own plane, more towards the top.
+		VERTEX.x += bend * foliage_sway * VERTEX.y * VERTEX.y;
+	}
 	// INSTANCE_CUSTOM holds the sprite's rectangle in the atlas.
 	UV = INSTANCE_CUSTOM.xy + UV * INSTANCE_CUSTOM.zw;
 	// Turn about the vertical to face the camera, keeping the instance scale.
