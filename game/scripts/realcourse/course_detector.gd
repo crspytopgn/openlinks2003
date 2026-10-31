@@ -3,10 +3,9 @@ extends RefCounted
 ## Finds a hole's real green and bunkers where the map doesn't have them,
 ## for CourseGuesser:
 ##
-## - in the aerial photo, a green is the patch of evenly coloured mown
-##   grass round the pin, and a bunker a compact patch of bright sand;
-## - in lidar heights, a bunker is a hollow of a few metres beside the
-##   green or the fairway.
+## in the aerial photo, a green is the patch of evenly coloured mown grass
+## round the pin, a bunker a compact patch of bright sand cut into grass,
+## and a fairway the band of mown grass along the hole's line.
 ##
 ## Outlines come back as course points (x, z), simplified, ready for a
 ## CourseShape. An empty result means nothing convincing was found.
@@ -18,14 +17,20 @@ const GREEN_STEPS := 18
 const SAND_AREA := Vector2(15.0, 600.0)  ## m2
 const SAND_THICK := 3.0  ## metres; thinner patches are paths and tracks
 const SAND_MAX_SIZE := 50.0  ## metres, longest side
+const SAND_LEVELS := [0.6, 0.66, 0.72, 0.78, 0.84]  ## brightness tried
+const SAND_RIM := 3.0  ## metres out, where the grass round a bunker is read
+const SAND_GRASS := 0.5  ## share of that rim that must be green
+const SAND_CONTRAST := 0.15  ## how much brighter than the rim a bunker is
 const FAIRWAY_STEP := 10.0  ## metres between cross-sections
-const FAIRWAY_REACH := 40.0  ## metres either side of the line looked at
+const FAIRWAY_REACH := 50.0  ## metres either side of the line looked at
 const FAIRWAY_WIDTH := Vector2(15.0, 60.0)  ## metres, narrowest and widest
 const FAIRWAY_MATCH := 0.07  ## colour distance from the fairway's own colour
+const FAIRWAY_NONE := 0.6  ## cost of a cross-section with no fairway
+const FAIRWAY_JUMP := 8.0  ## metres an edge may move between cross-sections
+const FAIRWAY_JOIN := 2  ## bad cross-sections a fairway may bridge
+const FAIRWAY_SHARE := 0.35  ## of the stretch looked at, the least a fairway covers
 const FAIRWAY_STEADY := 0.25  ## widest spread of widths along it, over its mean
 const FAIRWAY_GAP := 3.0  ## metres of other colour that end a fairway's edge
-const HOLLOW_DEPTH := 0.3  ## metres below the ground round it
-const HOLLOW_CELLS := Vector2i(3, 120)  ## 2 m cells, smallest and largest
 
 
 ## Metres per pixel of a course photo across and down.
@@ -103,35 +108,103 @@ static func find_sand(photo: Image, area: Rect2, centre: Vector2, radius: float)
 	if photo == null:
 		return out
 	var res := _res(photo, area)
-	var px_area := res.x * res.y
 	var c0 := _px(photo, area, centre)
 	var reach := ceili(radius / minf(res.x, res.y))
+	# A bunker can touch pale ground (winter grass, dunes, paths) that is
+	# nearly as bright, so the patch is read at rising brightness until it
+	# stands alone. The first brightness at which a patch passes wins.
+	var taken := {}
+	for level in SAND_LEVELS:
+		var ok := func(col: Color) -> bool: return is_sand(col) and col.get_luminance() > level
+		for cells in _patches(photo, c0, reach, ok):
+			var hit := false
+			for q: Vector2i in cells:
+				if taken.has(q):
+					hit = true
+					break
+			if hit:
+				continue
+			var ring := _sand_ring(photo, area, cells, res)
+			if ring.is_empty():
+				continue
+			for q: Vector2i in cells:
+				taken[q] = true
+			out.append(ring)
+	return out
+
+
+## The connected patches of pixels passing `ok` that start within `reach`
+## of `c0`.
+static func _patches(photo: Image, c0: Vector2i, reach: int, ok: Callable) -> Array:
+	var out := []
+	var seen := {}
 	var w := photo.get_width()
 	var h := photo.get_height()
-	var seen := {}
 	for j in range(maxi(c0.y - reach, 0), mini(c0.y + reach + 1, h)):
 		for i in range(maxi(c0.x - reach, 0), mini(c0.x + reach + 1, w)):
 			var q := Vector2i(i, j)
-			if seen.has(q) or (q - c0).length() > reach or not is_sand(photo.get_pixelv(q)):
+			if seen.has(q) or (q - c0).length() > reach or not ok.call(photo.get_pixelv(q)):
 				continue
-			var region := _grow(photo, q, reach * 2, CourseDetector.is_sand)
-			var cells: Array = region["cells"]
+			var cells: Array = _grow(photo, q, reach * 2, ok)["cells"]
 			for k in cells:
 				seen[k] = true
-			var size := cells.size() * px_area
-			if size < SAND_AREA.x or size > SAND_AREA.y:
-				continue
-			var ring := _outline(photo, area, cells)
-			var b := Rect2(ring[0], Vector2.ZERO)
-			for p in ring:
-				b = b.expand(p)
-			# A bunker is compact; paths, roads and roofs are long or square.
-			var longest := maxf(b.size.x, b.size.y)
-			# Thin in any direction (a path, even a diagonal one) is no bunker.
-			if longest > SAND_MAX_SIZE or size < absf(_area_of(ring)) * 0.45 or size / longest < SAND_THICK or min_width(ring) < SAND_THICK:
-				continue
-			out.append(ring)
+			out.append(cells)
 	return out
+
+
+## The outline of a patch of sand pixels if it looks like a bunker, else
+## empty.
+static func _sand_ring(photo: Image, area: Rect2, cells: Array, res: Vector2) -> PackedVector2Array:
+	var size := cells.size() * res.x * res.y
+	if size < SAND_AREA.x or size > SAND_AREA.y:
+		return PackedVector2Array()
+	var ring := _outline(photo, area, cells)
+	if ring.size() < 3:
+		return ring
+	var b := Rect2(ring[0], Vector2.ZERO)
+	for p in ring:
+		b = b.expand(p)
+	# A bunker is compact; paths, roads and roofs are long or square.
+	var longest := maxf(b.size.x, b.size.y)
+	# Thin in any direction (a path, even a diagonal one) is no bunker.
+	if longest > SAND_MAX_SIZE or size < absf(_area_of(ring)) * 0.45 or size / longest < SAND_THICK or min_width(ring) < SAND_THICK:
+		return PackedVector2Array()
+	# A bunker is cut into grass: clearly brighter than the grass round
+	# it. Pale dunes, heather and bare ground aren't.
+	if not _in_grass(photo, cells, res):
+		return PackedVector2Array()
+	return ring
+
+
+## Whether a patch of pixels sits in grass and stands out from it: most of
+## the ground SAND_RIM metres round it is green, and the patch is clearly
+## brighter.
+static func _in_grass(photo: Image, cells: Array, res: Vector2) -> bool:
+	var inside := {}
+	var lum := 0.0
+	for q: Vector2i in cells:
+		inside[q] = true
+		lum += photo.get_pixelv(q).get_luminance()
+	lum /= maxf(cells.size(), 1.0)
+	var step := maxi(1, cells.size() >> 7)
+	var rim := Vector2i(maxi(1, roundi(SAND_RIM / res.x)), maxi(1, roundi(SAND_RIM / res.y)))
+	var n := 0
+	var green := 0
+	var around := 0.0
+	for k in range(0, cells.size(), step):
+		var q: Vector2i = cells[k]
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+			var o: Vector2i = q + d * rim
+			if o.x < 0 or o.y < 0 or o.x >= photo.get_width() or o.y >= photo.get_height() or inside.has(o):
+				continue
+			var c := photo.get_pixelv(o)
+			n += 1
+			around += c.get_luminance()
+			if not is_sand(c) and c.g >= c.r * 0.97 and c.g > c.b * 1.05:
+				green += 1
+	if n == 0:
+		return false
+	return green >= n * SAND_GRASS and lum - around / n >= SAND_CONTRAST
 
 
 ## Bright, whitish or pale yellow: sand rather than grass, trees, dead
@@ -143,10 +216,13 @@ static func is_sand(c: Color) -> bool:
 
 
 ## The fairway along a hole's line in the photo, between `start` and
-## `stop` metres along it: cross-sections every FAIRWAY_STEP metres measure
-## how far the mown grass of the line's own colour reaches either side
-## (trees, rough and heather end it). The longest run of plausible widths,
-## at least half the stretch, becomes the outline. Empty if none.
+## `stop` metres along it. Cross-sections every FAIRWAY_STEP metres find the
+## bands of mown grass of the line's own colour, of a fairway's width
+## (trees, rough and heather end them), within FAIRWAY_REACH of the line;
+## one band per section is picked so the fairway keeps near the line and
+## runs on smoothly. The longest run of picked bands (bridging a few
+## missing ones), at least FAIRWAY_SHARE of the stretch, with steady
+## widths, becomes the outline. Empty if none.
 static func find_fairway(photo: Image, area: Rect2, line: PackedVector2Array, start: float, stop: float) -> PackedVector2Array:
 	if photo == null or stop - start < 4.0 * FAIRWAY_STEP:
 		return PackedVector2Array()
@@ -175,11 +251,13 @@ static func find_fairway(photo: Image, area: Rect2, line: PackedVector2Array, st
 	gs.sort()
 	bs.sort()
 	var ref := Color(rs[rs.size() >> 1], gs[gs.size() >> 1], bs[bs.size() >> 1])
-	# Cross-sections: the band of fairway-coloured grass (gaps of at most
-	# FAIRWAY_GAP) nearest the line, which needn't run down its middle.
-	var sections: Array[Vector3] = []  # distance, left reach, right reach
-	var valid := PackedByteArray()
+	# Cross-sections: the bands of fairway-coloured grass (gaps of at most
+	# FAIRWAY_GAP) of a fairway's width. Mappers' hole lines often cut
+	# corners or cross water, so the fairway needn't touch the line.
+	var dists: Array[float] = []
+	var bands: Array = []  # per section: [Vector2(low, high)] metres along `side`
 	var n := ceili(FAIRWAY_REACH / step_m)
+	var gap := maxi(1, floori(FAIRWAY_GAP / step_m))
 	d = start
 	while d <= stop:
 		var p := CourseGuesser._point_at(line, d)
@@ -187,52 +265,110 @@ static func find_fairway(photo: Image, area: Rect2, line: PackedVector2Array, st
 		var hits := PackedByteArray()
 		hits.resize(2 * n + 1)
 		for k in 2 * n + 1:
-			var c := _color_at(soft, area, p + side * (k - n) * step_m)
+			var at := p + side * (k - n) * step_m
+			var c := _color_at(soft, area, at)
 			hits[k] = 1 if Vector3(c.r - ref.r, c.g - ref.g, c.b - ref.b).length() < FAIRWAY_MATCH else 0
-		# Bands: runs of hits joined across short gaps.
-		var gap := maxi(1, floori(FAIRWAY_GAP / step_m))
-		var best := Vector2i(-1, -1)
-		var best_off := INF
+		var here: Array[Vector2] = []
 		var k0 := -1
 		var last := -100
 		for k in 2 * n + 2:
 			var hit := k < 2 * n + 1 and hits[k] == 1
-			if hit:
-				if k0 < 0 or k - last > gap + 1:
-					if k0 >= 0:
-						var off := _band_offset(k0, last, n)
-						if off < best_off:
-							best_off = off
-							best = Vector2i(k0, last)
-					k0 = k
+			if hit and k0 >= 0 and k - last <= gap + 1:
 				last = k
-		if k0 >= 0:
-			var off := _band_offset(k0, last, n)
-			if off < best_off:
-				best_off = off
-				best = Vector2i(k0, last)
-		var reach := Vector2(-1, -1)
-		var ok := false
-		if best.x >= 0 and best_off * step_m <= 5.0:
-			reach = Vector2((best.y - n + 0.5) * step_m, (n - best.x + 0.5) * step_m)
-			var width := reach.x + reach.y
-			ok = width >= FAIRWAY_WIDTH.x and width <= FAIRWAY_WIDTH.y
-		sections.append(Vector3(d, reach.x, reach.y))
-		valid.append(1 if ok else 0)
+				continue
+			if k0 >= 0:
+				var band := Vector2((k0 - n - 0.5) * step_m, (last - n + 0.5) * step_m)
+				# Bands cut by the edge of the area looked at aren't measured.
+				if band.y - band.x >= FAIRWAY_WIDTH.x and band.y - band.x <= FAIRWAY_WIDTH.y and k0 > 0 and last < 2 * n:
+					here.append(band)
+			k0 = k if hit else -1
+			last = k
+		dists.append(d)
+		bands.append(here)
 		d += FAIRWAY_STEP
-	# The longest run of good cross-sections.
+	# One band per section, or none, so the fairway runs on smoothly:
+	# least cost for its distance from the line plus its jumps sideways.
+	var count_s := dists.size()
+	var cost: Array = []
+	var from: Array = []
+	for k in count_s:
+		var here: Array = bands[k]
+		var row := PackedFloat32Array()
+		var back := PackedInt32Array()
+		row.resize(here.size() + 1)
+		back.resize(here.size() + 1)
+		for b2 in here.size() + 1:
+			var own := FAIRWAY_NONE
+			if b2 < here.size():
+				var mid: float = (here[b2].x + here[b2].y) * 0.5
+				own = absf(mid) / FAIRWAY_REACH * 0.5
+			var best_c := 0.0 if k == 0 else INF
+			var best_b := -1
+			if k > 0:
+				var prev: Array = bands[k - 1]
+				for a2 in prev.size() + 1:
+					var jump := 0.0
+					if a2 < prev.size() and b2 < here.size():
+						jump = (absf(prev[a2].x - here[b2].x) + absf(prev[a2].y - here[b2].y)) * 0.5 / FAIRWAY_JUMP
+						if jump > 1.0:
+							continue
+					var cc: float = cost[k - 1][a2] + jump
+					if cc < best_c:
+						best_c = cc
+						best_b = a2
+			row[b2] = best_c + own
+			back[b2] = best_b
+		cost.append(row)
+		from.append(back)
+	var sections: Array[Vector3] = []  # distance, reach along +side, along -side
+	var valid := PackedByteArray()
+	sections.resize(count_s)
+	valid.resize(count_s)
+	if count_s > 0:
+		var last_row: PackedFloat32Array = cost[count_s - 1]
+		var pick := 0
+		for b2 in last_row.size():
+			if last_row[b2] < last_row[pick]:
+				pick = b2
+		for k in range(count_s - 1, -1, -1):
+			var here: Array = bands[k]
+			if pick < here.size():
+				sections[k] = Vector3(dists[k], here[pick].y, -here[pick].x)
+				valid[k] = 1
+			else:
+				sections[k] = Vector3(dists[k], 0, 0)
+				valid[k] = 0
+			pick = from[k][pick]
+	# The longest run of good cross-sections, across gaps of up to
+	# FAIRWAY_JOIN bad ones (a cross bunker, a path, a shadow), which take
+	# their neighbours' edges.
 	var run := Vector2i(0, 0)
 	var run_start := -1
+	var bad := 0
 	for k in sections.size() + 1:
 		var good := k < sections.size() and valid[k] == 1
-		if good and run_start < 0:
-			run_start = k
-		elif not good and run_start >= 0:
-			if k - run_start > run.y - run.x:
-				run = Vector2i(run_start, k)
-			run_start = -1
-	if run.y - run.x < maxi(4, ceili(sections.size() * 0.5)):
+		if good:
+			if run_start < 0:
+				run_start = k
+			bad = 0
+		elif run_start >= 0:
+			bad += 1
+			if bad > FAIRWAY_JOIN or k == sections.size():
+				var end := k - bad + 1
+				if end - run_start > run.y - run.x:
+					run = Vector2i(run_start, end)
+				run_start = -1
+				bad = 0
+	if run.y - run.x < maxi(4, ceili(sections.size() * FAIRWAY_SHARE)):
 		return PackedVector2Array()
+	for k in range(run.x, run.y):
+		if valid[k] == 0:
+			var a := k - 1
+			var b := k + 1
+			while valid[b] == 0:
+				b += 1
+			var t := float(k - a) / (b - a)
+			sections[k] = Vector3(sections[k].x, lerpf(sections[a].y, sections[b].y, t), lerpf(sections[a].z, sections[b].z, t))
 	# A mown fairway has steady edges; a ragged band is rough, heather or
 	# light through trees.
 	var sum := 0.0
@@ -261,14 +397,6 @@ static func find_fairway(photo: Image, area: Rect2, line: PackedVector2Array, st
 	return RealCourseBuilder.simplify_ring(left, 1.0)
 
 
-## Distance in samples from the line (sample n) to a band [k0, k1]; 0 if
-## the band crosses it.
-static func _band_offset(k0: int, k1: int, n: int) -> float:
-	if k0 <= n and k1 >= n:
-		return 0.0
-	return float(mini(absi(k0 - n), absi(k1 - n)))
-
-
 static func _median3(a: float, b: float, c: float) -> float:
 	return maxf(minf(a, b), minf(maxf(a, b), c))
 
@@ -295,59 +423,6 @@ static func min_width(ring: PackedVector2Array) -> float:
 			far = maxf(far, absf((p - a).dot(n)))
 		best = minf(best, far)
 	return best if best < INF else 0.0
-
-
-## Bunkers as hollows in the course's own heights (2 m grid; use only when
-## they came from lidar): cells a little below the mean of the ground
-## round them, within `radius` of `centre`.
-static func find_hollows(c: DesignedCourse, centre: Vector2, radius: float) -> Array[PackedVector2Array]:
-	var out: Array[PackedVector2Array] = []
-	var cell := DesignedCourse.CELL
-	var c0 := c.cell_of(centre)
-	var reach := ceili(radius / cell)
-	var deep := {}
-	for j in range(maxi(c0.y - reach, 4), mini(c0.y + reach + 1, c.rows - 4)):
-		for i in range(maxi(c0.x - reach, 4), mini(c0.x + reach + 1, c.cols - 4)):
-			if Vector2(i - c0.x, j - c0.y).length() > reach:
-				continue
-			var sum := 0.0
-			var n := 0
-			# The ring of ground 6 to 8 m out.
-			for dj in range(-4, 5):
-				for di in range(-4, 5):
-					if maxi(absi(di), absi(dj)) >= 3:
-						sum += c.heights[(j + dj) * c.cols + i + di]
-						n += 1
-			if sum / n - c.heights[j * c.cols + i] > HOLLOW_DEPTH:
-				deep[Vector2i(i, j)] = true
-	var seen := {}
-	for q: Vector2i in deep:
-		if seen.has(q):
-			continue
-		var cells: Array[Vector2i] = []
-		var stack: Array[Vector2i] = [q]
-		seen[q] = true
-		while not stack.is_empty():
-			var p: Vector2i = stack.pop_back()
-			cells.append(p)
-			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				var nq: Vector2i = p + d
-				if deep.has(nq) and not seen.has(nq):
-					seen[nq] = true
-					stack.append(nq)
-		if cells.size() < HOLLOW_CELLS.x or cells.size() > HOLLOW_CELLS.y:
-			continue
-		var pts := PackedVector2Array()
-		for p in cells:
-			var s := c.sample_pos(p.x, p.y)
-			for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-				pts.append(s + corner * cell * 0.5)
-		var hull := Geometry2D.convex_hull(pts)
-		if hull.size() > 1 and hull[0] == hull[hull.size() - 1]:
-			hull.remove_at(hull.size() - 1)
-		if hull.size() >= 3:
-			out.append(RealCourseBuilder.simplify_ring(hull, 0.6))
-	return out
 
 
 ## Pixels 4-connected to `start` that pass `ok`, at most `reach` pixels

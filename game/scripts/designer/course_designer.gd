@@ -22,6 +22,10 @@ const LINE_COLORS := {
 	Surface.Type.WATER: Color(0.4, 0.7, 1.0),
 	Surface.Type.OUT_OF_BOUNDS: Color(1.0, 1.0, 1.0),
 }
+## Imported areas the map lacked are dashed; guessed ones (not traced from
+## the photo) also in this colour.
+const GUESSED_COLOR := Color(1.0, 0.5, 0.2)
+const DASH := 3.0  ## metres
 
 ## The course the designer opens with (the last one saved or played).
 static var last_path := ""
@@ -537,7 +541,16 @@ func _select_press(p2: Variant, double_click: bool) -> void:
 	if hit >= 0:
 		panel.show_surface(course.shapes[hit].surface)
 		_start_drag("shape", hit, p2)
-		_set_status("%s selected. Drag it or its points; Delete removes it." % Surface.name_of(course.shapes[hit].surface))
+		_set_status("%s selected%s. Drag it or its points; Delete removes it." % [Surface.name_of(course.shapes[hit].surface), _origin_note(course.shapes[hit])])
+
+
+## Where an imported area came from, for the status line.
+static func _origin_note(s: CourseShape) -> String:
+	if not s.guessed:
+		return ""
+	if s.found:
+		return " (traced from the aerial photo, not the map: check it)"
+	return " (guessed at a standard size: redraw it from the photo)"
 
 
 func _start_drag(kind: String, index: int, at: Vector2) -> void:
@@ -560,6 +573,9 @@ func _drag_to() -> void:
 		"point", "shape":
 			var s := course.shapes[selected]
 			var old := s.bounds()
+			# Edited by hand: no longer a guess.
+			s.guessed = false
+			s.found = false
 			if _drag == "point":
 				s.points[_drag_index] = p2
 				s.changed()
@@ -849,13 +865,19 @@ func _draw_overlay() -> void:
 		if poly.size() < 3:
 			continue
 		var c: Color = LINE_COLORS.get(s.surface, Color.WHITE)
+		if s.guessed and not s.found:
+			c = GUESSED_COLOR
 		if i == selected:
 			c = Color(1.0, 0.95, 0.2)
-		_lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-		for k in poly.size() + 1:
-			_lines.surface_set_color(c)
-			_lines.surface_add_vertex(_ground_point(poly[k % poly.size()]))
-		_lines.surface_end()
+		if s.guessed:
+			# Not from the map: dashed, so it is easy to spot and check.
+			_dashed(poly, c)
+		else:
+			_lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+			for k in poly.size() + 1:
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(poly[k % poly.size()]))
+			_lines.surface_end()
 		any = true
 	if selected >= 0 and selected < course.shapes.size():
 		var size := camera.distance * 0.008
@@ -897,6 +919,31 @@ func _draw_overlay() -> void:
 		_lines.surface_add_vertex(Vector3.ZERO)
 		_lines.surface_add_vertex(Vector3.ZERO)
 		_lines.surface_end()
+
+
+## A closed outline drawn as dashes of about DASH metres.
+func _dashed(poly: PackedVector2Array, c: Color) -> void:
+	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
+	var on := true
+	var left := DASH
+	for k in poly.size():
+		var a := poly[k]
+		var b := poly[(k + 1) % poly.size()]
+		var seg := a.distance_to(b)
+		var t := 0.0
+		while t < seg:
+			var step := minf(left, seg - t)
+			if on:
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(a.lerp(b, t / seg)))
+				_lines.surface_set_color(c)
+				_lines.surface_add_vertex(_ground_point(a.lerp(b, (t + step) / seg)))
+			t += step
+			left -= step
+			if left <= 0.0:
+				on = not on
+				left = DASH
+	_lines.surface_end()
 
 
 func _square(p: Vector2, size: float, c: Color) -> void:
@@ -1171,7 +1218,8 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 
 
 ## Says how many greens, tees, fairways and bunkers the map lacked were
-## found in the photo or lidar, and how many were guessed.
+## traced from the photo, and how many were guessed. Both are drawn dashed
+## (guesses in GUESSED_COLOR).
 static func _filled_note(summary: Dictionary) -> String:
 	var found := int(summary.get("detected", 0))
 	var guessed := int(summary.get("guessed", 0))
@@ -1179,10 +1227,10 @@ static func _filled_note(summary: Dictionary) -> String:
 		return ""
 	var parts: Array[String] = []
 	if found > 0:
-		parts.append("%d found in the photo or lidar" % found)
+		parts.append("%d traced from the photo" % found)
 	if guessed > 0:
 		parts.append("%d guessed at standard sizes" % guessed)
-	return " (areas the map lacked: %s; check them)" % ", ".join(parts)
+	return " (areas the map lacked, dashed: %s; check them)" % ", ".join(parts)
 
 
 ## The course's aerial photo as a ground overlay material, if it has one.

@@ -11,6 +11,11 @@ const MAX_TILES := 160
 const MAX_ZOOM := 17
 const PHOTO_MAX := 2048  ## pixels a side of the course photo kept
 const PHOTO_RES := 1.0  ## metres per pixel of the course photo, at best
+## Close-up photos round the greens, for finding greens and bunkers: about
+## 0.4 m a pixel, where the course photo is about 1 m.
+const DETAIL_ZOOM := 18
+const DETAIL_RES := 0.4  ## metres per pixel
+const DETAIL_HALF := 70.0  ## metres either side of the green
 
 ## URL placeholders: {z} {x} {y} (web mercator tile), or {bbox} (the
 ## tile's web mercator box in metres, for WMS services). Smaller areas come
@@ -100,10 +105,10 @@ static func sources_for(lat: float, lon: float) -> Array[Dictionary]:
 
 
 ## Tiles covering `box` (south, west, north, east) at the finest zoom
-## needing at most MAX_TILES.
-func _init(p_source: Dictionary, box: Array) -> void:
+## (at most `finest`) needing at most MAX_TILES.
+func _init(p_source: Dictionary, box: Array, finest := MAX_ZOOM) -> void:
 	source = p_source
-	for z in range(int(source.get("max_zoom", MAX_ZOOM)), 12, -1):
+	for z in range(mini(int(source.get("max_zoom", DETAIL_ZOOM)), finest), 12, -1):
 		var x0 := int(TerrainTiles._tile_x(box[1], z))
 		var y0 := int(TerrainTiles._tile_y(box[2], z))
 		var n := Vector2i(int(TerrainTiles._tile_x(box[3], z)) - x0 + 1, int(TerrainTiles._tile_y(box[0], z)) - y0 + 1)
@@ -191,8 +196,9 @@ func leaf_at(lat: float, lon: float) -> String:
 ## west) and high z. Over a course's few kilometres web mercator is a plain
 ## scale of the local plane (to well under a metre), so this is a crop and
 ## a resize of the mosaic.
-func course_photo(frame: GeoFrame, area: Rect2) -> Image:
-	var res := maxf(PHOTO_RES, maxf(area.size.x, area.size.y) / PHOTO_MAX)
+func course_photo(frame: GeoFrame, area: Rect2, res := 0.0) -> Image:
+	if res <= 0.0:
+		res = maxf(PHOTO_RES, maxf(area.size.x, area.size.y) / PHOTO_MAX)
 	var w := ceili(area.size.x / res)
 	var h := ceili(area.size.y / res)
 	var nw := Vector2(area.end.x, area.end.y)
@@ -208,6 +214,23 @@ func course_photo(frame: GeoFrame, area: Rect2) -> Image:
 	var img := _mosaic.get_region(r)
 	img.resize(w, h, Image.INTERPOLATE_BILINEAR)
 	return img
+
+
+## Whether a source has close-ups finer than its course photo.
+static func has_detail(p_source: Dictionary) -> bool:
+	return int(p_source.get("max_zoom", DETAIL_ZOOM)) > MAX_ZOOM
+
+
+## The course area of a close-up round a green at `spot`.
+static func detail_area(spot: Vector2) -> Rect2:
+	return Rect2(spot - Vector2(DETAIL_HALF, DETAIL_HALF), Vector2(DETAIL_HALF, DETAIL_HALF) * 2.0)
+
+
+## The latitude and longitude box (south, west, north, east) of a course area.
+static func geo_box_of(frame: GeoFrame, a: Rect2) -> Array:
+	var lats := [frame.lat_of(a.position), frame.lat_of(a.end)]
+	var lons := [frame.lon_of(a.position), frame.lon_of(a.end)]
+	return [lats.min(), lons.min(), lats.max(), lons.max()]
 
 
 ## Tree crowns in a course photo (from course_photo): cells of `cell`
