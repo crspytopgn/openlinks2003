@@ -5,6 +5,13 @@ extends RefCounted
 ## one tuned against the original game without touching the game flow.
 
 
+## Links 2003's shot setup for the next launch: ball position, club face and
+## stance, in the game's own steps (square by default). Full swings and chips
+## use it; putts ignore it. See ShotShape for the draw, fade, high and low
+## the round offers.
+var setup := LinksLaunch.Setup.new()
+
+
 ## Launch state for a swing, with the ball sitting at `from` on a `lie`.
 func launch(_club: Club, _power: float, _accuracy: float, _aim_deg: float, _lie: int, from: Vector3) -> BallState:
 	push_error("ShotModel.launch() is not implemented")

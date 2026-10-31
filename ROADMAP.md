@@ -14,6 +14,44 @@ type holds. Items below that only need files from the discs are now
 unblocked; items that need measurements from the running game (tuning,
 feel) still need a working install.
 
+## Next up: the product lead's ranked list
+
+Kept by the "Keep finding ways to improve the game" thread, from playing the
+web build and comparing it with Links 2003 and modern golf sims. Highest
+value first. The owner is the thread that should build it; "lead" means the
+product lead builds it.
+
+1. [x] **Shot shaping**: draw, fade, high and low shots from Links 2003's shot
+   setup (ball position, club face, stance). The launch already reads the
+   setup bytes but nothing set them. Done: Q/E and W/S in the round
+   ([game-shell.md](docs/game-shell.md#playing)); the setup screen's own
+   limits are still to read from the game.
+2. [x] **Touch and controller swings**: a swipe swing on phones and tablets
+   (the web build), and an analog-stick swing on gamepads, both feeding the
+   PowerStroke model. Done in #104.
+3. [x] **Tee view shows the target**: on hilly holes (placeholder hole 1) the
+   tee camera looks into the slope and the fairway is out of sight; the
+   auto club also picks a 3 hybrid on a 389-yard par 4. Fixed in #101.
+4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
+   rounds (off in Classic Links). Gimmes done (Settings > Gimmes,
+   [game-shell.md](docs/game-shell.md#gimmes)); mulligans and a choice of
+   pick-up limit to come. Owner: lead.
+5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
+   spin, carry, total and dispersion per club. Done: Play > Practice range
+   on any course ([game-shell.md](docs/game-shell.md#practice-range)).
+   Still to do: a built-in range course with yardage targets.
+6. [ ] **Launch monitor input** (desktop): take real swings from home
+   simulators through the open GSPro-style connect API, the golf version of
+   a sim-racing wheel. Owner: new thread, after item 5.
+7. [ ] **Career**: a season of events against the computer golfers, with a
+   money list and the handicap and stats already kept. Owner: new thread.
+8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
+   setup panel and the key hints were fixed in #101.) Owner: lead.
+9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
+   marker, UI scale, captions for voice and commentary. Owner: lead.
+10. [x] **Personal records**: longest drive, best rounds per course, birdie,
+   eagle and hole-in-one counts on the players page. Owner: lead.
+
 ## Phase 1: formats (see `docs/formats/`)
 
 - [x] Inventory the install folder: file types, counts, sizes (`docs/install-listing/`, `docs/formats/inventory.md`)

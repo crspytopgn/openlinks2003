@@ -37,6 +37,7 @@ func _initialize() -> void:
 	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
+	_run("shot_shape", _test_shot_shape)
 	_run("swing_meter", _test_swing_meter)
 	_run("analog_swing", _test_analog_swing)
 	_run("scorecard", _test_scorecard)
@@ -93,6 +94,8 @@ func _process(_delta: float) -> bool:
 	_run("round_replay", _test_round_replay)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("practice_range", _test_practice_range)
+	_run("gimmes", _test_gimmes)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -403,6 +406,47 @@ func _test_swing_accuracy() -> void:
 	_check(rough.carry_m < clean.carry_m, "rough costs distance")
 
 
+func _test_shot_shape() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var model := StandardShotModel.new()
+	var shape := ShotShape.new()
+	var results := {}
+	for name: String in ["square", "fade", "draw", "high", "low"]:
+		shape.reset()
+		match name:
+			"fade": shape.nudge_curve(5)
+			"draw": shape.nudge_curve(-5)
+			"high": shape.nudge_height(2)
+			"low": shape.nudge_height(-2)
+		model.setup = shape.to_setup("7i")
+		results[name] = model.simulate(model.launch(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY, Vector3.ZERO), fairway, Vector3(0, 0, 999))
+	var square: ShotResult = results["square"]
+	_check(absf(square.rest.x) < 0.5, "a square shot goes straight")
+	_check((results["fade"] as ShotResult).rest.x < -5.0, "a fade finishes right")
+	_check((results["draw"] as ShotResult).rest.x > 5.0, "a draw finishes left")
+	_check((results["high"] as ShotResult).apex_m > square.apex_m + 1.0, "ball forward flies higher")
+	_check((results["low"] as ShotResult).apex_m < square.apex_m - 1.0, "ball back flies lower")
+	# Through the game's own launch: square is the game's default setup, and
+	# a fade spins the other way from a draw.
+	shape.reset()
+	var setup := shape.to_setup("Dr")
+	_check(setup.ball_position == -1 and setup.face == 30 and setup.stance == 30, "square is the game's default setup")
+	shape.nudge_curve(2)
+	setup = shape.to_setup("Dr")
+	_check(setup.stance == 28 and setup.face == 32, "a fade turns the path left and the face back square")
+	shape.nudge_height(1)
+	_check(shape.to_setup("7i").ball_position == 3, "higher moves the ball one step forward")
+	_check(shape.describe() == "Fade 2, high 1", "shape text")
+	# A shaped shot's setup survives a result code.
+	var rec := ShotRecord.new()
+	rec.face = 32
+	rec.stance = 28
+	rec.ball_position = 3
+	var back := ShotRecord.from_dict(rec.to_dict())
+	_check(back.face == 32 and back.stance == 28 and back.ball_position == 3, "setup round-trips")
+	_check(not ShotRecord.new().to_dict().has("setup"), "square shots add nothing to the record")
+
+
 func _test_club_ratings() -> void:
 	# The game's full-swing power ratings, from its default club records.
 	var want := {"Dr": 112.0, "PW": 80.0}
@@ -628,6 +672,20 @@ func _test_player_profiles() -> void:
 	var text := PlayerProfiles.career_text(c)
 	_check(text == "Average 90.0 per 18   Fairways 57%   Greens 33%   Putts 32.0 per 18", "career text: %s" % text)
 	_check(PlayerProfiles.career_text(p.career("Nobody")).is_empty(), "no career yet")
+	# Personal records: a birdie and an eagle on a better round, and a drive.
+	var good := Scorecard.new(pars)
+	for h in 9:
+		good.record(h, pars[h])
+	good.record(0, 3)
+	good.record(3, 3)
+	var drive := {"holes": 9, "fairways": 4, "fairway_holes": 7, "gir": 3, "putts": 16, "longest_drive_yd": 281}
+	_check(p.record_round("Bea", good, ranks, "Test", "2026-11-01", drive), "a good round")
+	var rec := p.records("Bea")
+	_check(rec.birdies == 1 and rec.eagles == 1 and rec.aces == 0 and rec.longest_drive_yd == 281, "records: %s" % rec)
+	var rtext := PlayerProfiles.records_text(rec)
+	_check(rtext == "Best 33 (-3) at Test   Longest drive 281 yd   1 birdie, 1 eagle", "records text: %s" % rtext)
+	_check(PlayerProfiles.records_text(p.records("Nobody")).is_empty(), "no records yet")
+	p.remove("Bea")
 	# A profile saved before career stats starts from its rounds.
 	p._cfg.set_value(PlayerProfiles._section("Old"), "rounds", [{"holes": 18, "gross": 90, "par": 72, "differential": 180}])
 	_check(p.career("Old").rounds == 1 and p.career("Old").strokes == 90, "career from old rounds")
@@ -2391,6 +2449,72 @@ func _test_free_golfer() -> void:
 
 ## Hot-seat rounds through the real round: skins over the front nine for three
 ## players, and a match that can end early.
+## The practice range: the ball comes back to the tee, nothing is scored,
+## and the launch monitor reads every shot.
+func _test_practice_range() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.practice = true
+	_check(s.problem().is_empty(), "one person can practise")
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN])
+	_check(not s.problem().is_empty(), "the range is for one person")
+	s = RoundSetup.new()
+	s.practice = true
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.monitor_panel != null, "the launch monitor is up")
+	var tee: Vector3 = game.hole.tee
+	for i in 6:
+		var steps := 0
+		while game.state != GolfRound.State.AIM or steps == 0:
+			game.auto_play_step()
+			steps += 1
+			if steps > 10:
+				break
+		_check(game.state == GolfRound.State.AIM and game.ball_at.distance_to(tee) < 0.01, "shot %d: the ball is back on the tee" % i)
+	_check(game.practice_session.readings.size() == 6, "six readings (%d)" % game.practice_session.readings.size())
+	_check(game.card.holes_played() == 0, "nothing is scored")
+	var r: LaunchMonitor.Reading = game.practice_session.readings[0]
+	_check(r.ball_mph > 60.0 and r.ball_mph < 200.0, "ball speed %.0f mph" % r.ball_mph)
+	_check(r.launch_deg > 2.0 and r.launch_deg < 40.0, "launch %.1f deg" % r.launch_deg)
+	_check(r.back_rpm > 500.0, "back spin %.0f rpm" % r.back_rpm)
+	_check(r.carry_yd > 50.0 and r.total_yd >= r.carry_yd - 1.0, "carry %.0f, total %.0f yd" % [r.carry_yd, r.total_yd])
+	_check(r.descent_deg > 5.0 and r.descent_deg < 80.0, "descent %.0f deg" % r.descent_deg)
+	_check(not game.practice_session.summary(r.club).is_empty(), "session summary")
+	print("  range: %s" % game.practice_session.summary(r.club))
+	GolfRound.setup = null
+
+
+## Gimmes: short putts are conceded for a stroke, and the round still
+## replays to the same card.
+func _test_gimmes() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.gimme = 3
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		game.auto_play_step()
+		steps += 1
+	game.graphics.gimme = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with gimmes finishes")
+	var gimmes := 0
+	for d in game.record.drops:
+		if d.get("gimme", false):
+			gimmes += 1
+	_check(gimmes >= 1, "some putts were conceded (%d)" % gimmes)
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with gimmes replays: %s" % [ok.errors])
+	print("  gimmes: %d, card %s" % [gimmes, str(game.card.strokes)])
+	GolfRound.setup = null
+
+
 func _test_multiplayer_rounds() -> void:
 	var game := _game
 	if not game.is_node_ready():
