@@ -26,13 +26,15 @@ func _initialize() -> void:
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
-	_game.graphics.dynamic_res = 0
-	_game._apply_graphics()
 
 
 func _process(_delta: float) -> bool:
 	_frames += 1
-	if _frames == 2:
+	if _frames == 1:
+		# The round is ready by now.
+		_game.graphics.dynamic_res = 0
+		_game._apply_graphics()
+	elif _frames == 2:
 		_game.start_hole(1)
 		_game.scenery.set_backdrop(_test_horizon())
 	elif _frames == SHOT_FRAME:
