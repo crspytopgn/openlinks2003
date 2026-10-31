@@ -119,7 +119,7 @@ static func footprint_spots(terrain: CourseTerrain, ball: Vector3, aim_dir: Vect
 	var spots: Array = []
 	var aim := Vector3(aim_dir.x, 0.0, aim_dir.z).normalized()
 	var side := Vector3(left.x, 0.0, left.z).normalized()
-	var stance := ball + side * 0.6
+	var stance := ball + side * 0.72  # the golfer thread's address stance
 	# Standing square to the line, feet shoulder-width apart, toes to the ball.
 	for f: float in [-0.25, 0.25]:
 		var at := stance + aim * f

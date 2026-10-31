@@ -7,8 +7,12 @@ extends MeshInstance3D
 
 const COLOR := Color(1.0, 0.32, 0.18)
 const CORE := Color(1.0, 0.85, 0.55)
-const MIN_WIDTH := 0.04
-const WIDTH_PER_METRE := 0.0035  ## of distance from the camera
+## Width grows with distance from the camera, so the line keeps the same
+## few pixels on screen near and far, as TV tracers do (about a 3 px core in
+## a 7 px glow at 720p). The floor only stops it vanishing right at the lens;
+## a wide floor drew a thick bar up the middle of the chase cam.
+const MIN_WIDTH := 0.004
+const WIDTH_PER_METRE := 0.0025  ## of distance from the camera
 const MAX_POINTS := 400  ## older samples are skipped evenly beyond this
 
 ## The ribbon's colours and width; set_style changes them (the Tour
@@ -58,7 +62,7 @@ func draw(points: PackedVector3Array, upto: int, head: Vector3, eye: Vector3) ->
 		return
 	# Two passes: a wide soft glow and a thin bright core.
 	for pass_i in 2:
-		var scale := (2.6 if pass_i == 0 else 0.8) * width_scale
+		var scale := (1.8 if pass_i == 0 else 0.8) * width_scale
 		var tint := color if pass_i == 0 else core
 		var strength := 0.45 if pass_i == 0 else 0.9
 		_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)

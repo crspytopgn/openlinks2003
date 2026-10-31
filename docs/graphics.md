@@ -218,6 +218,9 @@ at Medium and grass at Low.
   climbs.
 - **Ball size** (Settings): drawn bigger with distance, as Links does, or
   at its true size everywhere.
+- **Birds** (`CourseLife`, `shaders/bird.gdshader`): every 25 to 70
+  seconds a small flock (3 to 9 birds in a loose V) crosses the sky 30 to
+  70 m up, flapping and gliding. Each flock is one MultiMesh draw call.
 
 ## Performance budget
 
