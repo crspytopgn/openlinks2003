@@ -1850,6 +1850,8 @@ func _test_pause_stops_play() -> void:
 		return
 	GolfRound.setup = null
 	game.start_round()
+	if game.camera.flying():
+		game.camera.end_flyover()  # the broadcast hole flyover takes the first click
 	game._on_swing_pressed()
 	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
 	game.open_pause_menu()
