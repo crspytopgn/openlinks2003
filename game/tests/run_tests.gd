@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_run("links_flight_matches_olcore", _test_links_flight_matches_olcore)
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
+	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
@@ -709,6 +710,24 @@ static func _run_links_ball(b: LinksGround.Ball, g: LinksGround.Ground, rng: Lin
 
 ## Same cases and numbers as the links_* tests in the C++ core, which come
 ## from the game's own code.
+func _test_links_lie_matches_olcore() -> void:
+	var s := LinksLaunch.Strike.new()
+	s.face_error = 0.05
+	LinksLaunch.apply_lie(s, LinksGround.surface_for_class(LinksGround.ROUGH))
+	_check_near(s.spin_scale, 0.406505, 1e-6, "rough spin")
+	_check_near(s.speed_scale, 0.927315, 1e-6, "rough speed")
+	_check_near(s.face_error, 0.05, 1e-9, "rough keeps the face")
+	# contact, speed, spin, loft: as test_links_lie in libs/olcore/tests.
+	for c in [[0, 0.4, 1.5, 1.0], [3, 0.38, 1.25, 1.0], [10, 0.333333, 0.666667, 1.0], [-3, 0.7, 1.2, 1.0], [-5, 0.9, 1.0, 1.0], [-8, 0.705, 0.7, 0.73]]:
+		var t := LinksLaunch.Strike.new()
+		t.face_error = 0.05
+		LinksLaunch.apply_lie(t, LinksGround.surface_for_class(LinksGround.SAND), c[0])
+		_check_near(t.face_error, 0.0, 1e-9, "sand drops the face error")
+		_check_near(t.speed_scale, c[1], 1e-5, "sand speed %d" % c[0])
+		_check_near(t.spin_scale, c[2], 1e-5, "sand spin %d" % c[0])
+		_check_near(t.loft_scale, c[3], 1e-6, "sand loft %d" % c[0])
+
+
 func _test_links_launch_matches_olcore() -> void:
 	# The made-up club table of test_links_launch in libs/olcore/tests.
 	var exe := PackedByteArray()

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "olcore/ball_physics.hpp"
+#include "olcore/links_ground.hpp"
 
 namespace olcore {
 
@@ -65,6 +66,14 @@ struct LinksLaunch {
 };
 
 LinksLaunch links_launch(const LinksClubTable& clubs, const LinksStrike& s);
+
+// What the lie does to a strike. Every lie scales spin and ball speed by its
+// lie values (rough and deep grass take most of the spin off). Sand ignores
+// the face error and replaces both scales by how much sand the club takes:
+// `sand_contact` is the swing meter's miss in whole steps, 0 for the
+// standard splash, positive for heavier (fatter) contact, negative for
+// cleaner, and below -5 thin, which also takes loft off.
+void links_apply_lie(LinksStrike& s, const LinksSurface& lie, int sand_contact = 0);
 
 // The same launch in olcore's SI frame (see ball_physics.hpp), with the ball
 // at the origin.

@@ -116,10 +116,23 @@ The ground code reads seven of them:
 The other classes: water (5), cart path (6, the hardest and fastest:
 restitution 0.75, roll resistance 0.07), dirt (7), bushes (8), rocks (9,
 restitution 0.50) and deep grass (10, roll resistance 0.61). olcore keeps
-these per-class values as defaults (`links_surface`); the remaining
-offsets, 0x04 to 0x10 and 0x30 to 0x38, are lie and launch values (0x04 is
-probably the share of full power from that lie: rough 0.41, deep grass
-0.20).
+these per-class values as defaults (`links_surface`).
+
+The game can write the records out as a table, which gives the names of all
+fourteen values: 0x04 LieAngular, 0x08 LieAngularSnap, 0x0C LiePower, 0x10
+LiePowerSnap, 0x14 CoefRestitution, 0x18 CoefFriction, 0x1C CoefViscosity,
+0x20 Maliability, 0x24 RollingFriction, 0x28 RollingThreshold, 0x2C
+ImpactOffset, 0x30 AngleMiss, 0x34 PowerMiss and 0x38 Snap. The first and
+third are the lie effects below; the snap and miss values belong to the
+swing meter:
+
+| Class | LieAngular | LiePower | LieAngularSnap | LiePowerSnap | AngleMiss | PowerMiss | Snap |
+|-------|-----------|----------|----------------|--------------|-----------|-----------|------|
+| Green, fairway, water | 1 | 1 | 0.1 | 0 | 1 | 1 | 1 |
+| Rough | 0.41 | 0.93 | 0.1 | 0.03 | 1.5 | 1.5 | 1.5 |
+| Sand | 1 | 1 | 0.2 | 0.2 | 1.9 | 1.9 | 2 |
+| Deep grass | 0.20 | 0.84 | 0.1 | 0.05 | 1.7 | 1.7 | 2 |
+| Cart path | 1 | 1 | 0.1 | 0 | 2 | 2 | 4 |
 
 Green hardness (soft, moderate, hard) and green speed (slow, normal, fast)
 are game options that may override the green's values; the game warns that
@@ -196,14 +209,41 @@ carries 135 yards.
 The launch also seeds the random numbers (see Rough and rocks) and sets the
 ball on the ground at 0.07 / n.z above its lie.
 
+### Lie effects
+
+Before the launch, the routine that turns a swing into a shot looks up the
+ground under the ball and sets the strike's spin and speed multipliers to
+the lie's LieAngular and LiePower: from rough the ball keeps 41 percent of
+its spin and 93 percent of its speed, from deep grass 20 and 84 percent.
+This replaces whatever multipliers the swing gave. Computer players and one
+unidentified player setting skip this step.
+
+Sand works differently. The face error is dropped, so only the path shapes
+a bunker shot, and the multipliers come from how much sand the club takes,
+a whole-step miss from the swing meter (c below; 0 is the standard splash):
+
+| Contact | Speed | Spin | Loft |
+|---------|-------|------|------|
+| c >= 0 (heavier) | 0.3 + (15 - c) / 150 | 0.25 + (15 - c) / 12 | 1 |
+| -5 <= c < 0 (cleaner) | 0.4 + 0.1 |c| | 1.5 - 0.1 |c| | 1 |
+| c < -5 (thin) | 0.9 - 0.065 (|c| - 5) | 1.5 - 0.1 |c| | 1 - 0.09 (|c| - 5) |
+
+So a standard splash leaves at 40 percent of the speed of the same swing
+from the fairway, with one and a half times the spin; a clean pick (c = -5)
+keeps 90 percent. Both are then scaled by the sand's own lie values (1).
+Ported as `links_apply_lie` (olcore) and `LinksLaunch.apply_lie`, checked
+against the game's code on 32 lies and contacts.
+
 ### Not ported
 
 - A flag from the caller that adds 10 degrees of loft and removes all spin;
   what sets it is not known yet.
 - How the swing meters (PowerStroke and the mouse swing) fill the power,
-  face and path errors and the multipliers, and how the lie changes them.
-  Until then the game shell maps the meter's accuracy to a face error of up
-  to 4 degrees and scales speed and spin by its stand-in lie values.
+  the face and path errors and the sand contact. Until then the game shell
+  maps the meter's accuracy to a face error of up to 4 degrees and a sand
+  contact of up to 10 steps heavy.
+- Per-course lie values: olcore uses the class defaults above (every
+  course checked so far uses them).
 
 ## Ground
 

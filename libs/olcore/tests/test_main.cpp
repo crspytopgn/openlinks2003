@@ -1710,6 +1710,35 @@ void test_links_launch() {
   CHECK_NEAR(b.spin.x, -73.860581 * 2 * 3.14159265358979, 1e-3);
 }
 
+void test_links_lie() {
+  LinksStrike s;
+  s.face_error = 0.05;
+  links_apply_lie(s, links_surface(kLinksFairway));
+  CHECK_NEAR(s.spin_scale, 1.0, 1e-12);
+  CHECK_NEAR(s.speed_scale, 1.0, 1e-12);
+  CHECK_NEAR(s.face_error, 0.05, 1e-12);
+  links_apply_lie(s, links_surface(kLinksRough));
+  CHECK_NEAR(s.spin_scale, 0.406505, 1e-9);
+  CHECK_NEAR(s.speed_scale, 0.927315, 1e-9);
+  links_apply_lie(s, links_surface(kLinksDeepGrass));
+  CHECK_NEAR(s.spin_scale, 0.1992, 1e-9);
+  // Sand: the face error goes, and the contact sets speed, spin and loft.
+  struct Case {
+    int contact;
+    double speed, spin, loft;
+  };
+  for (Case c : {Case{0, 0.4, 1.5, 1}, Case{3, 0.38, 1.25, 1}, Case{10, 0.333333, 0.666667, 1},
+                 Case{-3, 0.7, 1.2, 1}, Case{-5, 0.9, 1.0, 1}, Case{-8, 0.705, 0.7, 0.73}}) {
+    LinksStrike t;
+    t.face_error = 0.05;
+    links_apply_lie(t, links_surface(kLinksSand), c.contact);
+    CHECK_NEAR(t.face_error, 0.0, 1e-12);
+    CHECK_NEAR(t.speed_scale, c.speed, 1e-6);
+    CHECK_NEAR(t.spin_scale, c.spin, 1e-6);
+    CHECK_NEAR(t.loft_scale, c.loft, 1e-9);
+  }
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1760,6 +1789,7 @@ int main() {
       {"links_landing", test_links_landing},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
+      {"links_lie", test_links_lie},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

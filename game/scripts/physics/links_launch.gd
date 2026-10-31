@@ -126,6 +126,32 @@ func launch(s: Strike) -> Array[Vector3]:
 	return [_turn_z(vel, s.aim), _turn_z(w, s.aim)]
 
 
+## What the lie does to a strike; mirrors olcore::links_apply_lie. Every lie
+## scales spin and ball speed by its lie values. Sand ignores the face error
+## and sets both from `sand_contact`, the meter's miss in whole steps: 0 is
+## the standard splash, positive is heavier, negative cleaner, and below -5
+## thin, which also takes loft off.
+static func apply_lie(s: Strike, lie: LinksGround.Params, sand_contact := 0) -> void:
+	var spin_k := 1.0
+	var speed_k := 1.0
+	if lie.ground_class == LinksGround.SAND:
+		s.face_error = 0.0
+		var c := sand_contact
+		if c >= 0:
+			speed_k = 0.3 + (15 - c) / 150.0
+			spin_k = 0.25 + (15 - c) / 12.0
+		else:
+			var clean := float(-c)
+			spin_k = 1.5 - 0.1 * clean
+			if c >= -5:
+				speed_k = 0.4 + 0.1 * clean
+			else:
+				speed_k = 0.9 - 0.065 * (clean - 5.0)
+				s.loft_scale = 1.0 - 0.09 * (clean - 5.0)
+	s.spin_scale = spin_k * lie.lie_spin
+	s.speed_scale = speed_k * lie.lie_power
+
+
 ## The same launch in the game shell's SI frame, with the ball at the origin.
 func launch_state(s: Strike) -> BallState:
 	var l := launch(s)
