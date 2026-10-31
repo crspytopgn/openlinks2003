@@ -1,8 +1,10 @@
 class_name SwingMeter
 extends Control
-## The classic three-click power meter, drawn as an arc in the style of Links,
-## or, with the player's own interface art (HudArt), as the original's
-## chrome bar: power runs right from the snap line, accuracy left of it.
+## The classic three-click power meter. In the Broadcast presentation it is
+## a slim modern bar on a dark glass panel. In Classic it is drawn as an
+## arc in the style of Links or, with the player's own interface art
+## (HudArt), as the original's chrome bar. On the bars power runs right
+## from the snap line and accuracy left of it.
 ##
 ## Click 1 starts the backswing: the marker climbs from the snap line at the
 ## bottom of the arc towards 100% at the top. Click 2 sets the power and
@@ -26,12 +28,23 @@ const WIDTH := 16.0
 const ART_SCALE := 1.2
 const BAR_LENGTH := 330.0
 
+## The modern bar: panel size, and the track's inset from the panel's sides.
+const MODERN_SIZE := Vector2(480, 78)
+const MODERN_INSET := 28.0
+const GLASS := Color(0.03, 0.05, 0.07, 0.62)
+const TRACK := Color(1, 1, 1, 0.16)
+const SWING := Color(1, 1, 1, 0.92)
+const GOLD := Color(0.98, 0.76, 0.28)
+const GOOD := Color(0.45, 0.9, 0.55)
+
 var phase: Phase = Phase.IDLE
 var value := 0.0  ## marker position: 0 = snap line, 1 = full power
 var power := 0.0
 var accuracy := 0.0
 ## The player's interface art; null draws the plain arc.
 var art: HudArt
+## Draws the modern bar (Broadcast presentation) whatever the art.
+var modern := false
 
 
 func _ready() -> void:
@@ -41,6 +54,8 @@ func _ready() -> void:
 
 ## Size the meter needs: the arc, or the bar with the original art.
 func wanted_size() -> Vector2:
+	if modern:
+		return MODERN_SIZE
 	if art == null:
 		return Vector2(220, 220)
 	return Vector2(HudArt.METER_CAP.size.x * ART_SCALE + BAR_LENGTH + 8.0, HudArt.METER_CAP.size.y * ART_SCALE)
@@ -124,6 +139,9 @@ func _tick(v: float, color: Color, inner: float, outer: float, width: float) -> 
 
 
 func _draw() -> void:
+	if modern:
+		_draw_modern()
+		return
 	if art != null:
 		_draw_bar()
 		return
@@ -212,3 +230,69 @@ func _bar_fill(from: float, to: float, color: Color, mid: float, band: float) ->
 	var a := _bar_x(minf(from, to))
 	var b := _bar_x(maxf(from, to))
 	draw_rect(Rect2(a, mid - band * 0.5, b - a, band), color)
+
+
+# --- The modern bar ---------------------------------------------------------------
+
+func _modern_x(v: float) -> float:
+	var w := size.x - MODERN_INSET * 2.0
+	return MODERN_INSET + (v + ACCURACY_ZONE) / (1.0 + ACCURACY_ZONE) * w
+
+
+func _capsule(r: Rect2, color: Color) -> void:
+	var box := StyleBoxFlat.new()
+	box.bg_color = color
+	box.set_corner_radius_all(int(minf(r.size.x, r.size.y) * 0.5))
+	box.anti_aliasing = true
+	draw_style_box(box, r)
+
+
+func _draw_modern() -> void:
+	var glass := StyleBoxFlat.new()
+	glass.bg_color = GLASS
+	glass.set_corner_radius_all(16)
+	glass.border_color = Color(1, 1, 1, 0.1)
+	glass.set_border_width_all(1)
+	glass.anti_aliasing = true
+	draw_style_box(glass, Rect2(Vector2.ZERO, size))
+	var mid := size.y * 0.62
+	var h := 8.0
+	var x0 := _modern_x(-ACCURACY_ZONE)
+	var x1 := _modern_x(1.0)
+	var snap := _modern_x(0.0)
+	_capsule(Rect2(x0, mid - h * 0.5, x1 - x0, h), TRACK)
+	# The accuracy zone: brighter, a hair taller, with a gold centre.
+	var zone := Rect2(x0, mid - h * 0.75, _modern_x(ACCURACY_ZONE) - x0, h * 1.5)
+	_capsule(zone, Color(1, 1, 1, 0.12))
+	match phase:
+		Phase.BACKSWING:
+			_capsule(Rect2(snap, mid - h * 0.5, maxf(_modern_x(value) - snap, h), h), SWING)
+		Phase.DOWNSWING, Phase.DONE:
+			_capsule(Rect2(snap, mid - h * 0.5, maxf(_modern_x(power) - snap, h), h), GOLD)
+	for quarter in [0.25, 0.5, 0.75, 1.0]:
+		draw_circle(Vector2(_modern_x(quarter), mid + h + 5.0), 1.6, Color(1, 1, 1, 0.45))
+	draw_line(Vector2(snap, mid - h * 1.6), Vector2(snap, mid + h * 1.6), Color(1, 1, 1, 0.85), 2.0, true)
+	if phase != Phase.IDLE:
+		var x := _modern_x(value)
+		_capsule(Rect2(x - 4.0, mid - 13.0, 8.0, 26.0), Color(1, 1, 1, 0.25))
+		_capsule(Rect2(x - 2.0, mid - 11.0, 4.0, 22.0), Color.WHITE)
+
+	var font := ThemeDB.fallback_font
+	var top := 24.0
+	draw_string(font, Vector2(MODERN_INSET, top), "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.55))
+	if phase == Phase.BACKSWING:
+		draw_string(font, Vector2(MODERN_INSET + 52.0, top), "%d%%" % roundi(value * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.9))
+	elif phase == Phase.DOWNSWING or phase == Phase.DONE:
+		draw_string(font, Vector2(MODERN_INSET + 52.0, top), "%d%%" % roundi(power * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, GOLD)
+	if phase == Phase.DONE:
+		var label := "PERFECT"
+		var colour := GOOD
+		if accuracy < 0.0:
+			label = "HOOK %d%%" % roundi(-accuracy * 100.0)
+			colour = GOLD
+		elif accuracy > 0.0:
+			label = "SLICE %d%%" % roundi(accuracy * 100.0)
+			colour = GOLD
+		draw_string(font, Vector2(0, top), label, HORIZONTAL_ALIGNMENT_RIGHT, size.x - MODERN_INSET, 15, colour)
+	elif phase == Phase.IDLE:
+		draw_string(font, Vector2(0, top), "CLICK TO SWING", HORIZONTAL_ALIGNMENT_RIGHT, size.x - MODERN_INSET, 12, Color(1, 1, 1, 0.45))

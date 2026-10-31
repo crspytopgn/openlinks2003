@@ -17,13 +17,16 @@ const AMBIENT_ENERGY := 0.5
 const SUN_ENERGY := 0.85
 ## Photoreal: a brighter sun under the ACES curve, which rolls the highlights
 ## off instead of clipping them.
-const PHOTO_SUN_ENERGY := 1.7
-const PHOTO_AMBIENT_ENERGY := 0.75
+const PHOTO_SUN_ENERGY := 2.0
+const PHOTO_AMBIENT_ENERGY := 0.5
 const PHOTO_EXPOSURE := 1.05
 
 var environment: Environment
 var sun: DirectionalLight3D
 var backdrop: CourseBackdrop
+var _free_sky: Material  ## the photographed sky (FreeAssets), or null
+var _backdrop_sky: Material  ## the plain sky behind the course's backdrop
+var _photo := false
 
 
 func _init() -> void:
@@ -46,6 +49,7 @@ func _init() -> void:
 		# the linear tone map.
 		pano_mat.energy_multiplier = 0.8
 		sky.sky_material = pano_mat
+		_free_sky = pano_mat
 
 	environment = Environment.new()
 	environment.background_mode = Environment.BG_SKY
@@ -133,6 +137,8 @@ func apply(settings: GraphicsSettings) -> void:
 	environment.ssr_enabled = fwd and photo and q >= GraphicsSettings.Quality.HIGH
 	environment.ssr_max_steps = 48
 	environment.fog_aerial_perspective = 0.5 if photo else 0.3
+	_photo = photo
+	_choose_sky()
 
 
 ## Shows the course's own horizon (null for none) in front of a cloud sky
@@ -158,6 +164,28 @@ func set_backdrop(horizon: Image) -> void:
 	sky_mat.ground_bottom_color = b.ground.darkened(0.3)
 	sky_mat.sun_angle_max = 0.0
 	sky_mat.sun_curve = 0.0
-	environment.sky.sky_material = sky_mat
-	environment.fog_light_color = b.sky_haze.lerp(b.ground, 0.35)
+	_backdrop_sky = sky_mat
+	_choose_sky()
+
+
+## Photoreal lighting shows the photographed cloud sky with distance haze
+## behind the course's horizon instead of the disc's sky; Classic keeps
+## the course's own.
+func _choose_sky() -> void:
+	var real := _photo and _free_sky != null
+	if backdrop != null:
+		backdrop.set_photo(real, HORIZON)
+	if real or _backdrop_sky == null:
+		environment.sky.sky_material = _free_sky if _free_sky != null else environment.sky.sky_material
+		environment.fog_light_color = HORIZON
+		environment.fog_density = 0.0006 if not real else 0.00035
+		# A little haze over the sky too, so the far land melts into it.
+		environment.fog_sky_affect = 0.25 if real else 0.0
+		if _free_sky is PanoramaSkyMaterial:
+			# Brighter in Compatibility, which has no sky fill light.
+			(_free_sky as PanoramaSkyMaterial).energy_multiplier = 0.8 if GraphicsSettings.is_forward_plus() else 1.5
+		return
+	environment.sky.sky_material = _backdrop_sky
+	environment.fog_sky_affect = 0.0
+	environment.fog_light_color = backdrop.sky_haze.lerp(backdrop.ground, 0.35)
 	environment.fog_density = 0.00035

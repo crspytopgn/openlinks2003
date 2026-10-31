@@ -96,6 +96,26 @@ at Medium and grass at Low.
   where the full 3D trees cast real-time shadows, the baked sun shadow
   fades out. Billboards and impostors cast no real-time shadows, so far
   trees get shadows only from this map.
+- **Photo ground on disc courses** (`CrzTerrain.photo_ground`,
+  `shaders/course_ground.gdshader`): with Photoreal lighting (every look
+  but Classic), grass, fairway, green, rough, deep rough and sand draw the
+  free photoscanned set of their surface (albedo, normal and roughness:
+  ambientCG's short lawn for mown grass and dense long grass for rough,
+  Poly Haven sand) instead of the disc's 2003 texture. The lawn scan's
+  light and dark is boosted (`PHOTO_GAINS`), since it is shot in soft light
+  and would read flat at playing distance; its roughness map gives glossy
+  and matt blades near the camera. The photo's detail sits on the course's own colour for that
+  material (the mean of its disc texture), made darker and deeper as real
+  turf is (`realistic()`; pale disc rough becomes straw and olive). It is
+  sampled at two scales, fades to its mean colour with distance, and has
+  large lighter and darker patches. Fairways and greens get mowing stripes.
+  Paths, dirt and rocks keep the disc textures.
+- **Sky with Photoreal lighting**: the photographed cloud sky (Poly Haven)
+  replaces the disc's painted sky. The course's own horizon panorama
+  stays, which keeps Kauri's sea, and fades 30% into the haze.
+  Compatibility shows the sky brighter, since it has no sky fill light.
+  The water reflects at most 60% of the sky, so a glancing view still
+  shows deep blue, not white.
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat

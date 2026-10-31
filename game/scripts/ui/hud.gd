@@ -137,17 +137,25 @@ func set_broadcast(on: bool, tour_on := false) -> void:
 		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(TourGraphics.RAIL_W + 24.0, -176, 760, 22))
 	else:
 		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+	meter.modern = on
 	_place_meter()
 
 
-## The meter: bottom right, or with the original's art in the middle at
-## the bottom, unless Tour's shot-data bar is there.
+## The meter: the modern bar bottom right, above the ticker (or above
+## Tour's shot-data bar and hints); the original's bar centred at the
+## bottom; or the arc bottom right.
 func _place_meter() -> void:
-	if art == null or tour.visible:
-		var want := meter.wanted_size() if art != null else Vector2(220, 220)
+	var want := meter.wanted_size()
+	meter.custom_minimum_size = want
+	if meter.modern:
+		var lift := 200.0 if tour.visible else 100.0
+		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 24.0, -want.y - lift, want.x, want.y))
+	elif art == null or tour.visible:
+		if art == null:
+			want = Vector2(220, 220)
+			meter.custom_minimum_size = want
 		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 20.0, -want.y - 20.0, want.x, want.y))
 	else:
-		var want := meter.wanted_size()
 		_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
 	meter.queue_redraw()
 
