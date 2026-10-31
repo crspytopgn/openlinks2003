@@ -153,6 +153,17 @@ func _test_designer_scene() -> void:
 	d._undo_step(d._redo, d._undo, "redo")
 	_check(d.course.holes.size() == 2, "redo puts it back")
 	_check(d._pick(Vector2(640, 360)) != null, "the middle of the view is on the ground")
+	var objects := d.course.objects.size()
+	d._place_or_remove_object(Vector2(0, 0), false)
+	_check(d.course.objects.size() == objects + 1 and d._tree_nodes.size() == objects + 1, "an object is placed")
+	d._place_or_remove_object(Vector2(0, 0), true)
+	_check(d.course.objects.size() == objects, "and removed again")
+	d._start_flyover()
+	_check(d._preview.current and d._preview.flying(), "the hole flyover starts")
+	for i in 3:
+		d._process(0.5)
+	d._stop_flyover()
+	_check(not d._preview.current and d.camera.current, "and hands back to the designer camera")
 	d.queue_free()
 
 
