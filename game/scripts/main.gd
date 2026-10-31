@@ -868,9 +868,10 @@ func _change_club(step: int) -> void:
 func _prepare_shot(snap_camera: bool) -> void:
 	state = State.AIM
 	lie = hole.terrain.surface_at(ball_at.x, ball_at.z)
-	# The first shot is played from the teeing ground, whatever mown grass
-	# the course paints there.
-	if strokes == 0 and ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
+	# Shots from the teeing ground (the first, or again after out of bounds
+	# or a stroke-and-distance drop) are teed up, whatever mown grass the
+	# course paints there.
+	if ball_at.distance_to(hole.tee) < 0.5 and lie == Surface.Type.FAIRWAY:
 		lie = Surface.Type.TEE
 	_auto_club()
 	var target := _aim_target()

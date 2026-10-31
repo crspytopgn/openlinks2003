@@ -88,6 +88,7 @@ func _process(_delta: float) -> bool:
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("viewer_return", _test_viewer_return)
+	_run("retee_after_ob", _test_retee_after_ob)
 	_run("players_panel", _test_players_panel)
 	SavedRound.clear()
 	_run("menu_resume", _test_menu_resume)
@@ -1928,6 +1929,31 @@ func _test_viewer_return() -> void:
 		_check(int(game.round_stats[0][key]) == int(stats[key]), "viewer: %s counted once" % key)
 	game.auto_play_step()
 	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "viewer: on to hole 2")
+	SavedRound.clear()
+
+
+## A tee shot out of bounds is played again from the tee, teed up.
+func _test_retee_after_ob() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	var tee := game.ball_at
+	_check(game.lie == Surface.Type.TEE, "re-tee: first shot teed up")
+	var ob := ShotResult.new()
+	ob.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
+	ob.rest = tee + Vector3(80.0, 0.0, 200.0)
+	ob.first_landing = ob.rest
+	ob.time_s = 5.0
+	ob.add_sample(0.0, tee)
+	ob.add_sample(5.0, ob.rest)
+	game.shot = ob
+	game.shot_from = tee
+	game._complete_flight()
+	game._after_result()
+	_check(game.state == GolfRound.State.AIM and game.strokes == 2, "re-tee: stroke and distance")
+	_check(game.lie == Surface.Type.TEE, "re-tee: the third shot is teed up too")
 	SavedRound.clear()
 
 
