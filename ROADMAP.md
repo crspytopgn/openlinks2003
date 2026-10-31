@@ -73,7 +73,8 @@ feel) still need a working install.
 - [ ] Game modes: stroke, match, skins, best ball and others
   - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
   - [x] Handicaps: player profiles with their rounds, a WHS-style index, and net scoring in every mode ([game-shell.md](docs/game-shell.md#handicaps-and-player-profiles))
-  - [ ] Alternate shot, scramble and the other original modes
+  - [x] Scramble and alternate shot, with people and computer golfers on either team ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
+  - [ ] The other original modes
 - [x] AI opponents: computer golfers at four levels (weekend, club, scratch, tour pro) that plan through the real physics and play every mode ([game-shell.md](docs/game-shell.md#computer-opponents))
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard

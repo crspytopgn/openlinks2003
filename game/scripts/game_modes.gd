@@ -4,15 +4,17 @@ extends RefCounted
 ## libs/olcore/src/scoring.cpp; change both together. Hole scores are
 ## per-hole strokes as on a Scorecard: 0 means not played.
 
-enum Mode { STROKE, MATCH, SKINS, BEST_BALL, STABLEFORD }
+enum Mode { STROKE, MATCH, SKINS, BEST_BALL, STABLEFORD, SCRAMBLE, ALTERNATE_SHOT }
 
-const MODE_NAMES := ["Stroke play", "Match play", "Skins", "Best ball", "Stableford"]
+const MODE_NAMES := ["Stroke play", "Match play", "Skins", "Best ball", "Stableford", "Scramble", "Alternate shot"]
 const MODE_HELP := [
 	"Lowest total wins. 1 to 4 players.",
 	"Two players, hole by hole: the lower score wins the hole. The match ends once one player can't be caught.",
 	"Every hole is worth a skin, won by the outright lowest score. Ties carry the skin to the next hole. 2 to 4 players.",
 	"Two teams. Each hole, the team counts its best score; lowest team total wins. 3 or 4 players.",
 	"Points per hole: 2 for par, 1 more for each stroke under, 1 fewer for each over. Most points wins. 1 to 4 players.",
+	"Two teams. Everyone on the team hits, the team plays on from the best shot, and every round of shots counts one stroke. Lowest team total wins. 2 to 4 players.",
+	"Two teams, one ball each. Partners take turns hitting it and take turns on the tee. Lowest team total wins. 2 to 4 players.",
 ]
 
 
@@ -24,13 +26,28 @@ static func allowance_percent(mode: Mode) -> int:
 			return 100
 		Mode.BEST_BALL:
 			return 90
+		Mode.SCRAMBLE:
+			return 25
+		Mode.ALTERNATE_SHOT:
+			return 50
 	return 95
 
 
 ## True if `mode` plays off the lowest handicap: the best player gets no
 ## strokes and the others get the difference.
 static func off_the_low(mode: Mode) -> bool:
-	return mode == Mode.MATCH or mode == Mode.SKINS or mode == Mode.BEST_BALL
+	return mode == Mode.MATCH or mode == Mode.SKINS or is_team(mode)
+
+
+## Two teams play against each other (best ball and the shared-ball modes).
+static func is_team(mode: Mode) -> bool:
+	return mode == Mode.BEST_BALL or shared_ball(mode)
+
+
+## Each team plays one ball: scramble and alternate shot. Every member's card
+## then carries the team's score.
+static func shared_ball(mode: Mode) -> bool:
+	return mode == Mode.SCRAMBLE or mode == Mode.ALTERNATE_SHOT
 
 
 ## Players allowed in `mode`: [min, max].
@@ -42,6 +59,8 @@ static func player_range(mode: Mode) -> Vector2i:
 			return Vector2i(2, 4)
 		Mode.BEST_BALL:
 			return Vector2i(3, 4)
+		Mode.SCRAMBLE, Mode.ALTERNATE_SHOT:
+			return Vector2i(2, 4)
 	return Vector2i(1, 4)
 
 

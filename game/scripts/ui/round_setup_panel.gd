@@ -217,7 +217,7 @@ func _on_count_selected() -> void:
 
 
 func _refresh() -> void:
-	var best_ball := _mode.selected == GameModes.Mode.BEST_BALL
+	var best_ball := GameModes.is_team(_mode.selected as GameModes.Mode)
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected

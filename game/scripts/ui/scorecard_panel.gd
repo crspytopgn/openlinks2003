@@ -83,6 +83,8 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 		total_par += p
 	_cell(str(total_par), true)
 	for n in scoring.player_count():
+		if GameModes.shared_ball(mode):
+			break  # every member's card is the team's; the team rows show it
 		var card := scoring.cards[n]
 		_score_row(scoring.label(n), card)
 		var scored := scoring.scored_card(n)
@@ -95,7 +97,7 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 				_cell(str(GameModes.stableford_points(s, pars[i])) if s > 0 else "", false)
 			_cell(str(GameModes.stableford_total(scored)), true)
 	match mode:
-		GameModes.Mode.BEST_BALL:
+		GameModes.Mode.BEST_BALL, GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT:
 			for t in 2:
 				_score_row("Team: " + scoring.team_name(t), scoring.team_card(t))
 		GameModes.Mode.SKINS:
