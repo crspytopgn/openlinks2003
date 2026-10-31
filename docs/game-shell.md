@@ -134,6 +134,7 @@ game/scripts/
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     round_setup_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+  designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```
 

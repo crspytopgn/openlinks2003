@@ -40,6 +40,9 @@ static func in_list(paths: Array) -> PackedStringArray:
 	return out
 
 
-## "Cabo.crz" -> "Cabo".
+## "Cabo.crz" -> "Cabo"; courses from the course designer are marked.
 static func display_name(path: String) -> String:
-	return path.get_file().get_basename()
+	var name := path.get_file().get_basename()
+	if path.get_extension().to_lower() == DesignedCourse.EXTENSION:
+		return name + " (your design)"
+	return name
