@@ -24,6 +24,7 @@ func watch(_target: Node3D, _delay: float = 0.3) -> void:
 	pass
 
 
-## Ground height at (x, z) in world space, for planting the feet on slopes.
-func set_ground(_height: Callable) -> void:
+## Ground height at (x, z) in world space, for planting the feet on slopes;
+## `sink` digs the feet in that many metres (a bunker stance).
+func set_ground(_height: Callable, _sink: float = 0.0) -> void:
 	pass
