@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) are in too. Still to do: the PowerStroke meter's screen geometry, the mouse swing's maths, chips and putts, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too. Still to do: the PowerStroke meter's screen geometry, the mouse swing's maths, chips and putts, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -83,7 +83,8 @@ feel) still need a working install.
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
 - [ ] Course designer
   - [x] In-game designer that works in the browser: sculpt the ground, paint fairways, greens, tees, bunkers, ponds and rough, plant trees, lay out holes, play the course, save, export and import `.olc` files ([course-designer.md](docs/course-designer.md))
-  - [ ] Crisp surface edges (splat map), more object kinds, cart paths and bridges, hazard stakes, per-course skies
+  - [x] Objects from the player's own object library with measured collision sizes, cart paths (free drop) and bridges, per-hole flyover, shareable single-file courses
+  - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker

@@ -56,6 +56,10 @@ var presentation: int = Presentation.BROADCAST
 ## Swing skill level for the people playing, 0 (easiest) to 3: how hard the
 ## Links 2003 swing punishes a missed snap (LinksLaunch.apply_swing).
 var skill := 3
+## The game's green options (LinksGround.set_greens): firmness 0 soft, 1
+## medium, 2 firm; speed 0 slow, 1 normal, 2 fast.
+var green_firmness := 1
+var green_speed := 1
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -167,6 +171,8 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
 	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.BROADCAST)
 	s.skill = clampi(int(cfg.get_value(GAME_SECTION, "skill", s.skill)), 0, LinksLaunch.SKILL_COUNT - 1)
+	s.green_firmness = clampi(int(cfg.get_value(GAME_SECTION, "green_firmness", s.green_firmness)), 0, 2)
+	s.green_speed = clampi(int(cfg.get_value(GAME_SECTION, "green_speed", s.green_speed)), 0, 2)
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -203,6 +209,8 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "wind", wind)
 	cfg.set_value(GAME_SECTION, "presentation", presentation)
 	cfg.set_value(GAME_SECTION, "skill", skill)
+	cfg.set_value(GAME_SECTION, "green_firmness", green_firmness)
+	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

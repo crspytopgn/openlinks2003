@@ -27,6 +27,8 @@ var _fov: OptionButton
 var _wind: OptionButton
 var _presentation: OptionButton
 var _skill: OptionButton
+var _firmness: OptionButton
+var _speed: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -81,6 +83,8 @@ func _ready() -> void:
 	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
 	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
+	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
+	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -104,6 +108,8 @@ func open(s: GraphicsSettings) -> void:
 	_wind.select(s.wind)
 	_presentation.select(s.presentation)
 	_skill.select(s.skill)
+	_firmness.select(s.green_firmness)
+	_speed.select(s.green_speed)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -283,6 +289,8 @@ func _on_selected() -> void:
 	settings.wind = _wind.selected
 	settings.presentation = _presentation.selected
 	settings.skill = _skill.selected
+	settings.green_firmness = _firmness.selected
+	settings.green_speed = _speed.selected
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

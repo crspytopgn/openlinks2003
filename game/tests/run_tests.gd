@@ -840,6 +840,8 @@ func _test_graphics_settings() -> void:
 	s.wind = Wind.Level.STRONG
 	s.presentation = GraphicsSettings.Presentation.CLASSIC
 	s.skill = 1
+	s.green_firmness = 2
+	s.green_speed = 0
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -849,6 +851,7 @@ func _test_graphics_settings() -> void:
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
 	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
 	_check(loaded.skill == 1, "swing skill saved")
+	_check(loaded.green_firmness == 2 and loaded.green_speed == 0, "green options saved")
 	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
@@ -1135,6 +1138,28 @@ func _test_links_swing_matches_olcore() -> void:
 		var got := [s.aim, s.power, s.face_error, s.path_error, s.spin_scale, s.speed_scale, s.loft_scale]
 		for i in got.size():
 			_check_near(got[i], c[9 + i], 1e-6, "swing case %d value %d" % [cases.find(c), i])
+	# Computer misses, as test_links_computer_miss: rating, max power, steady,
+	# teed up, club, chip, class, power, feet, seed, then power, face, path.
+	var cpu := [
+		[80, 100, false, false, 12, false, LinksGround.FAIRWAY, 100.0, 300.0, 12345, 101.21875, 0.3125, 0.0],
+		[70, 100, false, true, 0, false, LinksGround.FAIRWAY, 100.0, 1200.0, 777, 98.5175018, 0.0, 0.375],
+		[60, 100, false, false, 3, false, LinksGround.ROUGH, 100.0, 600.0, 99, 103.9375, 0.0, 1.875],
+		[95, 90, false, false, 8, false, LinksGround.SAND, 100.0, 450.0, 2003, 100.474998, 0.474999994, 0.0],
+		[40, 100, true, false, 17, false, LinksGround.DEEP_GRASS, 60.0, 120.0, 5, 56.360939, 0.0, 3.9312501],
+		[65, 100, false, false, 14, true, LinksGround.PATH, 30.0, 90.0, 42, 23.4375, 0.0, -1.125],
+	]
+	for c in cpu:
+		var g := LinksLaunch.GolferRatings.even(c[0])
+		g.max_power = c[1]
+		g.steady = c[2]
+		if c[3]:
+			g.tee = 85
+		var w := LinksLaunch.ComputerSwing.new()
+		w.power = c[7]
+		LinksLaunch.computer_miss(w, g, c[4], c[3], c[5], c[6], c[8], LinksLaunch.Rand.new(c[9]))
+		var got := [w.power, w.face_deg, w.path_deg]
+		for i in got.size():
+			_check_near(got[i], c[10 + i], 1e-4, "computer miss case %d value %d" % [cpu.find(c), i])
 
 
 func _test_links_launch_matches_olcore() -> void:
@@ -1206,6 +1231,14 @@ func _check_launch(t: LinksLaunch, s: LinksLaunch.Strike, want: Array, what: Str
 
 
 func _test_links_ground_matches_olcore() -> void:
+	# The game's green options, as test_links_green.
+	var greens := [
+		[1, 1, 0.10538], [1, 2, 0.09], [1, 0, 0.12076], [2, 2, 0.07462], [0, 0, 0.13614], [2, 0, 0.10538],
+	]
+	for c in greens:
+		_check_near(LinksGround.green_for(c[0], c[1]).roll_resistance, c[2], 1e-6, "green %s" % [c])
+	_check_near(LinksGround.green_for(2, 1).spin_grip, 1.3, 1e-6, "firm greens grip")
+	_check_near(LinksGround.green_for(0, 1).restitution, 0.21, 1e-6, "soft greens bounce less")
 	var rng := LinksGround.Rng.new()
 	_check(rng.next_u32() == 0x79a8b120, "first random number")
 	_check(rng.state == 0x65b8545c, "random state")

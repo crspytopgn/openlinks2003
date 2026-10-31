@@ -134,9 +134,29 @@ swing meter:
 | Deep grass | 0.20 | 0.84 | 0.1 | 0.05 | 1.7 | 1.7 | 2 |
 | Cart path | 1 | 1 | 0.1 | 0 | 2 | 2 | 4 |
 
-Green hardness (soft, moderate, hard) and green speed (slow, normal, fast)
-are game options that may override the green's values; the game warns that
-a course's own settings "could produce unexpected results".
+### Green firmness and speed
+
+The game's green options replace every green record on the course. Firmness
+(soft, moderate, hard) picks one of three built-in green records; moderate
+is the default record above. Speed (slow, normal, fast) then sets the
+rolling resistance from those three records' own values: normal keeps the
+firmness's own, and each step faster or slower moves one record along, past
+the ends by the same step again:
+
+| Firmness | Restitution | Impact friction | Skid friction | Impact drag | Spin grip | Slow | Normal | Fast |
+|----------|-------------|-----------------|---------------|-------------|-----------|------|--------|------|
+| Soft | 0.21 | 0.09 | 0.315 | 0.549 | 0.9 | 0.1361 | 0.1208 | 0.1054 |
+| Moderate | 0.23 | 0.08 | 0.383 | 0.496 | 1.219 | 0.1208 | 0.1054 | 0.09 |
+| Hard | 0.25 | 0.10 | 0.2025 | 0.461 | 1.3 | 0.1054 | 0.09 | 0.0746 |
+
+(the last three columns are the rolling resistance). The other values match
+the default green. A "course settings" choice keeps the course's own records
+instead, which the game warns "could produce unexpected results". The code
+also has a second set of three records and three more speeds, with their own
+formulas, that the options screen does not offer; they are not ported.
+Ported as `links_green` (olcore) and `LinksGround.green_for`; the game shell
+has "Green firmness" and "Green speed" settings (medium and normal by
+default).
 
 ## Launch
 
@@ -318,8 +338,54 @@ model above magnifies. The levels also change how fast the meter runs.
 Ported as `links_meter_contact`; the game shell maps an accuracy of +/-1 on
 our meter to 25 units (late is a push-slice); the skill level is the
 "Swing skill" setting (level 3, the hardest, by default). Computer golfers
-skip this model, as in the game, and keep their own mistakes until the
-game's computer miss generator is ported.
+skip this model, as in the game; they have their own.
+
+### Computer golfers' misses
+
+A computer golfer plans a perfect shot (power, and zero face and path
+error), then the game adds its misses. Each golfer has a steadiness rating
+from 0 to 100 for each kind of shot: tee shots, and off the ground by club
+group (driver and woods, clubs 0 to 6; 1 to 3 irons; 4 to 6; 7 to 9; the
+three wedges), plus chips. It also has a most power per club. Where n is
+100 minus the rating, two draws give
+
+    line   = (rand % n + rand % n + n / 8) / 2
+    length = (rand % n + rand % n + n / 8) / 2
+
+(integer arithmetic, line first; n / 6 for the line of a tee shot; 0 when n
+is 0). A plan with more power than the golfer has takes the excess, in whole
+percent, off the rating for the line (twice over off the ground).
+
+The direction miss is line / 2 and the power miss is length, both times the
+lie's AngleMiss (or PowerMiss; the two are equal in every record) and then
+times 1/8, so a rating of 80 misses by about 0.7 degrees and 1.4 percent of
+power on a typical shot. The direction miss is capped at 10 (5 for a golfer
+flagged steady) and added to or taken off either the face or the path, each
+choice a coin flip. Off the tee both misses then grow by (rand % 100) / 100
+(the game means a random sign but always adds, and draws an unused number
+after each). A steady golfer's misses are then halved.
+
+The power miss is taken off the power if the hole is more than 230 yards
+away, and otherwise added or taken off on a coin flip. The direction miss
+also costs half itself in power. A miss that would leave no power is backed
+off: the step shrinks by 0.75 (0.4 for the direction's cost) and is added
+back until the power is positive. The angles are taken as degrees, the
+unit the game's mouse swing uses for its face and path.
+
+Ported as `links_computer_miss` (olcore) and `LinksLaunch.computer_miss`,
+checked against the game's code on 330 random cases and the C++ against our
+reference on 20,000. The game shell uses it for a computer golfer's full
+swings (putts keep OpponentSkill's own mistakes) and, without the golfers'
+own files, gives every shot type the level's single rating from
+`SkillProfile::links_rating` (40, 65, 85 and 95: our numbers), with the most
+power at 100 percent.
+
+Not ported: chips (the shot type that uses the chip rating is not mapped
+yet), putts and one other shot type, which go to a separate routine; and a
+routine that, from the second shot of a hole, scales both misses (from a
+quarter up to eighteen times) and can change the club by how the golfer is
+scoring on the hole against a target. Without it both scales are 1, as on a
+tee shot.
 
 ### Not ported
 

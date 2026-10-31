@@ -15,11 +15,16 @@ var aero: LinksAero
 var clubs: LinksLaunch
 ## The swing skill level of the person playing, 0 (easiest) to 3.
 var skill := 3
-## Set while a computer golfer swings. The game sends computer swings past
-## the human miss model (they make their own mistakes, see ComputerGolfer),
-## so only the lie applies and the accuracy turns the face, until the game's
-## own computer miss generator is ported.
+## Set while a computer golfer swings or plans. The game sends computer
+## swings past the human miss model: only the lie applies, and the accuracy
+## turns the face (how ComputerGolfer tries out likely misses).
 var computer := false
+## Set for a computer golfer's real full swing: Links 2003's own computer
+## miss generator (LinksLaunch.computer_miss) with these ratings replaces the
+## accuracy.
+var computer_ratings: LinksLaunch.GolferRatings = null
+## From the ball to the hole, metres, for computer_ratings.
+var to_hole_m := 0.0
 var rng := LinksLaunch.Rand.new(randi())
 
 
@@ -43,7 +48,16 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	s.power = 100.0 * clampf(power, 0.0, 1.0)
 	var lie_params := LinksGround.surface_for_class(LinksGround.ground_class_for(lie))
 	if computer:
-		s.face_error = -deg_to_rad(COMPUTER_FACE_ERROR_DEG) * clampf(accuracy, -1.0, 1.0)
+		if computer_ratings != null:
+			var cw := LinksLaunch.ComputerSwing.new()
+			cw.power = s.power
+			LinksLaunch.computer_miss(cw, computer_ratings, s.club, lie == Surface.Type.TEE, false,
+					lie_params.ground_class, to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
+			s.power = cw.power
+			s.face_error = deg_to_rad(cw.face_deg)
+			s.path_error = deg_to_rad(cw.path_deg)
+		else:
+			s.face_error = -deg_to_rad(COMPUTER_FACE_ERROR_DEG) * clampf(accuracy, -1.0, 1.0)
 		LinksLaunch.apply_lie(s, lie_params)
 		var cb := clubs.launch_state(s)
 		cb.position = from

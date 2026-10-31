@@ -337,6 +337,32 @@ LinksSurface links_surface(int ground_class) {
   }
 }
 
+LinksSurface links_green(LinksGreenFirmness firmness, LinksGreenSpeed speed) {
+  // Rolling resistance of the soft, medium and firm records.
+  const double soft = 0.120760001;
+  const double medium = 0.105379999;
+  const double firm = 0.0900000036;
+  // Each step of speed moves the resistance one record along (past the ends,
+  // by the same step again).
+  auto f32 = [](double x) { return static_cast<double>(static_cast<float>(x)); };
+  const double ladder[5] = {f32(2 * soft - medium), soft, medium, firm, f32(2 * firm - medium)};
+  int step = firmness == LinksGreenFirmness::Soft ? 1 : firmness == LinksGreenFirmness::Medium ? 2 : 3;
+  step += speed == LinksGreenSpeed::Slow ? -1 : speed == LinksGreenSpeed::Fast ? 1 : 0;
+  LinksSurface g = links_surface(kLinksGreen);
+  switch (firmness) {
+    case LinksGreenFirmness::Soft:
+      g = {kLinksGreen, 0.209999993, 0.0900000036, 0.314999998, 0.549284995, soft, 0.5, 0.899999976};
+      break;
+    case LinksGreenFirmness::Medium:
+      break;
+    case LinksGreenFirmness::Firm:
+      g = {kLinksGreen, 0.25, 0.100000001, 0.202500001, 0.461228013, firm, 0.5, 1.29999995};
+      break;
+  }
+  g.roll_resistance = ladder[step];
+  return g;
+}
+
 int links_ground_class(Surface s) {
   switch (s) {
     case Surface::Tee:

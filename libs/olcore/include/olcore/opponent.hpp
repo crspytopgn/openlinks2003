@@ -30,6 +30,8 @@ struct SkillProfile {
   double mishit_chance;    // chance a full swing is a duff or a top
   double strength;         // the most power it swings with (the meter's 0..1)
   bool course_management;  // weighs the risk of a miss when choosing a shot
+  int links_rating;        // steadiness, 0..100, for Links 2003's own miss
+                           // generator (links_computer_miss) on full swings
 };
 
 const SkillProfile& skill_profile(SkillLevel level);

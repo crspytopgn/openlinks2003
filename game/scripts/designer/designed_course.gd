@@ -30,6 +30,12 @@ var shapes: Array[CourseShape] = []
 var holes: Array[DesignedHole] = []
 ## Trees and other library objects; position.y is filled in from the terrain.
 var objects: Array[PlacedObject] = []
+## Cart paths and bridges.
+var paths: Array[CoursePath] = []
+## What the course knows about each library object it uses (DesignerObjects
+## measures them when the player's files are there), so a course shared with
+## someone without the files still has the right obstacles and stand-ins.
+var object_info := {}
 
 
 ## A flat course of the given size, centred on the origin.
@@ -209,7 +215,10 @@ func _objects_for(dh: DesignedHole, terrain: DesignedTerrain) -> Array[PlacedObj
 	var out: Array[PlacedObject] = []
 	for o in objects:
 		if r.has_point(Vector2(o.position.x, o.position.z)):
-			out.append(PlacedObject.new(o.id, Vector3(o.position.x, terrain.height_at(o.position.x, o.position.z), o.position.z), o.yaw_deg, o.scale))
+			var shown := DesignerObjects.stand_in(o, object_info)
+			if shown != null:
+				shown.position.y = terrain.height_at(o.position.x, o.position.z)
+				out.append(shown)
 	return out
 
 
@@ -225,6 +234,11 @@ func to_dict(with_heights := true) -> Dictionary:
 	var hole_list: Array = []
 	for h in holes:
 		hole_list.append(h.to_dict())
+	var path_list: Array = []
+	for p in paths:
+		if p.is_valid():
+			path_list.append(p.to_dict())
+	refresh_object_info(with_heights)
 	var object_list: Array = []
 	for o in objects:
 		object_list.append({"id": o.id, "x": snappedf(o.position.x, 0.01), "z": snappedf(o.position.z, 0.01),
@@ -240,6 +254,8 @@ func to_dict(with_heights := true) -> Dictionary:
 		"shapes": shape_list,
 		"holes": hole_list,
 		"objects": object_list,
+		"paths": path_list,
+		"object_info": object_info.duplicate(true),
 	}
 
 
@@ -272,7 +288,32 @@ static func from_dict(d: Dictionary) -> DesignedCourse:
 	for o: Dictionary in _list(d, "objects"):
 		c.objects.append(PlacedObject.new(str(o.get("id", TREE_IDS[0])), Vector3(float(o.get("x", 0)), 0, float(o.get("z", 0))),
 			float(o.get("yaw", 0)), float(o.get("scale", 1))))
+	for p: Dictionary in _list(d, "paths"):
+		var path := CoursePath.from_dict(p)
+		if path.is_valid():
+			c.paths.append(path)
+	var info: Variant = d.get("object_info", {})
+	if info is Dictionary:
+		for id: Variant in info:
+			if info[id] is Dictionary:
+				c.object_info[str(id)] = info[id]
 	return c
+
+
+## Measures every library object the course uses that the player's files
+## have, keeping what was saved for the ones they don't.
+func refresh_object_info(prune := true) -> void:
+	var used := {}
+	for o in objects:
+		used[o.id] = true
+	# Undo snapshots keep the rest, so an undone delete gets its info back.
+	for id: String in object_info.keys():
+		if prune and not used.has(id):
+			object_info.erase(id)
+	for id: String in used:
+		var measured := DesignerObjects.measure(id)
+		if not measured.is_empty():
+			object_info[id] = measured
 
 
 ## The dictionaries in d[key], skipping anything else.

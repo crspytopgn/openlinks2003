@@ -156,14 +156,14 @@ int LinksRand::next() {
 
 LinksLieSnap links_lie_snap(int ground_class) {
   switch (ground_class) {
-    case kLinksRough: return {0.1, 0.03, 1.5};
-    case kLinksSand: return {0.2, 0.2, 2};
-    case kLinksPath: return {0.1, 0, 4};
-    case kLinksDirt: return {0.1, 0, 3};
-    case kLinksBushes: return {0.1, 0, 1.5};
-    case kLinksRocks: return {0.1, 0, 3};
-    case kLinksDeepGrass: return {0.1, 0.05, 2};
-    default: return {0.1, 0, 1};
+    case kLinksRough: return {0.1, 0.03, 1.5, 1.5};
+    case kLinksSand: return {0.2, 0.2, 2, 1.9};
+    case kLinksPath: return {0.1, 0, 4, 2};
+    case kLinksDirt: return {0.1, 0, 3, 1.5};
+    case kLinksBushes: return {0.1, 0, 1.5, 1.4};
+    case kLinksRocks: return {0.1, 0, 3, 2};
+    case kLinksDeepGrass: return {0.1, 0.05, 2, 1.7};
+    default: return {0.1, 0, 1, 1};
   }
 }
 
@@ -292,6 +292,86 @@ void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& 
     s.speed_scale = sp * lie.lie_power;
     s.spin_scale = sn * lie.lie_spin;
   }
+}
+
+void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int club, bool teed_up, bool chip,
+                         int ground_class, double feet_to_hole, LinksRand& rng) {
+  // The game works in single precision; every stored value is rounded to it.
+  auto f32 = [](double x) { return static_cast<double>(static_cast<float>(x)); };
+  // Half the sum of two draws below `n` plus n / `bias` (0 when n is 0).
+  auto draw = [&rng](int n, int bias) {
+    if (n == 0) return 0;
+    int a = rng.next() % n;
+    int b = rng.next() % n;
+    return (a + b + n / bias) / 2;
+  };
+  auto coin = [&rng] { return rng.next() % 100 < 50; };
+  // A plan past the golfer's power costs it steadiness, point for point.
+  int forced = w.power > g.max_power ? static_cast<int>(w.power) - g.max_power : 0;
+  int line = 0;
+  int length = 0;
+  if (teed_up) {
+    line = draw(100 - (g.tee - forced), 6);
+    length = draw(100 - g.tee, 8);
+  } else if (chip) {
+    line = draw(100 - g.chips, 8);
+    length = draw(100 - g.chips, 8);
+  } else {
+    int r = club < 0 || club > 18 ? 0
+            : club <= 6           ? g.woods
+            : club <= 9           ? g.long_irons
+            : club <= 12          ? g.mid_irons
+            : club <= 15          ? g.short_irons
+                                  : g.wedges;
+    line = draw(100 - (r - 2 * forced), 8);
+    length = draw(100 - r, 8);
+  }
+  const double lie = f32(links_lie_snap(ground_class).miss);
+  double power_miss = f32(f32(length * lie) * 0.125);
+  double turn = f32(f32(f32(line * 0.5) * lie) * 0.125);
+  turn = std::min(turn, g.steady ? 5.0 : 10.0);
+
+  // The direction miss turns the face or the path, either way.
+  if (coin()) {
+    w.face_deg = coin() ? f32(w.face_deg + turn) : f32(w.face_deg - turn);
+  } else {
+    w.path_deg = coin() ? f32(w.path_deg + turn) : f32(w.path_deg - turn);
+  }
+  if (teed_up) {
+    // The game means a random sign here but always adds.
+    double grow = (rng.next() % 100) * 0.01;
+    rng.next();
+    power_miss = f32(grow + power_miss);
+    grow = (rng.next() % 100) * 0.01;
+    rng.next();
+    turn = f32(grow + turn);
+  }
+  if (g.steady) {
+    turn = f32(turn * 0.5);
+    power_miss = f32(power_miss * 0.5);
+  }
+
+  // A miss that would take all the power is backed off, step by step.
+  auto keep_positive = [](double power, double step, double k) {
+    while (power <= 0) {
+      step *= k;
+      power += step;
+    }
+    return power;
+  };
+  double power = w.power;
+  int yards = static_cast<int>(feet_to_hole) / 3;
+  if (yards > 230 || coin()) {
+    power = f32(power - power_miss);
+    if (power <= 0) power = f32(keep_positive(power, power_miss, f32(0.75)));
+  } else {
+    power = f32(power_miss + power);  // a positive plan stays positive
+  }
+  if (turn != 0) {
+    power = f32(power - f32(turn * 0.5));
+    if (power <= 0) power = f32(keep_positive(power, turn, f32(0.4)));
+  }
+  w.power = power;
 }
 
 BallState links_launch_state(const LinksClubTable& clubs, const LinksStrike& s) {

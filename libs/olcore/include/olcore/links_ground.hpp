@@ -51,6 +51,14 @@ LinksSurface links_surface(int ground_class);
 // The class used for one of our surfaces.
 int links_ground_class(Surface s);
 
+// The game's green options. Each firmness is a whole green record (firm
+// greens bounce higher and grip spin harder); the speed then sets the rolling
+// resistance from the three records' own values. Medium and normal are the
+// defaults above.
+enum class LinksGreenFirmness { Soft, Medium, Firm };
+enum class LinksGreenSpeed { Slow, Normal, Fast };
+LinksSurface links_green(LinksGreenFirmness firmness, LinksGreenSpeed speed);
+
 struct LinksConstants {
   static constexpr double kRadius = 0.07;             // ft
   static constexpr double kGravity = 32.152;          // ft/s^2

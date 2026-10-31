@@ -1663,6 +1663,24 @@ void test_links_impact() {
   CHECK_NEAR(links_contact_time({0, 2, -3}, {0, 1.5, -3.5}, 0.7), 0.72827, 1e-5);
 }
 
+void test_links_green() {
+  // Medium and normal are the class defaults; each step of speed moves the
+  // rolling resistance one firmness along.
+  LinksSurface g = links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Normal);
+  CHECK_NEAR(g.roll_resistance, 0.10538, 1e-6);
+  CHECK_NEAR(g.spin_grip, 1.219, 1e-6);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Fast).roll_resistance, 0.09, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Slow).roll_resistance, 0.12076, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Firm, LinksGreenSpeed::Fast).roll_resistance, 0.07462, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Soft, LinksGreenSpeed::Slow).roll_resistance, 0.13614, 1e-7);
+  LinksSurface firm = links_green(LinksGreenFirmness::Firm, LinksGreenSpeed::Slow);
+  CHECK_NEAR(firm.roll_resistance, 0.10538, 1e-6);
+  CHECK_NEAR(firm.restitution, 0.25, 1e-7);
+  CHECK_NEAR(firm.spin_grip, 1.3, 1e-6);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Soft, LinksGreenSpeed::Normal).spin_grip, 0.9, 1e-6);
+  CHECK(firm.ground_class == kLinksGreen);
+}
+
 void test_links_roll() {
   LinksRandom rng;
   // A fast roll on a flat fairway.
@@ -2052,6 +2070,38 @@ void test_links_swing() {
   }
 }
 
+void test_links_computer_miss() {
+  struct Case {
+    int rating, max_power;
+    bool steady, teed_up;
+    int club;
+    bool chip;
+    int ground_class;
+    double power, feet;
+    unsigned seed;
+    double out_power, face, path;
+  };
+  // Checked against the game's own code running in an emulator.
+  for (const Case& c : {
+           Case{80, 100, false, false, 12, false, kLinksFairway, 100, 300, 12345, 101.21875, 0.3125, 0},
+           Case{70, 100, false, true, 0, false, kLinksFairway, 100, 1200, 777, 98.5175018, 0, 0.375},
+           Case{60, 100, false, false, 3, false, kLinksRough, 100, 600, 99, 103.9375, 0, 1.875},
+           Case{95, 90, false, false, 8, false, kLinksSand, 100, 450, 2003, 100.474998, 0.474999994, 0},
+           Case{40, 100, true, false, 17, false, kLinksDeepGrass, 60, 120, 5, 56.360939, 0, 3.9312501},
+           Case{65, 100, false, false, 14, true, kLinksPath, 30, 90, 42, 23.4375, 0, -1.125},
+       }) {
+    LinksGolferRatings g{c.rating, c.rating, c.rating, c.rating, c.rating, c.rating, c.rating, c.max_power, c.steady};
+    if (c.teed_up) g.tee = 85;
+    LinksComputerSwing w;
+    w.power = c.power;
+    LinksRand rng(c.seed);
+    links_computer_miss(w, g, c.club, c.teed_up, c.chip, c.ground_class, c.feet, rng);
+    CHECK_NEAR(w.power, c.out_power, 1e-5);
+    CHECK_NEAR(w.face_deg, c.face, 1e-7);
+    CHECK_NEAR(w.path_deg, c.path, 1e-7);
+  }
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -2104,11 +2154,13 @@ int main() {
       {"links_random", test_links_random},
       {"links_impact", test_links_impact},
       {"links_roll", test_links_roll},
+      {"links_green", test_links_green},
       {"links_landing", test_links_landing},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},
       {"links_swing", test_links_swing},
+      {"links_computer_miss", test_links_computer_miss},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

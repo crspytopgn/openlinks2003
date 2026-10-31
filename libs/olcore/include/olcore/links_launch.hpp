@@ -89,11 +89,13 @@ class LinksRand {
 
 // How much a mishit costs from each lie (TerrainTypes LieAngularSnap,
 // LiePowerSnap and Snap): spin and ball speed lost per step of the meter's
-// miss, and how far a miss is magnified into a pull or push.
+// miss, and how far a miss is magnified into a pull or push. `miss` (AngleMiss
+// and PowerMiss, equal in every record) scales a computer golfer's misses.
 struct LinksLieSnap {
   double spin_snap = 0.1;
   double power_snap = 0;
   double snap = 1;
+  double miss = 1;
 };
 LinksLieSnap links_lie_snap(int ground_class);
 
@@ -138,6 +140,40 @@ struct LinksSwing {
 // and path. Either way a miss takes spin and ball speed off according to the
 // lie, and sand uses the contact as in links_apply_lie.
 void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& lie, LinksRand& rng);
+
+// A computer golfer's steadiness with each kind of shot, 0 to 100 (more is
+// steadier; the game keeps these in each golfer's definition). `max_power` is
+// the most power, in percent, the golfer swings with; a plan past it is
+// forced and misses more. `steady` halves the misses.
+struct LinksGolferRatings {
+  int tee = 85;          // tee shots
+  int woods = 85;        // clubs 0..6 (driver and woods) off the ground
+  int long_irons = 85;   // clubs 7..9
+  int mid_irons = 85;    // clubs 10..12
+  int short_irons = 85;  // clubs 13..15
+  int wedges = 85;       // clubs 16..18
+  int chips = 85;        // chips
+  int max_power = 100;
+  bool steady = false;
+};
+
+// A computer golfer's planned swing; links_computer_miss adds its mistakes.
+// The angles are in degrees.
+struct LinksComputerSwing {
+  double power = 100;  // percent of a full swing
+  double face_deg = 0;
+  double path_deg = 0;
+};
+
+// The game's computer miss generator: two draws from the golfer's rating for
+// the shot give a power miss and a direction miss, both scaled by the lie
+// (LinksLieSnap::miss). The direction miss turns the face or the path either
+// way and costs half as much power again; the power miss is short or long at
+// random, and always short from more than 230 yards. Off the tee both misses
+// grow by up to 0.99. Power never drops to zero. `feet_to_hole` is measured
+// from the ball.
+void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int club, bool teed_up, bool chip,
+                         int ground_class, double feet_to_hole, LinksRand& rng);
 
 // The same launch in olcore's SI frame (see ball_physics.hpp), with the ball
 // at the origin.

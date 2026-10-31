@@ -43,6 +43,7 @@ var _ground: Node3D
 var _chunks := {}  ## Vector2i -> MeshInstance3D
 var _water: Node3D
 var _apron: MeshInstance3D
+var _paths: Node3D
 var _trees_root: Node3D
 var _tree_nodes: Array[Node3D] = []
 var _markers: Node3D
@@ -198,6 +199,10 @@ func _rebuild_water_and_apron() -> void:
 		_apron.queue_free()
 	_apron = terrain.build_apron()
 	_ground.add_child(_apron)
+	if _paths != null and is_instance_valid(_paths):
+		_paths.queue_free()
+	_paths = terrain.build_paths()
+	_ground.add_child(_paths)
 
 
 func _rebuild_trees() -> void:
@@ -212,12 +217,17 @@ func _rebuild_trees() -> void:
 
 
 func _make_tree(o: PlacedObject) -> Node3D:
-	var node := AssetProviders.object_library.instantiate(o.id)
+	# Objects the player's files don't have are drawn with a built-in stand-in.
+	var node: Node3D = null
+	var shown := DesignerObjects.stand_in(o, course.object_info)
+	if shown != null:
+		node = AssetProviders.object_library.instantiate(shown.id)
 	if node == null:
 		node = Node3D.new()
+		shown = o
 	node.position = Vector3(o.position.x, terrain.height_at(o.position.x, o.position.z), o.position.z)
 	node.rotation_degrees.y = o.yaw_deg
-	node.scale = Vector3.ONE * o.scale
+	node.scale = Vector3.ONE * shown.scale
 	_trees_root.add_child(node)
 	return node
 
@@ -267,6 +277,9 @@ func _restore(d: Dictionary) -> void:
 	course.objects.clear()
 	for o: Dictionary in d["objects"]:
 		course.objects.append(PlacedObject.new(str(o.id), Vector3(float(o.x), 0, float(o.z)), float(o.yaw), float(o.scale)))
+	course.paths.clear()
+	for p: Dictionary in d["paths"]:
+		course.paths.append(CoursePath.from_dict(p))
 	hole_index = mini(int(d["hole_index"]), course.holes.size() - 1)
 	selected = -1
 	terrain.rebuild()
@@ -398,6 +411,16 @@ func _on_left_press(mb: InputEventMouseButton) -> void:
 			else:
 				_draft.append(p2)
 				_overlay_dirty = true
+		DesignerPanel.Tool.PATH:
+			if p2 == null:
+				return
+			if mb.shift_pressed:
+				_remove_path(p2)
+			elif mb.double_click and _draft.size() >= 2:
+				_finish_draft()
+			else:
+				_draft.append(p2)
+				_overlay_dirty = true
 		DesignerPanel.Tool.RAISE, DesignerPanel.Tool.LOWER, DesignerPanel.Tool.SMOOTH, DesignerPanel.Tool.FLATTEN, DesignerPanel.Tool.TREES:
 			if p2 == null:
 				return
@@ -445,7 +468,7 @@ func _on_left_release() -> void:
 
 func _on_right_click() -> void:
 	match panel.tool:
-		DesignerPanel.Tool.SHAPE:
+		DesignerPanel.Tool.SHAPE, DesignerPanel.Tool.PATH:
 			_finish_draft()
 		DesignerPanel.Tool.SELECT:
 			if selected < 0:
@@ -552,6 +575,9 @@ func _drag_to() -> void:
 
 
 func _finish_draft() -> void:
+	if panel.tool == DesignerPanel.Tool.PATH:
+		_finish_path()
+		return
 	if _draft.size() < 3:
 		if not _draft.is_empty():
 			_set_status("An area needs at least three points.")
@@ -563,6 +589,40 @@ func _finish_draft() -> void:
 	selected = course.shapes.size() - 1
 	_mark_surfaces(s.bounds())
 	_set_status("%s added." % Surface.name_of(s.surface))
+
+
+func _finish_path() -> void:
+	var p := CoursePath.new(_draft.duplicate(), panel.path_width.value, panel.path_bridge.button_pressed)
+	if not p.is_valid():
+		if not _draft.is_empty():
+			_set_status("A path needs at least two points.")
+		return
+	_push_undo()
+	course.paths.append(p)
+	_draft.clear()
+	_paths_changed(p.bounds())
+	_set_status("%s added (%d m)." % ["Bridge" if p.bridge else "Cart path", roundi(p.length())])
+
+
+func _remove_path(p2: Vector2) -> void:
+	var best := -1
+	var best_d := maxf(3.0, camera.distance * 0.01)
+	for i in course.paths.size():
+		var d := course.paths[i].distance_to(p2)
+		if d < best_d:
+			best = i
+			best_d = d
+	if best < 0:
+		return
+	_push_undo()
+	var old := course.paths[best].bounds()
+	course.paths.remove_at(best)
+	_paths_changed(old)
+
+
+func _paths_changed(area: Rect2) -> void:
+	_mark_surfaces(area)
+	terrain.update_objects()
 
 
 func _apply_brush(delta: float) -> void:
@@ -803,6 +863,15 @@ func _draw_overlay() -> void:
 		var size := camera.distance * 0.008
 		for p in _draft:
 			_square(p, size, Color.WHITE)
+	for path in course.paths:
+		if not path.is_valid():
+			continue
+		any = true
+		_lines.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+		for p in path.points:
+			_lines.surface_set_color(Color(0.85, 0.75, 0.55) if path.bridge else Color(0.85, 0.85, 0.85))
+			_lines.surface_add_vertex(_ground_point(p, 0.6))
+		_lines.surface_end()
 	for n in course.holes.size():
 		var h := course.holes[n]
 		if h.tees.is_empty():
@@ -846,7 +915,7 @@ func _draw_cursor() -> void:
 			_cursor_lines.surface_set_color(c)
 			_cursor_lines.surface_add_vertex(_ground_point(p2 + Vector2.from_angle(TAU * k / 48.0) * r, 0.4))
 		_cursor_lines.surface_end()
-	elif tool == DesignerPanel.Tool.SHAPE and not _draft.is_empty():
+	elif tool in [DesignerPanel.Tool.SHAPE, DesignerPanel.Tool.PATH] and not _draft.is_empty():
 		_cursor_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 		_cursor_lines.surface_set_color(Color.WHITE)
 		_cursor_lines.surface_add_vertex(_ground_point(_draft[_draft.size() - 1]))

@@ -175,6 +175,8 @@ class StepInfo:
 
 
 static func surface_for_class(ground_class: int) -> Params:
+	if ground_class == GREEN and greens != null:
+		return greens
 	var c := ground_class if SURFACES.has(ground_class) else FAIRWAY
 	var v: Array = SURFACES[c]
 	var p := Params.new()
@@ -189,6 +191,47 @@ static func surface_for_class(ground_class: int) -> Params:
 	if v.size() > 7:
 		p.lie_spin = v[7]
 		p.lie_power = v[8]
+	return p
+
+
+enum GreenFirmness { SOFT, MEDIUM, FIRM }
+enum GreenSpeed { SLOW, NORMAL, FAST }
+
+## The greens every shot uses (set_greens); null is medium and normal.
+static var greens: Params = null
+
+
+## Sets the game's green options for every shot. Mirrors olcore::links_green.
+static func set_greens(firmness: int, speed: int) -> void:
+	greens = green_for(firmness, speed)
+
+
+## The game's green options. Each firmness is a whole green record (firm
+## greens bounce higher and grip spin harder); the speed then sets the rolling
+## resistance from the three records' own values. Mirrors olcore::links_green.
+static func green_for(firmness: int, speed: int) -> Params:
+	var soft := 0.120760001
+	var medium := 0.105379999
+	var firm := 0.0900000036
+	# Each step of speed moves the resistance one record along (past the ends,
+	# by the same step again).
+	var ladder := [2.0 * soft - medium, soft, medium, firm, 2.0 * firm - medium]
+	var p := Params.new()
+	var v: Array = SURFACES[GREEN]
+	match firmness:
+		GreenFirmness.SOFT:
+			v = [0.209999993, 0.0900000036, 0.314999998, 0.549284995, soft, 0.5, 0.899999976]
+		GreenFirmness.FIRM:
+			v = [0.25, 0.100000001, 0.202500001, 0.461228013, firm, 0.5, 1.29999995]
+	p.ground_class = GREEN
+	p.restitution = v[0]
+	p.impact_friction = v[1]
+	p.skid_friction = v[2]
+	p.impact_drag = v[3]
+	p.stop_speed = v[5]
+	p.spin_grip = v[6]
+	var step := clampi(firmness, 0, 2) + 1 + (clampi(speed, 0, 2) - 1)
+	p.roll_resistance = ladder[step]
 	return p
 
 
