@@ -179,6 +179,8 @@ func _ask_for_files(problem := "") -> void:
 		["Load a game folder...", _pick.bind(true)],
 		["Play with placeholders", _play_placeholders],
 		["Course designer", _open_designer],
+		["Players", _open_players],
+		["Settings", _open_settings],
 	])
 
 
@@ -470,6 +472,8 @@ func _show_desktop_choice() -> void:
 		["Choose game folder...", _choose_folder],
 		["Play with placeholders", _play_placeholders],
 		["Course designer", _open_designer],
+		["Players", _open_players],
+		["Settings", _open_settings],
 	])
 
 

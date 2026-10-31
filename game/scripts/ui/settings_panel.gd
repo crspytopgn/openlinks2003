@@ -141,6 +141,13 @@ func close() -> void:
 	visible = false
 
 
+func _process(_delta: float) -> void:
+	# In a round the panel sits on the HUD's canvas, not in a container:
+	# keep it in the middle of the screen, as the pause menu does.
+	if visible and not get_parent() is Container:
+		position = ((get_viewport_rect().size - size) * 0.5).max(Vector2.ZERO)
+
+
 func _grid(parent: Control) -> GridContainer:
 	var grid := GridContainer.new()
 	grid.columns = 2
