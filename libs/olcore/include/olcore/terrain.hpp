@@ -43,6 +43,8 @@ class Terrain {
   virtual Surface surface(double x, double z) const = 0;
   // Unit surface normal. The default takes central differences of height().
   virtual Vec3 normal(double x, double z) const;
+  // Ground the rules give free relief from (cart paths). None by default.
+  virtual bool free_drop(double, double) const { return false; }
   // The first obstacle (tree, wall) the ball meets moving from -> to. The
   // default looks in `obstacles`, if set.
   virtual bool obstacle_hit(Vec3 from, Vec3 to, ObstacleHit& hit) const {

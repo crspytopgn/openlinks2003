@@ -11,7 +11,7 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER }
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -22,7 +22,14 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_FREE_DROP := "    F: free drop"
+const HINT_DROP := "%s: option    Arrows: move the ball (Shift: fine, Page Down: back 10 m)    Space or click: drop here"
+const HINT_DROP_CANCEL := "    Backspace: cancel"
+## Courses don't say which water is a lateral (red) hazard, so every water
+## hazard offers lateral relief; the Rules of Golf let a course mark them all
+## red.
+const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
@@ -94,6 +101,15 @@ var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
+## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
+var _drop_reason := -1
+var _drop_zones: Array[DropRules.Zone] = []
+var _drop_choice := 0
+var _drop_spot := Vector3.ZERO
+var _drop_from := Vector3.ZERO  ## where the ball was, to cancel
+var _drop_note := ""  ## why the last move was refused
+var _drop_pending := false  ## the ball is in the water; drop before play moves on
+var _water_entry := Vector3.ZERO
 
 var shot_model: ShotModel
 var wind: Wind
@@ -103,6 +119,7 @@ var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
+var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig
 var hole_root: Node3D
 var graphics: GraphicsSettings
@@ -265,6 +282,9 @@ func _round_name() -> String:
 func start_hole(index: int) -> void:
 	hole_index = index
 	shot_log.clear()
+	_drop_pending = false
+	_drop_reason = -1
+	drop_marker.visible = false
 	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
@@ -419,6 +439,8 @@ func auto_play_step() -> void:
 			_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
+		State.DROP:
+			_finish_drop()
 		State.HOLE_DONE:
 			_next_hole()
 
@@ -479,6 +501,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					return
 	if settings_panel.visible or pause_menu.visible:
 		return
+	if state == State.DROP and event is InputEventKey and (event as InputEventKey).pressed:
+		if _drop_key(event as InputEventKey):
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
@@ -512,6 +538,14 @@ func _unhandled_input(event: InputEvent) -> void:
 					grid_on = not grid_on
 					_update_green_grid()
 					return
+				KEY_D:
+					if state == State.AIM and opponents[current] == null:
+						_start_drop(DropRules.Reason.UNPLAYABLE)
+					return
+				KEY_F:
+					if state == State.AIM and opponents[current] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+						_start_drop(DropRules.Reason.FREE_RELIEF)
+					return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -540,6 +574,8 @@ func _on_swing_pressed() -> void:
 			_complete_flight()
 		State.SHOT_RESULT:
 			_after_result()
+		State.DROP:
+			_finish_drop()
 		State.COMPUTER:
 			# Hurry up: finish the plan and swing now.
 			opponents[current].finish()
@@ -585,6 +621,8 @@ func _prepare_shot(snap_camera: bool) -> void:
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
 	hud.meter.reset()
 	hud.hint.text = HINT_AIM
+	if hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
 	_update_aim_marker()
@@ -647,7 +685,9 @@ func _complete_flight() -> void:
 		ShotResult.Outcome.WATER:
 			sounds.play(&"splash")
 			strokes += 1
-			ball_at = _water_drop(shot.rest, shot_from)
+			ball_at = shot.rest
+			_water_entry = DropRules.water_entry(shot.points, hole.terrain)
+			_drop_pending = true
 			msg = "Water hazard. One-stroke penalty, take a drop."
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			strokes += 1
@@ -678,6 +718,15 @@ func _after_result() -> void:
 	_stop_replay()
 	hud.show_message("")
 	_clear_trail()
+	if _drop_pending:
+		_drop_pending = false
+		_begin_drop(DropRules.Reason.WATER)
+		return
+	_pass_turn()
+
+
+## The current player's shot is over: whoever plays next takes over.
+func _pass_turn() -> void:
 	_store_turn()
 	var next := _next_player()
 	if next < 0:
@@ -695,6 +744,7 @@ func _after_result() -> void:
 ## MAX_STROKES. The hole ends when everyone is.
 func _hole_out(picked_up: bool) -> void:
 	_store_turn()
+	_drop_pending = false
 	var p := players[current]
 	p.holed = not picked_up
 	p.picked_up = picked_up
@@ -809,28 +859,164 @@ func _quit_to_menu() -> void:
 	SceneFade.change_scene(get_tree(), MENU_SCENE)
 
 
-## Drop point for a ball in water: back along the line of flight to dry land,
-## then two more metres, never further back than where the shot started.
-func _water_drop(entry: Vector3, from: Vector3) -> Vector3:
-	var dir := Vector3(from.x - entry.x, 0.0, from.z - entry.z)
-	var span := dir.length()
-	if span < 0.5:
-		return from
-	dir /= span
-	var t := hole.terrain
-	var travelled := 0.0
-	while travelled < span:
-		var p := entry + dir * travelled
-		var s := t.surface_at(p.x, p.z)
-		if s != Surface.Type.WATER and s != Surface.Type.OUT_OF_BOUNDS:
-			break
-		travelled += 1.0
-	travelled += 2.0
-	if travelled >= span:
-		return from
-	var drop := entry + dir * travelled
-	drop.y = t.height_at(drop.x, drop.z)
-	return drop
+# --- Drops -------------------------------------------------------------------
+# Water, an unplayable lie (D) and free relief from a cart path (F), with the
+# options and zones of DropRules. The player picks an option, can move the
+# ball inside the zone and drops; computer golfers take the default.
+
+## A drop the player asks for while aiming.
+func _start_drop(reason: int) -> void:
+	if reason == DropRules.Reason.UNPLAYABLE:
+		if lie == Surface.Type.TEE:
+			hud.show_message("You can't drop on the tee.", 2.0)
+			return
+		if lie == Surface.Type.GREEN:
+			hud.show_message("The ball is never unplayable on the green.", 2.0)
+			return
+	_begin_drop(reason)
+
+
+func _begin_drop(reason: int) -> void:
+	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
+	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
+	_drop_reason = reason
+	_drop_from = ball_at
+	_drop_note = ""
+	_drop_zones.clear()
+	for option in DropRules.options(reason, LATERAL_WATER):
+		_drop_zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	if reason == DropRules.Reason.FREE_RELIEF and not _drop_zones[0].found:
+		_drop_reason = -1
+		hud.show_message("There's no relief from the path near here.", 2.0)
+		return
+	_drop_choice = DropRules.best(_drop_zones, hole.pin)
+	_drop_spot = _drop_zones[_drop_choice].spot
+	if opponents[current] != null:
+		_finish_drop()
+		return
+	state = State.DROP
+	aim_marker.visible = false
+	green_grid.visible = false
+	if golfer:
+		golfer.visible = false
+	var keys := "1" if _drop_zones.size() == 1 else "1-%d" % _drop_zones.size()
+	hud.hint.text = HINT_DROP % keys
+	if reason != DropRules.Reason.WATER:
+		hud.hint.text += HINT_DROP_CANCEL
+	_show_drop()
+
+
+func _select_drop(i: int) -> void:
+	_drop_choice = i
+	_drop_spot = _drop_zones[i].spot
+	_drop_note = "" if _drop_zones[i].found else "There's nowhere to drop that way."
+	_show_drop()
+
+
+func _show_drop() -> void:
+	var z := _drop_zones[_drop_choice]
+	_place_ball(_drop_spot)
+	var radius := z.radius if z.option != DropRules.Option.BACK_ON_LINE else DropRules.CLUB_LENGTH
+	var centre := z.reference if z.option != DropRules.Option.BACK_ON_LINE else _drop_spot
+	drop_marker.visible = z.found and z.option != DropRules.Option.STROKE_AND_DISTANCE
+	drop_marker.position = Vector3(centre.x, hole.terrain.height_at(centre.x, centre.z) + 0.05, centre.z)
+	drop_marker.scale = Vector3(radius, 1.0, radius)
+	var to_pin := Vector3(hole.pin.x - _drop_spot.x, 0.0, hole.pin.z - _drop_spot.z)
+	camera.aim(_drop_spot, to_pin.normalized() if to_pin.length() > 0.01 else Vector3.FORWARD, false)
+	var titles := ["Water hazard: one-stroke penalty.", "Unplayable lie: one-stroke penalty.", "Free drop from the path."]
+	var lines: Array[String] = []
+	if players.size() > 1:
+		lines.append(scoring.names[current])
+	lines.append(titles[_drop_reason])
+	for i in _drop_zones.size():
+		lines.append("%s %d  %s" % [">" if i == _drop_choice else " ", i + 1, DropRules.OPTION_NAMES[_drop_zones[i].option]])
+	if not _drop_note.is_empty():
+		lines.append(_drop_note)
+	hud.show_message("\n".join(lines))
+
+
+## Moves the ball inside the zone: `back` metres away from the pin, `left`
+## metres to the left as the camera sees it.
+func _move_drop(back: float, left: float) -> void:
+	var z := _drop_zones[_drop_choice]
+	if z.option == DropRules.Option.STROKE_AND_DISTANCE or not z.found:
+		return
+	var side := Vector3(-z.direction.z, 0.0, z.direction.x)
+	var p := _drop_spot + z.direction * back + side * left
+	var c := DropRules.check(z, p, hole.pin, hole.terrain)
+	if c == DropRules.Check.OK:
+		_drop_spot = Vector3(p.x, hole.terrain.height_at(p.x, p.z), p.z)
+		_drop_note = ""
+	else:
+		_drop_note = DropRules.CHECK_TEXT[c]
+	_show_drop()
+
+
+## Keys while dropping; true if the key was used.
+func _drop_key(key: InputEventKey) -> bool:
+	var step := 0.25 if key.shift_pressed else 1.0
+	match key.keycode:
+		KEY_1, KEY_2, KEY_3, KEY_4:
+			var i := int(key.keycode - KEY_1)
+			if not key.echo and i < _drop_zones.size():
+				_select_drop(i)
+		KEY_UP:
+			_move_drop(-step, 0.0)
+		KEY_DOWN:
+			_move_drop(step, 0.0)
+		KEY_PAGEDOWN:
+			_move_drop(10.0, 0.0)
+		KEY_LEFT:
+			_move_drop(0.0, step * 0.5)
+		KEY_RIGHT:
+			_move_drop(0.0, -step * 0.5)
+		KEY_BACKSPACE, KEY_D, KEY_F:
+			if not key.echo:
+				_cancel_drop()
+		_:
+			return false
+	return true
+
+
+func _cancel_drop() -> void:
+	if _drop_reason == DropRules.Reason.WATER:
+		return
+	_drop_reason = -1
+	drop_marker.visible = false
+	ball_at = _drop_from
+	hud.show_message("")
+	_prepare_shot(false)
+
+
+func _finish_drop() -> void:
+	var z := _drop_zones[_drop_choice]
+	if not z.found:
+		_drop_note = "There's nowhere to drop that way. Pick another option."
+		_show_drop()
+		return
+	var reason := _drop_reason
+	_drop_reason = -1
+	drop_marker.visible = false
+	ball_at = _drop_spot
+	# The water penalty was counted when the ball went in.
+	if reason != DropRules.Reason.WATER:
+		strokes += DropRules.penalty(reason)
+	var what := DropRules.OPTION_NAMES[z.option]
+	if reason == DropRules.Reason.UNPLAYABLE:
+		what = "Unplayable: " + what.to_lower()
+	shot_log.append("%s: %s, %.0f m left" % [scoring.names[current], what, _flat_distance(ball_at, hole.pin)])
+	if strokes >= MAX_STROKES:
+		_hole_out(true)
+		return
+	var msg := what + "."
+	if players.size() > 1:
+		msg = scoring.names[current] + ": " + msg
+	if reason == DropRules.Reason.WATER:
+		_pass_turn()
+	else:
+		_store_turn()  # so the saved round has the dropped ball
+		_prepare_shot(false)
+	hud.show_message(msg, 2.0)
 
 
 # --- Computer golfers --------------------------------------------------------
@@ -953,6 +1139,18 @@ func _build_world() -> void:
 	ring_mat.albedo_color = Color(1.0, 0.9, 0.2)
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
+
+	drop_marker = MeshInstance3D.new()
+	var drop_ring := TorusMesh.new()
+	drop_ring.inner_radius = 0.96
+	drop_ring.outer_radius = 1.0
+	drop_marker.mesh = drop_ring
+	var drop_mat := StandardMaterial3D.new()
+	drop_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	drop_mat.albedo_color = Color(1.0, 1.0, 1.0)
+	drop_marker.material_override = drop_mat
+	drop_marker.visible = false
+	add_child(drop_marker)
 
 	camera = RoundCamera.new()
 	camera.far = 3000.0

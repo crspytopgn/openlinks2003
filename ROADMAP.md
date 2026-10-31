@@ -41,7 +41,8 @@ feel) still need a working install.
 - [x] Swing controls: classic three-click power meter
 - [ ] Swing controls: real-time mouse swing
 - [x] Scoring basics: stroke play, putting and holing out, water drop, out of bounds, scorecard
-- [ ] Rules: unplayable lies, lateral hazards, provisional balls, drop options
+- [x] Rules: unplayable lies, lateral hazards, drop options, free drops from cart paths ([game-shell.md](docs/game-shell.md#drops)). No provisional balls: Links 2003 has no lost balls and out of bounds is known at once
+  - [ ] Drop the ball and let it roll, re-dropping if it leaves the zone, as Links does
 - [ ] Cameras: tee view, ball-follow, landing, green overview **(needs data for feel)**
   - [x] Broadcast presentation (Settings > Presentation): TV camera cuts, hole flyovers, shot tracer, replays, green slope grid, TV graphics, captions and crowd reactions ([game-shell.md](docs/game-shell.md#broadcast-presentation))
 - [ ] Wire `olcore` into Godot via GDExtension; drop the GDScript physics port (wasm build needed for Web)

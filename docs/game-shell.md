@@ -26,9 +26,37 @@ as it crosses the white snap line at the bottom. Early (above the line) pulls
 and hooks the ball left, late pushes and slices it right.
 
 The yellow ring shows where a full swing would land (for putts, the hole
-distance). Holes run tee to cup, then on to the next. Water costs a stroke
-and a drop on the line of flight; out of bounds is stroke and distance. A
-hole is picked up at 10 strokes.
+distance). Holes run tee to cup, then on to the next. Out of bounds is
+stroke and distance. A hole is picked up at 10 strokes.
+
+### Drops
+
+Water costs a stroke and a drop. **D** while aiming declares the ball
+unplayable (one stroke; not on the tee or the green), and on a cart path
+**F** takes a free drop. The drop menu lists the options (keys 1 to 3), the
+ball sits on the default spot, a white ring marks the zone, and the arrow
+keys move the ball inside it (Up: towards the pin, Shift: fine, Page Down:
+back 10 m). Space or a click drops; Backspace cancels a voluntary drop.
+Computer golfers, and a player who just confirms, take the legal drop that
+leaves the shortest way to the pin.
+
+| Reason | Penalty | Options |
+| --- | --- | --- |
+| Water | 1 | Back on the line from the pin through where the ball last crossed into the water; within two club lengths of that point; replay from the last spot |
+| Unplayable | 1 | Back on the line from the pin through the ball; within two club lengths of the ball; replay from the last spot. In a bunker the drop stays in the sand |
+| Cart path | 0 | Within a club length of the nearest point off the path |
+
+A drop may never be nearer the pin than its reference point, in water, out
+of bounds or on the green. This is what Links 2003 enforces (its drop menu,
+the free drop on paths, and the "you cannot drop..." refusals); the zone
+shapes come from the Rules of Golf (rules 16, 17 and 19), since how Links
+draws its own drop corridor isn't known. Courses don't mark water as yellow
+or red, so every water hazard offers lateral relief (`LATERAL_WATER` in
+`main.gd`). Not done: Links actually drops the ball and lets it roll (and
+re-drops when it rolls out of the zone); here it is placed. Links 2003 has
+no lost balls, and out of bounds is known at once, so there are no
+provisional balls. The rules are `olcore/rules.cpp`, ported to
+`game/scripts/rules/drop_rules.gd`.
 
 ## Menus and game modes
 

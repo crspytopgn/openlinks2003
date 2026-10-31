@@ -23,6 +23,7 @@ add_library(olcore STATIC
   src/opponent.cpp
   src/panorama.cpp
   src/object_library.cpp
+  src/rules.cpp
   src/scoring.cpp
   src/shot.cpp
   src/ssf.cpp
