@@ -44,6 +44,10 @@ var _wipe_text := ""
 var _ticker := ""
 var _ticker_x := 0.0
 var _aiming := true
+## The Tour presentation: TourGraphics draws the leaderboard, the shot data
+## and the hole map, so the score bug, shot panel, hole card and ticker step
+## aside.
+var tour := false
 var pip: SubViewportContainer
 var pip_camera: Camera3D
 var _pip_view: SubViewport
@@ -168,23 +172,25 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if status.is_empty():
 		return
-	_draw_score_bug()
+	if not tour:
+		_draw_score_bug()
 	_draw_live_bug()
-	if _aiming and _hole_t < 0.0:
+	if _aiming and _hole_t < 0.0 and not tour:
 		_draw_shot_panel()
-	if _hole_t >= 0.0:
+	if _hole_t >= 0.0 and not tour:
 		_draw_hole_card()
 	if _card_t >= 0.0:
 		_draw_shot_card()
-	if _lower_t >= 0.0:
+	if _lower_t >= 0.0 and not tour:
 		_draw_lower_third()
 	if _caption_t >= 0.0 and not _caption.is_empty():
 		_draw_caption()
 	if not _cam_tag.is_empty() and not _replay:
-		_tag(Vector2(16.0, size.y - TICKER_H - 44.0), _cam_tag.to_upper(), false)
+		_tag(Vector2(TourGraphics.RAIL_W + 24.0 if tour else 16.0, size.y - TICKER_H - 44.0), _cam_tag.to_upper(), false)
 	if _replay:
 		_draw_replay_bug()
-	_draw_ticker()
+	if not tour:
+		_draw_ticker()
 	if _wipe_t >= 0.0:
 		_draw_wipe()
 

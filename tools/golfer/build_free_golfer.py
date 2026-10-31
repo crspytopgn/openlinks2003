@@ -13,7 +13,8 @@ https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehum
 Both are CC0; see game/assets/golfer/LICENSE.md. Only data files are read.
 
 The swing, putt and celebration are keyed by hand in pose.py and SWINGS
-below. Needs numpy and Pillow.
+below. Needs numpy and Pillow. Afterwards run mocap_swing.py, which replaces
+the backswing, swing and putt with motion capture.
 """
 
 import argparse

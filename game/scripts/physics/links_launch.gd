@@ -9,6 +9,10 @@ extends RefCounted
 ## The club table is read from the player's own executable.
 
 const CLUB_COUNT := 19
+## The putter's club number; it has no row in the club table.
+const PUTTER := 19
+## Ball ft/s per unit of putt power.
+const PUTT_SPEED := 2.343600034713745
 const ROW_BYTES := 4 * (CLUB_COUNT + 1)  ## each row has a spare zero
 const TABLE_BYTES := 5 * ROW_BYTES
 const FEET_PER_METRE := 1.0 / 0.3048
@@ -223,6 +227,8 @@ class GolferRatings:
 	var short_irons := 85  ## clubs 13..15
 	var wedges := 85  ## clubs 16..18
 	var chips := 85
+	var long_putts := 85  ## putts from 15 ft and more
+	var short_putts := 85  ## putts up to 3 ft (blended in between)
 	var max_power := 100  ## percent; a plan past it is forced and misses more
 	var steady := false  ## halves the misses
 
@@ -236,6 +242,8 @@ class GolferRatings:
 		g.short_irons = rating
 		g.wedges = rating
 		g.chips = rating
+		g.long_putts = rating
+		g.short_putts = rating
 		return g
 
 
@@ -347,6 +355,12 @@ static func apply_swing(s: Strike, w: SwingInput, lie: LinksGround.Params, rng: 
 	s.loft_scale = 1.0
 	s.spin_scale = lie.lie_spin
 	s.speed_scale = lie.lie_power
+
+	if s.club == PUTTER:
+		_putt_miss(s, w, skill, ls.z, rng)
+		if sand:
+			s.face_error = 0.0
+		return
 
 	if w.method == Method.POWERSTROKE:
 		if skill > 0:
@@ -469,10 +483,132 @@ static func _sand(s: Strike, c: int) -> Vector2:
 	return Vector2(0.9 - 0.065 * (clean - 5.0), 1.5 - 0.1 * clean)
 
 
+## A putt only turns the face: the miss as for a full swing without the
+## overswing, flipped and added to the face error, with no power lost.
+static func _putt_miss(s: Strike, w: SwingInput, skill: int, snap: float, rng: Rand) -> void:
+	if w.method != Method.POWERSTROKE:
+		s.face_error = deg_to_rad(w.mouse_face_deg)
+		s.path_error = deg_to_rad(w.mouse_path_deg)
+		return
+	if skill <= 0:
+		return
+	var miss := w.contact * (6 if skill == 3 else (5 if skill == 2 else 2))
+	miss = int(miss * snap)
+	if miss != 0:
+		var sum := rng.next() % 101 + rng.next() % 101 + rng.next() % 101
+		miss = int((sum * 0.001 + 0.35) * miss)
+	miss = -clampi(miss, -60, 60)
+	var turn := ((rng.next() % 25) + 75.0) * 0.01 * miss
+	turn *= 0.5 if skill == 3 else (1.0 / 1.9 if skill == 2 else 2.0 / 3.0)
+	s.face_error += deg_to_rad(turn)
+	# The game still draws the power it would lose, then keeps it all.
+	if skill >= 2 and miss != 0:
+		rng.next()
+
+
+## A computer golfer's putt; mirrors olcore::links_computer_putt_miss (see
+## there and docs/formats/physics.md). Works in double precision.
+@warning_ignore("integer_division")
+static func computer_putt_miss(w: ComputerSwing, g: GolferRatings, ground_class: int, feet_to_hole: float, rng: Rand) -> void:
+	var d := feet_to_hole
+	if not d > (3.5 if g.steady else 2.0):
+		return
+	var feet := int(d)
+	var spread := maxi((100 - feet) / 3, 10) if d < 100.0 else 10
+	var long_r := _s8(g.long_putts)
+	var r := _s8(g.short_putts)
+	if r != long_r and feet > 3:
+		if feet >= 15:
+			if g.steady:
+				r = long_r
+			elif long_r > 30:
+				r = maxi(_s8(_s8(_s8(15 - feet) * 2) + long_r), long_r - 30)
+			else:
+				r = 10
+		else:
+			r = _s8(r - int((r - long_r) * 0.0833333358168602 * (feet - 3)))
+	var line_k := 0.5 if d <= 6.0 else 1.0
+	if r == 100:
+		if line_k == 1.0:
+			return
+		r = 98
+	var n := 100 - r
+	var a := rng.next() % n
+	a = (a + rng.next() % n) / 3
+	var b := rng.next() % n
+	b = (b + rng.next() % n) / 3
+	var length := float(b)
+	var line := a * line_k * 0.5
+	if feet > 2 and feet < 7:
+		line *= 0.4
+		length *= 2.0 / 7.0
+	elif feet <= 2:
+		if r > 60:
+			line = 0.0
+			length = 0.0
+		else:
+			line /= 3.0
+			length *= 0.25
+	else:
+		length *= 0.5
+	if ground_class == LinksGround.ROUGH:
+		line *= 2.0
+		length *= 2.0
+	elif ground_class == LinksGround.FAIRWAY:
+		line *= 1.5
+		length *= 1.5
+	line /= 30.0
+	length /= spread
+	var path := deg_to_rad(w.path_deg)
+	path += line if rng.next() % 100 < 50 else -line
+	w.path_deg = rad_to_deg(path)
+	var power := w.power
+	if rng.next() % 100 >= 25:
+		power += length
+		while power <= 0.0:
+			length *= 0.75
+			power -= length
+	else:
+		power -= length
+		while power <= 0.0:
+			length *= 0.75
+			power += length
+	w.power = power
+
+
+## A signed byte, as the game keeps the ratings.
+static func _s8(x: int) -> int:
+	return ((x + 128) & 255) - 128
+
+
+## The putter's launch; mirrors olcore::links_putt. Velocity (ft/s) and spin
+## (rev/s) on flat ground: putt_slope tilts them onto the slope.
+static func putt(s: Strike) -> Array[Vector3]:
+	var a := s.face_error + deg_to_rad(s.setup.face - 30 + s.setup.stance - 30)
+	var b := s.path_error + deg_to_rad(s.setup.stance - 30)
+	var spd := cos(a - b) * s.power * PUTT_SPEED
+	var vel := Vector3(sin(a), cos(a), 0.0) * spd
+	var w := Vector3(absf(spd) * 2.273642507507853, 0.0, 0.0)
+	return [_turn_z(vel, s.aim), _turn_z(w, s.aim)]
+
+
+## Tilts a putt's velocity or spin onto ground with unit normal n (game
+## frame, z up); mirrors olcore::links_putt_slope.
+static func putt_slope(v: Vector3, n: Vector3) -> Vector3:
+	var a := atan2(n.y, n.z)
+	var x := v.x
+	var y := v.y * cos(a) - v.z * sin(a)
+	var z := v.z * cos(a) + v.y * sin(a)
+	var b := -atan2(n.x, n.z)
+	return Vector3(z * sin(b) + x * cos(b), y, z * cos(b) - x * sin(b))
+
+
 ## The same launch in the game shell's SI frame, with the ball at the origin.
+## The putter's starts on the ground.
 func launch_state(s: Strike) -> BallState:
-	var l := launch(s)
+	var l := putt(s) if s.club == PUTTER else launch(s)
 	var b := BallState.new(Vector3.ZERO)
+	b.on_ground = s.club == PUTTER
 	b.velocity = Vector3(-l[0].x, l[0].z, l[0].y) / FEET_PER_METRE
 	b.spin = Vector3(-l[1].x, l[1].z, l[1].y) * TAU
 	return b

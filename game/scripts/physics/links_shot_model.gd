@@ -10,6 +10,12 @@ extends StandardShotModel
 const METER_UNITS_AT_FULL_MISS := 25.0
 ## Face angle at accuracy +/-1 for a computer golfer's swing.
 const COMPUTER_FACE_ERROR_DEG := 4.0
+## The same for a putt (the game turns a putter's face the other way).
+const COMPUTER_PUTT_FACE_ERROR_DEG := 2.0
+## Putt power at a full meter. The game's putt meter has its own scales
+## (not decoded); ours is linear in ball speed, and a full putt (58.6 ft/s)
+## skids and rolls about 110 ft on a flat, medium, normal-speed green.
+const PUTT_POWER_AT_FULL := 25.0
 
 var aero: LinksAero
 var clubs: LinksLaunch
@@ -19,9 +25,9 @@ var skill := 3
 ## swings past the human miss model: only the lie applies, and the accuracy
 ## turns the face (how ComputerGolfer tries out likely misses).
 var computer := false
-## Set for a computer golfer's real full swing: Links 2003's own computer
-## miss generator (LinksLaunch.computer_miss) with these ratings replaces the
-## accuracy.
+## Set for a computer golfer's real swing or putt: Links 2003's own computer
+## miss generators (LinksLaunch.computer_miss and computer_putt_miss) with
+## these ratings replace the accuracy.
 var computer_ratings: LinksLaunch.GolferRatings = null
 ## From the ball to the hole, metres, for computer_ratings.
 var to_hole_m := 0.0
@@ -40,7 +46,11 @@ static func from_game_folder() -> LinksShotModel:
 
 
 func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int, from: Vector3) -> BallState:
-	if clubs == null or not LinksLaunch.CLUB_INDEX.has(club.short_name):
+	if clubs == null:
+		return super.launch(club, power, accuracy, aim_deg, lie, from)
+	if club.is_putter:
+		return _putt(power, accuracy, aim_deg, lie, from)
+	if not LinksLaunch.CLUB_INDEX.has(club.short_name):
 		return super.launch(club, power, accuracy, aim_deg, lie, from)
 	var s := LinksLaunch.Strike.new()
 	s.club = LinksLaunch.CLUB_INDEX[club.short_name]
@@ -68,6 +78,33 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	w.teed_up = lie == Surface.Type.TEE
 	w.contact = LinksLaunch.meter_contact(-METER_UNITS_AT_FULL_MISS * clampf(accuracy, -1.0, 1.0), skill)
 	LinksLaunch.apply_swing(s, w, lie_params, rng)
+	var b := clubs.launch_state(s)
+	b.position = from
+	return b
+
+
+## Links 2003's putt: the putter's own launch, rolling from the start, with
+## the PowerStroke putt miss (only the face turns).
+func _putt(power: float, accuracy: float, aim_deg: float, lie: int, from: Vector3) -> BallState:
+	var s := LinksLaunch.Strike.new()
+	s.club = LinksLaunch.PUTTER
+	s.aim = deg_to_rad(aim_deg)
+	s.power = PUTT_POWER_AT_FULL * clampf(power, 0.0, 1.0)
+	var acc := clampf(accuracy, -1.0, 1.0)
+	if computer and computer_ratings != null:
+		var cw := LinksLaunch.ComputerSwing.new()
+		cw.power = s.power
+		LinksLaunch.computer_putt_miss(cw, computer_ratings, LinksGround.ground_class_for(lie),
+				to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
+		s.power = cw.power
+		s.path_error = deg_to_rad(cw.path_deg)
+	elif computer:
+		s.face_error = deg_to_rad(COMPUTER_PUTT_FACE_ERROR_DEG) * acc
+	else:
+		var w := LinksLaunch.SwingInput.new()
+		w.skill = skill
+		w.contact = LinksLaunch.meter_contact(-METER_UNITS_AT_FULL_MISS * acc, skill)
+		LinksLaunch.apply_swing(s, w, LinksGround.surface_for_class(LinksGround.ground_class_for(lie)), rng)
 	var b := clubs.launch_state(s)
 	b.position = from
 	return b

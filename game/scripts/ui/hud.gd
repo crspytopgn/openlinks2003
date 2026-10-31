@@ -19,6 +19,7 @@ var _bars: Array[InfoBar] = []
 var shot_panel: ShotPanel
 var windows: ShotWindows
 var overlay: BroadcastOverlay
+var tour: TourGraphics
 var broadcast := false
 
 var _message_time := 0.0
@@ -54,6 +55,10 @@ func _ready() -> void:
 	overlay.visible = false
 	add_child(overlay)
 	move_child(overlay, 0)
+	tour = TourGraphics.new()
+	tour.visible = false
+	add_child(tour)
+	move_child(tour, 1)
 
 	# Under the scorecard, so Tab still shows the card while it is up.
 	hand_over = HandOverPanel.new()
@@ -106,13 +111,15 @@ func _show_classic() -> void:
 	if shot_panel != null:
 		shot_panel.visible = classic
 		windows.visible = classic
-	wind.visible = windows == null or broadcast
+	wind.visible = (windows == null or broadcast) and not tour.visible  # Tour has its own dial
 
 
 ## Switches between the Classic interface and the broadcast graphics.
-func set_broadcast(on: bool) -> void:
+func set_broadcast(on: bool, tour_on := false) -> void:
 	broadcast = on
 	overlay.visible = on
+	overlay.tour = on and tour_on
+	tour.visible = on and tour_on
 	info.visible = not on and art == null
 	for bar in _bars:
 		bar.visible = false
@@ -123,23 +130,33 @@ func set_broadcast(on: bool) -> void:
 		overlay.caption("")
 	# The wind sits below the LIVE bug, and the hints above the ticker.
 	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 50 if on else 12, 90, 112))
-	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+	# Tour's shot-data bar and putt read run along the bottom: the hints sit
+	# above them, smaller, clear of the meter.
+	hint.add_theme_font_size_override("font_size", 14 if tour.visible else 16)
+	if tour.visible:
+		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(TourGraphics.RAIL_W + 24.0, -176, 760, 22))
+	else:
+		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
 	meter.modern = on
 	_place_meter()
 
 
-## The meter: the modern bar bottom right above the ticker, clear of the
-## lower third and the golfer (Broadcast), the
-## original's bar centred at the bottom, or the arc bottom right.
+## The meter: the modern bar bottom right, above the ticker (or above
+## Tour's shot-data bar and hints); the original's bar centred at the
+## bottom; or the arc bottom right.
 func _place_meter() -> void:
 	var want := meter.wanted_size()
 	meter.custom_minimum_size = want
 	if meter.modern:
-		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 24.0, -want.y - 100.0, want.x, want.y))
-	elif art != null:
-		_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
+		var lift := 200.0 if tour.visible else 100.0
+		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 24.0, -want.y - lift, want.x, want.y))
+	elif art == null or tour.visible:
+		if art == null:
+			want = Vector2(220, 220)
+			meter.custom_minimum_size = want
+		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-want.x - 20.0, -want.y - 20.0, want.x, want.y))
 	else:
-		_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))
+		_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
 	meter.queue_redraw()
 
 

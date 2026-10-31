@@ -18,7 +18,16 @@ Jonas Hauquier) in September 2020:
 | Hair, eyes, eyebrows, eyelashes | `hair/short02`, `eyes/high-poly` (brown), `eyebrows/eyebrow001`, `eyelashes/eyelashes01` | system assets |
 
 Only MakeHuman's data files are read; no MakeHuman or MPFB code is used. The
-clubs, the poses and the animations (address, backswing, swing, putt,
-celebrate) are this project's own work, keyed by hand in
-`tools/golfer/pose.py` and `tools/golfer/build_free_golfer.py`, and are
-released with the rest of the repository under its MIT licence.
+clubs, the address poses and the celebration are this project's own work,
+keyed by hand in `tools/golfer/pose.py` and
+`tools/golfer/build_free_golfer.py`, and are released with the rest of the
+repository under its MIT licence.
+
+The backswing, swing and putt are motion capture, retargeted onto the golfer
+by `tools/golfer/mocap_swing.py` (the wrist hinge and the retiming are this
+project's): takes 64_01 (swing) and 64_13 (putt) of the CMU Graphics Lab
+Motion Capture Database, in Bruce Hahne's BVH conversion. CMU's terms: "This
+data is free for use in research and commercial projects worldwide."
+
+The data used in this project was obtained from mocap.cs.cmu.edu. The
+database was created with funding from NSF EIA-0196217.

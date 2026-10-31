@@ -2070,6 +2070,108 @@ void test_links_swing() {
   }
 }
 
+void test_links_computer_putt() {
+  // Against the game's own routine: long and short putt ratings, steady,
+  // feet to the hole, lie, seed, power, then the power and path (radians).
+  struct Case {
+    int long_putts, short_putts;
+    bool steady;
+    double feet;
+    int lie;
+    unsigned seed;
+    double power, want_power, want_path;
+  };
+  const Case cases[] = {
+      {80, 90, false, 20.0, kLinksGreen, 12345u, 8.0, 7.75, 0.266666681},
+      {95, 95, false, 40.0, kLinksFairway, 777u, 15.0, 15.0375004, 0.0},
+      {60, 85, false, 5.0, kLinksGreen, 99u, 3.0, 3.03686643, -0.0166666675},
+      {40, 70, true, 10.0, kLinksRough, 2003u, 6.0, 5.66666651, 0.76666671},
+      {85, 100, false, 4.5, kLinksGreen, 42u, 2.5, 2.5, 0.0},
+      {70, 60, false, 2.6, kLinksGreen, 5u, 1.5, 1.5625, -0.0250000022},
+  };
+  for (const Case& c : cases) {
+    LinksGolferRatings g;
+    g.long_putts = c.long_putts;
+    g.short_putts = c.short_putts;
+    g.steady = c.steady;
+    LinksComputerSwing w;
+    w.power = c.power;
+    w.path_deg = 0;
+    LinksRand rng(c.seed);
+    links_computer_putt_miss(w, g, c.lie, c.feet, rng);
+    CHECK_NEAR(w.power, c.want_power, 1e-5);
+    CHECK_NEAR(w.path_deg * 3.14159265358979323846 / 180, c.want_path, 1e-6);
+    CHECK_NEAR(w.face_deg, 0, 1e-12);
+  }
+  // Inside 2 ft nothing changes and nothing is drawn.
+  LinksComputerSwing w;
+  w.power = 1;
+  LinksRand rng(9);
+  links_computer_putt_miss(w, LinksGolferRatings{}, kLinksGreen, 1.5, rng);
+  CHECK(rng.state() == 9u);
+  CHECK_NEAR(w.power, 1, 1e-12);
+}
+
+void test_links_putt() {
+  // The putt's miss, checked against the game's own routine (rand seeded 777):
+  // only the face turns, by a draw scaled by the skill.
+  const int cases[][2] = {{0, 1}, {1, 1}, {2, 1}, {2, -2}, {2, 3}, {3, 1}, {3, -2}, {3, 3}};
+  const double face[] = {0, -0.0111701, -0.017637, 0.0440925, -0.070548, -0.0251327, 0.0502655, -0.0753982};
+  for (int i = 0; i < 8; ++i) {
+    LinksStrike s;
+    s.club = kLinksPutter;
+    s.power = 10;
+    LinksSwing w;
+    w.skill = cases[i][0];
+    w.contact = cases[i][1];
+    LinksRand rng(777);
+    links_apply_swing(s, w, links_surface(kLinksGreen), rng);
+    CHECK_NEAR(s.face_error, face[i], 1e-6);
+    CHECK_NEAR(s.power, 10, 1e-12);
+    CHECK_NEAR(s.path_error, 0, 1e-12);
+  }
+  // The launch, against a reference checked on the game's code.
+  LinksStrike s;
+  s.club = kLinksPutter;
+  s.face_error = 0.02;
+  s.path_error = -0.01;
+  s.power = 6;
+  s.aim = 0.3;
+  Vec3 n = Vec3{0.1, -0.2, 0.97} * (1 / std::sqrt(0.01 + 0.04 + 0.97 * 0.97));
+  LinksLaunch l = links_putt(s);
+  Vec3 v = links_putt_slope(l.velocity, n), w = links_putt_slope(l.spin, n);
+  CHECK_NEAR(v.x, -3.584047, 1e-5);
+  CHECK_NEAR(v.y, 13.229612, 1e-5);
+  CHECK_NEAR(v.z, -3.111701, 1e-5);
+  CHECK_NEAR(w.x, 30.563985, 1e-5);
+  CHECK_NEAR(w.y, 9.249282, 1e-5);
+  CHECK_NEAR(w.z, 1.233750, 1e-5);
+  s.face_error = -0.05;
+  s.path_error = 0.03;
+  s.power = 12;
+  s.aim = -1.1;
+  s.setup.face = 33;
+  s.setup.stance = 27;
+  l = links_putt(s);
+  CHECK_NEAR(l.velocity.x, 24.385399, 1e-5);
+  CHECK_NEAR(l.velocity.y, 13.987945, 1e-5);
+  CHECK_NEAR(l.spin.x, 28.992812, 1e-5);
+  CHECK_NEAR(l.spin.y, -56.963907, 1e-5);
+  // In the shell's frame it starts on the ground; on a flat green it skids,
+  // then rolls about 28 ft.
+  LinksClubTable clubs{};
+  LinksStrike flat;
+  flat.club = kLinksPutter;
+  flat.power = 10;
+  BallState st = links_launch_state(clubs, flat);
+  CHECK(st.on_ground);
+  CHECK_NEAR(st.velocity.z, 10 * kLinksPuttSpeed * 0.3048, 1e-9);
+  LinksBall b = links_ball({0, 0, 0.07}, links_putt(flat).velocity, links_putt(flat).spin, LinksMode::Skid);
+  LinksRandom rng;
+  CHECK(run_links_ball(b, TestGround(kLinksGreen), rng) > 0);
+  CHECK_NEAR(b.position.y, 27.84, 0.05);
+}
+
 void test_links_computer_miss() {
   struct Case {
     int rating, max_power;
@@ -2161,6 +2263,8 @@ int main() {
       {"links_lie", test_links_lie},
       {"links_swing", test_links_swing},
       {"links_computer_miss", test_links_computer_miss},
+      {"links_putt", test_links_putt},
+      {"links_computer_putt", test_links_computer_putt},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

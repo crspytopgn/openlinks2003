@@ -377,7 +377,38 @@ the physics, the swing and the scoring are the same in both.
   `crowd_groan` and `crowd_ooh` (synthesised in `PlaceholderSoundBank` until
   the game's own crowd sounds are mapped).
 
-In both presentations, scene changes fade through black and menu panels fade
+### Tour
+
+A third choice, **Tour**, is Broadcast with a modern tour graphics package
+in our own look (`scripts/broadcast/tour_graphics.gd`). It is off by
+default. It replaces the score bug, shot panel, hole card, lower third and
+ticker with:
+
+- a leaderboard rail down the left: holes to play, every player's place
+  and score, and the player on the shot with a hole strip (the hole, its
+  length, and which shot of par this is);
+- a shot-data bar: a wind dial, the club, and a range line from the ball to
+  the pin with the club's carry-to-total window. It also shows the expected
+  score for the hole from here (`OpponentSkill.expected_strokes`);
+- on par 4 and 5 tee shots, a driving zone drawn on the ground
+  (`driving_zone.gd`): miss left, fairway and miss right, each with its
+  chance and expected score. The chances assume start lines spread around
+  the aim by `DrivingZone.SPREAD_DEG` for the swing skill, which is our
+  guess and not Links data;
+- on the green, the putt read (`putt_read.gd`): the computer golfers' putt
+  plan run through the round's physics, drawn as an aim line, the ball's
+  path and an aim target, with the distance, slope and aim in a panel;
+- a tall hole map down the right (`HoleMap.build`) with a dot where every
+  shot on the hole finished, coloured by player;
+- a wider teal tracer.
+
+Golfer voice lines (`scripts/audio/golfer_voice.gd`) play at impact, in
+flight and on landing as well as after the ball stops. The timing is our
+best guess. In the browser, the disc's crowd, menu and voice sounds are a
+setting (Settings > Sounds, about 100 MB copied into memory, used from the
+next start) and the light placeholder sounds play otherwise.
+
+In every presentation, scene changes fade through black and menu panels fade
 in (`scripts/ui/scene_fade.gd`).
 
 ## Plugging in decoded data
@@ -415,8 +446,9 @@ Nothing in the round needs to change.
   folder is configured: the original skinned, textured golfer and clubs as a
   `Skeleton3D`, driven by the original clips. Without a game folder,
   `PlaceholderGolferAssets` gives `FreeGolfer`: a realistic man built from
-  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with the
-  swing, putt and celebration keyed by hand and baked into
+  MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with a
+  motion-captured swing and putt (CMU mocap, retargeted by
+  `tools/golfer/mocap_swing.py`) and a hand-keyed celebration, baked into
   `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
   If that file is missing it falls back to `PlaceholderGolfer`, the figure
   built from primitives.
