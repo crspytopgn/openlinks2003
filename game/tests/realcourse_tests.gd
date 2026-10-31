@@ -45,6 +45,14 @@ func _test_geo_frame() -> void:
 	check(north.y > 1110.0 and north.y < 1115.0 and absf(north.x) < 0.01, "0.01 deg north is about 1113 m, on +z: %s" % north)
 	var p := Vector2(-250.0, 400.0)
 	check(f.to_local(f.lat_of(p), f.lon_of(p)).distance_to(p) < 0.001, "GeoFrame round trip")
+	# To scale: metres per degree against the WGS84 ellipsoid's radii of
+	# curvature (computed independently), within 1 cm in 1 km, on both sides
+	# of the equator.
+	for row in [[52.0, 111267.353, 68678.016], [33.5, 110913.388, 92922.544], [-34.0, 110922.386, 92384.786], [60.0, 111412.287, 55800.002]]:
+		var g := GeoFrame.new(row[0], 10.0)
+		var dn := g.to_local(row[0] + 0.01, 10.0).y
+		var de := -g.to_local(row[0], 10.01).x
+		check(absf(dn - row[1] * 0.01) < 0.01 and absf(de - row[2] * 0.01) < 0.01, "to scale at %s: %.3f m north, %.3f m east per 0.01 deg" % [row[0], dn, de])
 
 
 func _test_terrain_tiles() -> void:
@@ -557,19 +565,22 @@ func _test_detector() -> void:
 			green = s
 		elif s.surface == Surface.Type.SAND:
 			sand.append(s)
-	check(green != null and green.has_meta("detected"), "the green is found in the photo")
+	check(green != null and green.found, "the green is found in the photo")
+	if green != null:
+		var back := CourseShape.from_dict(green.to_dict())
+		check(back.guessed and back.found, "a found shape is saved as found")
 	var fairway: CourseShape = null
 	for s in added:
 		if s.surface == Surface.Type.FAIRWAY:
 			fairway = s
-	check(fairway != null and fairway.has_meta("detected"), "the fairway is found in the photo")
+	check(fairway != null and fairway.found, "the fairway is found in the photo")
 	if fairway != null:
 		var fb := fairway.bounds()
 		check(absf(fb.size.x - 30.0) < 7.0 and fb.position.y > -80.0 and fb.end.y < 180.0, "found fairway in place: %s" % fb)
 	if green != null:
 		var a := absf(_ring_area_of(green.outline()))
 		check(a > 420.0 and a < 650.0, "found green size: %.0f m2" % a)
-	check(sand.size() == 1 and sand[0].has_meta("detected"), "one bunker found, the track left out (%d)" % sand.size())
+	check(sand.size() == 1 and sand[0].found, "one bunker found, the track left out (%d)" % sand.size())
 	if sand.size() == 1:
 		check(sand[0].bounds().get_center().distance_to(Vector2(20, 179)) < 2.0, "bunker in place: %s" % sand[0].bounds().get_center())
 	# Lidar: flat ground with a 0.8 m hollow beside the pin, no photo.
@@ -583,7 +594,7 @@ func _test_detector() -> void:
 	for s in CourseGuesser.fill(c2, 5):
 		if s.surface == Surface.Type.SAND:
 			sand2.append(s)
-	check(not sand2.is_empty() and not sand2[0].has_meta("detected"), "a lidar hollow alone isn't taken for a bunker")
+	check(not sand2.is_empty() and not sand2[0].found, "a lidar hollow alone isn't taken for a bunker")
 	# A bright patch in pale dune ground, with no grass round it, is no
 	# bunker; a bunker touching a pale track is still found on its own.
 	var dune := Image.create(200, 200, false, Image.FORMAT_RGB8)
@@ -613,7 +624,7 @@ func _test_detector() -> void:
 				near.set_pixel(i, j, Color(0.36, 0.6, 0.3))
 	var found_green := false
 	for s in CourseGuesser.fill(c3, 5, flat, [{"image": near, "area": near_area}]):
-		if s.surface == Surface.Type.GREEN and s.has_meta("detected"):
+		if s.surface == Surface.Type.GREEN and s.found:
 			found_green = true
 			var a := absf(_ring_area_of(s.outline()))
 			check(a > 450.0 and a < 620.0, "green from the close-up: %.0f m2" % a)

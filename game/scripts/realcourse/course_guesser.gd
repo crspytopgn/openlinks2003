@@ -15,7 +15,7 @@ extends RefCounted
 ##
 ## Before guessing a green, fairway or bunkers it looks for the real ones
 ## in the aerial photo (CourseDetector), in a close-up round the green when
-## there is one. Found shapes have the meta "detected". (Lidar hollows were
+## there is one. Found shapes have `found` set. (Lidar hollows were
 ## tried for bunkers and were wrong two times in three, worse than a
 ## marked guess, so heights aren't used.)
 ##
@@ -142,8 +142,7 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, detail
 
 static func _add(c: DesignedCourse, added: Array[CourseShape], s: CourseShape, detected := false) -> void:
 	s.guessed = true
-	if detected:
-		s.set_meta("detected", true)
+	s.found = detected
 	c.shapes.append(s)
 	added.append(s)
 

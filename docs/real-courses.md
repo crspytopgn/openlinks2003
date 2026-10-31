@@ -247,15 +247,27 @@ OpenStreetMap from the club's own published scorecard.
   missed and fall back to guesses). Fairways are found on 117 of 320 par
   4 and 5 holes (37%), and on average 69% of a found fairway lies on the
   mapped one (the rest is mostly the first cut of rough beside it).
+  **To scale:** course metres come from latitude and longitude through
+  WGS84's radii of curvature (`GeoFrame`, tested to 1 cm in 1 km), and a
+  hole's length runs from the back tee along the line to the pin, as
+  scorecards measure it. Against published scorecards (2026-10-31,
+  `bench_lengths.gd`): Augusta National 7,501 yards against 7,555 (most
+  holes within 2%; the 13th's new tee isn't mapped yet), Torrey Pines South
+  7,751 against 7,765, and Royal Birkdale 7,161 against 7,156. Holes are
+  only as long as the map's back tee: a tee moved since it was mapped
+  shows up as a difference, and the designer can move it.
   Whatever isn't found is drawn at typical sizes along the line: a green
   round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
   longer than wide), a tee box at each tee, on par 4s and 5s a fairway
   from the landing area (at most 140 m out) to the green, about 34 m wide
   and narrower at its ends, and, on holes with no bunker within 45 m of
   the line, two or three greenside bunkers and a fairway bunker at 230 m.
-  Found and guessed shapes are saved with `"guessed": true`, and the
-  designer's message says how many of each there are, so they can be
-  checked against the photo and redrawn.
+  Found and guessed shapes are saved with `"guessed": true` (found ones
+  also `"found": true`). The designer draws them dashed (guesses in
+  orange), its message says how many of each there are, and selecting one
+  says where it came from, so they can be checked against the photo and
+  redrawn. Moving one or its points makes it the designer's own (no
+  longer marked).
 - **Cart paths:** `golf=cartpath` and `golf_cart=designated` ways.
 - **Ground:** the lidar or tile heights at every 2 m sample, bilinear. Heights below
   -12 m (the sea floor) are raised to -12 m, then the grid is stored round

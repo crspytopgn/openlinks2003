@@ -44,7 +44,7 @@ func _initialize() -> void:
 			var col := Color.WHITE if s.surface == Surface.Type.GREEN else (Color.YELLOW if s.surface == Surface.Type.SAND else Color(0.3, 0.6, 1))
 			_draw(left, img, area, s.outline(), r, f, col)
 		for s in added:
-			if not s.has_meta("detected"):
+			if not s.found:
 				continue
 			var col := Color.CYAN if s.surface == Surface.Type.GREEN else (Color.RED if s.surface == Surface.Type.SAND else Color(0.3, 0.6, 1))
 			if s.has_meta("by") and s.get_meta("by") == "lidar":

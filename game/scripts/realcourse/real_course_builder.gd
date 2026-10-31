@@ -157,7 +157,7 @@ func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	_guessed.clear()
 	var detected := 0
 	for s in CourseGuesser.fill(c, hash(c.course_name), photo, details):
-		if s.has_meta("detected"):
+		if s.found:
 			detected += 1
 		var ring := s.outline()
 		var r := Rect2(ring[0], Vector2.ZERO)

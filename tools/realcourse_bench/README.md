@@ -23,7 +23,8 @@ $GODOT --headless --path game -s $PWD/tools/realcourse_bench/bench_view.gd -- cr
 - fairways: par 4 and 5 holes, fairways found, the mean share of a found
   fairway on a mapped one, and "bad" (under half).
 
-`NODETAIL=1` leaves out the close-ups and `NOPHOTO=1` the course photo.
+`bench_lengths.gd -- <slug>` prints each hole's length in yards, to check against the
+club's scorecard. `NODETAIL=1` leaves out the close-ups and `NOPHOTO=1` the course photo.
 `bench_view.gd` draws six holes: mapped shapes on the left, found ones on
 the right (`/tmp/bench/view_<slug>_<first hole>.png`). The fetch scripts
 need network access to Nominatim, the OSM API and the photo services.

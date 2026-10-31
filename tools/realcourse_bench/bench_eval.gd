@@ -83,7 +83,7 @@ func _eval(slug: String) -> void:
 	var added := CourseGuesser.fill(c, 1, photo if OS.get_environment("NOPHOTO") == "" else null, load_details(slug))
 	var ms := Time.get_ticks_msec() - t0
 	for s in added:
-		if not s.has_meta("detected"):
+		if not s.found:
 			continue
 		var o := s.outline()
 		match s.surface:
@@ -126,7 +126,7 @@ func _eval(slug: String) -> void:
 			continue
 		d["s_mapped"] = d.get("s_mapped", 0.0) + 1
 		for s in added:
-			if s.surface == Surface.Type.SAND and s.has_meta("detected") and inter(s.outline(), g) > 0.0:
+			if s.surface == Surface.Type.SAND and s.found and inter(s.outline(), g) > 0.0:
 				d["s_recall"] = d.get("s_recall", 0.0) + 1
 				break
 	for h in c.holes:
