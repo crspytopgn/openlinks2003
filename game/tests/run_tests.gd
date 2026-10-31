@@ -582,6 +582,9 @@ func _test_round_setup() -> void:
 	_check(s.problem().is_empty(), "best ball, three players")
 	s.mode = GameModes.Mode.SCRAMBLE
 	_check(s.problem().is_empty(), "scramble, three players")
+	s.names = _strs(["A", "B", "a "])
+	_check(not s.problem().is_empty(), "two players can't share a name")
+	s.names = _strs(["A", "B", "C"])
 	s.teams = _ints([1, 1, 1])
 	_check(not s.problem().is_empty(), "scramble needs both teams")
 	s.teams = _ints([0, 1, 0])

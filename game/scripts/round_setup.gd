@@ -84,6 +84,13 @@ func problem() -> String:
 		return "%s needs %d to %d players." % [GameModes.MODE_NAMES[mode], r.x, r.y]
 	if GameModes.is_team(mode) and (not teams.has(0) or not teams.has(1)):
 		return "%s needs players on both teams." % GameModes.MODE_NAMES[mode]
+	# Names key the scorecard and each player's record, so they must differ.
+	var seen := {}
+	for name in names:
+		var key := name.strip_edges().to_lower()
+		if seen.has(key):
+			return "Two players are called %s. Give each player their own name." % name.strip_edges()
+		seen[key] = true
 	return ""
 
 
