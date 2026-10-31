@@ -15,6 +15,11 @@ const HUMAN := -1
 
 ## Course file; empty plays the placeholder course.
 var course_path := ""
+## The course as the menu lists it (its path in the player's files; empty for
+## the placeholder), and its display name. A saved round finds its course by
+## the key.
+var course_key := ""
+var course_name := ""
 var mode: GameModes.Mode = GameModes.Mode.STROKE
 var holes: Holes = Holes.ALL
 var tees: Tees = Tees.BACK
