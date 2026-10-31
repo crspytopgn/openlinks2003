@@ -11,6 +11,19 @@ const FLYOVER_FRAME := 20
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
 const DESIGNER_FRAME := 150
+## Performance budget for the round, per frame, checked at the flyover and
+## from the tee (Photoreal look at Ultra trees and grass, the heaviest a
+## player can pick). Counts, not times: the CI machines render in
+## software, so their frame times say nothing about a player's GPU, but
+## draw calls, triangles, scene objects and video memory are the same
+## everywhere and are what make a scene slow on phones and in the browser.
+## Raise a limit only with a reason in docs/graphics.md.
+const BUDGET := {
+	"draw calls": 1500,
+	"triangles (millions)": 2.0,
+	"objects": 2500,
+	"video memory (MB)": 512.0,
+}
 
 var _game: GolfRound
 var _designer: Node
@@ -46,9 +59,13 @@ func _process(_delta: float) -> bool:
 	elif _frames == FLYOVER_FRAME:
 		# The Broadcast presentation opens the hole with a flyover.
 		_save_jpg(root.get_texture().get_image(), "-flyover")
+		if not _check_budget("flyover"):
+			return true
 		_game.camera.end_flyover()
 	elif _frames == SHOT_FRAME:
 		_save_jpg(root.get_texture().get_image(), "-tee")
+		if not _check_budget("tee"):
+			return true
 		_game.auto_play_step()
 	elif _frames == CAPTURE_FRAME:
 		if not _capture():
@@ -80,6 +97,28 @@ func _capture() -> bool:
 	var ok := top.b > top.r and top.b > 0.3 and bottom.g > bottom.b and bottom.g > 0.08
 	if not ok:
 		print("RENDER CHECK FAILED: unexpected colours")
+		quit(1)
+	return ok
+
+
+## The last frame's counts against BUDGET; false (and quits) if over.
+func _check_budget(view: String) -> bool:
+	var used := {
+		"draw calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		"triangles (millions)": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6,
+		"objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		"video memory (MB)": Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
+	}
+	var ok := true
+	var line := "budget %s:" % view
+	for key: String in BUDGET:
+		var value: float = used[key]
+		line += "  %s %.1f/%.1f" % [key, value, float(BUDGET[key])]
+		if value > float(BUDGET[key]):
+			ok = false
+	print(line)
+	if not ok:
+		print("RENDER CHECK FAILED: over the performance budget")
 		quit(1)
 	return ok
 

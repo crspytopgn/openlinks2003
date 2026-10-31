@@ -100,4 +100,5 @@ feel) still need a working install.
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
-  - [ ] Photoscanned 3D trees with impostors, baked shadows and AO per hole, texture compression tiers, a performance budget in CI
+  - [x] Photo-textured 3D trees with impostors, also in place of the disc courses' tree billboards, baked tree shadows and AO per hole, and a performance budget in CI ([graphics.md](docs/graphics.md))
+  - [ ] Texture compression tiers per device, the HD pack in the browser, cloud shadows
