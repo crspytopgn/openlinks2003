@@ -129,18 +129,19 @@ different textures and sounds.
 | `Flag.tga`, `Logo.tga`, `Tee0..4.tga` | Flag, course logo and tee marker textures | Standard TGA |
 | `Splash0.jpg`, `Splash1.jpg`, `Holprv00..17.jpg` | Loading screens and the 298 x 500 hole preview cards | Standard JPEG |
 | `*.wav` | Ambient sounds (MS ADPCM WAV, 44.1 kHz stereo) | Standard |
-| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Ground class decoded, below |
+| `TerrainTypes` | Surface types with physics values and a map colour: Rough, Sand, Water, Concrete, Asphalt, Deep Grass, Running Water, Tee Area and course-specific ones | Decoded, below |
 | `LieIcons` | 4 bytes | |
-| `Materials` | Terrain materials (below) | Decoded |
+| `Materials` | Terrain materials and their texture layers (below) | Decoded |
 | `txtrdesc` | Terrain texture list (below) | Decoded |
 | `*.tga` (about 37) | The course's own terrain textures, 32-bit TGA, 256 or 512 square | Standard TGA |
 | `ttypetrans`, `textrans` | Small index lists (77 and 82 entries); probably map materials to terrain types and textures | Not decoded |
 | `vertex` (encrypted) | Terrain mesh (below) | Decoded |
 | `Water` | 104 bytes | Not decoded |
 | `RayEngine` | Spatial index over the terrain for ray casts: a header, a bounding box, one min corner and one max corner per node (129,123 nodes), then node lists | Partly understood |
-| `Mappings` | Texture projections (`Default Planar`, per-hole fairway planars and others) | Not decoded; `Default Planar` repeats a texture every 12 feet |
-| `Shapes` | The course's area outlines as closed cubic Bezier splines (below) | Decoded, not yet used |
-| `HoleIDShapes` | One outline per hole: the hole's boundary | Same format as `Shapes` |
+| `Mappings` | Texture projections: planar, cylindrical, per-corner strips (cart paths, blended edges) and blends | Decoded (below) |
+| `Shapes` | The course's area outlines as closed cubic Bezier splines (below) | Decoded |
+| `HoleIDShapes` | One outline per hole: the hole's boundary, which sets out of bounds | Decoded, used |
+| `OBIDShapes` | Out-of-bounds areas (some courses) | Decoded, used |
 | `BugIDShapes` | A few outlines | Same format as `Shapes` |
 | `EnvSound` | Ambient sound kinds, their WAV names, and emitters placed round the course | Decoded (below) |
 | `MasterObj`, `MasterObj3D` | The course's billboard types and 3D object meshes | Decoded ([course-objects.md](course-objects.md)) |
@@ -172,8 +173,9 @@ preview cards.
 Vertex: `f32 x, y, z`, two f32 that are almost always 0, `u16` (unknown),
 `u16` flags (unknown).
 
-Triangle: `u16 material` (index into `Materials`), `u32` (probably a
-`Mappings` record), `u16` (unknown, usually 0), then three vertex indices.
+Triangle: `u16 material` (index into `Materials`), `u16 mapping` (index
+into `Mappings`), `u16` and `u16` (unknown, mostly 0; a few triangles hold
+leftover values here), then three vertex indices.
 The indices are `u16` when the course has at most 65,535 vertices and `u32`
 when it has more. The six CD2 courses use between 31,769 and 68,497
 vertices, and four of them (Cabo, Cambrian, Kauri, Tribute) need the wide
@@ -216,23 +218,89 @@ Standard textures are 8-bit colour-mapped TGAs.
 
 ### `Materials`
 
-`u32 version` (4) and `u32 count`, then 64-byte records: `u32 0`, `u32 1`,
-twelve `i32` texture indices (-1 = unused), a `u32` whose bits seem to mark
-which slots are detail variants of the slot before (`Dry Grass 02.tga`,
-`... 32.tga`, `... 128.tga`), and `u32 0`. A material whose first texture is
-a mask (`Fairway To Rough Alpha.tga`, `Cabo Bunker Alpha 512.tga`) blends
-the textures after it. This is how the edges between fairway and rough are
-drawn.
+`u32 version` (4) and `u32 count`, then 64-byte records: `u32 mode` (0
+plain, 3 blended), `u32 layers` (1 plain, 3 blended), twelve `i32` texture
+indices (-1 = unused), `u32 details` and `u32 0`.
+
+The texture slots hold the layers in order. Each layer is a base texture
+followed by its detail variants (`Dry Grass 02.tga`, `... 32.tga`,
+`... 128.tga`): bits `2k` and `2k + 1` of `details` are set for each
+variant that follows layer `k`'s base texture. The game presumably draws
+the variants at other scales; they are skipped for now.
+
+A plain material has one layer. A blended material has three: a mask
+(`Fairway To Rough Alpha.tga`, `Cabo Bunker Alpha 512.tga`), then two
+ground textures. Black in the mask is the first texture and white the
+second. This is how the edges between fairway and rough, round bunkers and
+round tees are drawn: the strip of triangles along an edge uses a blended
+material, and the mask (128 x 256, a ragged grass edge running down the
+middle) is laid across the strip by a `Mappings` strip (below). At
+Gleneagles 40 of the 77 materials are blended.
+
+### `Mappings`: texture projections
+
+A u32 version (5), a u32 record count, then 40 bytes not decoded (a second
+count and small numbers), so the records start at offset 48. Triangles
+refer to a record by its position in the list.
+
+Each record: `u32 kind`, `u32 id` (0x8000 plus a number, not always the
+position), `u32 name_length`, the name (`Default Planar`, `Hole 2 FW
+planar`, `hole18 tee1 path`, `hole18 tee1 mult`), then by kind:
+
+| Kind | Name | Then |
+|------|------|------|
+| 0 | Planar | `f32 scale_u, scale_v`, then 16 f32: four rows of four, the u, v and w axes (feet per texture repeat) and the origin. A course point is origin + u * row0 + v * row1 + w * row2, and (u, v) times the scales are the texture coordinates. `Default Planar` is 12 feet a repeat; the per-hole fairway planars are rotated to line up with the hole; walls and bridges use upright frames |
+| 1 | Cylindrical | The same fields. The texture wraps round the w axis: u from the angle round it (a full turn is `scale_u` repeats), v from the height along it. Rock walls and pools |
+| 3 | Strip | `f32 scale_u, scale_v` (1 and 12, or 8 or 10), `u32 triangle_count`, then per triangle `u32` (its index in an older build of the mesh), `u32 triangle` (index into `vertex`) and three `u32` corner indices; then `u32 corner_count` and per corner `u32` (old vertex index), `u32 vertex`, `f32 u`, `f32 v`. u runs across the strip from 0 to 1, v along it in texture repeats |
+| 4 | Blend | Five `u32`: the strip that lays the mask, the mapping of the first layer, the mapping of the second (planar so far), then two zeros |
+
+Plain cart paths use strips directly, so their texture runs along the path.
+A blended triangle's mapping is a blend record; corner u is 0 on the side of
+the blend's first texture and 1 on the side of its second. A few strip
+entries are stale (their triangle has since changed); the triangle's own
+mapping index is the one to trust.
+
+olcore::parse_mappings() and its GDScript port
+`TerrainMappings` read this; CrzTerrain lays each triangle's textures by
+its mapping and blends the edges.
 
 ### `Shapes`: area outlines
 
 A u32 version (1) and three f32 (the same three values in every outline
-entry; meaning unknown). `HoleIDShapes` and `BugIDShapes` put a u32 count and
-another u32 before them. Then outlines run to the end of the entry:
-`u32 id`, `u32 segments`, `u8 closed`, `f32 min[3]`, `f32 max[3]`,
-`u32 attributes`, then `3 x segments` points of `f32 x, y, z` (two control
-points and an end point per cubic segment, z = 0). The low bits of
-`attributes` look like a surface type, and 0x800000 is a flag.
+entry; meaning unknown). `HoleIDShapes`, `OBIDShapes` and `BugIDShapes` put a
+u32 count before the version. Then outlines run to the end of the entry:
+`u32 id`, `u32 nodes`, `u8 closed`, `f32 min[3]`, `f32 max[3]` (a box round
+every point, handles included), `u32 attributes`, then per node three points
+of `f32 x, y, z`: the handle coming in, the node itself and the handle going
+out. Consecutive nodes make a cubic Bezier segment (node, its out handle, the
+next node's in handle, the next node); a closed outline also joins the last
+node to the first. The z values are heights and play no part in the tests
+below.
+
+The game tests a point against an outline in two dimensions. It first turns
+the curve into a polygon: starting from the last node of a closed outline
+(the first of an open one), it emits each node and then cuts the segment to
+the next node in half three times (de Casteljau), emitting the seven
+in-between points in order, and ends with the final node again. An outline
+with more than 624 nodes is cut fewer times so the polygon stays under 5,000
+points. A point is inside when a ray towards +x crosses the polygon an odd
+number of times (edges count when one end is at or above the point's y and
+the other below it). Ported as `olcore::shape_outline` and
+`outline_contains` (`CourseAreas` in the game).
+
+- `HoleIDShapes`: one outline per hole, the hole's boundary. The hole number
+  is `attributes >> 27`. A ball that stops outside its hole's outline is out
+  of bounds.
+- `OBIDShapes` (only on some courses, such as Cabo and Cambrian): areas that
+  are out of bounds. Bits 0 to 17 of `attributes` say which holes (bit 0 for
+  the first); every area on the disc courses applies to all 18.
+- `BugIDShapes`: not used here.
+- `Shapes`: the designer's area outlines. The low bits of `attributes` look
+  like a terrain type and 0x800000 is a flag; the game does not read them
+  during play.
+
+On all six disc courses every tee and pin lies inside its own hole's outline
+and outside the next hole's.
 
 ### `TerrainTypes`: ground classes
 
@@ -259,9 +327,29 @@ ball plays off it:
 | 10 | Deep grass, dry grass, tall grass |
 | 0 | A few records with no type name |
 
-These were matched against the type names in all six CD2 courses. The
-physics values are not decoded yet; the game maps the classes onto its own
-surface table for now.
+These were matched against the type names in all six CD2 courses.
+
+The whole record, as the game reads it:
+
+| Offset | Type | Field |
+|--------|------|-------|
+| 0x00 | u32 | index |
+| 0x04 | f32[20] | values: the 14 named in [physics.md](physics.md#per-surface-values-terraintypes), then six the game never reads |
+| 0x54 | u32 | ground class (above) |
+| 0x58 | u32 | terrain category, as scripts see it (`Course_GetTerrainFromPos`) |
+| 0x5C | u32 | flags; the game reads bit 0 (hazard: "In Hazard", no drops) and bit 3 (free drop: "In Free Drop Zone"). The upper bytes often hold leftover memory |
+| 0x60 | u8[3] | map colour |
+| 0x63 | u8[3] | |
+| 0x66 | u8 | |
+| 0x67 | char16[32] | display name ("GE_Fairway") |
+| 0xA7 | char16[32] | type name ("Fairway") |
+| 0xE7 | u32[3] | a zero, then for blended edges the two records being blended (by index) |
+
+Water and running water are flagged as hazards, and so are a few others
+(Auburn mud, Aviara dry red grass). Concrete, asphalt, cart paths and wood
+walls are flagged as free drops. `olcore::parse_crz_terrain_types` reads the
+records (`CourseAreas.parse_terrain_types` in the game), and a course's own
+values now drive the bounce and roll instead of the class defaults.
 
 ### `EnvSound`: ambient sounds
 
@@ -282,12 +370,12 @@ nearest loop for each hole.
 
 ## Open questions
 
-- `RayEngine`, `Mappings`, `ttypetrans`, `textrans` and `Water` layouts,
-  and the physics values in `TerrainTypes`.
+- `RayEngine`, `ttypetrans`, `textrans` and `Water` layouts, the 40 bytes
+  after the `Mappings` count, and how the game uses the detail variants.
 - What the per-vertex and per-triangle unknown fields mean (likely lighting
   or shadow data and texture mapping).
 - The 136-byte trailer of `header` and the 6 flag bytes of each hole.
 - `.CVT` files hold only 13 entries (terrain types, textures, a locked
   `vertex` and `header`). The converter combines them with an original Links
   LS `.CRX` course, which we don't have.
-- `.SHA` shadow files.
+- The rest of the `.SHA` shadow files ([sha.md](sha.md)).

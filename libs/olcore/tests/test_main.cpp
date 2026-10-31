@@ -1745,6 +1745,34 @@ void test_links_shot() {
   CHECK(putt.outcome == ShotOutcome::Holed);
   FlatTerrain water(Surface::Water);
   CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, water).outcome == ShotOutcome::Water);
+
+  // A course's own surface values replace the class defaults (but not on
+  // greens, which take the green options), and the hole's bounds are judged
+  // where the ball stops: a ball that crosses the line and comes back is in.
+  class CourseGround : public FlatTerrain {
+   public:
+    CourseGround(double limit, Surface s) : FlatTerrain(s), limit_(limit) {
+      own_ = links_surface(s == Surface::Green ? kLinksGreen : kLinksFairway);
+      own_.roll_resistance *= 2;
+    }
+    bool in_bounds(double, double z) const override { return z < limit_; }
+    const LinksSurface* links_surface_at(double, double) const override { return &own_; }
+
+   private:
+    double limit_;
+    LinksSurface own_;
+  };
+  ShotResult slow = simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, CourseGround(1e9, Surface::Fairway));
+  CHECK(slow.outcome == ShotOutcome::Rest);
+  CHECK(slow.total_m < r.total_m - 0.5);
+  CHECK_NEAR(slow.carry_m, r.carry_m, 1e-9);
+  CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, CourseGround(slow.rest.z - 1, Surface::Fairway))
+            .outcome == ShotOutcome::OutOfBounds);
+  CHECK(simulate_shot(launch_from_swing(club("PW"), {}, Surface::Fairway), p, CourseGround(slow.rest.z + 1, Surface::Fairway))
+            .outcome == ShotOutcome::Rest);
+  ShotResult green_own = simulate_shot(BallState{{0, 0, 0}, {0, 0, 3.0}, {}}, p, CourseGround(1e9, Surface::Green));
+  ShotResult green_class = simulate_shot(BallState{{0, 0, 0}, {0, 0, 3.0}, {}}, p, green);
+  CHECK_NEAR(green_own.total_m, green_class.total_m, 1e-12);
 }
 
 // A made-up club table in the layout the game uses: five rows of 19 values
@@ -1890,6 +1918,26 @@ class RulesTerrain : public Terrain {
   }
   bool free_drop(double x, double) const override { return x > -12 && x < -10; }
 };
+
+// A course's hazards and hole bounds count for drops too.
+class BoundedRulesTerrain : public RulesTerrain {
+ public:
+  bool hazard(double x, double z) const override { return std::hypot(x + 5, z - 70) < 3; }
+  bool in_bounds(double x, double) const override { return x < 20; }
+};
+
+void test_drop_rules_hazards_and_bounds() {
+  BoundedRulesTerrain t;
+  Vec3 pin{0, 2, 100};
+  DropZone side = drop_zone(DropOption::Lateral, {-5, 0, 75}, {0, 0, 0}, pin, false, t);
+  CHECK(check_drop(side, {-5, 0, 71}, pin, t) == DropCheck::Hazard);
+  CHECK(check_drop(side, {25, 0, 80}, pin, t) == DropCheck::OutOfBounds);
+  // Free relief is never found in a hazard or out of bounds.
+  DropZone free = drop_zone(DropOption::FreeDrop, {-11, 0, 70}, {0, 0, 0}, pin, false, t);
+  CHECK(free.found);
+  CHECK(!t.hazard(free.spot.x, free.spot.z) && t.in_bounds(free.spot.x, free.spot.z));
+  std::printf("  free relief beside the hazard at %.4f %.4f\n", free.spot.x, free.spot.z);
+}
 
 void test_drop_rules() {
   RulesTerrain t;
@@ -2310,6 +2358,7 @@ int main() {
       {"opponent_rng_and_swings", test_opponent_rng_and_swings},
       {"opponent_levels_are_ordered", test_opponent_levels_are_ordered},
       {"drop_rules", test_drop_rules},
+      {"drop_rules_hazards_and_bounds", test_drop_rules_hazards_and_bounds},
       {"expected_strokes", test_expected_strokes},
       {"putt_drops_at_holing_speed", test_putt_drops_at_holing_speed},
       {"putt_distance_follows_green_speed", test_putt_distance_follows_green_speed},

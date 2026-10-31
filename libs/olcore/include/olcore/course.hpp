@@ -58,7 +58,7 @@ struct TerrainTriangle {
   // Neighbouring triangle across each edge; kNoNeighbour on the border.
   std::array<std::uint32_t, 3> neighbour{};
   std::uint16_t material = 0;  // index into the `Materials` table
-  std::uint32_t mapping = 0;   // texture mapping record (not decoded yet)
+  std::uint32_t mapping = 0;   // low 16 bits: index into `Mappings` (see mapping_index())
   std::uint16_t unknown = 0;
 };
 
@@ -81,8 +81,12 @@ struct TextureDesc {
 std::vector<TextureDesc> parse_texture_list(const std::vector<std::uint8_t>& data);
 
 struct TerrainMaterial {
+  std::uint32_t mode = 0;              // 0 plain, 3 blended through a mask
+  std::uint32_t layer_count = 1;       // 1 plain; 3 blended (mask and two layers)
   std::vector<std::int32_t> textures;  // indices into the texture list
-  std::uint32_t kind = 0;              // not decoded yet (0, 1 or 3)
+  // Two bits per layer, one for each detail variant that follows the
+  // layer's base texture in `textures` (see material_layers()).
+  std::uint32_t kind = 0;
 };
 
 // `Materials` entry: which textures each terrain material blends.

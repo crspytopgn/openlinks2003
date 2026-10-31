@@ -7,6 +7,9 @@ extends RefCounted
 
 ## Trees, walls and the like the ball can hit; null for none.
 var obstacles: ObstacleField
+## The hole being played (1 to 18), for courses that limit each hole to its
+## own ground (in_bounds()). Set when a hole starts; 0 means none.
+var hole_number := 0
 
 
 func height_at(_x: float, _z: float) -> float:
@@ -22,6 +25,26 @@ func surface_at(_x: float, _z: float) -> int:
 ## olcore::Terrain::free_drop().
 func free_drop_at(_x: float, _z: float) -> bool:
 	return false
+
+
+## Ground the rules treat as a hazard (no drops there) besides water.
+## Mirrors olcore::Terrain::hazard().
+func hazard_at(_x: float, _z: float) -> bool:
+	return false
+
+
+## Whether a ball at rest here is in bounds for the hole being played. A
+## course can limit each hole to an outline; Surface.Type.OUT_OF_BOUNDS is
+## ground that is off the course altogether. Mirrors
+## olcore::Terrain::in_bounds().
+func in_bounds(_x: float, _z: float) -> bool:
+	return true
+
+
+## The course's own bounce and roll values here, or null to use the class
+## defaults for surface_at(). Mirrors olcore::Terrain::links_surface_at().
+func links_surface_at(_x: float, _z: float) -> LinksGround.Params:
+	return null
 
 
 func normal_at(x: float, z: float) -> Vector3:

@@ -19,7 +19,7 @@ feel) still need a working install.
 - [x] Inventory the install folder: file types, counts, sizes (`docs/install-listing/`, `docs/formats/inventory.md`)
 - [ ] Container formats: `LSls` archives, `ARC0` zlib archives, chained-zlib `.CRZ` courses **(unblocked: samples on CD1 to CD3)**. `ARC0` and `.CRZ` are done; `.CRZ` turned out to be an encrypted ARC0 ([crz.md](docs/formats/crz.md))
   - [x] `LSls` archives and their LZW compression ([ls-archive.md](docs/formats/ls-archive.md), `olcore::LsArchive`)
-- [ ] Course format: terrain, surface types, holes, tees, pins, hazards, OB **(unblocked: six `.CRZ` courses on CD2, 39 `.CVT`)**. Done: terrain mesh, materials, textures, holes, tees, pins, ground classes (`TerrainTypes`). Still to do: the surface physics values, hazards and OB (`Shapes`), texture mappings
+- [x] Course format: terrain, surface types, holes, tees, pins, hazards, OB. Terrain mesh, materials, textures and their mappings, holes, tees, pins, the full `TerrainTypes` records (surface physics values, hazard and free-drop flags), hole outlines and out-of-bounds areas (`HoleIDShapes`, `OBIDShapes`) ([crz.md](docs/formats/crz.md))
   - [x] The 39 converted Links LS courses (`.CVT`): holes, terrain and surface types, exported with the standard textures ([cvt.md](docs/formats/cvt.md)). Objects and skies for them would need the player's own Links LS `.CRX` files
 - [ ] Object format: trees, buildings, crowds and their placement **(unblocked: CD3 `OBJECT/`, `OBJECT.LIB`, `CROWDS.LIB`; placement comes with the course format)**
   - [x] Library objects: `OBJECT.LIB`, `BTCV` billboards, `.XYZ`/`.CMF` models ([object-library.md](docs/formats/object-library.md), [model.md](docs/formats/model.md))
@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. Still to do: the PowerStroke meter's screen geometry, chips in the game shell, the game's own cup, tree and object collisions, and per-course surface values from `TerrainTypes` instead of the class defaults
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. Still to do: the PowerStroke meter's screen geometry, chips in the game shell, the game's own cup, tree and object collisions. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -54,7 +54,8 @@ feel) still need a working install.
   - [x] HD texture packs: `tools/oltex export` writes the textures as PNG for upscaling, and the game loads an upscaled pack in their place (`HdPack`, [hd-textures.md](docs/hd-textures.md)). Still to do: packs in the browser build, the HUD and menu art, the patch `.sky` skies
   - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
   - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
-  - [ ] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks); `.SHA` shadow maps
+  - [x] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks) ([crz.md](docs/formats/crz.md#mappings-texture-projections)); `.SHA` tree shadow shapes in the baked ground shade ([sha.md](docs/formats/sha.md))
+  - [ ] The rest of `.SHA` (3D object light maps, per-billboard shade) and the detail texture variants
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
   - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))
@@ -87,6 +88,8 @@ feel) still need a working install.
 - [ ] Course designer
   - [x] In-game designer that works in the browser: sculpt the ground, paint fairways, greens, tees, bunkers, ponds and rough, plant trees, lay out holes, play the course, save, export and import `.olc` files ([course-designer.md](docs/course-designer.md))
   - [x] Objects from the player's own object library with measured collision sizes, cart paths (free drop) and bridges, per-hole flyover, shareable single-file courses
+  - [x] Real courses by name: OpenStreetMap holes and areas plus open lidar and elevation heights, in the browser too ([real-courses.md](docs/real-courses.md))
+  - [ ] Real courses: finer national lidar per country, aerial photos for trees, buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
@@ -105,4 +108,5 @@ feel) still need a working install.
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [x] Photo-textured 3D trees with impostors, also in place of the disc courses' tree billboards, baked tree shadows and AO per hole, and a performance budget in CI ([graphics.md](docs/graphics.md))
-  - [ ] Texture compression tiers per device, the HD pack in the browser, cloud shadows
+  - [x] Cloud shadows (Settings > Graphics, on in the Photoreal, Natural and Cinematic looks)
+  - [ ] Texture compression tiers per device, the HD pack in the browser

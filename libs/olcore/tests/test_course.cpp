@@ -2,6 +2,7 @@
 // come from the game executable, so these use made-up tables; the expected
 // ciphertexts were produced by an independent implementation that matches
 // the game's own output on the real tables.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -9,10 +10,14 @@
 #include <string>
 #include <vector>
 
+#include "olcore/binary_reader.hpp"
 #include "olcore/bunky.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_areas.hpp"
 #include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
+#include "olcore/shadow_file.hpp"
+#include "olcore/terrain_mapping.hpp"
 
 namespace {
 
@@ -272,6 +277,99 @@ void test_ground_classes() {
   bool threw = false;
   try {
     parse_ground_classes(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+// A version 4 TerrainTypes entry with one rough record that plays as deep
+// grass, flagged as a hazard.
+void test_crz_terrain_types() {
+  Bytes b;
+  put_u32(b, 4);
+  put_u32(b, 1);
+  b.resize(8 + 243, 0xcd);
+  Bytes rec;
+  put_u32(rec, 7);
+  for (int i = 0; i < 20; ++i) put_f32(rec, 0.25f * i);
+  put_u32(rec, 3);           // rough
+  put_u32(rec, 14);          // category
+  put_u32(rec, 0xcdcdcd41);  // hazard; the upper bytes are never read
+  std::copy(rec.begin(), rec.end(), b.begin() + 8);
+  const char16_t name[] = u"Mud";
+  for (int i = 0; i < 4; ++i) {
+    b[8 + 0x67 + 2 * i] = std::uint8_t(name[i] & 0xff);
+    b[8 + 0x67 + 2 * i + 1] = std::uint8_t(name[i] >> 8);
+  }
+  auto types = parse_crz_terrain_types(b);
+  CHECK(types.size() == 1);
+  const CrzTerrainType& t = types[0];
+  CHECK(t.index == 7 && t.ground_class == 3 && t.category == 14);
+  CHECK(t.hazard() && !t.free_drop());
+  CHECK(t.value(0x14) == 0.25f * 4);
+  CHECK(t.value(0x38) == 0.25f * 13);
+  CHECK(t.name == "Mud");
+  b.pop_back();
+  bool threw = false;
+  try {
+    parse_crz_terrain_types(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+void put_node(Bytes& b, double x, double y) {
+  for (int k = 0; k < 3; ++k) {
+    put_f32(b, float(x));
+    put_f32(b, float(y));
+    put_f32(b, 100.0f);
+  }
+}
+
+// HoleIDShapes with hole 2's outline (a 100 ft square, straight sides) and
+// OBIDShapes with an area out of bounds for holes 2 and 3.
+Bytes id_shapes(bool ob) {
+  Bytes b;
+  put_u32(b, 1);
+  put_u32(b, 1);
+  for (int i = 0; i < 3; ++i) put_f32(b, 0);
+  put_u32(b, 42);
+  put_u32(b, 4);
+  b.push_back(1);
+  double lo = ob ? 40 : 0, hi = ob ? 60 : 100;
+  for (double v : {lo, lo, 0.0, hi, hi, 0.0}) put_f32(b, float(v));
+  put_u32(b, ob ? 0x6u : (2u << 27) | 0x100000u);
+  put_node(b, lo, lo);
+  put_node(b, hi, lo);
+  put_node(b, hi, hi);
+  put_node(b, lo, hi);
+  return b;
+}
+
+void test_hole_bounds() {
+  auto holes = parse_id_shapes(id_shapes(false));
+  auto ob = parse_id_shapes(id_shapes(true));
+  CHECK(holes.size() == 1 && holes[0].id == 42 && holes[0].closed && holes[0].hole() == 2);
+  CHECK(ob[0].for_hole(2) && ob[0].for_hole(3) && !ob[0].for_hole(1));
+  Outline o = shape_outline(holes[0]);
+  // Starts at the last node; each of the four segments is cut in eight.
+  CHECK(o.size() == 4 * 8 + 1);
+  CHECK(o.front()[0] == 0 && o.front()[1] == 100);
+  CHECK(o[4][0] == 0 && o[4][1] == 50);
+  CHECK(outline_contains(o, 10, 10) && !outline_contains(o, -1, 10) && !outline_contains(o, 50, 101));
+  HoleBounds hb(holes, ob);
+  CHECK(hb.in_bounds(2, 10, 10));
+  CHECK(!hb.in_bounds(2, 150, 10));
+  CHECK(!hb.in_bounds(2, 50, 50));  // in the out-of-bounds area
+  CHECK(hb.in_bounds(1, 150, 10));  // hole 1 has no outline and no area
+  CHECK(!hb.in_bounds(3, 50, 50));
+  Bytes bad = id_shapes(false);
+  bad[0] = 2;
+  bool threw = false;
+  try {
+    parse_id_shapes(bad);
   } catch (const std::exception&) {
     threw = true;
   }
@@ -624,6 +722,152 @@ void test_crowd_placements() {
 
 }  // namespace
 
+void put_name(Bytes& b, const std::string& name) {
+  put_u32(b, std::uint32_t(name.size()));
+  b.insert(b.end(), name.begin(), name.end());
+}
+
+// A `Mappings` entry with one record of each kind. The GDScript port
+// (game/tests/course_tests.gd) builds the same bytes.
+Bytes test_mappings_entry() {
+  Bytes b;
+  put_u32(b, 5);
+  put_u32(b, 4);
+  while (b.size() < 48) b.push_back(0);
+  // 0: planar, 12 feet per repeat, rotated 90 degrees, origin (100, 200, 0).
+  put_u32(b, 0);
+  put_u32(b, 0x8000);
+  put_name(b, "Planar");
+  put_f32(b, 1);
+  put_f32(b, 1);
+  for (float f : {0.f, 12.f, 0.f, 0.f, -12.f, 0.f, 0.f, 0.f, 0.f, 0.f, 12.f, 0.f, 100.f, 200.f, 0.f, 1.f}) put_f32(b, f);
+  // 1: cylindrical round the z axis, 4 repeats round, 10 feet tall.
+  put_u32(b, 1);
+  put_u32(b, 0x8001);
+  put_name(b, "Pool");
+  put_f32(b, 4);
+  put_f32(b, 1);
+  for (float f : {20.f, 0.f, 0.f, 0.f, 0.f, 20.f, 0.f, 0.f, 0.f, 0.f, 10.f, 0.f, 0.f, 0.f, 0.f, 1.f}) put_f32(b, f);
+  // 2: a strip over triangle 7 (vertices 3, 4, 5).
+  put_u32(b, 3);
+  put_u32(b, 0x8002);
+  put_name(b, "Edge path");
+  put_f32(b, 1);
+  put_f32(b, 12);
+  put_u32(b, 1);
+  for (std::uint32_t v : {999u, 7u, 2u, 0u, 1u}) put_u32(b, v);
+  put_u32(b, 3);
+  for (std::uint32_t c = 0; c < 3; ++c) {
+    put_u32(b, 999);
+    put_u32(b, 3 + c);
+    put_f32(b, c == 1 ? 1.f : 0.f);
+    put_f32(b, 0.5f * float(c));
+  }
+  // 3: blend, the strip for the mask, the planar for both layers.
+  put_u32(b, 4);
+  put_u32(b, 0x8003);
+  put_name(b, "Edge multi");
+  for (std::uint32_t v : {2u, 0u, 0u, 0u, 0u}) put_u32(b, v);
+  return b;
+}
+
+void test_mappings() {
+  auto m = parse_mappings(test_mappings_entry());
+  CHECK(m.size() == 4);
+  if (m.size() != 4) return;
+  CHECK(m[0].kind == MappingKind::kPlanar && m[0].name == "Planar");
+  // origin + 1 * row0 + 2 * row1 = (100 - 24, 200 + 12, 0).
+  auto uv = mapping_uv(m[0], {76, 212, 5});
+  CHECK(std::fabs(uv[0] - 1) < 1e-5f && std::fabs(uv[1] - 2) < 1e-5f);
+  CHECK(m[1].kind == MappingKind::kCylindrical);
+  auto cyl = mapping_uv(m[1], {0, 20, 5});  // a quarter round, half way up
+  CHECK(std::fabs(cyl[0] - 1) < 1e-5f && std::fabs(cyl[1] - 0.5f) < 1e-5f);
+  CHECK(m[2].kind == MappingKind::kStrip && m[2].scale_v == 12);
+  CHECK(m[2].triangles.size() == 1 && m[2].triangles[0].triangle == 7);
+  CHECK(m[2].triangles[0].corner == (std::array<std::uint32_t, 3>{2, 0, 1}));
+  CHECK(m[2].corners.size() == 3 && m[2].corners[1].vertex == 4 && m[2].corners[1].u == 1 &&
+        m[2].corners[2].v == 1);
+  CHECK(m[3].kind == MappingKind::kBlend && m[3].layers == (std::array<std::uint32_t, 3>{2, 0, 0}));
+  Bytes bad = test_mappings_entry();
+  bad.push_back(0);
+  bool threw = false;
+  try {
+    parse_mappings(bad);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+  TerrainTriangle t;
+  t.mapping = 0x616d0006;
+  CHECK(mapping_index(t) == 6);
+}
+
+void test_material_layers() {
+  TerrainMaterial plain;
+  plain.textures = {4, 5, 6};
+  plain.kind = 0x3;  // two detail variants of the only layer
+  auto p = material_layers(plain);
+  CHECK(!p.blended && p.mask == -1 && p.layers == (std::vector<std::int32_t>{4}));
+  TerrainMaterial blend;
+  blend.mode = 3;
+  blend.layer_count = 3;
+  // Mask with one detail, layer A with two, layer B with none.
+  blend.textures = {10, 11, 20, 21, 22, 30};
+  blend.kind = 0x1 | 0xc;
+  auto b = material_layers(blend);
+  CHECK(b.blended && b.mask == 10 && b.layers == (std::vector<std::int32_t>{20, 30}));
+}
+
+// A shadow file: 2 light maps of 2 x 2, some undecoded words, then three
+// shapes (none, 32 x 32, none) and a tail.
+Bytes test_shadow_file() {
+  Bytes b(0x136, 0);
+  std::memcpy(b.data(), "VER5JDHSHADOW", 14);
+  std::memcpy(b.data() + 14, "test.CRZ", 8);
+  set_u32(b, 0x10e, 12345);
+  set_u32(b, 0x11e, 2);  // models
+  set_u32(b, 0x122, 3);  // billboard types
+  set_u32(b, 0x126, 1);  // model placements
+  set_u32(b, 0x12a, 2);  // billboards
+  set_u32(b, 0x12e, 2);
+  set_u32(b, 0x132, 2);
+  for (int i = 0; i < 8; ++i) b.push_back(0xfe);
+  put_u32(b, 5);
+  put_f32(b, 1.0f);
+  put_f32(b, 0.25f);
+  put_u32(b, 0);
+  put_u32(b, 0);
+  put_u32(b, 32);
+  put_u32(b, 32);
+  for (int i = 0; i < 32 * 32; ++i) b.push_back(std::uint8_t(i));
+  put_u32(b, 0);
+  put_u32(b, 0);
+  put_u32(b, 3);  // tail
+  put_u32(b, 3);
+  return b;
+}
+
+void test_shadow_file_shapes() {
+  auto f = parse_shadow_file(test_shadow_file());
+  CHECK(f.course == "test.CRZ" && f.course_size == 12345);
+  CHECK(f.model_count == 2 && f.billboard_type_count == 3 && f.billboard_count == 2);
+  CHECK(f.shapes.size() == 3);
+  if (f.shapes.size() != 3) return;
+  CHECK(f.shapes[0].width == 0 && f.shapes[0].pixels.empty());
+  CHECK(f.shapes[1].width == 32 && f.shapes[1].height == 32 && f.shapes[1].pixels.size() == 1024);
+  CHECK(f.shapes[1].pixels[33] == 33);
+  CHECK(f.shapes[2].width == 0);
+  Bytes bad = test_shadow_file();
+  bad[0] = 'X';
+  bool threw = false;
+  try {
+    parse_shadow_file(bad);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"bunky_known_answers", test_bunky_known_answers},
@@ -632,6 +876,8 @@ int main() {
       {"reads_locked_archive", test_reads_locked_archive},
       {"plain_header_with_locked_directory", test_reads_plain_header_with_locked_directory},
       {"ground_classes", test_ground_classes},
+      {"crz_terrain_types", test_crz_terrain_types},
+      {"hole_bounds", test_hole_bounds},
       {"course_text", test_course_text},
       {"terrain", test_terrain},
       {"terrain_wide_indices", test_terrain_wide_indices},
@@ -642,6 +888,9 @@ int main() {
       {"course_models", test_course_models},
       {"model_placements", test_model_placements},
       {"object_textures_and_maq", test_object_textures_and_maq},
+      {"mappings", test_mappings},
+      {"material_layers", test_material_layers},
+      {"shadow_file_shapes", test_shadow_file_shapes},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

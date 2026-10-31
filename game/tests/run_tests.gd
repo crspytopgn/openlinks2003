@@ -42,6 +42,8 @@ func _initialize() -> void:
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
 	_run("drop_rules_match_olcore", _test_drop_rules_match_olcore)
+	_run("drop_rules_hazards_and_bounds", _test_drop_rules_hazards_and_bounds)
+	_run("rest_out_of_bounds", _test_rest_out_of_bounds)
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("handicap_scoring", _test_handicap_scoring)
@@ -61,6 +63,7 @@ func _initialize() -> void:
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
 	_run("course_designer", _test_course_designer)
+	_run("real_courses", _test_real_courses)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
@@ -80,6 +83,7 @@ func _process(_delta: float) -> bool:
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
+	_run("team_drops", _test_team_drops)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("players_panel", _test_players_panel)
@@ -123,6 +127,12 @@ func _club(short_name: String) -> Club:
 
 func _test_course_reader() -> void:
 	var tests: RefCounted = load("res://tests/course_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
+
+
+func _test_real_courses() -> void:
+	var tests: RefCounted = load("res://tests/realcourse_tests.gd").new()
 	for failure: String in tests.call("run_all"):
 		_check(false, failure)
 
@@ -679,6 +689,47 @@ class RulesTerrain extends CourseTerrain:
 		return x > -12 and x < -10
 
 
+## RulesTerrain with a course hazard round (-5, 70) and the hole's bounds at
+## x = 20, as in test_drop_rules_hazards_and_bounds (libs/olcore).
+class BoundedRulesTerrain extends RulesTerrain:
+	func hazard_at(x: float, z: float) -> bool:
+		return Vector2(x + 5, z - 70).length() < 3
+
+	func in_bounds(x: float, _z: float) -> bool:
+		return x < 20
+
+
+func _test_drop_rules_hazards_and_bounds() -> void:
+	var t := BoundedRulesTerrain.new()
+	var pin := Vector3(0, 2, 100)
+	var side := DropRules.zone(DropRules.Option.LATERAL, Vector3(-5, 0, 75), Vector3.ZERO, pin, false, t)
+	_check(DropRules.check(side, Vector3(-5, 0, 71), pin, t) == DropRules.Check.HAZARD, "no drop in a course hazard")
+	_check(DropRules.check(side, Vector3(25, 0, 80), pin, t) == DropRules.Check.OUT_OF_BOUNDS, "no drop outside the hole")
+	var free := DropRules.zone(DropRules.Option.FREE_DROP, Vector3(-11, 0, 70), Vector3.ZERO, pin, false, t)
+	_check(free.found, "free relief beside the hazard")
+	_check_spot(free.spot, -12.0840, 69.3776, "free relief beside the hazard")
+
+
+## A hole whose ground ends at z = limit: judged where the ball stops.
+class BoundedTerrain extends FlatTerrain:
+	var limit := 0.0
+
+	func in_bounds(_x: float, z: float) -> bool:
+		return z < limit
+
+
+func _test_rest_out_of_bounds() -> void:
+	var start := Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY)
+	var t := BoundedTerrain.new(Surface.Type.FAIRWAY)
+	t.limit = 1e9
+	var free := BallPhysics.simulate_shot(start, t)
+	_check(free.outcome == ShotResult.Outcome.REST, "rests in bounds")
+	t.limit = free.rest.z - 1.0
+	_check(BallPhysics.simulate_shot(start, t).outcome == ShotResult.Outcome.OUT_OF_BOUNDS, "rests out of bounds")
+	t.limit = free.rest.z + 1.0
+	_check(BallPhysics.simulate_shot(start, t).outcome == ShotResult.Outcome.REST, "rests just in bounds")
+
+
 func _check_spot(actual: Vector3, x: float, z: float, what: String) -> void:
 	_check_near(actual.x, x, 2e-3, what + " x")
 	_check_near(actual.z, z, 2e-3, what + " z")
@@ -868,7 +919,7 @@ func _test_graphics_settings() -> void:
 	# saved before looks existed get one picked for the device.
 	s = GraphicsSettings.new()
 	s.apply_look(GraphicsSettings.Look.PHOTOREAL)
-	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind, "photoreal look")
+	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind and s.cloud_shadows, "photoreal look")
 	s.apply_look(GraphicsSettings.Look.CLASSIC)
 	_check(s.lighting == GraphicsSettings.Lighting.CLASSIC and s.grass == 0 and s.sharpen == 0 and not s.dof, "classic look is plain")
 	_check(s.trees == 0, "classic look keeps the course's own trees")
@@ -932,14 +983,23 @@ func _test_trees() -> void:
 func _test_ground_shade() -> void:
 	# A 10 m tree at the origin with its crown from 4 to 10 m, radius 3 m,
 	# and a sun 45 degrees up shining towards +z.
-	var casters := PackedFloat32Array([0, 0, 0, 4, 10, 3])
+	var casters := PackedFloat32Array([0, 0, 0, 4, 10, 3, 5])
 	var sun := Vector3(0, -1, 1).normalized()
 	var st := GroundShade.stamps(casters, sun)
-	_check(st.size() == 14, "a shadow and an occlusion stamp per caster")
+	_check(st.size() == 16, "a shadow and an occlusion stamp per caster")
 	_check(is_equal_approx(st[0], 0.0) and is_equal_approx(st[1], 7.0), "shadow falls away from the sun, under the crown's middle")
 	_check(is_equal_approx(st[2], 6.0) and is_equal_approx(st[3], 3.0), "shadow stretched along the sun")
 	_check(st[5] > 0.0 and is_zero_approx(st[6]), "shadow stamp darkens R only")
-	_check(is_zero_approx(st[7]) and is_zero_approx(st[8]) and is_zero_approx(st[12]) and st[13] > 0.0, "occlusion at the foot, in G")
+	_check(is_equal_approx(st[7], 5.0) and is_equal_approx(st[15], -1.0), "the crown's shadow takes the tree type's shape, the occlusion an ellipse")
+	_check(is_zero_approx(st[8]) and is_zero_approx(st[9]) and is_zero_approx(st[13]) and st[14] > 0.0, "occlusion at the foot, in G")
+	var shape := Image.create(128, 128, false, Image.FORMAT_L8)
+	shape.fill(Color.WHITE)
+	var atlas := GroundShade.shape_atlas([null, shape])
+	_check(atlas != null and atlas.get_width() == GroundShade.SHAPE_COLUMNS * GroundShade.SHAPE_CELL, "shadow shapes packed into an atlas")
+	if atlas != null:
+		var img := atlas.get_image()
+		_check(img.get_pixel(GroundShade.SHAPE_CELL + 5, 5).r > 0.9 and img.get_pixel(5, 5).r < 0.1, "a type's shape sits in its own cell")
+	_check(GroundShade.shape_atlas([]) == null, "no atlas without shapes")
 	var low := GroundShade.stamps(casters, Vector3(0, -0.01, 1).normalized())
 	_check(Vector2(low[0], low[1]).length() <= GroundShade.MAX_SLANT * 7.0 + 1e-3, "low sun shadows stay bounded")
 	var course := AssetProviders.load_course("")
@@ -947,7 +1007,7 @@ func _test_ground_shade() -> void:
 	var rect := GroundShade.hole_rect(hole)
 	_check(rect.has_point(Vector2(hole.tee.x, hole.tee.z)) and rect.has_point(Vector2(hole.pin.x, hole.pin.z)), "bake covers the hole")
 	var placed := GroundShade.placed_casters(hole)
-	_check(placed.size() % 6 == 0, "placed objects give whole casters")
+	_check(placed.size() % GroundShade.CASTER_SIZE == 0, "placed objects give whole casters")
 	GroundShade.bake(hole, null, sun)  # headless: nothing to draw, no error
 	# Photo ground: the pale 2003 colours become deeper, darker turf.
 	var pale := Color(0.62, 0.78, 0.55)
@@ -1755,6 +1815,57 @@ func _test_team_ball_modes() -> void:
 			_check(game.scoring.cards[members[0]].strokes == game.scoring.cards[members[1]].strokes, "%s: partners share the team score" % mode_name)
 			_check(game.scoring.cards[members[0]].holes_played() == game.holes.size(), "%s: team %d played every hole" % [mode_name, t])
 		print("  %s: %s" % [mode_name.to_lower(), game.scoring.winner_text()])
+	GolfRound.setup = null
+
+
+## Drops in the team modes: a partner's water ball in a scramble doesn't move
+## the team's ball, and a person choosing the drop is asked even when the
+## team's ball belongs to a computer partner.
+func _test_team_drops() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob", "Cy", "Di"])
+	s.teams = _ints([0, 1, 0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, OpponentSkill.Level.TOUR, OpponentSkill.Level.CLUB])
+	s.mode = GameModes.Mode.SCRAMBLE
+	GolfRound.setup = s
+	game.start_round()
+	var tee := game.ball_at
+	_check(game.state == GolfRound.State.AIM and game.current == 0 and game.shooter == 0, "scramble: Ann tees off first")
+	var wet := ShotResult.new()
+	wet.outcome = ShotResult.Outcome.WATER
+	wet.rest = tee + Vector3(0.0, -1.0, 150.0)
+	wet.first_landing = wet.rest
+	wet.time_s = 5.0
+	wet.add_sample(0.0, tee)
+	wet.add_sample(5.0, wet.rest)
+	game.shot = wet
+	game.shot_from = tee
+	game.players[0].shots += 1
+	game._complete_flight()
+	_check(not game._drop_pending, "scramble: no drop left pending for a partner's water ball")
+	_check(game.ball_at.distance_to(tee) < 0.01, "scramble: the partner plays from the tee")
+	var best: Dictionary = game.players[0].round_best
+	_check(int(best.get("add", 0)) == 2, "scramble: the water ball counts its penalty")
+	_check((best.get("at", wet.rest) as Vector3).distance_to(wet.rest) > 1.0, "scramble: the water ball is kept where it was dropped")
+	game._after_result()
+	_check(game.state == GolfRound.State.COMPUTER and game.shooter == 2 and game.ball_at.distance_to(tee) < 0.01, "scramble: Cy hits from the tee next")
+
+	# A computer owns the team ball; its human partner chooses their own drop.
+	s.computer = _ints([OpponentSkill.Level.TOUR, RoundSetup.HUMAN, RoundSetup.HUMAN, OpponentSkill.Level.CLUB])
+	GolfRound.setup = s
+	game.start_round()
+	var steps := 0
+	while not (game.state == GolfRound.State.AIM and game.shooter == 2) and steps < 20:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.AIM and game.current == 0 and game.shooter == 2, "scramble: Cy aims the computer-owned team ball")
+	game._water_entry = game.ball_at
+	game._begin_drop(DropRules.Reason.WATER)
+	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
+	game._finish_drop()
 	GolfRound.setup = null
 
 

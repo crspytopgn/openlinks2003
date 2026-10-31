@@ -32,6 +32,12 @@ Vec3 ring_direction(Vec3 base, int j) {
 
 bool general_area(Surface s) { return s != Surface::Water && s != Surface::OutOfBounds && s != Surface::Green; }
 
+// Ground a ball may be dropped on at all: not water, a hazard, the green or
+// out of bounds.
+bool general_area(const Terrain& t, double x, double z) {
+  return general_area(t.surface(x, z)) && !t.hazard(x, z) && t.in_bounds(x, z);
+}
+
 }  // namespace
 
 int drop_penalty(DropReason reason) { return reason == DropReason::FreeRelief ? 0 : 1; }
@@ -74,7 +80,7 @@ bool nearest_relief(Vec3 ball, Vec3 pin, const Terrain& terrain, Vec3& point) {
     for (int j = 0; j < 36; ++j) {
       Vec3 d = ring_direction(base, j);
       double x = ball.x + d.x * i * kDropStep, z = ball.z + d.z * i * kDropStep;
-      if (!general_area(terrain.surface(x, z)) || terrain.free_drop(x, z)) continue;
+      if (!general_area(terrain, x, z) || terrain.free_drop(x, z)) continue;
       if (std::hypot(x - pin.x, z - pin.z) < limit) continue;
       point = on_ground(x, z, terrain);
       return true;
@@ -141,8 +147,8 @@ DropCheck check_drop(const DropZone& zone, Vec3 spot, Vec3 pin, const Terrain& t
   if (zone.option == DropOption::StrokeAndDistance)
     return flat_distance(spot, zone.spot) < 0.01 ? DropCheck::Ok : DropCheck::OutsideZone;
   Surface s = terrain.surface(spot.x, spot.z);
-  if (s == Surface::OutOfBounds) return DropCheck::OutOfBounds;
-  if (s == Surface::Water) return DropCheck::Hazard;
+  if (s == Surface::OutOfBounds || !terrain.in_bounds(spot.x, spot.z)) return DropCheck::OutOfBounds;
+  if (s == Surface::Water || terrain.hazard(spot.x, spot.z)) return DropCheck::Hazard;
   if (s == Surface::Green) return DropCheck::Green;
   if (zone.in_sand && s != Surface::Sand) return DropCheck::NotSand;
   if (zone.option == DropOption::FreeDrop && terrain.free_drop(spot.x, spot.z)) return DropCheck::StillOnPath;

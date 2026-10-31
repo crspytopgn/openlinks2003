@@ -80,6 +80,7 @@ var _new_dialog: ConfirmationDialog
 var _new_size: OptionButton
 var _new_starter: CheckBox
 var _open_dialog: ConfirmationDialog
+var _real: RealCourseDialog
 var _open_list: ItemList
 var _discard_dialog: ConfirmationDialog
 var _after_discard: Callable
@@ -148,6 +149,7 @@ func _set_course(c: DesignedCourse, p_path: String) -> void:
 	_overlay_dirty = true
 	_markers_dirty = true
 	panel.show_course_name(course.course_name)
+	panel.show_credits(course.credits)
 	_show_holes()
 	if hole_index >= 0:
 		_focus_hole()
@@ -1036,6 +1038,8 @@ func _on_file_action(action: String) -> void:
 			_save()
 		"import":
 			_confirm_discard(files.import_file)
+		"real":
+			_confirm_discard(func() -> void: _real.open())
 		"export":
 			files.export_text(course.to_json(), course.default_path().get_file())
 			_set_status("Exported %s." % course.default_path().get_file())
@@ -1118,6 +1122,16 @@ func _on_imported(text: String, file_name: String) -> void:
 	_set_status("Imported %s. Save it to keep it." % c.course_name)
 
 
+func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
+	_set_course(c, "")
+	_unsaved = true
+	var saved := _save()
+	_set_status("Built %s: %d holes, %d areas, %d trees%s. %s" % [c.course_name, int(summary.get("holes", 0)),
+		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
+		(", ground every %.1f m" % float(summary.get("metres_per_pixel", 0))) if summary.has("metres_per_pixel") else "",
+		"Saved; polish it here, then play it." if saved else "Save it to keep it."])
+
+
 func _confirm_discard(then: Callable) -> void:
 	if not _unsaved:
 		then.call()
@@ -1174,6 +1188,11 @@ func _build_ui() -> void:
 	files = DesignerFiles.new()
 	files.imported.connect(_on_imported)
 	add_child(files)
+
+	_real = RealCourseDialog.new()
+	_real.status.connect(_set_status)
+	_real.built.connect(_on_real_built)
+	canvas.add_child(_real)
 
 	_new_dialog = ConfirmationDialog.new()
 	_new_dialog.title = "New course"

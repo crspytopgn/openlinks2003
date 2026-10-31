@@ -5,6 +5,7 @@ add_library(olcore STATIC
   src/btcv.cpp
   src/bunky.cpp
   src/course.cpp
+  src/course_areas.cpp
   src/course_objects.cpp
   src/crz.cpp
   src/carrera_store.cpp
@@ -27,10 +28,12 @@ add_library(olcore STATIC
   src/object_library.cpp
   src/rules.cpp
   src/scoring.cpp
+  src/shadow_file.cpp
   src/shot.cpp
   src/ssf.cpp
   src/strings.cpp
   src/swing.cpp
+  src/terrain_mapping.cpp
   src/wav.cpp
 )
 target_include_directories(olcore PUBLIC include)

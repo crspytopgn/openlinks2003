@@ -16,6 +16,7 @@ enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, D
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
 const MAX_STROKES := 10  ## pick up after this many on a hole
+const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
@@ -178,6 +179,7 @@ var _putt := {}
 var _putt_from := Vector3.INF
 var grid_on := true
 var _replaying := false
+var _cloud_offset := Vector2.ZERO  ## metres the cloud shadows have drifted
 var _replay_time := 0.0
 var _replay_count := 0
 var _ball_was_visible := true
@@ -373,6 +375,8 @@ func start_hole(index: int) -> void:
 	_drop_reason = -1
 	drop_marker.visible = false
 	hole = holes[index]
+	# Courses that limit each hole to its own ground judge out of bounds by it.
+	hole.terrain.hole_number = hole.number
 	if hole_root:
 		hole_root.queue_free()
 	hole_root = Node3D.new()
@@ -605,6 +609,7 @@ func auto_play_step() -> void:
 
 
 func _process(delta: float) -> void:
+	_drift_clouds(delta)
 	if _replaying:
 		_process_replay(delta)
 	else:
@@ -708,11 +713,11 @@ func _unhandled_input(event: InputEvent) -> void:
 					_update_green_grid()
 					return
 				KEY_D:
-					if state == State.AIM and opponents[current] == null:
+					if state == State.AIM and opponents[shooter] == null:
 						_start_drop(DropRules.Reason.UNPLAYABLE)
 					return
 				KEY_F:
-					if state == State.AIM and opponents[current] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
+					if state == State.AIM and opponents[shooter] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
 	if _mouse_swing_input(event):
@@ -983,6 +988,14 @@ func _count_stats(strokes_before: int) -> void:
 ## penalty, if it had one).
 func _scramble_shot(strokes_before: int, msg: String) -> String:
 	var p := players[current]
+	# A shot in the water is dropped where the rules put it best, so the team
+	# compares (and may play) a ball on dry land. The drop is never taken
+	# from a spot the team doesn't keep.
+	if _drop_pending:
+		_drop_pending = false
+		var zones := _drop_zones_for(DropRules.Reason.WATER, _water_entry, false)
+		ball_at = zones[DropRules.best(zones, hole.pin)].spot
+		msg = "Water hazard. One-stroke penalty, dropped."
 	var add := strokes - strokes_before
 	var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
 	var score := add + OpponentSkill.expected_strokes(_flat_distance(ball_at, hole.pin), s)
@@ -1182,16 +1195,14 @@ func _begin_drop(reason: int) -> void:
 	_drop_reason = reason
 	_drop_from = ball_at
 	_drop_note = ""
-	_drop_zones.clear()
-	for option in DropRules.options(reason, LATERAL_WATER):
-		_drop_zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	_drop_zones = _drop_zones_for(reason, reference, in_sand)
 	if reason == DropRules.Reason.FREE_RELIEF and not _drop_zones[0].found:
 		_drop_reason = -1
 		hud.show_message("There's no relief from the path near here.", 2.0)
 		return
 	_drop_choice = DropRules.best(_drop_zones, hole.pin)
 	_drop_spot = _drop_zones[_drop_choice].spot
-	if opponents[current] != null:
+	if opponents[shooter] != null:
 		_finish_drop()
 		return
 	state = State.DROP
@@ -1204,6 +1215,13 @@ func _begin_drop(reason: int) -> void:
 	if reason != DropRules.Reason.WATER:
 		hud.hint.text += HINT_DROP_CANCEL
 	_show_drop()
+
+
+func _drop_zones_for(reason: int, reference: Vector3, in_sand: bool) -> Array[DropRules.Zone]:
+	var zones: Array[DropRules.Zone] = []
+	for option in DropRules.options(reason, LATERAL_WATER):
+		zones.append(DropRules.zone(option, reference, shot_from, hole.pin, in_sand, hole.terrain))
+	return zones
 
 
 func _select_drop(i: int) -> void:
@@ -1226,7 +1244,7 @@ func _show_drop() -> void:
 	var titles := ["Water hazard: one-stroke penalty.", "Unplayable lie: one-stroke penalty.", "Free drop from the path."]
 	var lines: Array[String] = []
 	if players.size() > 1:
-		lines.append(scoring.names[current])
+		lines.append(scoring.names[shooter])
 	lines.append(titles[_drop_reason])
 	for i in _drop_zones.size():
 		lines.append("%s %d  %s" % [">" if i == _drop_choice else " ", i + 1, DropRules.OPTION_NAMES[_drop_zones[i].option]])
@@ -1304,13 +1322,13 @@ func _finish_drop() -> void:
 	var what := DropRules.OPTION_NAMES[z.option]
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()
-	shot_log.append("%s: %s, %.0f m left" % [scoring.names[current], what, _flat_distance(ball_at, hole.pin)])
+	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
 	if strokes >= MAX_STROKES:
 		_hole_out(true)
 		return
 	var msg := what + "."
 	if players.size() > 1:
-		msg = scoring.names[current] + ": " + msg
+		msg = scoring.names[shooter] + ": " + msg
 	if reason == DropRules.Reason.WATER:
 		_pass_turn()
 	else:
@@ -1528,6 +1546,7 @@ func _apply_graphics() -> void:
 	camera.fov = graphics.fov
 	camera.attributes = _camera_attributes()
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
+	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
@@ -1568,6 +1587,19 @@ func _camera_attributes() -> CameraAttributes:
 	a.dof_blur_far_transition = 400.0
 	a.dof_blur_amount = 0.05 if graphics.look == GraphicsSettings.Look.CINEMATIC else 0.03
 	return a
+
+
+## Moves the cloud shadows on: the clouds ride a wind aloft that runs
+## with the one on the course but stronger, and never quite stops.
+func _drift_clouds(delta: float) -> void:
+	if graphics == null or wind == null or not graphics.cloud_shadows:
+		return
+	var v := wind.velocity()
+	var aloft := Vector2(v.x, v.z) * 2.5
+	if aloft.length() < 3.0:
+		aloft = (aloft.normalized() if aloft.length() > 0.01 else Vector2(0.6, 0.8)) * 3.0
+	_cloud_offset += aloft * delta
+	RenderingServer.global_shader_parameter_set("cloud_offset", _cloud_offset)
 
 
 ## Tells the grass, trees and water which way the wind blows.

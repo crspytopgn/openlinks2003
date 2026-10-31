@@ -25,6 +25,8 @@ and don't start a "(needs data)" item on guesses.
   and `game/scripts/handicap.gd` its handicap functions.
   `game/scripts/ai/opponent_skill.gd` ports `opponent.cpp`, and
   `game/scripts/rules/drop_rules.gd` ports `rules.cpp`.
+  `game/scripts/course/terrain_mappings.gd` ports `terrain_mapping.cpp`
+  and `game/scripts/course/shadow_file.gd` ports `shadow_file.cpp`.
 - Decoders plug into the game through the interfaces in `docs/game-shell.md`
   (`CourseLoader`, `ObjectLibrary`, `GolferAssets`, `SoundBank`,
   `ShotModel`), registered with `AssetProviders`.
@@ -32,7 +34,8 @@ and don't start a "(needs data)" item on guesses.
   `game/scripts/data/` (`ls_archive.cpp`, `lzw.cpp`, `carrera_store.cpp`,
   `golfer_anim.cpp`, `golfer_mesh.cpp`, `d3f.cpp`) are GDScript ports; change both sides
   together. So are the parsers in `game/scripts/course/course_objects.gd`
-  (`course_objects.cpp`).
+  (`course_objects.cpp`) and `game/scripts/course/course_areas.gd`
+  (`course_areas.cpp`).
 
 ## Checks before pushing
 

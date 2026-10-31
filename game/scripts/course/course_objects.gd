@@ -108,6 +108,11 @@ class Sprites:
 	var shape := PackedInt32Array()
 
 
+## The ground shadow of each billboard type seen from above (Image, L8)
+## or null, from the course's .SHA file (ShadowFile); set by the course
+## loader, empty without one.
+static var shadow_shapes: Array = []
+
 var plants: Sprites
 var crowds: Sprites
 var obstacles := ObstacleField.new()
@@ -708,9 +713,11 @@ static func tree_species(type_name: String) -> int:
 
 
 ## What casts the baked ground shade (GroundShade) inside `rect` (x, z):
-## per caster base x, y, z, crown bottom and top above the base, and crown
-## radius. Trees, bushes and rocks from the billboards (shaped like their
-## obstacles), and the 3D models by their bounds.
+## per caster base x, y, z, crown bottom and top above the base, crown
+## radius, and the billboard type whose shadow shape (shadow_shapes) it
+## casts, or -1 for a plain soft ellipse. Trees, bushes and rocks from the
+## billboards (shaped like their obstacles), and the 3D models by their
+## bounds.
 func shade_casters(rect: Rect2) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	var s := plants
@@ -745,7 +752,8 @@ func shade_casters(rect: Rect2) -> PackedFloat32Array:
 						2:
 							bottom = 0.15 * h
 							r *= 0.85
-					out.append_array(PackedFloat32Array([x, xyzh[4 * i + 1], z, bottom, h * 0.97, r]))
+					var cast := t if t < shadow_shapes.size() and shadow_shapes[t] != null else -1
+					out.append_array(PackedFloat32Array([x, xyzh[4 * i + 1], z, bottom, h * 0.97, r, cast]))
 	for p in _placements:
 		var m: int = p.model
 		if m >= _mesh_bounds.size():
@@ -756,7 +764,7 @@ func shade_casters(rect: Rect2) -> PackedFloat32Array:
 		if box.size.y < 0.5 or not rect.has_point(Vector2(centre.x, centre.z)):
 			continue
 		var r := 0.5 * minf(box.size.x, box.size.z)
-		out.append_array(PackedFloat32Array([centre.x, box.position.y, centre.z, 0.0, box.size.y, r]))
+		out.append_array(PackedFloat32Array([centre.x, box.position.y, centre.z, 0.0, box.size.y, r, -1]))
 	return out
 
 

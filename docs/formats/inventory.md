@@ -95,7 +95,9 @@ directory, and some entries are encrypted too. See [crz.md](crz.md).
 ### `.SHA` course shadow map
 
 Starts `VER5JDHSHADOW` followed by the name of the course file it belongs to
-(`driving.rng`), then mostly floats. One per course.
+(`driving.rng`). Light maps for the course's 3D objects, a shade value per
+billboard, and the ground shadow shape of each tree and bush type. See
+[sha.md](sha.md).
 
 ## Other game files
 

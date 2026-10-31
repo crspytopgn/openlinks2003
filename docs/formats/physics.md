@@ -94,12 +94,15 @@ sand wedge about 121.
 ## Per-surface values (`TerrainTypes`)
 
 Each course's `TerrainTypes` record starts with a u32 index and 14 f32
-values (offsets 0x04 to 0x38); the ground class byte follows at 0x54. When
-the ball touches the ground the game looks up the record under it. In the
-two courses checked so far (Gleneagles and the driving range) every record
-of a ground class carries the same values, apart from a second cart path
-(asphalt beside concrete) and one rough record that uses the deep grass
-values.
+values (offsets 0x04 to 0x38); the ground class follows at 0x54 (the whole
+record is in [crz.md](crz.md#terraintypes-ground-classes)). When the ball
+touches the ground the game looks up the record under it. Most records of a
+ground class carry the same values, but not all: Gleneagles has a second
+cart path (asphalt beside concrete) and rough records that use the deep
+grass values, and other courses have their own dirt and grass. The bounce
+and roll now use the record under the ball (`olcore::links_surface(const
+CrzTerrainType&)`, `CourseAreas.links_surface`); green records are the
+exception, as the game's green options below replace them all.
 
 The ground code reads seven of them:
 
@@ -116,7 +119,8 @@ The ground code reads seven of them:
 The other classes: water (5), cart path (6, the hardest and fastest:
 restitution 0.75, roll resistance 0.07), dirt (7), bushes (8), rocks (9,
 restitution 0.50) and deep grass (10, roll resistance 0.61). olcore keeps
-these per-class values as defaults (`links_surface`).
+these per-class values as defaults (`links_surface`) for ground without
+records (our own courses and the designer).
 
 The game can write the records out as a table, which gives the names of all
 fourteen values: 0x04 LieAngular, 0x08 LieAngularSnap, 0x0C LiePower, 0x10
@@ -577,8 +581,8 @@ shot uses them is not traced yet, so the shell leaves the club's loft alone.
 - Chips and one other shot type skip or flip parts of the swing model;
   full swings and putts are ported. A game option that doubles every
   PowerStroke miss is left out.
-- Per-course lie values: olcore uses the class defaults above (every
-  course checked so far uses them).
+- Per-course lie values for the strike: the launch still takes the class
+  defaults above (the bounce and roll use the course's own records).
 
 ## Ground
 
@@ -665,10 +669,34 @@ low bit of each), seeded at launch from the ball's position in whole feet
   either stops (half the time) or is flicked up by up to six times its
   speed.
 
+### Out of bounds and hazards
+
+Out of bounds is not a ground type. Each hole has an outline in the
+course's `HoleIDShapes`, and some courses add out-of-bounds areas in
+`OBIDShapes` (see [crz.md](crz.md#shapes-area-outlines)). The game asks
+whether a position is within the hole's bounds when the shot is over, so a
+ball that bounces out and back in is in play; olcore and the game judge it
+where the ball stops (`Terrain::in_bounds`). Ground beyond the edge of the
+course mesh still counts as out of bounds at once.
+
+A hazard is a `TerrainTypes` record with bit 0 of its flags set: water,
+running water and a few others such as mud. Drops are refused there, as on
+water. Bit 3 marks free-drop ground (cart paths, concrete, asphalt, walls).
+
+### The cup
+
+The cup's radius is set at launch from one of the launch routine's
+arguments: 0.1875 ft (a 4.5 inch hole), 0.17708 ft (4.25 inches, the
+regulation size) or 0.29167 ft (7 inches), then multiplied by the hole size
+option (1 normally). On the ground the ball is in the hole when its centre
+is within that radius plus 0.0007 ft of the pin, horizontally; with a
+bigger hole option a ball within the radius but not 0.07 ft (one ball
+radius) inside it is on the lip. What the ground step then does (dropping
+in, lipping out, hitting the flagstick) is not ported yet.
+
 ### Not ported
 
-- The cup: the game's hole routine (and its 0.18 ft radius) is not worked
-  through; olcore uses its own.
+- The cup: the routines after the test above; olcore uses its own.
 - Trees and other objects in flight and while rolling, and balls rolling
   on objects such as bridges.
 

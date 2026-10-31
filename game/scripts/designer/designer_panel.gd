@@ -4,7 +4,7 @@ extends PanelContainer
 ## and the hole being edited. CourseDesigner reads the controls and listens
 ## to the signals.
 
-signal file_action(action: String)  ## new, open, save, import, export, play, menu
+signal file_action(action: String)  ## new, open, save, import, export, real, play, menu
 signal tool_changed(tool: int)
 signal surface_changed(surface: int)
 signal hole_selected(index: int)
@@ -36,6 +36,7 @@ const PAINTABLE := [
 ]
 
 var course_name: LineEdit
+var credits: Label
 var surface: OptionButton
 var brush_size: HSlider
 var strength: HSlider
@@ -79,8 +80,18 @@ func _ready() -> void:
 		if not _quiet:
 			name_changed.emit(t))
 	box.add_child(course_name)
+	credits = Label.new()
+	credits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	credits.add_theme_font_size_override("font_size", 11)
+	credits.modulate = Color(1, 1, 1, 0.6)
+	credits.visible = false
+	box.add_child(credits)
 	box.add_child(_button_row([["New", "new"], ["Open", "open"], ["Save", "save"]]))
 	box.add_child(_button_row([["Import", "import"], ["Export", "export"]]))
+	var real := MenuStyle.button("Real course...")
+	real.tooltip_text = "Build a real golf course from open map and lidar data: type the club's name."
+	real.pressed.connect(func() -> void: file_action.emit("real"))
+	box.add_child(real)
 	var play := MenuStyle.button("Play this course")
 	play.pressed.connect(func() -> void: file_action.emit("play"))
 	box.add_child(play)
@@ -223,6 +234,12 @@ func show_course_name(text: String) -> void:
 	_quiet = true
 	course_name.text = text
 	_quiet = false
+
+
+## The data credits a real course keeps (empty hides them).
+func show_credits(text: String) -> void:
+	credits.text = text
+	credits.visible = not text.is_empty()
 
 
 ## Fills the hole list and shows hole `current`.
