@@ -27,6 +27,14 @@ static func terrain() -> ShaderMaterial:
 				_terrain.set_shader_parameter(slot + "_normal", FreeAssets.ground(slot, "normal"))
 				var mean := FreeAssets.mean_color(albedo).srgb_to_linear()
 				_terrain.set_shader_parameter(slot + "_mean", Vector3(mean.r, mean.g, mean.b))
+			var gh := FreeAssets.ground("grass", "height")
+			var rh := FreeAssets.ground("rough", "height")
+			if gh != null and rh != null:
+				_terrain.set_shader_parameter("grass_height", gh)
+				_terrain.set_shader_parameter("rough_height", rh)
+				_terrain.set_shader_parameter("grass_height_mean", FreeAssets.mean_color(gh).r)
+				_terrain.set_shader_parameter("rough_height_mean", FreeAssets.mean_color(rh).r)
+				_terrain.set_shader_parameter("has_height", true)
 	return _terrain
 
 

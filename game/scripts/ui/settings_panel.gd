@@ -123,7 +123,7 @@ func _ready() -> void:
 		_disc_sounds = _row(grid, "Sounds", ["Light", "Full disc sounds (about 100 MB, next start)"])
 	_swing = _row(grid, "Swing", ["Three-click meter", "Mouse swing (PowerStroke)"])
 	_swing_help = _row(grid, "Swing help", ["Off", "On"])
-	_ball_size = _row(grid, "Ball size", ["Bigger far away (Links)", "True size"])
+	_ball_size = _row(grid, "Ball size", ["Bigger far away (Links)", "True size (42.67 mm)"])
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
