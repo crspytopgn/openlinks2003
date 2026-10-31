@@ -28,6 +28,9 @@ jobs:
       - name: Browser file import tests
         if: runner.os == 'Linux'
         run: node game/web/tests/test_game_files.mjs
+      - name: Online server tests
+        if: runner.os == 'Linux'
+        run: node --test "server/test/*.test.js"
       - name: Upload olcourse
         uses: actions/upload-artifact@v4
         with:
