@@ -1014,6 +1014,7 @@ func _finish_drop() -> void:
 	if reason == DropRules.Reason.WATER:
 		_pass_turn()
 	else:
+		_store_turn()  # so the saved round has the dropped ball
 		_prepare_shot(false)
 	hud.show_message(msg, 2.0)
 
