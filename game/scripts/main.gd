@@ -633,6 +633,8 @@ func _process(delta: float) -> void:
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
 	hud.meter.set_process(not paused)
+	# The meter would sit on top of the drop options and means nothing there.
+	hud.meter.visible = state != State.DROP
 	if paused:
 		pass
 	elif _replaying:

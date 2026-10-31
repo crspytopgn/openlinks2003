@@ -1919,7 +1919,12 @@ func _test_team_drops() -> void:
 	game._water_entry = game.ball_at
 	game._begin_drop(DropRules.Reason.WATER)
 	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
+	game._process(0.0)
+	_check(not game.hud.meter.visible, "drop: the meter is hidden under the drop options")
+	_check(BroadcastOverlay.caption_height(4) > BroadcastOverlay.caption_height(1) + 60.0, "drop: broadcast caption stacks the options")
 	game._finish_drop()
+	game._process(0.0)
+	_check(game.hud.meter.visible, "drop: the meter is back after the drop")
 	GolfRound.setup = null
 
 
