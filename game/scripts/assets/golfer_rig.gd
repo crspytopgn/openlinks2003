@@ -5,8 +5,14 @@ extends Node3D
 ## The golfer animation decoder plugs in through GolferAssets.
 ##
 ## Animation names the game uses: &"address", &"backswing", &"swing",
-## &"putt", &"celebrate".
+## &"putt", &"celebrate". Before them the round calls set_shot() with the
+## club, the distance to the hole and (just before the swing) the power, so
+## a rig can pick the club it holds and the swing it plays.
 
 
 func play(_animation: StringName) -> void:
+	pass
+
+
+func set_shot(_club: Club, _distance_m: float, _power: float = 1.0) -> void:
 	pass

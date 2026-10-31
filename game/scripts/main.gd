@@ -289,6 +289,7 @@ func _store_turn() -> void:
 func play_shot(power: float, accuracy: float) -> void:
 	var club := clubs[club_index]
 	if golfer:
+		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
@@ -470,6 +471,7 @@ func _change_club(step: int) -> void:
 	if state != State.AIM:
 		return
 	club_index = clampi(club_index + step, 0, clubs.size() - 1)
+	_place_golfer()  # the golfer takes the new club
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(false)
@@ -982,6 +984,7 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
+	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
 
