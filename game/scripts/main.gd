@@ -24,7 +24,9 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard%s    Esc: menu"
+## The object viewer needs the game folder, which browsers can't read.
+const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
 const HINT_AIM_MOUSE := "Hold the left button: mouse swing    Space: meter"
 const HINT_FREE_DROP := "    F: free drop"
@@ -723,7 +725,8 @@ func _unhandled_input(event: InputEvent) -> void:
 						_quit_to_menu()
 						return
 				KEY_O:
-					_visit("res://scenes/object_viewer.tscn")
+					if _objects_viewable():
+						_visit("res://scenes/object_viewer.tscn")
 					return
 				KEY_TAB:
 					if hud.scorecard.visible:
@@ -918,7 +921,12 @@ func _prepare_shot(snap_camera: bool) -> void:
 
 ## The aiming keys, with the swing the settings chose.
 func _aim_hint() -> String:
-	return HINT_AIM % (HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER)
+	var swing := HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER
+	return HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+
+
+static func _objects_viewable() -> bool:
+	return not OS.has_feature("web")
 
 
 func _process_aim(delta: float) -> void:
