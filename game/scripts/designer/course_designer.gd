@@ -1138,13 +1138,22 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
 			c.source["photo"] = file
 		c.set_photo(photo)
+	var cover: Image = summary.get("ground_cover", null)
+	if photo == null and cover != null:
+		var gfile := c.default_path().get_basename().get_file() + ".ground.png"
+		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
+		if cover.save_png(DesignedCourse.FOLDER.path_join(gfile)) == OK:
+			c.source["ground"] = gfile
+		c.set_ground_cover(cover)
 	# Other courses at the same club are saved beside it.
 	var others: Array = summary.get("others", [])
 	for o: DesignedCourse in others:
 		# The photo covers the first course's area; another course shares it
 		# only if its area is the same.
-		if c.source.has("photo") and o.area == c.area:
-			o.source["photo"] = c.source["photo"]
+		if o.area == c.area:
+			for key in ["photo", "ground"]:
+				if c.source.has(key):
+					o.source[key] = c.source[key]
 		o.save_file(o.default_path())
 	_photo_on = true
 	_set_course(c, "")

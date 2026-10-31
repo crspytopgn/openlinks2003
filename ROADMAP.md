@@ -91,6 +91,7 @@ feel) still need a working install.
   - [x] Real courses by name: OpenStreetMap holes and areas plus open lidar and elevation heights, in the browser too ([real-courses.md](docs/real-courses.md))
   - [x] Real courses: national lidar (England, Netherlands, France, US), trees from the lidar canopy or aerial photos, the photo under the designer, clubs with several courses
   - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
+  - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses

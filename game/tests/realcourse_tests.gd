@@ -17,6 +17,7 @@ func run_all() -> Array[String]:
 	_test_photo_trees()
 	_test_extra_trees()
 	_test_photo_ground()
+	_test_land_cover()
 	return failures
 
 
@@ -338,8 +339,12 @@ func _test_extra_trees() -> void:
 
 
 ## A strip GeoTIFF of float heights, 0.001 degree pixels from (51 N, 1 W).
-static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool) -> PackedByteArray:
+static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool, u8 := false) -> PackedByteArray:
 	var pixels := v.to_byte_array()
+	if u8:
+		pixels = PackedByteArray()
+		for x in v:
+			pixels.append(int(x))
 	if packed:
 		# Floating-point predictor: per row, bytes split into planes (most
 		# significant first), then differenced.
@@ -365,9 +370,9 @@ static func _tiff(v: PackedFloat32Array, w: int, h: int, be: bool, packed: bool)
 			swapped.append_array([pixels[k + 3], pixels[k + 2], pixels[k + 1], pixels[k]])
 		pixels = swapped
 	var entries := [
-		[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 32], [259, 3, 1, 8 if packed else 1],
+		[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 8 if u8 else 32], [259, 3, 1, 8 if packed else 1],
 		[273, 4, 1, 0], [277, 3, 1, 1], [278, 3, 1, h], [279, 4, 1, pixels.size()],
-		[317, 3, 1, 3 if packed else 1], [339, 3, 1, 3],
+		[317, 3, 1, 3 if packed else 1], [339, 3, 1, 1 if u8 else 3],
 		[33550, 12, 3, [0.001, 0.001, 0.0]], [33922, 12, 6, [0.0, 0.0, 0.0, -1.0, 51.0, 0.0]],
 	]
 	var ifd_size := 2 + entries.size() * 12 + 4
@@ -436,3 +441,31 @@ func _test_photo_ground() -> void:
 	check(west.get_luminance() > east.get_luminance(), "the photo's west half is the course's +x half")
 	var m := tinted.ground_color_at(0, 0)
 	check(m.g > m.r and absf(m.r - mown.r) + absf(m.g - mown.g) + absf(m.b - mown.b) < 0.2, "the fairway stays green: %s" % m)
+
+
+## Land cover: an 8-bit class GeoTIFF, trees where the class says so, and
+## the ground picture in the photo's layout (north-west pixel first).
+func _test_land_cover() -> void:
+	var v := PackedFloat32Array()
+	for j in 20:
+		for i in 20:
+			v.append(LandCover.TREES if i < 10 else LandCover.CROPS)
+	var land := LandCover.new([50.98, -1.0, 51.0, -0.98])
+	check(land.url().contains("bbox=-1.0000000,50.9800000,-0.9800000,51.0000000") and land.url().contains("pixelType=U8"), "land cover url")
+	check(land.add(_tiff(v, 20, 20, false, false, true)), "8-bit class GeoTIFF loads")
+	check(land.class_at(50.99, -0.995) == LandCover.TREES and land.class_at(50.99, -0.985) == LandCover.CROPS, "classes by place")
+	check(absf(land.coverage() - 1.0) < 0.001, "coverage")
+	var f := GeoFrame.new(50.99, -0.99)
+	var area := Rect2(-800, -1200, 1600, 2400)
+	var trees := land.tree_points(f, area)
+	check(trees.size() == 200, "one tree per tree pixel: %d" % trees.size())
+	var west_side := true
+	for p in trees:
+		west_side = west_side and p.x > 0.0
+	check(west_side, "the trees are in the west (+x) half")
+	var img := land.ground_image(f, Rect2(-600, -1000, 1200, 2000), 50.0)
+	var nw := img.get_pixel(1, 1)
+	var ne := img.get_pixel(img.get_width() - 2, 1)
+	var want_nw: Color = LandCover.COLORS[LandCover.TREES]
+	var want_ne: Color = LandCover.COLORS[LandCover.CROPS]
+	check(absf(nw.r - want_nw.r) + absf(nw.g - want_nw.g) < 0.02 and absf(ne.r - want_ne.r) + absf(ne.g - want_ne.g) < 0.02, "ground picture: woods to the north-west, fields to the north-east")

@@ -24,6 +24,7 @@ and the next import picks them up.
 | Ground heights | National lidar where a service covers the course (below), else the [Terrain Tiles on AWS Open Data](https://registry.opendata.aws/terrain-tiles/) (Mapzen "Terrarium" PNG tiles, zoom 15) | Per source, below |
 | Trees | Lidar canopy height (surface model minus ground) where offered, else the aerial photo, plus OpenStreetMap's trees and woods | As the source |
 | Aerial photo | National orthophoto tile services (below) | Per source, below |
+| Land cover (trees the map lacks, ground colours without a photo) | [Impact Observatory / Microsoft / Esri Sentinel-2 10 m land cover](https://www.arcgis.com/home/item.html?id=cfcb7609de5f478eb7666240902d4d3d), Esri image service | CC BY 4.0 |
 
 ### Elevation by country
 
@@ -116,12 +117,29 @@ and kept near the game's own brightness: most beyond the course (fields,
 tracks, car parks), a lot in the rough (worn and dry patches), and only a
 touch on fairways, tees and greens, which keep their stripes. Deep shade
 and water in the photo are skipped. This works in the designer and in the
-round (`DesignedTerrain`, `DesignedCourse.photo_image()`).
+round (`DesignedTerrain`, `DesignedCourse.tint_image()`).
 
 The photo also helps with trees. With lidar trees, the crown colour picks
 pines (dark green) or broadleaves (lighter, or brown in a winter photo).
 Without lidar, cells of 5 m that are mostly dark leafy pixels or deep shade,
 darker than the fairways' grass, become trees.
+
+### Land cover (everywhere)
+
+`LandCover` (`game/scripts/realcourse/land_cover.gd`) fetches the 10 m
+Sentinel-2 land cover for the course box in one request (8-bit classes:
+water, trees, flooded vegetation, crops, built-up, bare, snow, clouds,
+grass and scrub). It is used where the finer data is missing:
+
+- **Trees:** without lidar or photo trees, each tree pixel outside the
+  mapped woods gets a tree, nearest the holes first, at most half of the
+  tree budget, and none within 25 m of a hole's line (at 10 m a tree-lined
+  fairway reads as woods).
+- **Ground colours:** without a photo, a picture of the classes in their
+  typical colours (fields, bare ground, towns, grass, woods) is saved
+  beside the course as `<course>.ground.png` (`source.ground`) and tints the
+  ground the same way a photo does. It is coarse (10 m) and doesn't show in
+  the designer's photo overlay.
 
 ### Not covered yet
 
@@ -208,6 +226,7 @@ game/scripts/realcourse/
   geo_raster.gd           GeoRaster: GeoTIFF and BIL height grids
   national_lidar.gd       NationalLidar: the lidar services, and trees from the canopy
   aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
+  land_cover.gd           LandCover: 10 m land cover, trees and ground colours from it
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests

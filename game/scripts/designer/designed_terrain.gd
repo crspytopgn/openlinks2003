@@ -582,7 +582,7 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 ## The course photo, softened and resampled to one colour per grid vertex.
 func _make_tint() -> void:
 	_tint = PackedByteArray()
-	var photo := course.photo_image()
+	var photo := course.tint_image()
 	if photo == null or course.cols < 2 or course.rows < 2:
 		return
 	var img: Image = photo.duplicate()
