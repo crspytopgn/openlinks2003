@@ -68,6 +68,7 @@ func _initialize() -> void:
 	# full round is played from _process().
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
 	GolfRound.wind_seed = 20031
+	RoundRecord.folder = "user://test_replays"
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
@@ -79,6 +80,7 @@ func _process(_delta: float) -> bool:
 		return false
 	_done = true
 	_run("full_round", _test_full_round)
+	_run("round_replay", _test_round_replay)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("computer_opponents", _test_computer_opponents)
@@ -1695,6 +1697,49 @@ func _test_full_round() -> void:
 	_check(game.sounds.get_child_count() == before + 3, "driver from the rough plays strike and grass, sand landing plays")
 
 
+## The full round was recorded and plays again to the same card; a changed
+## shot, card or seed is caught.
+func _test_round_replay() -> void:
+	var game := _game
+	if not game.is_node_ready() or game.record == null:
+		_check(false, "the full round has a record")
+		return
+	var rec := game.record
+	_check(rec.finished and rec.round_seed == 20031 and rec.shots.size() >= 9, "record of the full round: %d shots" % rec.shots.size())
+	_check(rec.cards.size() == 1 and str(rec.cards[0]) == str(game.card.strokes), "record keeps the card")
+	var ok := RoundReplay.verify(rec, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked and ok.checked == rec.shots.size(), "the round replays: %s" % [ok.errors])
+	var files := DirAccess.get_files_at(ProjectSettings.globalize_path(RoundRecord.folder))
+	_check(files.size() >= 1, "the round is saved in the replays folder")
+	var path := RoundRecord.folder + "/" + files[files.size() - 1]
+	var loaded := RoundRecord.load_file(path)
+	_check(loaded != null and loaded.shots.size() == rec.shots.size(), "the saved round loads")
+	if loaded != null:
+		var again := RoundReplay.verify(loaded, game.shot_model, game.clubs, game.holes)
+		_check(again.ok, "the saved round replays: %s" % [again.errors])
+	print("  %d shots, %d bytes as JSON" % [rec.shots.size(), rec.to_json().length()])
+	# A longer drive than the swing gave.
+	var tampered := RoundRecord.from_json(rec.to_json())
+	tampered.shots[0].power = minf(tampered.shots[0].power + 0.15, 1.0) if tampered.shots[0].power < 0.9 else tampered.shots[0].power - 0.15
+	_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a changed swing is caught")
+	# A better score than the shots make.
+	tampered = RoundRecord.from_json(rec.to_json())
+	tampered.cards[0][0] = int(tampered.cards[0][0]) - 1
+	_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a changed card is caught")
+	# Kinder wind from another seed.
+	if rec.wind_level != Wind.Level.OFF:
+		tampered = RoundRecord.from_json(rec.to_json())
+		tampered.round_seed = 777
+		_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a different wind seed is caught")
+	tampered = RoundRecord.from_json(rec.to_json())
+	tampered.resumed = true
+	_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a resumed round can't be checked")
+	_check(RoundRecord.shot_seed(5, 3, 1) == RoundRecord.shot_seed(5, 3, 1), "shot seeds repeat")
+	_check(RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 3, 2) and RoundRecord.shot_seed(5, 3, 1) != RoundRecord.shot_seed(5, 4, 1), "shot seeds differ by shot and source")
+	for f in files:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(RoundRecord.folder + "/" + f))
+
+
 ## The free recordings: every event has takes, the ambience loops, and clubs
 ## and course names map as intended.
 func _test_free_sounds() -> void:
@@ -1750,6 +1795,10 @@ func _test_drops_in_round() -> void:
 	game._finish_drop()
 	_check(game.state == GolfRound.State.AIM, "playing on after the water drop")
 	_check(game.strokes == before + 1, "the water penalty is counted at the splash, not the drop")
+	var drops := game.record.drops
+	_check(drops.size() == 2 and int(drops[0].penalty) == 1 and int(drops[1].penalty) == 0, "drops recorded with their penalties: %s" % [drops])
+	var replay := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(replay.ok and replay.checked == game.record.shots.size(), "the shots before the drops replay: %s" % [replay.errors])
 
 
 ## The MakeHuman golfer used without the original files.
