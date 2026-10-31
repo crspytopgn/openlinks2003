@@ -107,6 +107,7 @@ var scenery: Scenery
 var settings_panel: SettingsPanel
 var pause_menu: PauseMenu
 var ambience: CourseAmbience
+var voice: GolferVoice
 var post: PostProcess
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
@@ -137,6 +138,13 @@ func _ready() -> void:
 	_apply_graphics()
 	sounds = AssetProviders.create_sound_bank()
 	add_child(sounds)
+	var assets := AssetProviders.golfer_assets
+	voice = GolferVoice.from_game_folder((assets as LinksGolferAssets).archive_path() if assets is LinksGolferAssets else "")
+	if voice != null:
+		add_child(voice)
+	var menu_sounds := MenuSounds.from_game_folder(false)
+	if menu_sounds != null:
+		add_child(menu_sounds)
 	hud.meter.backswing_started.connect(_on_backswing_started)
 	hud.meter.swing_finished.connect(_on_swing_finished)
 	start_round()
@@ -576,6 +584,11 @@ func _complete_flight() -> void:
 		scoring.names[current], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
 		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
+	if voice != null:
+		var rest_pin := _flat_distance(shot.rest, hole.pin)
+		var past := Vector2(shot.rest.x - hole.pin.x, shot.rest.z - hole.pin.z).dot(Vector2(hole.pin.x - shot_from.x, hole.pin.z - shot_from.z)) > 0.0
+		voice.say(GolferVoice.event_for(shot, hole.terrain.surface_at(shot.rest.x, shot.rest.z), clubs[club_index].is_putter,
+			strokes == 1, hole.par, strokes, rest_pin, _shot_from_pin, past))
 	if broadcast:
 		_report_shot()
 	var msg := ""

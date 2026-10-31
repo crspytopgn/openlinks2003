@@ -66,7 +66,8 @@ feel) still need a working install.
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
   - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
-  - [ ] Voice event conditions, commentary and menu sounds wired into the game
+  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`), on desktop
+  - [ ] Voice event conditions (the condition block), in-flight voice lines, and these sounds in the browser build
 
 ## Phase 4: the full game
 

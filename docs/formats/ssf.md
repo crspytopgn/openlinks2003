@@ -106,6 +106,28 @@ The bytes after 0xd0 (0xff runs) are still unknown.
 The game (OpenLinks) maps its crowd reactions onto groups of these events
 in `LinksSoundBank.CROWD_EVENTS` and doesn't evaluate the conditions yet.
 
+## Golfer voices
+
+`GAME/POLYANI/*.SSF` hold each golfer's own spoken reactions (5 to 15 MB
+each): the named pros (`DAVIDT_1`, `SERGIO_1`, `JESPER_1`, `ANNIKA_1`), the
+generic `MALE1_1` to `MALE3_1` and `FEMALE_1`/`FEMALE_2`, and an empty
+`NONE.SSF`. A golfer's bank starts with the first six letters of its `.L3`
+archive. Voice events by type:
+
+| Type | Examples | When |
+|------|----------|------|
+| 8 | `Hook`, `Slice`, `Crush Tee Shot`, `Putt Looks Good!`, `Putt Too Hard`, wind remarks | while the ball is moving |
+| 9 | `Great Shot`, `In Water`, `OB`, `Lip Out`, `Nice Lag`, `Birdie`, `Bogie`, `Chip In` | after it stops or drops |
+| 10 | `Approach Near-Pin`, `Tree Collision`, `Good Kick` | when it lands |
+| 11 | `Address Tee Shot`, `Address Putt` | at address |
+| 14 | `Perfect Swing`, `Bad Swing` | at impact |
+
+`chance` (20 to 100 on these events) is the percentage chance the line is
+spoken, which keeps the golfer from talking after every shot. The game
+(OpenLinks) picks type 9 events by name from the shot's outcome
+(`GolferVoice.event_for`) and honours `chance`; it doesn't evaluate the
+condition blocks.
+
 ## Open questions
 
 - The condition block at 0xc0 on voice events, and how the game picks
