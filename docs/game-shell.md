@@ -72,6 +72,22 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Launch monitors
+
+Settings > Launch monitor (desktop builds; a browser can't listen on a
+port): the game listens on TCP port 921 for the open "GSPro Connect" v1
+protocol that most home launch monitors and their connector apps speak
+(`OpenConnect`, `OpenConnectServer`). Point the app at this computer's
+address and port 921. Each shot message's ball data (speed in mph, vertical
+and horizontal launch angles, total spin and spin axis, or back and side
+spin) becomes the launch of the person's next shot, played through the
+current shot model with the wind, bounce and roll as usual; rough and sand
+take off speed and spin as they do for a swing. Each message is answered
+with code 200, and the app is told which club is up (code 201, `"Club":
+"DR"`, `"7I"`, `"PT"`). HLA and spin axis are taken as positive to the
+right. Shots are recorded as measured (`ShotRecord.monitor`), so replays
+play them back and online play can tell them apart.
+
 ### Gimmes
 
 Settings > Gimmes (off by default, as in Links 2003): a ball that stops on
