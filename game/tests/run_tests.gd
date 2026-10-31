@@ -1191,46 +1191,73 @@ func _test_links_swing_matches_olcore() -> void:
 		LinksLaunch.computer_putt_miss(cw, cg, c[4], c[3], LinksLaunch.Rand.new(c[5]))
 		_check_near(cw.power, c[7], 1e-4, "computer putt %d power" % cputts.find(c))
 		_check_near(deg_to_rad(cw.path_deg), c[8], 1e-5, "computer putt %d path" % cputts.find(c))
-	# The mouse swing, as test_links_mouse_swing: power, release, drift,
-	# height, skill, seed, then power, face, path, whiff.
+	# The mouse swing, as test_links_mouse_swing: skill, shot, club, screen
+	# width, seed, frames back, pixels back and up and across a frame, then
+	# speed, drift, drift two frames before, down, backswing, power, face,
+	# path, loft, quality.
 	var strokes := [
-		[100.0, 0.0, 0.0, 100.0, 3, 1, 100.0, 0.0, 0.0, false],
-		[100.0, 4.0, 10.0, 200.0, 3, 7, 95.0, 2.584, -1.67552598, false],
-		[90.0, -12.0, -20.0, 150.0, 2, 99, 81.0, -13.9536, 12.7073864, false],
-		[120.0, 20.0, 0.0, 100.0, 0, 5, 103.0, 28.10525, 0.0, false],
-		[100.0, 19.0, 0.0, 100.0, 3, 5, 0.0, 0.0, 0.0, true],
-		[150.0, -3.0, 5.0, 80.0, 1, 42, 150.51, -1.943, -7.58009526, false],
+		[3, LinksMouse.Shot.FULL, 0, 1920, 11, 20, 12, 90, 0, -4.772966, 0.0, 0.0, 90, 0.297828, 31.626182, 0.0, 0.0, 0.157841, 0],
+		[1, LinksMouse.Shot.FULL, 9, 1100, 5, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
+				0.068857, 0.071579, 0],
+		[2, LinksMouse.Shot.PUTT, 19, 1920, 7, 12, 6, 40, -2, -0.592555, 0.24, 0.0, 40, 0.034813, 1.1, -0.360105,
+				0.398950, 0.033288, 0],
+		[0, LinksMouse.Shot.CHIP, 16, 800, 3, 10, 8, 50, 1, -0.884124, -0.04, 0.0, 50, 0.064996, 1.598884, 0.0, -0.029809,
+				0.064996, 0],
+		[3, LinksMouse.Shot.FULL, 4, 1920, 9, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
+				-0.825252, 0.517093, 1],
+		[2, LinksMouse.Shot.FULL, 12, 1920, 21, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
+				1.50984, 1.021502, 0.361243, 1],
 	]
 	for c in strokes:
-		var ms := LinksLaunch.MouseStroke.new()
-		ms.power = c[0]
-		ms.release = c[1]
-		ms.drift = c[2]
-		ms.height = c[3]
-		ms.skill = c[4]
-		var mw := LinksLaunch.mouse_swing(ms, LinksLaunch.Rand.new(c[5]))
 		var i := strokes.find(c)
-		_check_near(mw.power, c[6], 1e-6, "mouse swing %d power" % i)
-		_check_near(mw.face_deg, c[7], 1e-6, "mouse swing %d face" % i)
-		_check_near(mw.path_deg, c[8], 1e-6, "mouse swing %d path" % i)
-		_check(mw.whiff == c[9], "mouse swing %d whiff" % i)
-	# The mouse swing control (outside the tree a unit is a pixel): 150 units
-	# back, then up through the line at 1300 units/s, let go 9 units past it.
+		var mc := LinksMouse.MouseClub.new(c[0], c[1], c[2], LinksMouse.meter_for(c[3]))
+		var mr := LinksLaunch.Rand.new(c[4])
+		for k in c[5]:
+			mc.step(0, c[6], mr)
+		for k in 40:
+			if mc.done():
+				break
+			mc.step(c[8], -c[7], mr)
+		_check(mc.phase == LinksMouse.Phase.IMPACT, "mouse swing %d strikes" % i)
+		var st := mc.stroke
+		_check_near(st.speed, c[9], 1e-5, "mouse swing %d speed" % i)
+		_check_near(st.drift, c[10], 1e-5, "mouse swing %d drift" % i)
+		_check_near(st.drift_before, c[11], 1e-5, "mouse swing %d drift before" % i)
+		_check(st.down == c[12], "mouse swing %d down" % i)
+		_check_near(st.backswing, c[13], 1e-5, "mouse swing %d backswing" % i)
+		var mw := LinksMouse.swing(st, mr)
+		_check_near(mw.power, c[14], 1e-5, "mouse swing %d power" % i)
+		_check_near(mw.face_deg, c[15], 1e-5, "mouse swing %d face" % i)
+		_check_near(mw.path_deg, c[16], 1e-5, "mouse swing %d path" % i)
+		_check_near(mw.loft, c[17], 1e-5, "mouse swing %d loft" % i)
+		_check(not mw.whiff and mw.quality == c[18], "mouse swing %d quality" % i)
+	var wild := LinksMouse.Stroke.new()
+	wild.drift = -19.0
+	wild.down = 80
+	wild.speed = 8.0
+	var miss := LinksMouse.swing(wild, LinksLaunch.Rand.new(1))
+	_check(miss.whiff and miss.power == 0.0, "mouse swing misses past 18")
+	_check(LinksMouse.meter_for(800).height == 278 and LinksMouse.meter_for(1024).ball_line == 96, "mouse meter sizes")
+	# The control: frames of movement shared out; pushing first does nothing.
 	var ctl := MouseSwingControl.new()
 	var got: Array = []
-	ctl.stroke_finished.connect(func(m: LinksLaunch.MouseStroke) -> void: got.append(m))
-	ctl.begin(Vector2(400, 300), 0.0)
-	for k in 16:
-		ctl.motion(Vector2(400, 300 + 10 * (k + 1)), 0.02 * (k + 1))
-	for k in 12:
-		ctl.motion(Vector2(400 + k, 460 - 13 * (k + 1)), 0.32 + 0.01 * (k + 1))
-	ctl.release(Vector2(411, 291), 0.45)
+	ctl.stroke_finished.connect(func(m: LinksMouse.Stroke) -> void: got.append(m))
+	ctl.begin(0, 3)
+	ctl.motion(Vector2(0, -300))
+	ctl.advance(0.1)
+	_check(ctl.is_swinging() and ctl.club.club_height() == 119.0, "mouse swing waits for the backswing")
+	for k in 40:
+		ctl.motion(Vector2(0, 14))
+		ctl.advance(1.0 / 60.0)
+	for k in 30:
+		if not ctl.is_swinging():
+			break
+		ctl.motion(Vector2(0, -100))
+		ctl.advance(1.0 / 60.0)
 	_check(got.size() == 1, "mouse stroke finished")
 	if got.size() == 1:
-		var st: LinksLaunch.MouseStroke = got[0]
-		_check_near(st.power, 100.0, 0.5, "mouse stroke power")
-		_check_near(st.release, 9.0 / 1300.0 * 200.0, 0.01, "mouse stroke late release")
-		_check(st.drift > 0.0 and st.height > 140.0, "mouse stroke drift and height")
+		var fin: LinksMouse.Stroke = got[0]
+		_check(fin.backswing > 0.3 and absf(fin.speed) > 4.0, "mouse stroke backswing and speed")
 	ctl.free()
 	# Putts, as test_links_putt: skill, contact, then the face error.
 	var putts := [[0, 1, 0.0], [1, 1, -0.0111701], [2, 1, -0.017637], [2, -2, 0.0440925],
