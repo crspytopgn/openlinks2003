@@ -1506,6 +1506,16 @@ func _test_hd_pack() -> void:
 
 
 func _test_graphics_settings() -> void:
+	_check(SettingsPanel.scroll_height(1100.0, 120.0, 720.0) == 584.0, "settings: the rows scroll in a 720p window")
+	_check(SettingsPanel.scroll_height(400.0, 120.0, 720.0) == 400.0, "settings: no scrolling when they fit")
+	var panel := SettingsPanel.new()
+	root.add_child(panel)
+	panel.open(GraphicsSettings.new())
+	panel._process(0.0)
+	panel._process(0.0)
+	var screen_h := panel.get_viewport_rect().size.y
+	_check(screen_h < 400.0 or panel.get_combined_minimum_size().y <= screen_h, "settings: Done stays on screen (%.0f of %.0f)" % [panel.get_combined_minimum_size().y, screen_h])
+	panel.free()
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")

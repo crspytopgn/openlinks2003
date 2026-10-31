@@ -68,6 +68,10 @@ var _clouds: OptionButton
 var _time: OptionButton
 var _trees: OptionButton
 var _filling := false  ## true while open() sets the controls
+## The rows scroll when they are taller than the window (720p, a phone, or a
+## bigger Interface size), so Done is always on screen.
+var _scroll: ScrollContainer
+var _columns: HBoxContainer
 
 
 func _ready() -> void:
@@ -85,9 +89,13 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	box.add_child(title)
 
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(_scroll)
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 40)
-	box.add_child(columns)
+	_scroll.add_child(columns)
+	_columns = columns
 	var grid := _grid(columns)
 	_quality = _row(grid, "Quality", GraphicsSettings.QUALITY_NAMES)
 	_window = _row(grid, "Display", ["Windowed", "Fullscreen"])
@@ -192,10 +200,24 @@ func close() -> void:
 
 
 func _process(_delta: float) -> void:
+	if not visible:
+		return
+	var chrome := get_combined_minimum_size().y - _scroll.custom_minimum_size.y
+	var h := scroll_height(_columns.get_combined_minimum_size().y, chrome, get_viewport_rect().size.y)
+	if absf(h - _scroll.custom_minimum_size.y) > 0.5:
+		_scroll.custom_minimum_size.y = h
 	# In a round the panel sits on the HUD's canvas, not in a container:
 	# keep it in the middle of the screen, as the pause menu does.
-	if visible and not get_parent() is Container:
+	if not get_parent() is Container:
+		reset_size()
 		position = ((get_viewport_rect().size - size) * 0.5).max(Vector2.ZERO)
+
+
+## Height of the scrolling rows: all of them when they fit in `screen_h`
+## beside the title and footer (`chrome`), else what's left, never under
+## a few rows.
+static func scroll_height(rows_h: float, chrome: float, screen_h: float) -> float:
+	return minf(rows_h, maxf(160.0, screen_h - chrome - 16.0))
 
 
 func _grid(parent: Control) -> GridContainer:
