@@ -26,6 +26,7 @@ const USER_AGENT := "OpenLinks2003 course importer (+https://github.com/crspytop
 ## Metres searched round a place that isn't itself a mapped golf course.
 const POINT_RADIUS := 1500.0
 const PARALLEL := 6  ## downloads at once
+const MAX_DETAILS := 40  ## close-ups of greens fetched at most
 
 var busy := false
 ## Use national lidar and aerial photos where they cover the course.
@@ -156,6 +157,8 @@ func _build(place: Dictionary) -> DesignedCourse:
 			progress.emit("Finding the trees in the photo...")
 			await get_tree().process_frame
 			builder.photo_trees = AerialPhotos.find_trees(photo, builder.area, builder.grass_points())
+		if photo != null and AerialPhotos.has_detail(psrc):
+			builder.details = await _fetch_details(psrc, builder)
 		break
 
 	# Land cover everywhere: trees the map lacks and, without a photo, the
@@ -172,7 +175,6 @@ func _build(place: Dictionary) -> DesignedCourse:
 				cover = land.ground_image(builder.frame, builder.area)
 
 	builder.photo = photo
-	builder.lidar_heights = lidar != null
 	progress.emit("Building %s..." % builder.course_name)
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -201,6 +203,7 @@ func _build(place: Dictionary) -> DesignedCourse:
 	if cover != null:
 		_last_summary["ground_cover"] = cover
 	_last_summary["land_trees"] = builder.land_trees.size()
+	_last_summary["close_ups"] = builder.details.size()
 	if not others.is_empty():
 		_last_summary["others"] = others
 	if lidar == null:
@@ -209,6 +212,41 @@ func _build(place: Dictionary) -> DesignedCourse:
 		failed.emit("OpenStreetMap has no holes mapped for %s yet. Try another course, or map it at openstreetmap.org." % builder.course_name)
 		return null
 	return course
+
+
+## Close-up photos round the greens the map leaves unfinished
+## (RealCourseBuilder.detail_spots), from the photo service `psrc`, all
+## fetched in one go: [{"image", "area"}].
+func _fetch_details(psrc: Dictionary, builder: RealCourseBuilder) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var spots := builder.detail_spots()
+	if spots.size() > MAX_DETAILS:
+		spots = spots.slice(0, MAX_DETAILS)
+	var parts: Array[AerialPhotos] = []
+	var all_urls := PackedStringArray()
+	for spot in spots:
+		var a := AerialPhotos.detail_area(spot)
+		var part := AerialPhotos.new(psrc, AerialPhotos.geo_box_of(builder.frame, a), AerialPhotos.DETAIL_ZOOM)
+		parts.append(part)
+		all_urls.append_array(part.urls())
+	if all_urls.is_empty():
+		return out
+	var got := await _fetch_all(all_urls, "Fetching close-ups of the greens")
+	var at := 0
+	for k in parts.size():
+		var part := parts[k]
+		var n := part.urls().size()
+		for i in n:
+			if got[at + i][0] == 200:
+				part.add_tile(i, got[at + i][1])
+		at += n
+		if part.loaded * 4 < n * 3:
+			continue
+		var a := AerialPhotos.detail_area(spots[k])
+		var img := part.course_photo(builder.frame, a, AerialPhotos.DETAIL_RES)
+		if img != null:
+			out.append({"image": img, "area": a})
+	return out
 
 
 ## The Overpass query for everything a course needs in a box.

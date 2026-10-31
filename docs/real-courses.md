@@ -202,26 +202,44 @@ OpenStreetMap from the club's own published scorecard.
   (`game/scripts/realcourse/course_guesser.gd`) fills in whatever a hole is
   missing. First it looks for the real thing (`CourseDetector`,
   `course_detector.gd`):
+  - **Close-ups:** where a green or its bunkers aren't mapped, the
+    importer also fetches a close-up 140 m across round the green (zoom
+    18, kept at 0.4 m a pixel against about 1 m for the course photo) from
+    the same photo service, if that service goes finer than the course
+    photo (not USGS). Greens and greenside bunkers are read from the
+    close-up.
   - **Greens in the photo:** the evenly coloured grass grown out from the
     pin (its colour the median within 4 m of the pin), with the loosest
     colour match that doesn't yet leak 26 m out (into the fringe and
     fairway), 150 to 1200 m2.
   - **Bunkers in the photo:** compact patches of bright, whitish or pale
     yellow sand by the green and at the driving distance, 15 to 600 m2, at
-    least 3 m wide in every direction and not on a mapped path (sandy
-    tracks).
+    least 3 m wide in every direction, not on a mapped path (sandy
+    tracks), and cut into grass: most of the ground 3 m round them is
+    green and they are clearly brighter (0.15) than it. Dunes, heather
+    and bare ground fail that. Patches are read at rising brightness
+    (0.6 to 0.84), so a bunker touching pale ground or a track still
+    stands alone at a brighter level.
   - **Fairways in the photo:** on a softened copy (about 2.5 m a pixel),
     cross-sections every 10 m along the line find the band of grass of the
     line's own colour that crosses it; the longest run of 15 to 60 m wide
     sections, at least half the hole, with steady widths (spread under a
     quarter of the mean), becomes the fairway. Ragged bands (rough,
     heather, a winter photo) are left to the fallback.
-  - **Bunkers in lidar:** without a photo, hollows at least 0.3 m below
-    the ground 6 to 8 m round them.
-  On Hilversum (greens and bunkers removed from the map, then found
-  again), 13 of 20 greens were found, 10 of them within half their mapped
-  size; most bunkers were found, plus some unmapped ones. Its winter
-  photo is too low in contrast for fairways, so they fall back.
+  - **Not lidar hollows:** bunkers as hollows in the 2 m lidar heights
+    were tried and were wrong about two times in three on the benchmark
+    below, worse than a marked guess, so heights aren't used for them.
+
+  **Benchmark** (`tools/realcourse_bench/`): 21 fully mapped courses in
+  the Netherlands, Germany, Switzerland, Austria, France, Spain, Japan,
+  the US and England, with their greens, bunkers and fairways taken out
+  and found again. On 2026-10-31, of 414 mapped greens, 340 were found
+  (82%; the rest are on the 4 English courses, with no photo) and 257 of
+  those overlap the mapped green by 60% or more (mean overlap 0.67, about
+  what two careful mappers would agree on); 13 were wrong. Of bunkers
+  found, 90% are on a mapped bunker (324 of 362), and a third of mapped
+  greenside bunkers are found (small, shaded or winter-photo ones are
+  missed and fall back to guesses). Fairways are found on few holes yet.
   Whatever isn't found is drawn at typical sizes along the line: a green
   round the pin (about 520, 600 and 650 m2 for par 3, 4 and 5, a quarter
   longer than wide), a tee box at each tee, on par 4s and 5s a fairway
@@ -262,7 +280,7 @@ game/scripts/realcourse/
   aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
   land_cover.gd           LandCover: 10 m land cover, trees and ground colours from it
   course_guesser.gd       CourseGuesser: greens, tees, fairways and bunkers the map lacks
-  course_detector.gd      CourseDetector: real greens and bunkers in the photo and lidar
+  course_detector.gd      CourseDetector: real greens, fairways and bunkers in the photo
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests
