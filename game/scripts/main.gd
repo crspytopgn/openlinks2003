@@ -93,6 +93,9 @@ var scenery: Scenery
 var settings_panel: SettingsPanel
 var pause_menu: PauseMenu
 var ambience: CourseAmbience
+var post: PostProcess
+var dynamic_resolution: DynamicResolution
+var grass: GrassField
 
 var _trail_mesh := ImmediateMesh.new()
 ## Broadcast presentation pieces (GraphicsSettings.presentation).
@@ -206,10 +209,13 @@ func start_hole(index: int) -> void:
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
 	camera.terrain = hole.terrain
+	if grass.terrain != hole.terrain:
+		grass.setup(hole.terrain, graphics.grass)
 	if ambience != null:
 		ambience.start_hole(hole.tee)
 
 	wind.start_hole()
+	_update_wind_shaders()
 	for p in players:
 		p.at = hole.tee
 		p.strokes = 0
@@ -290,6 +296,7 @@ func play_shot(power: float, accuracy: float) -> void:
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
+	_update_wind_shaders()
 	shot_time = 0.0
 	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
 	camera.follow(shot, hole.pin, club.is_putter)
@@ -351,6 +358,7 @@ func _process(delta: float) -> void:
 		if _replay_delay < 0.0:
 			start_replay()
 	camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	grass.update_around(camera.global_position)
 	_update_ball_size()
 	if broadcast:
 		var playing := _replaying or state == State.FLIGHT
@@ -792,6 +800,13 @@ func _build_world() -> void:
 	camera.far = 3000.0
 	add_child(camera)
 
+	grass = GrassField.new()
+	add_child(grass)
+	post = PostProcess.new()
+	add_child(post)
+	dynamic_resolution = DynamicResolution.new()
+	add_child(dynamic_resolution)
+
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	hud = Hud.new()
@@ -841,7 +856,13 @@ func _on_pause_restart() -> void:
 func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
 	scenery.apply(graphics)
+	post.apply(graphics)
+	dynamic_resolution.setup(get_viewport(), graphics)
 	camera.fov = graphics.fov
+	camera.attributes = _camera_attributes()
+	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
+	if grass.level != graphics.grass and hole != null:
+		grass.setup(hole.terrain, graphics.grass)
 	broadcast = graphics.broadcast()
 	camera.broadcast = broadcast
 	hud.set_broadcast(broadcast)
@@ -854,8 +875,28 @@ func _apply_graphics() -> void:
 		_update_green_grid()
 	if wind != null:
 		wind.set_level(graphics.wind)
+		_update_wind_shaders()
 		if hole != null:
 			_update_hud()
+
+
+## Depth of field (Forward+ only): the far distance goes softly out of
+## focus, like a camera lens on a bright day; null for none.
+func _camera_attributes() -> CameraAttributes:
+	if not graphics.dof or not GraphicsSettings.is_forward_plus():
+		return null
+	var a := CameraAttributesPractical.new()
+	a.dof_blur_far_enabled = true
+	a.dof_blur_far_distance = 260.0
+	a.dof_blur_far_transition = 400.0
+	a.dof_blur_amount = 0.05 if graphics.look == GraphicsSettings.Look.CINEMATIC else 0.03
+	return a
+
+
+## Tells the grass, trees and water which way the wind blows.
+func _update_wind_shaders() -> void:
+	var v := wind.velocity()
+	RenderingServer.global_shader_parameter_set("wind_vector", Vector2(v.x, v.z))
 
 
 func _add_flag() -> void:

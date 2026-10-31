@@ -27,6 +27,17 @@ swing={
 ]
 }
 
+[shader_globals]
+
+wind_vector={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+foliage_sway={
+"type": "float",
+"value": 0.0
+}
+
 [rendering]
 
 renderer/rendering_method.web="gl_compatibility"

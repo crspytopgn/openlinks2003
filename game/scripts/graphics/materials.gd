@@ -8,6 +8,7 @@ const WATER_SHADER := preload("res://shaders/water.gdshader")
 
 static var _terrain: ShaderMaterial
 static var _water: ShaderMaterial
+static var _water_surface: ShaderMaterial
 
 
 ## For meshes whose vertex colours hold the surface colour, and whose UV2
@@ -44,6 +45,16 @@ static func water() -> ShaderMaterial:
 		_water = ShaderMaterial.new()
 		_water.shader = WATER_SHADER
 	return _water
+
+
+## For water drawn as part of a course's ground mesh: the same shader
+## without the round cut-out.
+static func water_surface() -> ShaderMaterial:
+	if _water_surface == null:
+		_water_surface = ShaderMaterial.new()
+		_water_surface.shader = WATER_SHADER
+		_water_surface.set_shader_parameter("disc", false)
+	return _water_surface
 
 
 ## A round pond of the given radius, centred on its node's origin. The

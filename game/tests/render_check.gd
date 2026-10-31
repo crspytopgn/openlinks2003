@@ -21,6 +21,9 @@ func _initialize() -> void:
 	print("renderer: %s" % RenderingServer.get_current_rendering_method())
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
 	GolfRound.wind_seed = 20031
+	# The richest look, so every effect's shader compiles; a fixed 3D
+	# resolution, as software rendering is far too slow for 60 fps.
+	GraphicsSettings.force_look = GraphicsSettings.Look.PHOTOREAL
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	_game = scene.instantiate() as GolfRound
 	root.add_child(_game)
@@ -28,9 +31,15 @@ func _initialize() -> void:
 
 func _process(_delta: float) -> bool:
 	_frames += 1
-	if _frames == 2:
+	if _frames == 1:
+		# The round is ready by now.
+		_game.graphics.dynamic_res = 0
+		_game._apply_graphics()
+	elif _frames == 2:
 		_game.start_hole(1)
 		_game.scenery.set_backdrop(_test_horizon())
+	elif _frames == 3:
+		print("post process: visible %s, covers %s" % [_game.post.visible, _game.post.covered_size()])
 	elif _frames == FLYOVER_FRAME:
 		# The Broadcast presentation opens the hole with a flyover.
 		_save_jpg(root.get_texture().get_image(), "-flyover")

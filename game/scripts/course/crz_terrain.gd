@@ -45,6 +45,7 @@ var _cell_start := PackedInt32Array()
 var _cell_items := PackedInt32Array()
 var _last := -1
 var _mesh: ArrayMesh
+var _ground_colors := {}  ## material -> Color, see ground_color_at()
 
 
 ## Builds the lookup grid. Call once after filling the arrays.
@@ -153,6 +154,24 @@ func surface_at(x: float, z: float) -> int:
 	return CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
 
 
+## The mean colour of the material's texture times its tint, or its flat
+## colour.
+func ground_color_at(x: float, z: float) -> Color:
+	var t := triangle_at(x, z)
+	if t < 0:
+		return super(x, z)
+	var m := triangle_material[t]
+	if not _ground_colors.has(m):
+		var info: Dictionary = materials[m] if m < materials.size() else {}
+		var c: Color = info.get("colour", Color(0.3, 0.5, 0.2))
+		var tex: Texture2D = info.get("texture")
+		if tex != null:
+			var tint: Color = info.get("tint", Color.WHITE)
+			c = FreeAssets.mean_color(tex) * tint
+		_ground_colors[m] = c
+	return _ground_colors[m]
+
+
 func normal_at(x: float, z: float) -> Vector3:
 	var t := triangle_at(x, z)
 	if t < 0:
@@ -208,7 +227,11 @@ func _build_mesh() -> ArrayMesh:
 	return mesh
 
 
-func _material(m: int) -> StandardMaterial3D:
+func _material(m: int) -> Material:
+	var ground := ground_classes[m] if m < ground_classes.size() else 3
+	var surface: Surface.Type = CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
+	if surface == Surface.Type.WATER:
+		return Materials.water_surface()
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 1.0
 	var info: Dictionary = materials[m] if m < materials.size() else {}
@@ -218,9 +241,19 @@ func _material(m: int) -> StandardMaterial3D:
 		mat.albedo_texture = tex
 		mat.albedo_color = info.get("tint", Color.WHITE)
 		var normal: Texture2D = info.get("normal")
+		var scale := 1.0
+		if normal == null:
+			# The disc textures have no bumps of their own: borrow the
+			# free photo texture's, gently, so low sun picks out the grain.
+			normal = FreeAssets.ground(FreeAssets.slot_for(surface), "normal")
+			scale = 0.45
 		if normal != null:
 			mat.normal_enabled = true
 			mat.normal_texture = normal
+			mat.normal_scale = scale
+		if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY:
+			# Mown grass has a faint sheen.
+			mat.roughness = 0.82
 		mat.uv1_triplanar = true
 		mat.uv1_world_triplanar = true
 		mat.uv1_scale = Vector3.ONE / float(info.get("tile", TILE_METRES))

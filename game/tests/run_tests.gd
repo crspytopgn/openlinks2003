@@ -41,6 +41,7 @@ func _initialize() -> void:
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
+	_run("grass", _test_grass)
 	_run("broadcast_pieces", _test_broadcast_pieces)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
@@ -602,6 +603,69 @@ func _test_graphics_settings() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	_check(Materials.terrain().shader != null, "terrain shader loads")
 	_check(Materials.water().shader != null, "water shader loads")
+	_check(Materials.water_surface().get_shader_parameter("disc") == false, "course water isn't cut to a disc")
+
+	# Looks: a preset sets everything, a saved look comes back, and settings
+	# saved before looks existed get one picked for the device.
+	s = GraphicsSettings.new()
+	s.apply_look(GraphicsSettings.Look.PHOTOREAL)
+	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind, "photoreal look")
+	s.apply_look(GraphicsSettings.Look.CLASSIC)
+	_check(s.lighting == GraphicsSettings.Lighting.CLASSIC and s.grass == 0 and s.sharpen == 0 and not s.dof, "classic look is plain")
+	s.apply_look(GraphicsSettings.Look.PERFORMANCE)
+	_check(s.quality == GraphicsSettings.Quality.LOW and s.render_scale < 1.0 and s.target_fps() > 0, "performance look")
+	s.apply_look(GraphicsSettings.Look.CINEMATIC)
+	s.grain = 1
+	s.look = GraphicsSettings.Look.CUSTOM
+	s.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.Look.CUSTOM and loaded.grain == 1 and loaded.grade == GraphicsSettings.Grade.FILM, "custom look saved")
+	_check(loaded.dof and loaded.ssao and loaded.bloom == 3, "effects saved")
+	cfg = ConfigFile.new()
+	cfg.set_value("graphics", "quality", 1)
+	cfg.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.detect_look(), "old settings get a look for the device")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.detect_look(), "first run gets a look for the device")
+	GraphicsSettings.force_look = GraphicsSettings.Look.CLASSIC
+	loaded = GraphicsSettings.load_saved(path)
+	GraphicsSettings.force_look = -1
+	_check(loaded.look == GraphicsSettings.Look.CLASSIC, "forced look")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	for g in GraphicsSettings.Grade.values():
+		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
+
+
+func _test_grass() -> void:
+	var course := AssetProviders.load_course("")
+	var t := course.holes[0].terrain
+	var tufts := 0
+	var outside := 0
+	# A strip across the first hole, which crosses rough on both sides.
+	var tee := course.holes[0].tee
+	for i in range(-6, 7):
+		var key := Vector2i(floori(tee.x / GrassField.CHUNK) + i, floori((tee.z + 60.0) / GrassField.CHUNK))
+		var mm := GrassField.build_chunk(t, key, 4.0)
+		if mm == null:
+			continue
+		tufts += mm.instance_count
+		var buffer: PackedFloat32Array = mm.get_meta("buffer")
+		for k in mini(mm.instance_count, 50):
+			var at := Vector3(buffer[16 * k + 3], buffer[16 * k + 7], buffer[16 * k + 11])
+			if not GrassField.HEIGHTS.has(t.surface_at(at.x, at.z)):
+				outside += 1
+		var again := GrassField.build_chunk(t, key, 4.0)
+		_check(again.instance_count == mm.instance_count, "chunk grows the same grass each time")
+	_check(tufts > 100, "grass grows in the rough (%d tufts)" % tufts)
+	_check(outside == 0, "no grass on fairways, greens or sand")
+	_check(GrassField.tuft_mesh().get_surface_count() == 1, "tuft mesh")
+	var field := GrassField.new()
+	field.setup(t, 1)
+	field.update_around(tee + Vector3(0, 2, 60))
+	_check(field.chunk_count() == GrassField.BUILDS_PER_FRAME, "builds a few chunks per frame")
+	field.free()
 
 
 ## Numbers from the C++ wind_moves_the_ball test.
