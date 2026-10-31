@@ -17,6 +17,9 @@ var bounces := 0
 var obstacle_hits := 0  ## trees, walls and the like
 var times := PackedFloat32Array()
 var points := PackedVector3Array()
+## The launch that started the shot, for the practice range's launch monitor.
+## Game-side only (not in olcore::ShotResult); set by RoundReplay.run_shot.
+var launch: BallState = null
 
 
 func add_sample(t: float, p: Vector3) -> void:
