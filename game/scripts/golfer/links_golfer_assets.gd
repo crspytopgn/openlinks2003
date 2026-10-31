@@ -24,6 +24,11 @@ static func from_game_folder() -> LinksGolferAssets:
 	return assets
 
 
+## The golfer's .L3 archive.
+func archive_path() -> String:
+	return _archive_path
+
+
 func create_golfer() -> GolferRig:
 	var golfer := LinksGolfer.load_from(_archive_path)
 	if golfer == null:

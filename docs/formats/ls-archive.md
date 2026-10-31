@@ -104,3 +104,7 @@ See [carrera-store.md](carrera-store.md) for `.SKL` and `.CLP`, and
 - Whether the spare index slots and the archive header's `original_size`
   field matter to the game (they look like bookkeeping for in-place edits).
 - The meaning of the first four bytes of untagged entries in `SOUNDS.LS`.
+- `SOUNDS.LS` entries still carry their 0x37-byte block header in front of the
+  WAV data, so a reader looks for the `RIFF` tag. Menu sounds: `BC_CLICK.WAV`
+  (button click); `MUSIC1.WAV` and `MUSIC2.WAV` (menu music, stereo MS ADPCM,
+  44.1 kHz, about 90 s), with the `LO` versions at a lower quality.

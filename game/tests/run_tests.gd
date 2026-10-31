@@ -1682,6 +1682,28 @@ func _test_broadcast_pieces() -> void:
 	wet.outcome = ShotResult.Outcome.WATER
 	_check(Commentary.pick(wet, Surface.Type.WATER, false, 50.0, 150.0, rng)[1] == Commentary.Crowd.GROAN, "water groans")
 
+	# Golfer voice lines, by what the shot did.
+	_check(GolferVoice.event_for(wet, Surface.Type.WATER, false, false, 4, 2, 50.0, 150.0, false) == "In Water", "voice: water")
+	var rolled := ShotResult.new()
+	_check(GolferVoice.event_for(rolled, Surface.Type.GREEN, true, false, 4, 3, 3.0, 8.0, true) == "Putt Too Hard", "voice: putt past")
+	_check(GolferVoice.event_for(rolled, Surface.Type.GREEN, true, false, 4, 3, 3.0, 8.0, false) == "Putt Too Soft", "voice: putt short")
+	_check(GolferVoice.event_for(holed, Surface.Type.GREEN, true, false, 4, 3, 0.0, 12.0, false) == "Birdie", "voice: birdie")
+	_check(GolferVoice.event_for(holed, Surface.Type.GREEN, false, true, 3, 1, 0.0, 150.0, false) == "Hole In One!", "voice: ace")
+	var drive := ShotResult.new()
+	drive.total_m = 250.0
+	_check(GolferVoice.event_for(drive, Surface.Type.FAIRWAY, false, true, 4, 1, 150.0, 400.0, false) == "Great Tee Shot", "voice: big drive")
+
+	# SOUNDS.LS entries keep their block header before the RIFF data.
+	var wav := PackedByteArray()
+	wav.resize(LsArchiveFile.BLOCK_HEADER_SIZE)
+	wav.append_array("RIFF".to_ascii_buffer())
+	wav.append_array(PackedByteArray([36, 0, 0, 0]))
+	wav.append_array("WAVEfmt ".to_ascii_buffer())
+	wav.append_array(PackedByteArray([16, 0, 0, 0, 1, 0, 1, 0, 0x22, 0x56, 0, 0, 0x44, 0xac, 0, 0, 2, 0, 16, 0]))
+	wav.append_array("data".to_ascii_buffer())
+	wav.append_array(PackedByteArray([4, 0, 0, 0, 0, 0, 0, 0]))
+	_check(MenuSounds._stream(wav) != null, "menu sound past the block header")
+
 
 ## A round in each presentation, with a replay, a flyover and the green grid.
 func _test_broadcast_round() -> void:
