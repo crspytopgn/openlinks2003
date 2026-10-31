@@ -263,20 +263,23 @@ static func build_mesh(species: Species, seed_value: int) -> ArrayMesh:
 static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leaves: SurfaceTool) -> void:
 	var height := rng.randf_range(9.5, 13.0)
 	var lean := Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))
-	var fork := Vector3(0, height * rng.randf_range(0.3, 0.38), 0) + lean * 0.5
+	# Parkland trees: a short clear trunk and a crown that comes well down
+	# the tree, not a ball on a stick.
+	var fork := Vector3(0, height * rng.randf_range(0.22, 0.3), 0) + lean * 0.5
 	var radius := 0.22 + height * 0.012
 	_tube(bark, Vector3.ZERO, fork, radius * 1.25, radius, 7)
 	var top := Vector3(lean.x, height * 0.82, lean.z)
 	_tube(bark, fork, top, radius, radius * 0.25, 6)
-	var centre := Vector3(lean.x * 0.7, height * 0.62, lean.z * 0.7)
-	var reach := Vector2(height * rng.randf_range(0.33, 0.42), height * 0.32)  # crown radii: across, up
+	var centre := Vector3(lean.x * 0.7, height * 0.58, lean.z * 0.7)
+	var reach := Vector2(height * rng.randf_range(0.36, 0.45), height * 0.36)  # crown radii: across, up
 	var count := rng.randi_range(8, 10)
 	var tips: Array[Vector3] = []
 	for i in count:
 		var along := rng.randf_range(0.0, 1.0)
 		var start := fork.lerp(top, along * 0.75)
 		var yaw := (float(i) + rng.randf_range(-0.3, 0.3)) / count * TAU
-		var rise := rng.randf_range(0.35, 0.8)
+		# Low limbs reach out nearly level (and sag at the tips); high ones climb.
+		var rise := lerpf(rng.randf_range(-0.05, 0.25), rng.randf_range(0.5, 0.9), along)
 		var dir := Vector3(cos(yaw), rise, sin(yaw)).normalized()
 		var length := reach.x * rng.randf_range(0.75, 1.0) * (1.1 - along * 0.4)
 		var end := start + dir * length
