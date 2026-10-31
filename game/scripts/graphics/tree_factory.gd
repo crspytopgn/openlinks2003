@@ -44,10 +44,142 @@ static var _baking := false
 static var _baked := false
 static var _waiting: Array[WeakRef] = []
 static var _next := {}
+static var _instanced_meshes: Array[ArrayMesh] = []
+static var _instanced_impostor: ShaderMaterial
+static var _impostor_quad: QuadMesh
 
 
 static func enabled() -> bool:
 	return level > 0
+
+
+static func set_level(value: int) -> void:
+	level = value
+	_update_distance()
+
+
+## The distance (metres) at which trees turn into impostors at `level`.
+static func impostor_distance() -> float:
+	return IMPOSTOR_DISTANCE[clampi(level, 1, IMPOSTOR_DISTANCE.size() - 1)]
+
+
+## A variant of `species` picked by a hash of (x, z), so a course's trees
+## come out the same every time.
+static func variant_at(species: Species, x: float, z: float) -> int:
+	var choices: Array[int] = []
+	for v in VARIANTS.size():
+		if VARIANTS[v][0] == species:
+			choices.append(v)
+	var h := hash(Vector2i(roundi(x * 10.0), roundi(z * 10.0)))
+	return choices[absi(h) % choices.size()]
+
+
+## Many trees as MultiMeshes, for a course's trees in place of its
+## billboards. `trees` holds per tree: base x, y, z (Godot metres), height
+## and species. Full trees are grouped by variant into cells of `cell`
+## metres, and the impostors of all of them go in one MultiMesh. Each
+## shader switches between the two per tree at the camera's distance (the
+## global tree_impostor_distance), and a cell's full trees are culled
+## beyond that. Returns [{multimesh, position, reach, full}]: reach is how
+## far the farthest tree is from position, so a cell's node can be hidden
+## at impostor_distance() + reach.
+static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]:
+	_ensure_instanced()
+	var out: Array[Dictionary] = []
+	@warning_ignore("integer_division")
+	var n := trees.size() / 5
+	if n == 0:
+		return out
+	var groups := {}  # Vector3i(cell x, cell z, variant) -> PackedInt32Array
+	var variant := PackedInt32Array()
+	variant.resize(n)
+	var centre := Vector3.ZERO
+	for i in n:
+		var x := trees[5 * i]
+		var z := trees[5 * i + 2]
+		var v := variant_at(int(trees[5 * i + 4]) as Species, x, z)
+		variant[i] = v
+		centre += Vector3(x, trees[5 * i + 1], z)
+		var key := Vector3i(floori(x / cell), floori(z / cell), v)
+		if not groups.has(key):
+			groups[key] = PackedInt32Array()
+		var list: PackedInt32Array = groups[key]
+		list.append(i)
+		groups[key] = list
+	centre /= n
+	for key: Vector3i in groups:
+		var list: PackedInt32Array = groups[key]
+		var mid := Vector3.ZERO
+		for i in list:
+			mid += Vector3(trees[5 * i], trees[5 * i + 1], trees[5 * i + 2])
+		mid /= list.size()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _instanced_meshes[key.z]
+		mm.instance_count = list.size()
+		var reach := 0.0
+		for k in list.size():
+			var i := list[k]
+			var t := _tree_transform(trees, i, _meshes[key.z].get_aabb().end.y)
+			t.origin -= mid
+			reach = maxf(reach, Vector2(t.origin.x, t.origin.z).length())
+			mm.set_instance_transform(k, t)
+		out.append({multimesh = mm, position = mid, reach = reach, full = true})
+	var imp := MultiMesh.new()
+	imp.transform_format = MultiMesh.TRANSFORM_3D
+	imp.use_custom_data = true
+	imp.mesh = _impostor_quad
+	imp.instance_count = n
+	for i in n:
+		var v := variant[i]
+		var t := _tree_transform(trees, i, _meshes[v].get_aabb().end.y)
+		t.basis = t.basis.scaled(Vector3.ONE * _sizes[v])
+		t.origin -= centre
+		imp.set_instance_transform(i, t)
+		imp.set_instance_custom_data(i, Color((v + 0.5) / VARIANTS.size(), 0, 0, 0))
+	out.append({multimesh = imp, position = centre, reach = 0.0, full = false})
+	if not _baked:
+		_start_bake()
+	_update_distance()
+	return out
+
+
+## Tree i of `trees` (see batches): scaled from the variant's height to the
+## placement's, turned by a hash of its position.
+static func _tree_transform(trees: PackedFloat32Array, i: int, mesh_height: float) -> Transform3D:
+	var x := trees[5 * i]
+	var z := trees[5 * i + 2]
+	var yaw := float(absi(hash(Vector2i(roundi(z * 10.0), roundi(x * 10.0)))) % 3600) / 3600.0 * TAU
+	var s := trees[5 * i + 3] / mesh_height
+	return Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * s), Vector3(x, trees[5 * i + 1], z))
+
+
+static func _ensure_instanced() -> void:
+	_ensure_meshes()
+	if not _instanced_meshes.is_empty():
+		return
+	for v in VARIANTS.size():
+		var m := _meshes[v].duplicate() as ArrayMesh
+		m.surface_set_material(0, material("instanced_bark"))
+		m.surface_set_material(1, material("instanced_needles" if VARIANTS[v][0] == Species.PINE else "instanced_leaves"))
+		_instanced_meshes.append(m)
+	_instanced_impostor = ShaderMaterial.new()
+	_instanced_impostor.shader = IMPOSTOR_SHADER
+	_instanced_impostor.set_shader_parameter("frames", float(FRAMES))
+	_instanced_impostor.set_shader_parameter("rows", float(VARIANTS.size()))
+	_instanced_impostor.set_shader_parameter("instanced", true)
+	if _atlas != null:
+		_instanced_impostor.set_shader_parameter("atlas", _atlas)
+	_impostor_quad = QuadMesh.new()
+	_impostor_quad.size = Vector2.ONE
+	_impostor_quad.center_offset = Vector3(0, 0.5, 0)
+	_impostor_quad.material = _instanced_impostor
+
+
+## Until the atlas is baked the full trees show at every distance (and
+## the instanced impostors nowhere).
+static func _update_distance() -> void:
+	RenderingServer.global_shader_parameter_set("tree_impostor_distance", impostor_distance() if _baked else 1.0e6)
 
 
 ## A tree of `species`, cycling through its variants. `seed_hint` picks the
@@ -284,12 +416,14 @@ static func _core(st: SurfaceTool, rng: RandomNumberGenerator, centre: Vector3, 
 
 
 ## The shared materials: "bark", "leaves" and "needles", plus "bake_..."
-## versions that draw plain albedo for the impostor atlas.
+## versions that draw plain albedo for the impostor atlas and "instanced_..."
+## ones for the MultiMeshes of batches().
 static func material(which: String) -> ShaderMaterial:
 	if _materials.has(which):
 		return _materials[which]
 	var bake := which.begins_with("bake_")
-	var kind := which.trim_prefix("bake_")
+	var instanced := which.begins_with("instanced_")
+	var kind := which.trim_prefix("bake_").trim_prefix("instanced_")
 	var mat := ShaderMaterial.new()
 	if kind == "bark":
 		mat.shader = BARK_SHADER
@@ -308,13 +442,14 @@ static func material(which: String) -> ShaderMaterial:
 			mat.set_shader_parameter("leaf_opacity", opacity)
 			mat.set_shader_parameter("has_texture", true)
 	mat.set_shader_parameter("bake", bake)
+	mat.set_shader_parameter("instanced", instanced)
 	_materials[which] = mat
 	return mat
 
 
 static func _add_impostor(root: Node3D) -> void:
 	var variant: int = root.get_meta("tree_variant")
-	var distance := IMPOSTOR_DISTANCE[clampi(level, 1, IMPOSTOR_DISTANCE.size() - 1)]
+	var distance := impostor_distance()
 	var full := root.get_node("Full") as GeometryInstance3D
 	full.visibility_range_end = distance
 	full.visibility_range_end_margin = 4.0
@@ -398,6 +533,9 @@ static func _bake(tree: SceneTree) -> void:
 		mat.set_shader_parameter("row", float(v))
 		_impostor_mats.append(mat)
 	_baked = true
+	if _instanced_impostor != null:
+		_instanced_impostor.set_shader_parameter("atlas", _atlas)
+	_update_distance()
 	for ref in _waiting:
 		var node := ref.get_ref() as Node3D
 		if node != null and is_instance_valid(node):

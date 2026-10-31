@@ -15,6 +15,9 @@ uniform sampler2D leaf_opacity : filter_linear_mipmap, repeat_disable;
 uniform bool has_texture = false;
 uniform bool needles = false;
 uniform bool bake = false;
+// Drawn in a MultiMesh of a course's trees: beyond tree_impostor_distance
+// from the camera an instance collapses to a point and its impostor shows.
+uniform bool instanced = false;
 uniform vec2 leaf_grid = vec2(3.0, 2.0); // leaves in the leaf texture
 uniform vec3 leaf_dark : source_color = vec3(0.16, 0.27, 0.08);
 uniform vec3 leaf_light : source_color = vec3(0.36, 0.47, 0.16);
@@ -23,6 +26,7 @@ uniform vec3 needle_light : source_color = vec3(0.16, 0.29, 0.12);
 
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
+global uniform float tree_impostor_distance;
 
 varying vec4 info;
 
@@ -34,6 +38,9 @@ float hash(vec2 p) {
 
 void vertex() {
 	info = COLOR;
+	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
+		VERTEX = vec3(0.0);
+	}
 	if (!bake && foliage_sway > 0.0) {
 		vec3 root = MODEL_MATRIX[3].xyz;
 		float phase = dot(root.xz, vec2(0.37, 0.23)) + COLOR.r * 6.28;

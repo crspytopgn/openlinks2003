@@ -37,6 +37,10 @@ foliage_sway={
 "type": "float",
 "value": 0.0
 }
+tree_impostor_distance={
+"type": "float",
+"value": 1e+06
+}
 
 [rendering]
 

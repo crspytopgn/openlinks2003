@@ -8,7 +8,16 @@ uniform sampler2D bark_color : source_color, filter_linear_mipmap, repeat_enable
 uniform sampler2D bark_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform bool has_texture = false;
 uniform bool bake = false;
+uniform bool instanced = false; // see tree_leaves.gdshader
 uniform vec3 tint : source_color = vec3(0.33, 0.25, 0.19);
+
+global uniform float tree_impostor_distance;
+
+void vertex() {
+	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
+		VERTEX = vec3(0.0);
+	}
+}
 
 void fragment() {
 	vec2 uv = UV / 1.5;

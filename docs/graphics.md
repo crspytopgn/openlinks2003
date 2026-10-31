@@ -69,7 +69,16 @@ at Medium and grass at Low.
   of 8 views, baked once into an atlas (a row per variant) by rendering
   every variant into one off-screen viewport the first time a tree is
   made. Headless runs render nothing, so they keep the full trees. The
-  3D trees replace the placeholder course's trees; the ball's obstacles
+  3D trees replace the placeholder course's trees, and on a disc course
+  its tree billboards 3 m and taller (broadleaf for "Trees", maples and
+  the like, pine for evergreens; palms, dead trees and bushes keep their
+  billboards). Course trees are drawn in MultiMeshes per 100 m chunk: the
+  full trees of each 50 m cell per variant, hidden a little past the
+  impostor distance, and one impostor MultiMesh for the chunk. The shaders
+  switch each tree between the two at the camera's distance (the global
+  `tree_impostor_distance`, measured from the main camera, so shadows
+  agree). Variant and yaw come from a hash of the position, and each tree
+  is scaled to its billboard's height. The ball's obstacles
   come from the course data, not the meshes. Leaf textures are sampled
   with gradients from the card's UV (the turned cells jump at their
   borders, which picks wild mip levels and sparkles in Compatibility).
@@ -80,8 +89,6 @@ at Medium and grass at Low.
 
 ## Still to do
 
-- Photoscanned 3D trees (with impostors at distance) as an option in place
-  of the disc billboards, keeping the same collision shapes.
 - Baked shadows and AO per hole for the static scenery, and cloud shadows.
 - Texture compression tiers per device (Basis/ASTC), a frame-time and
   draw-call budget check in CI, and the HD pack in the browser.

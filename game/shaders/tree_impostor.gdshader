@@ -11,17 +11,27 @@ uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
 uniform float frames = 8.0;
 uniform float rows = 1.0;
 uniform float row = 0.0;
+// Drawn in a MultiMesh of a course's trees: the row comes from the
+// instance's custom data, and inside tree_impostor_distance from the
+// camera the instance collapses, as the full tree shows there.
+uniform bool instanced = false;
 
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
+global uniform float tree_impostor_distance;
 
 varying float frame;
+varying float atlas_row;
 
 void vertex() {
 	vec3 root = MODEL_MATRIX[3].xyz;
 	vec3 to_camera = (vec4(INV_VIEW_MATRIX[3].xyz - root, 0.0) * MODEL_MATRIX).xyz;
 	float azimuth = atan(to_camera.x, to_camera.z);
 	frame = mod(round(azimuth / (6.2831853 / frames)), frames);
+	atlas_row = instanced ? floor(INSTANCE_CUSTOM.r * rows) : row;
+	if (instanced && distance(root, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) < tree_impostor_distance) {
+		VERTEX = vec3(0.0);
+	}
 	if (foliage_sway > 0.0) {
 		float phase = dot(root.xz, vec2(0.37, 0.23));
 		float speed = min(length(wind_vector), 15.0);
@@ -44,7 +54,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 uv = vec2((frame + clamp(UV.x, 0.002, 0.998)) / frames, (row + clamp(UV.y, 0.002, 0.998)) / rows);
+	vec2 uv = vec2((frame + clamp(UV.x, 0.002, 0.998)) / frames, (atlas_row + clamp(UV.y, 0.002, 0.998)) / rows);
 	vec4 c = texture(atlas, uv);
 	// discard rather than ALPHA, which makes the Compatibility glow flare
 	// (see tree_leaves.gdshader).

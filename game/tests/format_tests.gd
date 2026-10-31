@@ -446,6 +446,40 @@ func _test_course_objects() -> void:
 		check(world.distance_to(Vector3(10 * f, 0, 0)) < 1e-3, "objects: chunk offset restored")
 	root.free()
 
+	# With 3D trees on, the two trees taller than 3 m become 3D trees (full
+	# and impostor) and the small plant stays a billboard.
+	check(CourseObjects.tree_species("Tall Trees212") == TreeFactory.Species.BROADLEAF and CourseObjects.tree_species("Evergreens004") == TreeFactory.Species.PINE, "objects: tree species")
+	check(CourseObjects.tree_species("Palm Trees010") == -1 and CourseObjects.tree_species("Bushes001") == -1, "objects: palms and bushes keep their billboards")
+	TreeFactory.level = 2
+	root = objects.build_visual(hole)
+	var billboards := 0
+	var full := 0
+	var impostors := 0
+	for child in root.get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi == null:
+			continue
+		if mmi.multimesh.mesh is QuadMesh and mmi.multimesh.use_custom_data and mmi.multimesh.mesh.material is ShaderMaterial and (mmi.multimesh.mesh.material as ShaderMaterial).shader == TreeFactory.IMPOSTOR_SHADER:
+			impostors += mmi.multimesh.instance_count
+			check(mmi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "objects: impostors cast no shadow")
+		elif mmi.multimesh.mesh is ArrayMesh:
+			full += mmi.multimesh.instance_count
+			check(mmi.visibility_range_end > TreeFactory.impostor_distance(), "objects: full trees hidden past the impostor distance")
+		else:
+			billboards += mmi.multimesh.instance_count
+	check(billboards == 1 and full == 2 and impostors == 2, "objects: 3D trees in place of tree billboards (%d, %d, %d)" % [billboards, full, impostors])
+	check(objects.obstacles.size() == 4, "objects: 3D trees keep the billboards' obstacles")
+	root.free()
+	TreeFactory.level = 0
+	root = objects.build_visual(hole)
+	instances = 0
+	for child in root.get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi != null:
+			instances += mmi.multimesh.instance_count
+	check(instances == 3, "objects: billboards back with 3D trees off (%d)" % instances)
+	root.free()
+
 
 ## Mirrors test_panorama_tiles in libs/olcore/tests/test_main.cpp.
 func _test_panorama() -> void:
