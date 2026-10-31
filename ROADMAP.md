@@ -91,6 +91,8 @@ feel) still need a working install.
 
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
+  - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
+  - [ ] Online: one host, shots sent as messages over WebRTC ([online-play.md](docs/online-play.md))
 - [ ] Player profiles and saves (original format optional)
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))

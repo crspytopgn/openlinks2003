@@ -92,6 +92,8 @@ var players: Array[PlayerBall] = []
 var opponents: Array[ComputerGolfer] = []
 var current := 0  ## whose ball is being played
 var shooter := 0  ## who is hitting it (a partner, in a shared-ball mode)
+## The last person to play, for the hot-seat hand-over; -1 at the start.
+var _last_human := -1
 ## The ball each player plays: their own, or their team's in a shared-ball mode.
 var ball_of: Array[int] = []
 var honour: Array[int] = []  ## tee-off order for this hole
@@ -231,6 +233,8 @@ func start_round() -> void:
 		players[ball_of[i]].members.append(i)
 	current = 0
 	shooter = 0
+	_last_human = -1
+	hud.hand_over.close()
 	card = scoring.cards[0]
 	scenery.set_backdrop(course.horizon)
 	if ambience != null:
@@ -410,6 +414,21 @@ func _begin_turn(index: int, snap_camera: bool) -> void:
 		var thru := card.holes_played()
 		hud.overlay.lower_third(scoring.names[shooter], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
 			"E" if thru == 0 else Scorecard.format_to_par(card.to_par()), thru, strokes + 1, _pin_text().to_upper()])
+	_hand_over()
+
+
+## Hot seat: when the next swing is a different person's from the last one,
+## dim the screen until they're at the keyboard. Computer golfers don't need
+## it, and a person playing against them alone never sees it.
+func _hand_over() -> void:
+	if opponents[shooter] != null:
+		return
+	if _last_human >= 0 and _last_human != shooter:
+		var detail := "Hole %d    Shot %d    %s to the pin" % [hole.number, strokes + 1, _pin_text()]
+		if players[current].members.size() > 1:
+			detail = "For %s    %s" % [_side_name(current), detail]
+		hud.hand_over.open(scoring.names[shooter], detail)
+	_last_human = shooter
 
 
 ## Shows the other players' balls where they lie.
@@ -483,6 +502,7 @@ func play_shot(power: float, accuracy: float) -> void:
 ## Advances the game one step without input, playing sensible shots: used by
 ## the headless tests to play a whole round.
 func auto_play_step() -> void:
+	hud.hand_over.close()
 	match state:
 		State.COMPUTER:
 			opponents[shooter].finish()
@@ -516,7 +536,8 @@ func _process(delta: float) -> void:
 	else:
 		match state:
 			State.AIM:
-				_process_aim(delta)
+				if not hud.hand_over.visible:
+					_process_aim(delta)
 			State.FLIGHT:
 				_process_flight(delta)
 			State.SHOT_RESULT:
@@ -565,6 +586,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					_apply_graphics()
 					return
 	if settings_panel.visible or pause_menu.visible:
+		return
+	if hud.hand_over.visible and not (event is InputEventKey and (event as InputEventKey).keycode == KEY_TAB):
+		var go := event.is_action_pressed("swing") or event.is_action_pressed("ui_accept")
+		if event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			go = go or (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT)
+		if go:
+			hud.hand_over.close()
+			get_viewport().set_input_as_handled()
 		return
 	if state == State.DROP and event is InputEventKey and (event as InputEventKey).pressed:
 		if _drop_key(event as InputEventKey):
