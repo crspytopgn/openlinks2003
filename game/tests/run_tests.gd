@@ -95,6 +95,7 @@ func _process(_delta: float) -> bool:
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("practice_range", _test_practice_range)
+	_run("gimmes", _test_gimmes)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2471,6 +2472,32 @@ func _test_practice_range() -> void:
 	_check(r.descent_deg > 5.0 and r.descent_deg < 80.0, "descent %.0f deg" % r.descent_deg)
 	_check(not game.practice_session.summary(r.club).is_empty(), "session summary")
 	print("  range: %s" % game.practice_session.summary(r.club))
+	GolfRound.setup = null
+
+
+## Gimmes: short putts are conceded for a stroke, and the round still
+## replays to the same card.
+func _test_gimmes() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.gimme = 3
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		game.auto_play_step()
+		steps += 1
+	game.graphics.gimme = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with gimmes finishes")
+	var gimmes := 0
+	for d in game.record.drops:
+		if d.get("gimme", false):
+			gimmes += 1
+	_check(gimmes >= 1, "some putts were conceded (%d)" % gimmes)
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with gimmes replays: %s" % [ok.errors])
+	print("  gimmes: %d, card %s" % [gimmes, str(game.card.strokes)])
 	GolfRound.setup = null
 
 

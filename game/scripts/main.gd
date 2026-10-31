@@ -1169,6 +1169,33 @@ func _shape_key(keycode: Key) -> void:
 		_update_hud()
 
 
+# --- Gimmes -------------------------------------------------------------------
+
+## Settings > Gimmes: the ball stopped on the green close enough to concede.
+## Not in a friend's round (the codes must play the same) or a scramble
+## (whose best ball is picked after everyone has played).
+func _gimme_now() -> bool:
+	var feet: float = GraphicsSettings.GIMME_FEET[graphics.gimme]
+	if feet <= 0.0 or shot.outcome != ShotResult.Outcome.REST or round_setup.challenge != null:
+		return false
+	if round_setup.mode == GameModes.Mode.SCRAMBLE:
+		return false
+	if hole.terrain.surface_at(shot.rest.x, shot.rest.z) != Surface.Type.GREEN:
+		return false
+	return _flat_distance(shot.rest, hole.pin) * FEET_PER_METRE <= feet
+
+
+## The conceded putt counts one stroke, kept with the drops so the replay
+## checker adds it to the card.
+func _concede_putt() -> void:
+	strokes += 1
+	players[current].putts += 1
+	record.drops.append({"ball": current, "hole": hole_index, "reason": -1, "penalty": 1, "gimme": true})
+	shot_log.append("%s: gimme from %.1f ft" % [scoring.names[shooter], _flat_distance(shot.rest, hole.pin) * FEET_PER_METRE])
+	hud.show_message("%sThat's a gimme." % ["" if players.size() == 1 else scoring.names[shooter] + ": "], 2.0)
+	_hole_out(false)
+
+
 # --- Practice range ----------------------------------------------------------
 # RoundSetup.practice: one person hits from the tee as often as they like; the
 # ball comes back each time and the launch monitor shows the shot. No scores,
@@ -1423,6 +1450,9 @@ func _complete_flight() -> void:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
+	if _gimme_now():
+		_concede_putt()
+		return
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
 	if strokes >= MAX_STROKES:

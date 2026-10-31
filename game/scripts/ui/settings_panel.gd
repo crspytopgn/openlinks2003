@@ -39,6 +39,7 @@ var _firmness: OptionButton
 var _speed: OptionButton
 var _caddie: OptionButton
 var _buggy: OptionButton
+var _gimme: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
 var _hd_dialog: FileDialog
@@ -107,6 +108,7 @@ func _ready() -> void:
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
 	_caddie = _row(grid, "Caddie", ["Off", "On (advice follows swing skill)"])
 	_buggy = _row(grid, "Golf buggy", ["Off (walk)", "Drive between shots"])
+	_gimme = _row(grid, "Gimmes", GraphicsSettings.GIMME_NAMES)
 	_add_hd_rows(box, grid)
 	_add_look_rows(_grid(columns))
 
@@ -148,6 +150,7 @@ func open(s: GraphicsSettings) -> void:
 	_speed.select(s.green_speed)
 	_caddie.select(1 if s.caddie else 0)
 	_buggy.select(1 if s.buggy else 0)
+	_gimme.select(s.gimme)
 	_show_look()
 	_show_hd()
 	visible = true
@@ -360,6 +363,7 @@ func _on_selected() -> void:
 	settings.green_speed = _speed.selected
 	settings.caddie = _caddie.selected == 1
 	settings.buggy = _buggy.selected == 1
+	settings.gimme = _gimme.selected
 	settings.lighting = _lighting.selected
 	settings.upscaler = _upscaler.selected
 	settings.dynamic_res = _dynamic.selected

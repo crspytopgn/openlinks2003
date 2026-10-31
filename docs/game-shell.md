@@ -72,6 +72,15 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Gimmes
+
+Settings > Gimmes (off by default, as in Links 2003): a ball that stops on
+the green inside 2, 3 or 4 feet of the hole is conceded for one stroke and
+counted as a putt. The conceded stroke is kept with the round's drops
+(`"gimme": true`, penalty 1), so the replay checker adds it to the card.
+Never in a friend's round from a result code, nor in a scramble, whose best
+ball is picked only after everyone has played.
+
 ### Practice range
 
 Round setup > Play > Practice range: one person hits from the tee of the

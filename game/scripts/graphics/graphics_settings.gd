@@ -81,6 +81,11 @@ var caddie := false
 var true_size_ball := false
 ## Drive a golf buggy to the ball between shots (GolfBuggy). Off by default.
 var buggy := false
+## Gimmes: a putt left this close is conceded for one stroke (an index into
+## GIMME_FEET; 0 is off, as in Links 2003). Never in a friend's round.
+var gimme := 0
+const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
+const GIMME_NAMES := ["Off", "Inside 2 ft", "Inside 3 ft", "Inside the leather (4 ft)"]
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -204,6 +209,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
+	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -249,6 +255,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "caddie", caddie)
 	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
+	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)
