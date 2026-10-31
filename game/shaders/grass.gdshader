@@ -15,13 +15,17 @@ uniform float fade_start = 20.0;
 uniform float fade_end = 30.0;
 uniform float brightness = 1.0; // GrassField lifts it for Compatibility
 
+#include "res://shaders/ground_shade.gdshaderinc"
+
 varying vec3 base_color;
 varying float height;
+varying vec2 root_xz;
 
 void vertex() {
 	// VERTEX and NORMAL are in world space here (world_vertex_coords).
 	height = UV.y;
 	vec3 root = MODEL_MATRIX[3].xyz;
+	root_xz = root.xz;
 	float fade = 1.0 - smoothstep(fade_start, fade_end, distance(root.xz, camera_pos.xz));
 	float phase = INSTANCE_CUSTOM.a * 6.2831;
 	float gust = 0.6 + 0.4 * sin(TIME * 1.7 + phase + dot(root.xz, vec2(0.21, 0.17)));
@@ -35,7 +39,8 @@ void vertex() {
 
 void fragment() {
 	// Darker in the tuft, sun-bleached at the tips.
-	ALBEDO = base_color * mix(0.8, 1.25, height) * brightness * vec3(0.97, 1.03, 0.9);
+	ALBEDO = base_color * mix(0.8, 1.25, height) * brightness * vec3(0.97, 1.03, 0.9)
+		* ground_shading(root_xz, length(VERTEX));
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).
 	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);

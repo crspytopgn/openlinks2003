@@ -364,6 +364,8 @@ func start_hole(index: int) -> void:
 		hole_root.add_child(node)
 	_add_flag()
 	_add_tee_markers()
+	if scenery.sun != null:
+		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)
 	camera.terrain = hole.terrain
@@ -1402,6 +1404,7 @@ func _apply_graphics() -> void:
 	camera.attributes = _camera_attributes()
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
 	TreeFactory.set_level(graphics.trees)
+	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)
 	broadcast = graphics.broadcast()

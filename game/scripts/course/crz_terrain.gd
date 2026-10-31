@@ -268,4 +268,5 @@ func _material(m: int) -> Material:
 		mat.uv1_world_triplanar = true
 		mat.uv1_scale = Vector3.ONE / float(info.get("tile", TILE_METRES))
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	mat.next_pass = Materials.ground_shade_pass()
 	return mat

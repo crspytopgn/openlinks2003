@@ -82,6 +82,20 @@ at Medium and grass at Low.
   come from the course data, not the meshes. Leaf textures are sampled
   with gradients from the card's UV (the turned cells jump at their
   borders, which picks wild mip levels and sparkles in Compatibility).
+- **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
+  hole starts, every tree, bush and rock billboard and every 3D model
+  within 250 m of the tee, route and pin stamps a soft shadow (along
+  the sun, stretched by the crown's height) and a soft dark patch at its
+  foot into one top-down map, up to 1536 pixels and at least 0.5 m a
+  pixel. The stamps are soft ellipses in one MultiMesh, multiplied into a
+  white off-screen viewport on the GPU and read back once. The ground
+  and grass shaders darken by it (R the sun shadow, G the occlusion)
+  through global uniforms. The disc courses' standard ground materials
+  get it from a next pass that draws black with the shade as alpha.
+  (`blend_mul` darkened everything in Compatibility.) Near the camera,
+  where the full 3D trees cast real-time shadows, the baked sun shadow
+  fades out. Billboards and impostors cast no real-time shadows, so far
+  trees get shadows only from this map.
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat
@@ -89,6 +103,6 @@ at Medium and grass at Low.
 
 ## Still to do
 
-- Baked shadows and AO per hole for the static scenery, and cloud shadows.
+- Cloud shadows, and occlusion from the terrain itself (hollows, cliffs).
 - Texture compression tiers per device (Basis/ASTC), a frame-time and
   draw-call budget check in CI, and the HD pack in the browser.
