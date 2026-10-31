@@ -460,9 +460,9 @@ func _material(m: int, mapped := false) -> Material:
 	return mat
 
 
-## Mown grass has a faint sheen.
+## Ground is matt; mown grass only a touch less so.
 static func _disc_roughness(surface: Surface.Type) -> float:
-	return 0.82 if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY else 1.0
+	return 0.95 if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY else 1.0
 
 
 ## The disc's own texture (and for a blended material its mask and second
@@ -594,17 +594,19 @@ static func realistic_class(c: Color, ground: int) -> Color:
 ## textures are bright and pale for a dim CRT and a flat light; turf in
 ## sunlight is darker and deeper.
 static func realistic(c: Color, surface: Surface.Type) -> Color:
-	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.72)
+	# (Lighter than they would be with a sheen: the ground is matt, so the
+	# sun's glare no longer brightens it.)
+	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.8)
 	if surface == Surface.Type.ROUGH or surface == Surface.Type.DEEP_ROUGH:
 		# Pale disc rough reads as bare ground; real rough and fescue are
 		# olive and straw, with more colour and less light.
-		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.62)
+		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.7)
 	elif surface == Surface.Type.SAND:
 		out = Color.from_hsv(c.h, clampf(c.s * 0.9, 0.0, 0.5), minf(c.v * 0.92, 0.85))
 	elif c.h > 0.12 and c.h < 0.45:
 		# Mown grass: the disc's yellowish greens pulled towards the deep
 		# green of watered turf.
-		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s, c.v * 0.62)
+		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s * 0.92, c.v * 0.72)
 	return out
 
 

@@ -141,6 +141,11 @@ at Medium and grass at Low.
   far banks dark and green at the bottom of the reflection and a quarter
   of every reflection taken by the banks round it; the water's own colour
   is a dark, slightly green deep.
+- **Matt surfaces**: ground (every terrain shader), grass tufts, trees
+  and the golfer's cloth and skin are matt (roughness 0.9 to 1, specular
+  0.1), so the sun and sky leave no plastic sheen; only the water and
+  the clubs shine. The photo ground's colours (`realistic()`) are a little
+  lighter to make up for the glare they no longer get.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump
