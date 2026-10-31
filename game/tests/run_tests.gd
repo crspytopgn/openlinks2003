@@ -2751,6 +2751,12 @@ func _test_tee_view() -> void:
 	var far := game.ball_at + game._aim_dir() * reach
 	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
 	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
+	var cam: RoundCamera = game.camera
+	var forward := (cam._aim_look - cam._aim_pos).normalized()
+	var half := deg_to_rad(cam.fov) * 0.5
+	var to_feet := (game.ball_at - cam._aim_pos).normalized()
+	_check(forward.angle_to(to_feet) < half, "tee view: the golfer and ball stay in frame")
+	_check(forward.angle_to((target - cam._aim_pos).normalized()) < half, "tee view: and so does the target")
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
