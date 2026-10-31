@@ -16,7 +16,10 @@ extends GolferRig
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
 const BLEND_TIME := 0.15
-const LOOPING: Array[StringName] = [&"address", &"address_putt", &"walk"]
+const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
+## Clips with an iron version (`_iron`): a shorter, more upright club, so he
+## stands closer to the ball and bends over more.
+const IRON_CLIPS: Array[StringName] = [&"address", &"backswing", &"swing"]
 ## The walk up to a new ball: from this far behind the address spot, at the
 ## mocap walk's own speed (so the feet don't slide), easing into address.
 const WALK_FROM := 2.2
@@ -42,6 +45,8 @@ var _base_rests: Array[Transform3D] = []
 var _look_nodes: Array[Node] = []
 var _driver: Array[Node3D] = []
 var _putter: Array[Node3D] = []
+var _iron_meshes: Array[Node3D] = []
+var _iron := false
 var _putting := false
 ## Where the model sits at address: off the origin when it is scaled for
 ## height (it is scaled about the ball).
@@ -85,6 +90,8 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 			golfer._driver.append(node)
 		elif node.name.begins_with("Putter"):
 			golfer._putter.append(node)
+		elif node.name.begins_with("Iron"):
+			golfer._iron_meshes.append(node)
 	golfer._show_putter(false)
 	golfer.apply_look(p_look if p_look != null else PlayerLook.new())
 	return golfer
@@ -216,9 +223,16 @@ func has_animation(animation: StringName) -> bool:
 	return _player.has_animation(animation)
 
 
-## Address in the putting stance with the putter on the green.
+## Address in the putting stance with the putter on the green, and with an
+## iron for every club but the woods and hybrids.
 func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
 	_putting = club.is_putter
+	_iron = not _putting and not _iron_meshes.is_empty() and not is_long_club(club)
+
+
+## Driver, woods and hybrids: swung from the driver's address.
+static func is_long_club(club: Club) -> bool:
+	return club.full_name == "Driver" or club.full_name.contains("Wood") or club.full_name.contains("Hybrid")
 
 
 ## The putter stays out after a putt, for the next address and the
@@ -235,6 +249,8 @@ func play(animation: StringName) -> void:
 	var clip := animation
 	if animation == &"address" and _putting:
 		clip = &"address_putt"
+	elif _iron and not _putting and animation in IRON_CLIPS and _player.has_animation(StringName(String(animation) + "_iron")):
+		clip = StringName(String(animation) + "_iron")
 	_show_putter(_putting)
 	if animation == &"address" and walk_in and is_inside_tree() and _player.has_animation(&"walk"):
 		var spot := global_position
@@ -295,6 +311,8 @@ func _stop_walk() -> void:
 
 func _show_putter(on: bool) -> void:
 	for node in _driver:
-		node.visible = not on
+		node.visible = not on and not _iron
+	for node in _iron_meshes:
+		node.visible = not on and _iron
 	for node in _putter:
 		node.visible = on
