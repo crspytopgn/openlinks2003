@@ -1,8 +1,9 @@
 class_name PlayerProfiles
 extends RefCounted
 ## Player profiles, matched by name: each player's finished rounds and the
-## handicap index they give (Handicap). A player with fewer than three rounds
-## can set a starting index instead. Saved in user://profiles.cfg, one
+## handicap index they give (Handicap), plus career stats (fairways, greens
+## in regulation, putts). A player with fewer than three rounds can set a
+## starting index instead. Saved in user://profiles.cfg, one
 ## section per player.
 
 ## Where the profiles are kept; the tests point this somewhere else.
@@ -13,7 +14,18 @@ const KEEP_ROUNDS := 40
 ## The fewest holes a round needs to count towards a handicap.
 const MIN_HOLES := 9
 
+## A round's stats, counted hole by hole in the round: holes, fairways hit
+## out of fairway_holes (par 4s and 5s), greens in regulation, putts.
+const STATS := ["holes", "fairways", "fairway_holes", "gir", "putts"]
+
 var _cfg := ConfigFile.new()
+
+
+static func empty_stats() -> Dictionary:
+	var out := {}
+	for key: String in STATS:
+		out[key] = 0
+	return out
 
 
 static func load_saved() -> PlayerProfiles:
@@ -80,7 +92,7 @@ func set_start_index(player_name: String, tenths: int) -> void:
 ## Adds a finished round to the player's record. `ranks` are the hole ranks
 ## (Handicap.stroke_ranks) and `date` is "YYYY-MM-DD". Returns false, and
 ## records nothing, if the round is too short or not finished.
-func record_round(player_name: String, card: Scorecard, ranks: Array[int], course_name: String, date: String) -> bool:
+func record_round(player_name: String, card: Scorecard, ranks: Array[int], course_name: String, date: String, stats := {}) -> bool:
 	var holes := card.pars.size()
 	if holes < MIN_HOLES or card.holes_played() < holes:
 		return false
@@ -89,14 +101,64 @@ func record_round(player_name: String, card: Scorecard, ranks: Array[int], cours
 	var adjusted := Handicap.adjusted_gross(card, received, index != Handicap.NONE)
 	var par := card.total_par()
 	var played := rounds(player_name).duplicate()
-	played.append({
+	var entry := {
 		"date": date, "course": course_name, "holes": holes, "gross": card.total_strokes(),
 		"adjusted": adjusted, "par": par, "differential": Handicap.score_differential(adjusted, par, holes),
-	})
+	}
+	var with_stats := int(stats.get("holes", 0)) == holes
+	if with_stats:
+		for key: String in STATS:
+			entry[key] = int(stats.get(key, 0))
+	played.append(entry)
+	# Career totals keep counting after old rounds drop off the list.
+	var c := career(player_name)
+	c.rounds += 1
+	c.holes += holes
+	c.strokes += card.total_strokes()
+	c.par += par
+	if with_stats:
+		c.stat_holes += holes
+		for key: String in ["fairways", "fairway_holes", "gir", "putts"]:
+			c[key] += int(stats.get(key, 0))
 	var s := _section(player_name)
 	_cfg.set_value(s, "name", player_name.strip_edges())
 	_cfg.set_value(s, "rounds", played.slice(maxi(0, played.size() - KEEP_ROUNDS)))
+	_cfg.set_value(s, "career", c)
 	return true
+
+
+## Career totals: {rounds, holes, strokes, par, stat_holes (holes with
+## stats), fairways, fairway_holes, gir, putts}.
+func career(player_name: String) -> Dictionary:
+	var out := {"rounds": 0, "holes": 0, "strokes": 0, "par": 0, "stat_holes": 0,
+		"fairways": 0, "fairway_holes": 0, "gir": 0, "putts": 0}
+	var s := _section(player_name)
+	if not _cfg.has_section_key(s, "career"):
+		# Profiles from before career stats: start from the rounds on record.
+		for r: Dictionary in rounds(player_name):
+			out.rounds += 1
+			out.holes += int(r.get("holes", 0))
+			out.strokes += int(r.get("gross", 0))
+			out.par += int(r.get("par", 0))
+		return out
+	var saved: Dictionary = _cfg.get_value(s, "career", {})
+	for key: String in out:
+		out[key] = int(saved.get(key, 0))
+	return out
+
+
+## "Average 84.3 per 18   Fairways 52%   Greens 33%   Putts 31.5 per 18", or
+## "" before the first round.
+static func career_text(c: Dictionary) -> String:
+	if int(c.rounds) == 0 or int(c.holes) == 0:
+		return ""
+	var parts: Array[String] = ["Average %.1f per 18" % (18.0 * c.strokes / c.holes)]
+	if int(c.fairway_holes) > 0:
+		parts.append("Fairways %d%%" % roundi(100.0 * c.fairways / c.fairway_holes))
+	if int(c.stat_holes) > 0:
+		parts.append("Greens %d%%" % roundi(100.0 * c.gir / c.stat_holes))
+		parts.append("Putts %.1f per 18" % (18.0 * c.putts / c.stat_holes))
+	return "   ".join(parts)
 
 
 func remove(player_name: String) -> void:
