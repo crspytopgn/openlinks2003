@@ -22,6 +22,14 @@ the browser and on desktop today.
 | U | Mulligan, right after a shot (Settings > Mulligans) |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
+### Click to aim
+
+Right-click on the course while aiming to aim at that spot (`ClickAim`: a
+ray from the camera to the ground). Away from the green the round also takes
+the shortest club whose full swing reaches it, as in modern sims; chips and
+putts only turn the aim. A click on the sky does nothing. Left-click stays
+the swing.
+
 ### Touch screens and game pads
 
 On a phone or tablet (the web build) buttons on the left aim (held), change
@@ -125,6 +133,13 @@ and TVs, smaller for a big monitor up close.
 Settings > Colours swaps the swing meter's green and red (good and bad
 marks, the fill past the snap point) for blue and white, which stay apart
 for red-green colour blindness (`SwingMeter.colour_safe`).
+
+### Captions
+
+Settings > Captions shows what the golfer says (their voice bank's event
+name in brackets, such as "[Golfer: Great Shot]", not the words spoken) and
+the crowd's reactions ("[The crowd roars]") above the hints
+(`SoundCaptions`). The Broadcast commentary is already on-screen text.
 
 ### Hole positions
 

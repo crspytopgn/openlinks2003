@@ -107,6 +107,7 @@ func _process(_delta: float) -> bool:
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
 	_run("mulligans", _test_mulligans)
+	_run("click_aim", _test_click_aim)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -1527,12 +1528,17 @@ func _test_graphics_settings() -> void:
 	s.gimme = 2
 	s.mulligans = 1
 	s.pickup = 2
+	s.captions = true
 	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
 	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
 	_check(loaded.pickup == 2 and GraphicsSettings.new().pickup == 0, "pick up saved, off by default")
+	_check(loaded.captions and not GraphicsSettings.new().captions, "captions saved, off by default")
+	_check(SoundCaptions.voice("Great Shot!") == "[Golfer: Great Shot]" and SoundCaptions.voice("Birdie", "Ann") == "[Ann: Birdie]"
+			and SoundCaptions.voice("") == "", "voice captions")
+	_check(SoundCaptions.crowd(&"crowd_roar") == "[The crowd roars]" and SoundCaptions.crowd(&"club") == "", "crowd captions")
 	_check(GolfRound.pickup_limit(0, 4) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(1, 3) == 6
 			and GolfRound.pickup_limit(1, 5) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(2, 4) == 7,
 			"pick-up scores: off, double par, triple bogey, never past the limit")
@@ -3152,6 +3158,33 @@ func _test_launch_monitor_input() -> void:
 
 ## Mulligans: the shot is taken again from the same spot, the card doesn't
 ## count it, and the round still replays to the same card.
+func _test_click_aim() -> void:
+	var flat := FlatTerrain.new(Surface.Type.FAIRWAY, 2.0)
+	var hit: Variant = ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, -1, 1))
+	_check(hit is Vector3 and (hit as Vector3).distance_to(Vector3(0, 2, 10)) < 0.05, "the click lands on the ground: %s" % [hit])
+	_check(ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, 0.2, 1)) == null, "a click on the sky aims nowhere")
+	_check(ClickAim.ray_ground(flat, Vector3(0, 1, 0), Vector3(0, -1, 1)) == null, "a camera under the ground aims nowhere")
+	var reaches: Array[float] = [230.0, 200.0, 150.0, 100.0, -1.0]
+	_check(ClickAim.club_for(reaches, 140.0) == 2 and ClickAim.club_for(reaches, 300.0) == 0
+			and ClickAim.club_for(reaches, 10.0) == 3, "the shortest club that gets there, never the putter")
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	_check(game.state == GolfRound.State.AIM, "aiming on the first tee")
+	var spot: Vector3 = game.ball_at + Vector3(-60, 0, 120)
+	game.aim_at(spot)
+	_check(absf(game.aim_deg - rad_to_deg(atan2(-60.0, 120.0))) < 0.01, "aimed at the clicked spot (%.1f)" % game.aim_deg)
+	var reach: float = game._club_reach()
+	var club: Club = game.clubs[game.club_index]
+	_check(reach >= 134.0 and not club.is_putter, "a club that reaches it: %s, %.0f m" % [club.full_name, reach])
+	if game.club_index + 1 < game.clubs.size() and not game.clubs[game.club_index + 1].is_putter:
+		game.club_index += 1
+		_check(game._club_reach() < 134.0, "and the shortest one")
+	GolfRound.setup = null
+
+
 func _test_pick_up() -> void:
 	var game := _game
 	if not game.is_node_ready():

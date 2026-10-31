@@ -26,7 +26,7 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
+const HINT_AIM := "Left/Right or right-click: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
 const HINT_OBJECTS := "    O: objects"
 const HINT_AIM_METER := "Space or click: swing"
@@ -288,6 +288,7 @@ func _ready() -> void:
 	voice = GolferVoice.from_game_folder((assets as LinksGolferAssets).archive_path() if assets is LinksGolferAssets else "")
 	if voice != null:
 		add_child(voice)
+		voice.spoke.connect(_caption_voice)
 	var menu_sounds := MenuSounds.from_game_folder(false)
 	if menu_sounds != null:
 		add_child(menu_sounds)
@@ -996,6 +997,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
 		get_viewport().set_input_as_handled()
 		return
+	if _click_aim_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _mouse_swing_input(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -1094,6 +1098,68 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 			ms.motion((event as InputEventMouseMotion).screen_relative)
 		return true
 	return false
+
+
+## Right-click on the course: aim at that spot and take the club that
+## reaches it (ClickAim). Putts only turn the aim.
+func _click_aim_input(event: InputEvent) -> bool:
+	if not event is InputEventMouseButton:
+		return false
+	var mb := event as InputEventMouseButton
+	if mb.button_index != MOUSE_BUTTON_RIGHT or not mb.pressed or mb.device == InputEvent.DEVICE_ID_EMULATION:
+		return false
+	if state != State.AIM or _replaying or camera.flying() or opponents[shooter] != null:
+		return false
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return false
+	var hit: Variant = ClickAim.ray_ground(hole.terrain, cam.project_ray_origin(mb.position), cam.project_ray_normal(mb.position))
+	if hit == null:
+		return true
+	aim_at(hit as Vector3)
+	return true
+
+
+## Aims at `spot`, and away from the green takes the club whose full swing
+## reaches it.
+func aim_at(spot: Vector3) -> void:
+	if _flat_distance(ball_at, spot) < 0.5:
+		return
+	aim_deg = rad_to_deg(atan2(spot.x - ball_at.x, spot.z - ball_at.z))
+	if not clubs[club_index].is_putter and not _chip:
+		var reaches: Array[float] = []
+		for c in clubs:
+			reaches.append(-1.0 if c.is_putter else c.total_m * shot_model.reach_scale(c) * Surface.lie_power(lie))
+		var pick := ClickAim.club_for(reaches, _flat_distance(ball_at, spot))
+		if pick != club_index:
+			club_index = pick
+			sounds.play(&"club")
+			_tell_monitor()
+			_place_golfer()
+	hud.show_message("%d yd to the target" % roundi(_flat_distance(ball_at, spot) * YARDS_PER_METRE), 1.5)
+	_update_aim_marker()
+	_update_hud()
+	_aim_camera(false)
+	_update_green_grid()
+	_update_green_aids()
+
+
+## Settings > Captions: the golfer's spoken line.
+func _caption_voice(event_name: String) -> void:
+	if graphics.captions:
+		hud.show_sound_caption(SoundCaptions.voice(event_name, "Golfer" if players.size() == 1 else scoring.names[shooter]))
+
+
+## Settings > Captions: the crowd after a broadcast shot.
+func _caption_crowd(crowd: int) -> void:
+	if not graphics.captions:
+		return
+	var sound: StringName = {Commentary.Crowd.POLITE: &"applause", Commentary.Crowd.CHEER: &"crowd_cheer",
+		Commentary.Crowd.ROAR: &"crowd_roar", Commentary.Crowd.GROAN: &"crowd_groan",
+		Commentary.Crowd.OOH: &"crowd_ooh"}.get(crowd, &"")
+	var text := SoundCaptions.crowd(sound)
+	if not text.is_empty():
+		hud.show_sound_caption(text)
 
 
 ## Whether the player may start a swing now.
@@ -1939,6 +2005,7 @@ func _hole_out(picked_up: bool) -> void:
 	var title := "Picked up" if picked_up else Scorecard.score_name(strokes, hole.par)
 	if not picked_up and strokes < hole.par:
 		sounds.play(&"applause")
+		_caption_crowd(Commentary.Crowd.POLITE)
 		if golfer:
 			golfer.play(&"celebrate")
 	if _next_player() < 0:
@@ -3128,6 +3195,7 @@ func _report_shot() -> void:
 		to_pin = 0.0
 	hud.overlay.show_pip(false)
 	var line: Array = Commentary.pick(shot, surface, putting, to_pin, _shot_from_pin, _commentary_rng)
+	_caption_crowd(line[1])
 	match line[1]:
 		Commentary.Crowd.POLITE:
 			sounds.play(&"applause")

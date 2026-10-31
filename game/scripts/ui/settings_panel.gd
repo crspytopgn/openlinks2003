@@ -24,6 +24,7 @@ var _quality: OptionButton
 var _window: OptionButton
 var _ui_scale: OptionButton
 var _colour_safe: OptionButton
+var _captions: OptionButton
 var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
@@ -101,6 +102,7 @@ func _ready() -> void:
 	_window = _row(grid, "Display", ["Windowed", "Fullscreen"])
 	_ui_scale = _row(grid, "Interface size", GraphicsSettings.UI_SCALE_NAMES)
 	_colour_safe = _row(grid, "Colours", ["Standard", "Colour-blind safe (blue and white for green and red)"])
+	_captions = _row(grid, "Captions", ["Off", "On (the golfer and the crowd)"])
 	_vsync = _row(grid, "V-sync", ["Off", "On"])
 	_msaa = _row(grid, "Anti-aliasing", ["Off (FXAA)", "MSAA 2x", "MSAA 4x", "MSAA 8x"])
 	var scales: Array = []
@@ -164,6 +166,7 @@ func open(s: GraphicsSettings) -> void:
 	_window.select(1 if s.fullscreen else 0)
 	_ui_scale.select(s.ui_scale)
 	_colour_safe.select(1 if s.colour_safe else 0)
+	_captions.select(1 if s.captions else 0)
 	_vsync.select(1 if s.vsync else 0)
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
@@ -404,6 +407,7 @@ func _on_selected() -> void:
 	settings.fullscreen = _window.selected == 1
 	settings.ui_scale = _ui_scale.selected
 	settings.colour_safe = _colour_safe.selected == 1
+	settings.captions = _captions.selected == 1
 	settings.vsync = _vsync.selected == 1
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
