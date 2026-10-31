@@ -135,7 +135,7 @@ A UTF-8 JSON object:
 | `holes` | `[{"par": 4, "tees": [x, z, ...], "pin": [x, z], "route": [x, z, ...]}, ...]`: tees back to forward, route is the aim points; an optional `stroke_index` (1 to 18) |
 | `objects` | `[{"id": "tree_pine", "x": 0, "z": 0, "yaw": 90, "scale": 1}, ...]` |
 | `paths` | `[{"points": [x0, z0, x1, z1, ...], "width": 2.5, "bridge": false}, ...]` (width 1 to 8 m) |
-| `credits`, `source` | Optional: data credits to keep, and where a real course came from ([real-courses.md](real-courses.md)) |
+| `credits`, `source` | Optional: data credits to keep, and where a real course came from, including `source.photo`, the aerial photo file beside it ([real-courses.md](real-courses.md)) |
 | `object_info` | `{"<catalog file name>": {"kind": "model", "size": [x, y, z], "centre": [x, y, z]}, ...}`: the measured size of every catalog object the course uses, in metres at scale 1, with `kind` one of `model`, `tree`, `solid`, `soft`. Only sizes, never the objects themselves, so a shared file carries no game data. |
 
 A medium course (1000 x 800 m) with a few holes is a few hundred kilobytes.

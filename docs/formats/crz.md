@@ -190,7 +190,7 @@ form. The entry ends right after the last triangle, which confirms the size.
 | 10 bytes | | zero |
 | u32 | hole_count | 18 |
 | hole[hole_count] | holes | 510 bytes each, below |
-| 136 bytes | trailer | Not decoded |
+| 136 bytes | trailer | Sky, horizon and more; [below](#the-header-trailer-sky-and-horizon) |
 
 Hole:
 
@@ -208,6 +208,30 @@ Hole:
 | f32[3] | green | Centre of the green |
 | 6 bytes | flags | Differ by par; not decoded |
 
+#### The `header` trailer: sky and horizon
+
+The 136 bytes after the holes. Read in order:
+
+| Type | Name | Notes |
+|------|------|-------|
+| u32 | n | 5 on every course |
+| 12 bytes x n | | Not decoded |
+| u32[4] | | Zero on the disc courses; the game lets player settings override these |
+| u32 | sky | The course's sky: `skyNN.btc` in `PANSKY.LIB` (GE 5, Kauri 7, Cabo 5, Cambrian 10, Skeleton 7, Tribute 9) |
+| 8 bytes | | Not decoded |
+| f32[4] | | Not decoded. GE 0.785, 0.15, 30, 0.15; Kauri 4.01, 0.1, 40, 0.1; Cabo 4.71, 0.1, 25, 0.1; Cambrian 0, 0.1, 25, 0.1; Skeleton 0, 0.1, 38, 0.1; Tribute 4.01, 0.1, 25, 0.1. The first looks like an angle in radians (a sun direction?), but the billboard light in the `.SHA` files doesn't confirm it |
+| u32 | | Only when `version` is above 7 |
+| i32 | horizon | 0x80000000: the course's own `Panorama` entry; 1 to 13: the stock `PanNN.btc` in `PANSKY.LIB`. All six disc courses use their own |
+| u32 | | Not decoded |
+| 16 bytes | | Not decoded; possibly a GUID |
+
+The 1.0 game builds the sky's name as `sky%02d` from this number. The 1.07
+patch adds named skies (see [panorama.md](panorama.md#custom-skies-in-the-107-patch)):
+it can replace the course's sky with one the player picks, or a random one.
+
+Implemented by `olcore::parse_course_scenery` and, for the game,
+`CrzCourseLoader.parse_course_scenery`.
+
 ### `txtrdesc`: texture list
 
 A u32 count, then 64-byte records: `char name[32]`, `u32 width`,
@@ -224,9 +248,16 @@ indices (-1 = unused), `u32 details` and `u32 0`.
 
 The texture slots hold the layers in order. Each layer is a base texture
 followed by its detail variants (`Dry Grass 02.tga`, `... 32.tga`,
-`... 128.tga`): bits `2k` and `2k + 1` of `details` are set for each
-variant that follows layer `k`'s base texture. The game presumably draws
-the variants at other scales; they are skipped for now.
+`... 128.tga`): bit `2k` of `details` is set when layer `k`'s base texture
+is followed by a middle variant (`... 32.tga`; for the stock textures
+`Rough02`) and bit `2k + 1` when it is followed by a far one
+(`... 128.tga`, `Rough03`), in that order. The variants are drawn
+separately, with a coarser grain, not shrunk copies of the base. The game
+presumably fades to them with distance. The numbers in the names suggest
+the size of a repeat in feet (the base textures repeat every 12 feet);
+OpenLinks2003 lays them at 32 and 128 feet and fades the middle one in from
+12 to 45 metres away and the far one from 60 to 180 metres, a best guess
+that also hides the base texture's tiling across a fairway.
 
 A plain material has one layer. A blended material has three: a mask
 (`Fairway To Rough Alpha.tga`, `Cabo Bunker Alpha 512.tga`), then two
@@ -371,11 +402,12 @@ nearest loop for each hole.
 ## Open questions
 
 - `RayEngine`, `ttypetrans`, `textrans` and `Water` layouts, the 40 bytes
-  after the `Mappings` count, and how the game uses the detail variants.
+  after the `Mappings` count, and the distances at which the game switches
+  to the detail variants.
 - What the per-vertex and per-triangle unknown fields mean (likely lighting
   or shadow data and texture mapping).
-- The 136-byte trailer of `header` and the 6 flag bytes of each hole.
+- The rest of the 136-byte trailer of `header` (its four floats above all)
+  and the 6 flag bytes of each hole.
 - `.CVT` files hold only 13 entries (terrain types, textures, a locked
   `vertex` and `header`). The converter combines them with an original Links
   LS `.CRX` course, which we don't have.
-- The rest of the `.SHA` shadow files ([sha.md](sha.md)).

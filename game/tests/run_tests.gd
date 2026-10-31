@@ -339,20 +339,39 @@ func _test_swing_meter() -> void:
 	meter.swing_finished.connect(func(p: float, a: float) -> void: results.append([p, a]))
 	meter.click()
 	_check(meter.phase == SwingMeter.Phase.BACKSWING, "first click starts the backswing")
-	meter.value = 0.8
+	_check(meter.run.pos == LinksPowerStroke.SNAP, "a full swing starts at the snap line")
+	# Half a frame at a time, so the marker never moves more than a position.
+	var t := 0.0
+	while meter.run.pos < LinksPowerStroke.FULL_POWER:
+		meter._process(0.004)
+		t += 0.004
+	_check_near(t, 1.048, 0.01, "the game's meter takes about a second to full power")
 	meter.click()
-	_check_near(meter.power, 0.8, 1e-6, "second click sets power")
-	meter.value = 0.005
+	_check_near(meter.power, 1.0, 1e-6, "second click at position 54 is full power")
+	while meter.run.pos > LinksPowerStroke.SNAP:
+		meter._process(0.004)
 	meter.click()
 	_check(results.size() == 1, "third click finishes the swing")
 	if results.size() == 1:
 		_check_near(results[0][1], 0.0, 1e-6, "on the line is perfect")
 	meter.click()
-	meter.value = 1.0
+	while meter.run.pos < 40:
+		meter._process(0.004)
 	meter.click()
-	meter.value = -SwingMeter.ACCURACY_ZONE * 0.5
+	while meter.run.rising or meter.run.pos > 7:
+		meter._process(0.004)
 	meter.click()
 	_check(results.size() == 2 and results[1][1] > 0.4, "late click slices")
+	_check_near(LinksPowerStroke.full_power(67), 1.08, 1e-6, "overswing tops out 8 percent over")
+	_check_near(LinksPowerStroke.chip_power(15), 7.0, 1e-6, "chip power at the snap line")
+	_check_near(LinksPowerStroke.chip_power(68), 34.95, 1e-4, "chip power at the top")
+	_check_near(LinksPowerStroke.chip_power(32), 14.25, 1e-4, "chip power midway")
+	# A chip waits for its earliest power, then turns six positions on.
+	var chip := LinksPowerStroke.Run.new(LinksPowerStroke.Mode.CHIP)
+	chip.click_power()
+	while chip.rising:
+		chip.advance(0.004)
+	_check(chip.power_pos == 16 and chip.pos == 22, "chip power waits for 16 and turns at 22 (%d, %d)" % [chip.power_pos, chip.pos])
 	meter.free()
 
 
@@ -689,6 +708,24 @@ func _test_round_scoring() -> void:
 	_check(r.team_name(0) == "Ann & Cy", "team name")
 	_check(r.team_scores(0)[0] == 3, "team best ball")
 	_check(r.hole_result(0) == "Ann & Cy win the hole, 3 to 4.", "best ball hole: %s" % r.hole_result(0))
+	_check(r.winner_text() == "Ann & Cy win: 3 (-1)", "best ball winner: %s" % r.winner_text())
+
+	# Shared-ball teams get one handicap from their players' indexes.
+	var team_setup := RoundSetup.new()
+	team_setup.names = _strs(["Ann", "Bob", "Cy", "Di"])
+	team_setup.teams = _ints([0, 1, 0, 1])
+	team_setup.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, RoundSetup.HUMAN, RoundSetup.HUMAN])
+	team_setup.indexes = _ints([300, 0, 100, 0])
+	team_setup.handicaps = true
+	var pars18: Array[int] = []
+	for i in 18:
+		pars18.append(4)
+	team_setup.mode = GameModes.Mode.SCRAMBLE
+	var ts := RoundScoring.new(team_setup, pars18, pars18)
+	_check(ts.playing == _ints([8, 0, 8, 0]), "scramble team handicap 35/15%%: %s" % [ts.playing])
+	team_setup.mode = GameModes.Mode.ALTERNATE_SHOT
+	ts = RoundScoring.new(team_setup, pars18, pars18)
+	_check(ts.playing == _ints([20, 0, 20, 0]), "alternate shot team handicap 50%%: %s" % [ts.playing])
 
 	s.mode = GameModes.Mode.STABLEFORD
 	r = RoundScoring.new(s, pars, numbers)
@@ -697,6 +734,10 @@ func _test_round_scoring() -> void:
 	r.cards[2].record(0, 6)
 	_check(r.standings()[0] == ["Ann", "3 points"], "stableford leader: %s" % [r.standings()])
 	_check(r.winner_text() == "Ann wins: 3 points", "stableford winner: %s" % r.winner_text())
+	r.cards[1].record(0, 3)
+	r.cards[2].record(0, 3)
+	var tie := r.winner_text()
+	_check(tie.begins_with("Tied at the top: ") and tie.ends_with(", 3 points") and "Ann" in tie and "Bob" in tie and "Cy" in tie and " and " in tie, "three-way tie: %s" % tie)
 
 
 ## The hole of test_drop_rules in libs/olcore/tests/test_main.cpp: a stream
@@ -1032,6 +1073,22 @@ func _test_ground_shade() -> void:
 		var img := atlas.get_image()
 		_check(img.get_pixel(GroundShade.SHAPE_CELL + 5, 5).r > 0.9 and img.get_pixel(5, 5).r < 0.1, "a type's shape sits in its own cell")
 	_check(GroundShade.shape_atlas([]) == null, "no atlas without shapes")
+	# A 3D object's footprint: its top rows (least y) are set; in the atlas,
+	# after the billboard shapes, it is flipped so v runs along Godot +z.
+	var footprint := Image.create(16, 16, false, Image.FORMAT_L8)
+	footprint.fill_rect(Rect2i(0, 0, 16, 4), Color.WHITE)
+	var both := GroundShade.shape_atlas([null, shape], [footprint])
+	if both != null:
+		var img := both.get_image()
+		var cell := 2 * GroundShade.SHAPE_CELL
+		_check(img.get_pixel(cell + 5, GroundShade.SHAPE_CELL - 3).r > 0.9 and img.get_pixel(cell + 5, 3).r < 0.1, "footprints go in flipped after the shapes")
+	# A 10 m tall object 4 x 6 m, turned a quarter, under the same sun.
+	var fs := GroundShade.footprint_stamps(PackedFloat32Array([1, 2, 2, 3, 0.5, 10, 7]), sun)
+	_check(fs.size() == 16, "a shadow and an occlusion stamp per footprint")
+	_check(is_equal_approx(fs[0], 1.0) and is_equal_approx(fs[1], 7.0), "footprint shadow moved along the sun by half the height")
+	_check(is_equal_approx(fs[2], 3.0) and is_equal_approx(fs[3], 2.0) and is_equal_approx(fs[4], 0.5), "footprint keeps its size and turn")
+	_check(is_equal_approx(fs[7], 7.0) and is_equal_approx(fs[15], 7.0), "both stamps take the footprint's shape")
+	_check(is_equal_approx(fs[8], 1.0) and is_equal_approx(fs[9], 2.0) and fs[14] > 0.0, "footprint occlusion at the object")
 	var low := GroundShade.stamps(casters, Vector3(0, -0.01, 1).normalized())
 	_check(Vector2(low[0], low[1]).length() <= GroundShade.MAX_SLANT * 7.0 + 1e-3, "low sun shadows stay bounded")
 	var course := AssetProviders.load_course("")
@@ -1289,16 +1346,16 @@ func _test_links_swing_matches_olcore() -> void:
 	# path, loft, quality.
 	var strokes := [
 		[3, LinksMouse.Shot.FULL, 0, 1920, 11, 20, 12, 90, 0, -4.772966, 0.0, 0.0, 90, 0.297828, 31.626182, 0.0, 0.0, 0.157841, 0],
-		[1, LinksMouse.Shot.FULL, 9, 1100, 5, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
-				0.068857, 0.071579, 0],
-		[2, LinksMouse.Shot.PUTT, 19, 1920, 7, 12, 6, 40, -2, -0.592555, 0.24, 0.0, 40, 0.034813, 1.1, -0.360105,
+		[1, LinksMouse.Shot.FULL, 9, 1100, 5, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 11.886348, 0.004837,
+				-0.117355, 0.071311, 0],
+		[2, LinksMouse.Shot.PUTT, 19, 1920, 7, 12, 6, 40, -2, -0.592555, 0.24, 0.0, 40, 0.034813, 1.0, -0.360105,
 				0.398950, 0.033288, 0],
-		[0, LinksMouse.Shot.CHIP, 16, 800, 3, 10, 8, 50, 1, -0.884124, -0.04, 0.0, 50, 0.064996, 1.598884, 0.0, -0.029809,
-				0.064996, 0],
+		[0, LinksMouse.Shot.CHIP, 16, 800, 3, 10, 8, 50, 1, -0.884124, -0.04, 0.0, 50, 0.064996, 1.522239, 0.000077,
+				-0.021463, 0.064996, 0],
 		[3, LinksMouse.Shot.FULL, 4, 1920, 9, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
 				-0.825252, 0.517093, 1],
-		[2, LinksMouse.Shot.FULL, 12, 1920, 21, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
-				1.50984, 1.021502, 0.361243, 1],
+		[2, LinksMouse.Shot.FULL, 12, 1920, 21, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 46.535126,
+				0.244594, -0.477122, 0.355657, 0],
 	]
 	for c in strokes:
 		var i := strokes.find(c)
@@ -1330,6 +1387,29 @@ func _test_links_swing_matches_olcore() -> void:
 	var miss := LinksMouse.swing(wild, LinksLaunch.Rand.new(1))
 	_check(miss.whiff and miss.power == 0.0, "mouse swing misses past 18")
 	_check(LinksMouse.meter_for(800).height == 278 and LinksMouse.meter_for(1024).ball_line == 96, "mouse meter sizes")
+	var iron := LinksMouse.Stroke.new()
+	iron.club = 13
+	iron.speed = -6.0
+	iron.down = 90
+	iron.backswing = 0.8
+	iron.drift = -12.0
+	iron.drift_before = -12.0
+	var hooked := LinksMouse.swing(iron, LinksLaunch.Rand.new(5))
+	_check_near(hooked.power, 44.295517, 1e-5, "iron drift power")
+	_check_near(hooked.face_deg, 35.1, 1e-5, "iron drift turns the face")
+	var still := LinksMouse.Stroke.new()
+	still.speed = -6.0
+	still.down = 90
+	still.backswing = 0.8
+	var help := LinksMouse.Help.new()
+	help.enabled = true
+	help.strokes = 3
+	help.still_strokes = 3
+	var nudged := LinksMouse.swing(still, LinksLaunch.Rand.new(42), help)
+	_check_near(nudged.help_deg, 3.9, 1e-6, "swing help nudge")
+	_check_near(nudged.path_deg, 2.600013, 1e-5, "swing help path")
+	_check_near(nudged.power, 65.042229, 1e-5, "swing help power")
+	_check(help.strokes == 4 and help.still_strokes == 4, "swing help counts")
 	# The control: frames of movement shared out; pushing first does nothing.
 	var ctl := MouseSwingControl.new()
 	var got: Array = []
@@ -1897,7 +1977,12 @@ func _test_team_drops() -> void:
 	game._water_entry = game.ball_at
 	game._begin_drop(DropRules.Reason.WATER)
 	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
+	game._process(0.0)
+	_check(not game.hud.meter.visible, "drop: the meter is hidden under the drop options")
+	_check(BroadcastOverlay.caption_height(4) > BroadcastOverlay.caption_height(1) + 60.0, "drop: broadcast caption stacks the options")
 	game._finish_drop()
+	game._process(0.0)
+	_check(game.hud.meter.visible, "drop: the meter is back after the drop")
 	GolfRound.setup = null
 
 
@@ -1913,6 +1998,12 @@ func _test_pause_stops_play() -> void:
 		game.camera.end_flyover()  # the broadcast hole flyover takes the first click
 	game._on_swing_pressed()
 	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
+	var method := game.graphics.swing_method
+	game.graphics.swing_method = 1
+	_check("mouse swing" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
+	game.graphics.swing_method = 0
+	_check("Space or click: swing" in game._aim_hint(), "aim hint names the meter")
+	game.graphics.swing_method = method
 	game.open_pause_menu()
 	game._process(0.1)
 	_check(not game.hud.meter.is_processing(), "pause: the swing meter stops")

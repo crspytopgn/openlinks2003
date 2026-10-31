@@ -81,6 +81,8 @@ var _new_size: OptionButton
 var _new_starter: CheckBox
 var _open_dialog: ConfirmationDialog
 var _real: RealCourseDialog
+var _photo_material: ShaderMaterial  ## null when the course has no aerial photo
+var _photo_on := true
 var _open_list: ItemList
 var _discard_dialog: ConfirmationDialog
 var _after_discard: Callable
@@ -134,6 +136,7 @@ func _set_course(c: DesignedCourse, p_path: String) -> void:
 	course = c
 	path = p_path
 	terrain = DesignedTerrain.new(course)
+	_load_photo()
 	camera.terrain = terrain
 	_preview.terrain = terrain
 	camera.bounds = course.area
@@ -150,6 +153,7 @@ func _set_course(c: DesignedCourse, p_path: String) -> void:
 	_markers_dirty = true
 	panel.show_course_name(course.course_name)
 	panel.show_credits(course.credits)
+	panel.show_photo_option(_photo_material != null, _photo_on)
 	_show_holes()
 	if hole_index >= 0:
 		_focus_hole()
@@ -178,6 +182,7 @@ func _build_ground() -> void:
 		for ci in n.x:
 			var inst := MeshInstance3D.new()
 			inst.material_override = Materials.terrain()
+			inst.material_overlay = _photo_material if _photo_on else null
 			_ground.add_child(inst)
 			_chunks[Vector2i(ci, cj)] = inst
 	_ground_dirty = true
@@ -1125,13 +1130,56 @@ func _on_imported(text: String, file_name: String) -> void:
 
 
 func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
+	# The aerial photo is kept beside the course file, not in it.
+	var photo: Image = summary.get("photo", null)
+	if photo != null:
+		var file := c.default_path().get_basename().get_file() + ".photo.jpg"
+		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
+		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
+			c.source["photo"] = file
+		c.set_photo(photo)
+	var cover: Image = summary.get("ground_cover", null)
+	if photo == null and cover != null:
+		var gfile := c.default_path().get_basename().get_file() + ".ground.png"
+		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
+		if cover.save_png(DesignedCourse.FOLDER.path_join(gfile)) == OK:
+			c.source["ground"] = gfile
+		c.set_ground_cover(cover)
+	# Other courses at the same club are saved beside it.
+	var others: Array = summary.get("others", [])
+	for o: DesignedCourse in others:
+		# The photo covers the first course's area; another course shares it
+		# only if its area is the same.
+		if o.area == c.area:
+			for key in ["photo", "ground"]:
+				if c.source.has(key):
+					o.source[key] = c.source[key]
+		o.save_file(o.default_path())
+	_photo_on = true
 	_set_course(c, "")
 	_unsaved = true
 	var saved := _save()
-	_set_status("Built %s: %d holes, %d areas, %d trees%s. %s" % [c.course_name, int(summary.get("holes", 0)),
+	_set_status("Built %s: %d holes, %d areas, %d trees%s%s. %s" % [c.course_name, int(summary.get("holes", 0)),
 		int(summary.get("areas", 0)), int(summary.get("trees", 0)),
+		(" (%d areas the map lacked were guessed at standard sizes; check them)" % int(summary["guessed"])) if int(summary.get("guessed", 0)) > 0 else "",
 		(", ground every %.1f m" % float(summary.get("metres_per_pixel", 0))) if summary.has("metres_per_pixel") else "",
-		"Saved; polish it here, then play it." if saved else "Save it to keep it."])
+		("Saved; polish it here, then play it." if saved else "Save it to keep it.") +
+		(" Also saved: %s (Open)." % ", ".join(others.map(func(o: DesignedCourse) -> String: return o.course_name)) if not others.is_empty() else "")])
+
+
+## The course's aerial photo as a ground overlay material, if it has one.
+func _load_photo() -> void:
+	_photo_material = null
+	var photo := course.photo_image()
+	if photo == null:
+		return
+	var img: Image = photo.duplicate()
+	img.generate_mipmaps()
+	_photo_material = ShaderMaterial.new()
+	_photo_material.shader = load("res://shaders/aerial_photo.gdshader")
+	_photo_material.set_shader_parameter("photo", ImageTexture.create_from_image(img))
+	var a := course.area
+	_photo_material.set_shader_parameter("area", Vector4(a.position.x, a.position.y, a.size.x, a.size.y))
 
 
 func _confirm_discard(then: Callable) -> void:
@@ -1169,6 +1217,10 @@ func _build_ui() -> void:
 			_push_undo()
 			course.holes[hole_index].par = v
 			_holes_changed())
+	panel.photo_toggled.connect(func(on: bool) -> void:
+		_photo_on = on
+		for c: Vector2i in _chunks:
+			(_chunks[c] as MeshInstance3D).material_overlay = _photo_material if on else null)
 	panel.name_changed.connect(func(t: String) -> void:
 		course.course_name = t
 		_changed())

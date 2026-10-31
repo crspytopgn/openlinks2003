@@ -37,6 +37,13 @@ const COLORS := [
 	Color(0.13, 0.27, 0.10),  # out of bounds
 ]
 
+## How far each surface's colour moves toward the aerial photo's (real
+## courses with a photo): a little on the mown grass, so it keeps its game
+## colours and stripes, more on the rough and beyond, so worn patches,
+## fields, tracks and dry grass look as they really do. Same order as COLORS.
+const PHOTO_TINT := [0.15, 0.2, 0.2, 0.1, 0.55, 0.65, 0.5, 0.0, 0.75]
+const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
+
 var course: DesignedCourse
 
 var _h := PackedFloat32Array()  ## heights after the shapes, on the course grid
@@ -48,6 +55,7 @@ var _vc := PackedColorArray()  ## surface colour per grid vertex
 var _vw := PackedVector2Array()  ## rough and sand weights per grid vertex
 var _water_levels := {}  ## CourseShape -> water line
 var _meshes := {}  ## Vector2i chunk -> ArrayMesh
+var _tint := PackedByteArray()  ## softened photo colour per grid vertex (RGB8); empty without a photo
 
 
 func _init(p_course: DesignedCourse) -> void:
@@ -66,6 +74,7 @@ func rebuild() -> void:
 	_vw = PackedVector2Array()
 	_vw.resize(course.cols * course.rows)
 	_meshes.clear()
+	_make_tint()
 	var all := Rect2i(0, 0, course.cols, course.rows)
 	_raster(Rect2i(0, 0, _sw, _sh))
 	_derive(all)
@@ -556,6 +565,8 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 			var s3 := _surf[row_d + c]
 			var s4 := _surf[row_u + c]
 			var col: Color = (palette[s0] + palette[s1] + palette[s2] + palette[s3] + palette[s4]) * 0.2
+			if not _tint.is_empty():
+				col = _photo_tinted(col, s0, j * cols + i)
 			if s0 == Surface.Type.FAIRWAY or s0 == Surface.Type.GREEN or s0 == Surface.Type.TEE:
 				# Mowing stripes.
 				var x := o.x + i * DesignedCourse.CELL
@@ -566,6 +577,41 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 			var k := j * cols + i
 			_vc[k] = col
 			_vw[k] = (wts[s0] + wts[s1] + wts[s2] + wts[s3] + wts[s4]) * 0.2
+
+
+## The course photo, softened and resampled to one colour per grid vertex.
+func _make_tint() -> void:
+	_tint = PackedByteArray()
+	var photo := course.tint_image()
+	if photo == null or course.cols < 2 or course.rows < 2:
+		return
+	var img: Image = photo.duplicate()
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGB8)
+	var cell := DesignedCourse.CELL * PHOTO_BLUR / 2.0
+	img.resize(maxi(2, ceili(course.area.size.x / cell)), maxi(2, ceili(course.area.size.y / cell)), Image.INTERPOLATE_LANCZOS)
+	img.resize(course.cols, course.rows, Image.INTERPOLATE_BILINEAR)
+	# The photo's first pixel is the north-west corner, the grid's the
+	# south-east (+x is west, +z north).
+	img.flip_x()
+	img.flip_y()
+	_tint = img.get_data()
+
+
+## A surface colour moved toward the photo's colour at grid vertex `k`,
+## keeping roughly the game's brightness. Deep shade, crowns and water in
+## the photo are left out.
+func _photo_tinted(col: Color, surface: int, k: int) -> Color:
+	var amount: float = PHOTO_TINT[surface]
+	if amount <= 0.0:
+		return col
+	var t := Color8(_tint[k * 3], _tint[k * 3 + 1], _tint[k * 3 + 2])
+	var lt := t.get_luminance()
+	if lt < 0.1:
+		return col
+	var real := t * clampf(col.get_luminance() / lt, 0.75, 1.35)
+	return col.lerp(real, amount)
 
 
 func _build_chunk(c: Vector2i) -> ArrayMesh:

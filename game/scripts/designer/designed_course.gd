@@ -42,6 +42,10 @@ var credits := ""
 ## Where a real course came from: {"kind": "openstreetmap", "lat", "lon",
 ## "base_height"} (see docs/real-courses.md). Empty for hand-made courses.
 var source := {}
+var _photo: Image
+var _photo_tried := false
+var _cover: Image
+var _cover_tried := false
 
 
 ## A flat course of the given size, centred on the origin.
@@ -344,6 +348,50 @@ static func from_json(text: String) -> DesignedCourse:
 	if json.parse(text) != OK or not json.data is Dictionary:
 		return null
 	return from_dict(json.data)
+
+
+## The course's aerial photo, kept beside the course file (source.photo),
+## covering exactly `area` with its first pixel at the north-west (+x, +z)
+## corner; null if it has none.
+func photo_image() -> Image:
+	if not _photo_tried:
+		_photo_tried = true
+		_photo = _sidecar(str(source.get("photo", "")))
+	return _photo
+
+
+## Sets the aerial photo directly (a freshly built course, or tests).
+func set_photo(img: Image) -> void:
+	_photo = img
+	_photo_tried = true
+
+
+## The land-cover colour picture kept beside the course (source.ground), in
+## the photo's layout; used for the ground colours when there is no photo.
+func ground_cover_image() -> Image:
+	if not _cover_tried:
+		_cover_tried = true
+		_cover = _sidecar(str(source.get("ground", "")))
+	return _cover
+
+
+func set_ground_cover(img: Image) -> void:
+	_cover = img
+	_cover_tried = true
+
+
+## What the ground takes its colours from: the photo, else the land cover.
+func tint_image() -> Image:
+	var p := photo_image()
+	return p if p != null else ground_cover_image()
+
+
+static func _sidecar(file: String) -> Image:
+	var path := FOLDER.path_join(file)
+	if file.is_empty() or file.get_file() != file or not FileAccess.file_exists(path):
+		return null
+	var img := Image.load_from_file(path)
+	return img if img != null and not img.is_empty() else null
 
 
 static func load_file(path: String) -> DesignedCourse:

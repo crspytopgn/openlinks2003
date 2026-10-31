@@ -6,21 +6,21 @@ extends Control
 ## (HudArt), as the original's chrome bar. On the bars power runs right
 ## from the snap line and accuracy left of it.
 ##
-## Click 1 starts the backswing: the marker climbs from the snap line at the
-## bottom of the arc towards 100% at the top. Click 2 sets the power and
-## starts the downswing: the marker runs back down past the snap line into
-## the accuracy zone. Click 3 sets accuracy: on the snap line is straight,
-## early (above it) pulls and hooks, late (past it) pushes and slices.
+## Click 1 starts the backswing: the marker climbs from the snap line
+## towards 100% and on into the overswing. Click 2 sets the power; the
+## marker comes back down past the snap line into the accuracy zone. Click 3
+## sets accuracy: on the snap line is straight, early (above it) pulls and
+## hooks, late (past it) pushes and slices. The marker moves as Links 2003's
+## does (LinksPowerStroke): one of the game's 69 positions at a time, at the
+## game's speeds, with the snap line 15 positions up. Chips and putts have
+## their own meters, set with `mode` before the first click.
 
 signal backswing_started
 signal swing_finished(power: float, accuracy: float)
 
 enum Phase { IDLE, BACKSWING, DOWNSWING, DONE }
 
-const BACKSWING_SPEED := 0.85  ## meter units per second
-const DOWNSWING_SPEED := 1.5
-const ACCURACY_ZONE := 0.12  ## meter units past the snap line
-const PERFECT_WINDOW := 0.012  ## counts as dead on
+const ACCURACY_ZONE := 0.06  ## the highlighted band either side of the snap line
 const RADIUS := 82.0
 const WIDTH := 16.0
 
@@ -41,6 +41,12 @@ var phase: Phase = Phase.IDLE
 var value := 0.0  ## marker position: 0 = snap line, 1 = full power
 var power := 0.0
 var accuracy := 0.0
+## The meter for the next swing (LinksPowerStroke.Mode).
+var mode := LinksPowerStroke.Mode.FULL
+## Where the power click landed, in the game's positions (for chips, whose
+## power comes from their own table: LinksPowerStroke.chip_power).
+var power_position := 0
+var run: LinksPowerStroke.Run = null
 ## The player's interface art; null draws the plain arc.
 var art: HudArt
 ## Draws the modern bar (Broadcast presentation) whatever the art.
@@ -63,6 +69,8 @@ func wanted_size() -> Vector2:
 
 func reset() -> void:
 	phase = Phase.IDLE
+	run = null
+	power_position = 0
 	value = 0.0
 	power = 0.0
 	accuracy = 0.0
@@ -78,45 +86,57 @@ func click() -> void:
 	match phase:
 		Phase.IDLE, Phase.DONE:
 			phase = Phase.BACKSWING
-			value = 0.0
+			run = LinksPowerStroke.Run.new(mode)
+			value = run.value()
 			power = 0.0
+			power_position = 0
 			accuracy = 0.0
 			backswing_started.emit()
 		Phase.BACKSWING:
-			_set_power(value)
+			run.click_power()
+			_follow()
 		Phase.DOWNSWING:
-			_set_accuracy(value)
+			run.click_snap()
+			_follow()
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
-	match phase:
-		Phase.BACKSWING:
-			value += BACKSWING_SPEED * delta
-			if value >= 1.0:
-				value = 1.0
-				_set_power(1.0)
-			queue_redraw()
-		Phase.DOWNSWING:
-			value -= DOWNSWING_SPEED * delta
-			if value <= -ACCURACY_ZONE:
-				_set_accuracy(-ACCURACY_ZONE)
-			queue_redraw()
+	if phase == Phase.BACKSWING or phase == Phase.DOWNSWING:
+		run.advance(delta)
+		_follow()
+		queue_redraw()
 
 
-func _set_power(p: float) -> void:
-	power = clampf(p, 0.02, 1.0)
-	phase = Phase.DOWNSWING
+## Takes the meter's state from the run.
+func _follow() -> void:
+	value = run.value()
+	if run.power_pos != 0 and power_position == 0:
+		power_position = run.power_pos
+		power = run.value_of(run.power_pos)
+		if mode == LinksPowerStroke.Mode.FULL:
+			power = LinksPowerStroke.full_power(run.power_pos)
+		power = maxf(power, 0.02)
+		phase = Phase.DOWNSWING
+	if run.done and phase != Phase.DONE:
+		if run.snap_pos >= 0:
+			value = run.value_of(run.snap_pos)
+		accuracy = run.accuracy()
+		phase = Phase.DONE
+		swing_finished.emit(power, accuracy)
 
 
-func _set_accuracy(v: float) -> void:
-	value = v
-	if absf(v) <= PERFECT_WINDOW:
-		accuracy = 0.0
-	else:
-		accuracy = clampf(-v / ACCURACY_ZONE, -1.0, 1.0)
-	phase = Phase.DONE
-	swing_finished.emit(power, accuracy)
+## The meter's span below the snap line and above it, in meter values: the
+## game's positions 0 to 67 (68 for chips and putts).
+func _low() -> float:
+	var full := LinksPowerStroke.FULL_POWER if mode == LinksPowerStroke.Mode.FULL else LinksPowerStroke.LAST
+	return float(LinksPowerStroke.SNAP) / float(full - LinksPowerStroke.SNAP)
+
+
+func _high() -> float:
+	if mode == LinksPowerStroke.Mode.FULL:
+		return float(LinksPowerStroke.TOP - LinksPowerStroke.SNAP) / float(LinksPowerStroke.FULL_POWER - LinksPowerStroke.SNAP)
+	return 1.0
 
 
 ## Screen angle of a meter value: 0 at the bottom, 1 at the top, running up
@@ -145,9 +165,9 @@ func _draw() -> void:
 	if art != null:
 		_draw_bar()
 		return
-	_arc(-ACCURACY_ZONE, 1.0, Color(0, 0, 0, 0.55), WIDTH + 6.0)
+	_arc(-_low(), _high(), Color(0, 0, 0, 0.55), WIDTH + 6.0)
 	_arc(-ACCURACY_ZONE, ACCURACY_ZONE, Color(0.95, 0.85, 0.3, 0.9), WIDTH)
-	_arc(ACCURACY_ZONE, 1.0, Color(0.85, 0.85, 0.85, 0.35), WIDTH)
+	_arc(ACCURACY_ZONE, _high(), Color(0.85, 0.85, 0.85, 0.35), WIDTH)
 	match phase:
 		Phase.BACKSWING:
 			_arc(0.0, value, Color(0.3, 0.8, 0.35), WIDTH)
@@ -179,7 +199,7 @@ func _draw() -> void:
 ## Screen x of a meter value along the bar.
 func _bar_x(v: float) -> float:
 	var left := HudArt.METER_CAP.size.x * ART_SCALE - 4.0
-	return left + (v + ACCURACY_ZONE) / (1.0 + ACCURACY_ZONE) * BAR_LENGTH
+	return left + (v + _low()) / (_high() + _low()) * BAR_LENGTH
 
 
 func _draw_bar() -> void:
@@ -189,7 +209,7 @@ func _draw_bar() -> void:
 	var bar_top := (bar.position.y - cap.position.y) * s
 	var bar_h := bar.size.y * s
 	var left := cap.size.x * s - 2.0
-	var right := _bar_x(1.0) + 4.0
+	var right := _bar_x(_high()) + 4.0
 	draw_texture_rect_region(art.meter, Rect2(left, bar_top, right - left, bar_h), bar)
 	draw_texture_rect_region(art.meter, Rect2(Vector2.ZERO, cap.size * s), cap)
 	var mid := bar_top + bar_h * 0.5
@@ -236,7 +256,7 @@ func _bar_fill(from: float, to: float, color: Color, mid: float, band: float) ->
 
 func _modern_x(v: float) -> float:
 	var w := size.x - MODERN_INSET * 2.0
-	return MODERN_INSET + (v + ACCURACY_ZONE) / (1.0 + ACCURACY_ZONE) * w
+	return MODERN_INSET + (v + _low()) / (_high() + _low()) * w
 
 
 func _capsule(r: Rect2, color: Color) -> void:
@@ -257,12 +277,12 @@ func _draw_modern() -> void:
 	draw_style_box(glass, Rect2(Vector2.ZERO, size))
 	var mid := size.y * 0.62
 	var h := 8.0
-	var x0 := _modern_x(-ACCURACY_ZONE)
-	var x1 := _modern_x(1.0)
+	var x0 := _modern_x(-_low())
+	var x1 := _modern_x(_high())
 	var snap := _modern_x(0.0)
 	_capsule(Rect2(x0, mid - h * 0.5, x1 - x0, h), TRACK)
 	# The accuracy zone: brighter, a hair taller, with a gold centre.
-	var zone := Rect2(x0, mid - h * 0.75, _modern_x(ACCURACY_ZONE) - x0, h * 1.5)
+	var zone := Rect2(_modern_x(-ACCURACY_ZONE), mid - h * 0.75, _modern_x(ACCURACY_ZONE) - _modern_x(-ACCURACY_ZONE), h * 1.5)
 	_capsule(zone, Color(1, 1, 1, 0.12))
 	match phase:
 		Phase.BACKSWING:

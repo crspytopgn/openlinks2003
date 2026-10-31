@@ -28,9 +28,12 @@ var _scale: OptionButton
 var _fov: OptionButton
 var _wind: OptionButton
 var _presentation: OptionButton
+var _sky: OptionButton
+var _sky_values := PackedStringArray()  ## CourseBackdrop sky settings, per _sky item
 var _disc_sounds: OptionButton  ## web only
 var _skill: OptionButton
 var _swing: OptionButton
+var _swing_help: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
 var _hd: OptionButton
@@ -86,12 +89,15 @@ func _ready() -> void:
 		fovs.append("%d deg" % roundi(f))
 	_fov = _row(grid, "Field of view", fovs)
 	_wind = _row(grid, "Wind", Wind.LEVEL_NAMES)
+	_sky = _row(grid, "Sky (next course)", [], false)
+	_sky.item_selected.connect(_on_sky_selected)
 	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
 	if OS.has_feature("web"):
 		# The disc's crowd, menu and voice sounds are tens of MB to copy into
 		# the browser's memory, so they are a choice, used from the next start.
 		_disc_sounds = _row(grid, "Sounds", ["Light", "Full disc sounds (about 100 MB, next start)"])
 	_swing = _row(grid, "Swing", ["Three-click meter", "Mouse swing (PowerStroke)"])
+	_swing_help = _row(grid, "Swing help", ["Off", "On"])
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
@@ -125,10 +131,12 @@ func open(s: GraphicsSettings) -> void:
 	_fov.select(_closest(FOV_CHOICES, s.fov))
 	_wind.select(s.wind)
 	_presentation.select(s.presentation)
+	_fill_skies()
 	if _disc_sounds != null:
 		_disc_sounds.select(1 if s.web_disc_sounds else 0)
 	_skill.select(s.skill)
 	_swing.select(s.swing_method)
+	_swing_help.select(1 if s.swing_help else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
 	_show_look()
@@ -139,6 +147,13 @@ func open(s: GraphicsSettings) -> void:
 
 func close() -> void:
 	visible = false
+
+
+func _process(_delta: float) -> void:
+	# In a round the panel sits on the HUD's canvas, not in a container:
+	# keep it in the middle of the screen, as the pause menu does.
+	if visible and not get_parent() is Container:
+		position = ((get_viewport_rect().size - size) * 0.5).max(Vector2.ZERO)
 
 
 func _grid(parent: Control) -> GridContainer:
@@ -286,6 +301,21 @@ func _on_hd_selected(index: int) -> void:
 	_show_hd()
 
 
+## The sky choices: the course's own, random, the disc's skies and any
+## custom skies in the player's skies folder (the 1.07 patch).
+func _fill_skies() -> void:
+	_sky.clear()
+	_sky_values = CourseBackdrop.sky_choices()
+	for v in _sky_values:
+		_sky.add_item(CourseBackdrop.display_name(v))
+	_sky.select(maxi(0, _sky_values.find(CourseBackdrop.sky_setting())))
+
+
+func _on_sky_selected(index: int) -> void:
+	if index >= 0 and index < _sky_values.size():
+		CourseBackdrop.save_sky_setting(_sky_values[index])
+
+
 func _row(grid: GridContainer, label: String, items: Array, connect_change := true) -> OptionButton:
 	var l := Label.new()
 	l.text = label
@@ -315,6 +345,7 @@ func _on_selected() -> void:
 		settings.web_disc_sounds = _disc_sounds.selected == 1
 	settings.skill = _skill.selected
 	settings.swing_method = _swing.selected
+	settings.swing_help = _swing_help.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
 	settings.lighting = _lighting.selected

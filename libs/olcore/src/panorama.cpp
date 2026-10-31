@@ -5,6 +5,7 @@
 #include <string>
 
 #include "olcore/binary_reader.hpp"
+#include "olcore/image.hpp"
 
 namespace olcore {
 
@@ -89,6 +90,52 @@ RgbaImage decode_panorama(const std::uint8_t* data, std::size_t size) {
   }
   if (pos != size) throw ReadError("trailing bytes after the panorama");
   return img;
+}
+
+RgbaImage decode_sky_archive(const Arc0Archive& sky) {
+  std::vector<RgbaImage> tiles;
+  for (std::size_t n = 1;; ++n) {
+    const std::string name = "_s_k_y_" + std::to_string(n) + ".tga";
+    if (!sky.find(name)) break;
+    auto tile = decode_tga(sky.read(name));
+    if (!tile || tile->width != tile->height || tile->width < 4) throw ReadError("bad sky tile " + name);
+    tiles.push_back(std::move(*tile));
+  }
+  if (tiles.empty()) throw ReadError("no sky tiles");
+  // Rows: runs of tiles with the same edge.
+  struct Row {
+    std::size_t first, count;
+    int edge;
+  };
+  std::vector<Row> rows;
+  for (std::size_t i = 0; i < tiles.size(); ++i) {
+    if (rows.empty() || rows.back().edge != tiles[i].width) rows.push_back({i, 0, tiles[i].width});
+    ++rows.back().count;
+  }
+  int width = 0, height = 0;
+  for (const Row& r : rows) {
+    const int w = static_cast<int>(r.count) * r.edge;
+    width = width == 0 ? w : std::min(width, w);
+    height += r.edge;
+  }
+  RgbaImage out;
+  out.width = width;
+  out.height = height;
+  out.pixels.assign(std::size_t(width) * height * 4, 0);
+  int top = 0;
+  for (const Row& r : rows) {
+    for (std::size_t c = 0; c < r.count; ++c) {
+      const RgbaImage& t = tiles[r.first + c];
+      const int x0 = static_cast<int>(c) * r.edge;
+      const int span = std::min(r.edge, width - x0);
+      for (int y = 0; y < r.edge && span > 0; ++y) {
+        std::memcpy(&out.pixels[(std::size_t(top + y) * width + x0) * 4], &t.pixels[std::size_t(y) * t.width * 4],
+                    std::size_t(span) * 4);
+      }
+    }
+    top += r.edge;
+  }
+  return out;
 }
 
 }  // namespace olcore

@@ -11,6 +11,7 @@ signal hole_selected(index: int)
 signal hole_action(action: String)  ## add, delete
 signal par_changed(par: int)
 signal name_changed(text: String)
+signal photo_toggled(on: bool)
 
 enum Tool { SELECT, SHAPE, RAISE, LOWER, SMOOTH, FLATTEN, TREES, TEE, PIN, AIM, OBJECTS, PATH }
 
@@ -37,6 +38,7 @@ const PAINTABLE := [
 
 var course_name: LineEdit
 var credits: Label
+var photo: CheckBox
 var surface: OptionButton
 var brush_size: HSlider
 var strength: HSlider
@@ -86,6 +88,14 @@ func _ready() -> void:
 	credits.modulate = Color(1, 1, 1, 0.6)
 	credits.visible = false
 	box.add_child(credits)
+	photo = CheckBox.new()
+	photo.text = "Show the aerial photo"
+	photo.tooltip_text = "Lay the real course's aerial photo over the ground, to check and trace the areas against it."
+	photo.visible = false
+	photo.toggled.connect(func(on: bool) -> void:
+		if not _quiet:
+			photo_toggled.emit(on))
+	box.add_child(photo)
 	box.add_child(_button_row([["New", "new"], ["Open", "open"], ["Save", "save"]]))
 	box.add_child(_button_row([["Import", "import"], ["Export", "export"]]))
 	var real := MenuStyle.button("Real course...")
@@ -237,6 +247,14 @@ func show_course_name(text: String) -> void:
 
 
 ## The data credits a real course keeps (empty hides them).
+## Offers the aerial photo toggle when the course has a photo.
+func show_photo_option(available: bool, on: bool) -> void:
+	_quiet = true
+	photo.visible = available
+	photo.button_pressed = on
+	_quiet = false
+
+
 func show_credits(text: String) -> void:
 	credits.text = text
 	credits.visible = not text.is_empty()

@@ -33,13 +33,13 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. Still to do: the PowerStroke meter's screen geometry, chips in the game shell, the game's own cup, tree and object collisions. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. The three-click meter runs at the game's own positions and speeds, and chips are picked and played as the game does (its chip meter, chip power and chip misses). Still to do: the game's own cup, tree and object collisions. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
 - [x] Stand-in ball physics: published flight, bounce and roll model behind a `ShotModel` interface
 - [x] Swing controls: classic three-click power meter
-- [ ] Swing controls: real-time mouse swing
+- [x] Swing controls: real-time mouse swing (Links 2003's PowerStroke mouse swing, the default; irons, chips, putts and the swing help option as the game does them)
 - [x] Scoring basics: stroke play, putting and holing out, water drop, out of bounds, scorecard
 - [x] Rules: unplayable lies, lateral hazards, drop options, free drops from cart paths ([game-shell.md](docs/game-shell.md#drops)). No provisional balls: Links 2003 has no lost balls and out of bounds is known at once
   - [ ] Drop the ball and let it roll, re-dropping if it leaves the zone, as Links does
@@ -53,9 +53,11 @@ feel) still need a working install.
 - [ ] Textures and skies **(unblocked: `STDTER_1.LIB`, `PANSKY.LIB`, `BTCV` sprites, patch `.sky` files)**
   - [x] HD texture packs: `tools/oltex export` writes the textures as PNG for upscaling, and the game loads an upscaled pack in their place (`HdPack`, [hd-textures.md](docs/hd-textures.md)). Still to do: packs in the browser build, the HUD and menu art, the patch `.sky` skies
   - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
-  - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
+  - [x] Which sky and horizon each course uses (`header` trailer, [crz.md](docs/formats/crz.md#the-header-trailer-sky-and-horizon)), the patch's named `.sky` skies, and a sky setting (course's own, random or any sky); a picked sky sets the Photoreal light
+  - [ ] Where exactly the game puts the horizon (eye-level row) and the sky band **(needs a screenshot of the running game)**
   - [x] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks) ([crz.md](docs/formats/crz.md#mappings-texture-projections)); `.SHA` tree shadow shapes in the baked ground shade ([sha.md](docs/formats/sha.md))
-  - [ ] The rest of `.SHA` (3D object light maps, per-billboard shade) and the detail texture variants
+  - [x] The rest of `.SHA` ([sha.md](docs/formats/sha.md)): 3D object footprints stamped as ground shadows, per-billboard light dimming trees among trees; detail texture variants (`... 32.tga`, `... 128.tga`) faded in with distance
+  - [ ] The trailer's four floats (sun direction?), the `.SHA` cell lists, and the game's exact variant distances
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
   - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))
@@ -89,7 +91,12 @@ feel) still need a working install.
   - [x] In-game designer that works in the browser: sculpt the ground, paint fairways, greens, tees, bunkers, ponds and rough, plant trees, lay out holes, play the course, save, export and import `.olc` files ([course-designer.md](docs/course-designer.md))
   - [x] Objects from the player's own object library with measured collision sizes, cart paths (free drop) and bridges, per-hole flyover, shareable single-file courses
   - [x] Real courses by name: OpenStreetMap holes and areas plus open lidar and elevation heights, in the browser too ([real-courses.md](docs/real-courses.md))
-  - [ ] Real courses: finer national lidar per country, aerial photos for trees, buildings
+  - [x] Real courses: national lidar (England, Netherlands, France, US), trees from the lidar canopy or aerial photos, the photo under the designer, clubs with several courses
+  - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
+  - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
+  - [x] Real courses: greens, tees, fairways and bunkers the map lacks drawn at typical sizes along each hole (marked as guessed)
+  - [ ] Real courses: find missing greens, fairways and bunkers in the lidar and photos instead of guessing
+  - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
@@ -100,7 +107,11 @@ feel) still need a working install.
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
   - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
-  - [ ] Online: one host, shots sent as messages over WebRTC ([online-play.md](docs/online-play.md))
+  - [ ] Online play, leaderboards and fair play ([online-play.md](docs/online-play.md))
+    - [ ] Phase 1: replayable rounds (round seed, shot records, replay checker in CI), challenge and result codes
+    - [ ] Phase 2: server (Cloudflare Worker), rooms by code over WebSocket, every client checks every shot, rounds in your own time
+    - [ ] Phase 3: olcore in wasm, server-checked leaderboards on open courses, daily and weekly challenges, replays and ghosts
+    - [ ] Phase 4: simultaneous play, GitHub or Discord sign-in, handicap boards, swing plausibility checks, reports
 - [ ] Player profiles and saves (original format optional)
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))

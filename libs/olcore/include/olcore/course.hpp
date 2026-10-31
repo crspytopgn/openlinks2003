@@ -43,6 +43,23 @@ struct Hole {
 // `header` entry: the holes.
 std::vector<Hole> parse_holes(const std::vector<std::uint8_t>& data);
 
+// The scenery a course asks for, from the end of its `header` entry (after
+// the holes). See docs/formats/crz.md#the-header-trailer-sky-and-horizon.
+struct CourseScenery {
+  // Which cloud sky: skyNN.btc in PANSKY.LIB (1 to 12), or 0 for none set.
+  std::uint32_t sky = 0;
+  // Which horizon: PanNN.btc in PANSKY.LIB (1 to 13), or 0 for the
+  // course's own `Panorama` entry.
+  std::uint32_t panorama = 0;
+  // Four values the game keeps beside the sky; not decoded. The six disc
+  // courses hold an angle in radians (0 to 4.7), 0.1 or 0.15, 25 to 40 and
+  // again 0.1 or 0.15.
+  float values[4] = {0, 0, 0, 0};
+};
+
+// Reads the trailer. Throws ReadError when the entry is too short.
+CourseScenery parse_course_scenery(const std::vector<std::uint8_t>& data);
+
 // `english.txt` entry (UTF-16 "Key = Value" lines), returned as UTF-8 pairs.
 std::vector<std::pair<std::string, std::string>> parse_course_text(const std::vector<std::uint8_t>& data);
 
@@ -106,6 +123,7 @@ struct Course {
   Terrain terrain;
   std::vector<TextureDesc> textures;
   std::vector<TerrainMaterial> materials;
+  CourseScenery scenery;
 };
 
 Course load_course(const CrzArchive& archive);

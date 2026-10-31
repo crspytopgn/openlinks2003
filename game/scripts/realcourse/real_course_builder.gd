@@ -11,7 +11,9 @@ extends RefCounted
 const MARGIN := 80.0  ## metres of ground kept round the course boundary
 const MAX_SIZE := 3600.0  ## largest course side, metres
 const SEARCH_RADIUS := 1500.0  ## metres round the picked point with no boundary
-const MAX_TREES := 5000
+const MAX_TREES := 6000
+const LAND_TREE_CLEAR := 25.0  ## metres from a hole's line kept free of land-cover trees
+const NEAR_CELL := 8.0  ## metres, for spacing checks between trees
 const WOOD_SPACING := 9.0  ## metres between trees in a wood
 const ROW_SPACING := 7.0  ## metres between trees in a tree row
 const LOW_GROUND := -12.0  ## heights below this (sea floor) are raised to it
@@ -48,7 +50,24 @@ var _rows: Array[Dictionary] = []  ## tree rows: {"line", "leaf"}
 var _streams: Array[Dictionary] = []  ## {"line", "width"}
 var _paths: Array[PackedVector2Array] = []
 var _pins: PackedVector2Array = []
+var _buildings: Array[Dictionary] = []  ## {"ring", "box"}, grown 2 m
+
+## Extra trees found by the fetcher, planted after the mapped ones: from
+## the lidar canopy height ({"lat", "lon", "height"}), and from the aerial
+## photo (course points). With lidar trees, woods aren't filled by guesswork.
+var lidar_trees: Array[Dictionary] = []
+var photo_trees := PackedVector2Array()
+## Trees from the land cover (LandCover.tree_points), used when there are
+## no lidar or photo trees, outside the mapped woods.
+var land_trees := PackedVector2Array()
+var _guessed: Array[Dictionary] = []  ## CourseGuesser's shapes: {"ring", "box"}
+## With several courses at one club (golf:course:name on the holes),
+## build only this one; empty builds every hole.
+var course_filter := ""
+## Extra credits for the data sources the fetcher used.
+var extra_credits: PackedStringArray = []
 var _rng := RandomNumberGenerator.new()
+var _near := {}  ## Vector2i cell -> planted tree points
 
 
 ## `data` is the Overpass answer; (lat, lon) is the place picked, which
@@ -92,6 +111,18 @@ func _init(data: Dictionary, lat: float, lon: float, p_name := "") -> void:
 	_read(elements)
 
 
+## The courses at the club when its holes name more than one (each with at
+## least nine holes), most holes first; empty for a single course.
+func course_names() -> PackedStringArray:
+	var counts := {}
+	for d in _holes:
+		if not str(d["course"]).is_empty():
+			counts[d["course"]] = int(counts.get(d["course"], 0)) + 1
+	var names: Array = counts.keys().filter(func(n: String) -> bool: return counts[n] >= 9)
+	names.sort_custom(func(a: String, b: String) -> bool: return counts[a] > counts[b] or (counts[a] == counts[b] and a < b))
+	return PackedStringArray(names) if names.size() > 1 else PackedStringArray()
+
+
 ## The box the ground heights are needed for: south, west, north, east.
 func geo_box() -> Array[float]:
 	var lats := [frame.lat_of(area.position), frame.lat_of(area.end)]
@@ -100,21 +131,31 @@ func geo_box() -> Array[float]:
 	return [lats.min(), lons.min(), lats.max(), lons.max()]
 
 
-## The course. `height` is a Callable(lat, lon) -> metres above sea level.
-func build(height: Callable) -> DesignedCourse:
+## The course. `height` is a Callable(lat, lon) -> metres above sea level
+## (NAN where it has no data, filled from `fallback`).
+func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	var c := DesignedCourse.new()
-	c.course_name = course_name.substr(0, 40)
+	c.course_name = (course_filter if not course_filter.is_empty() else course_name).substr(0, 40)
 	c.author = "OpenStreetMap contributors"
 	c.credits = CREDITS
+	for extra in extra_credits:
+		c.credits += " " + extra + "."
 	c.source = {"kind": "openstreetmap", "lat": snappedf(frame.lat0, 0.0000001), "lon": snappedf(frame.lon0, 0.0000001)}
 	c.area = area
 	c._alloc()
-	_fill_heights(c, height)
+	_fill_heights(c, height, fallback)
 	_add_shapes(c)
 	_add_holes(c)
+	_guessed.clear()
+	for s in CourseGuesser.fill(c, hash(c.course_name)):
+		var ring := s.outline()
+		var r := Rect2(ring[0], Vector2.ZERO)
+		for p in ring:
+			r = r.expand(p)
+		_guessed.append({"ring": ring, "box": r})
 	_add_paths(c)
 	_add_trees(c)
-	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size()}
+	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size()}
 	return c
 
 
@@ -194,7 +235,8 @@ func _read(elements: Array) -> void:
 		if golf == "hole" and type == "way":
 			var line := _local_line(_geo_points(e))
 			if line.size() >= 2 and _in_course(line):
-				_holes.append({"ref": str(t.get("ref", "")), "par": str(t.get("par", "")), "si": str(t.get("handicap", "")), "line": line})
+				_holes.append({"ref": str(t.get("ref", "")), "par": str(t.get("par", "")), "si": str(t.get("handicap", "")),
+					"course": str(t.get("golf:course:name", "")), "line": line})
 		elif golf == "cartpath" or str(t.get("golf_cart", "")) == "designated":
 			if not closed:
 				_paths.append(_local_line(_geo_points(e)))
@@ -207,6 +249,14 @@ func _read(elements: Array) -> void:
 			_add_poly(e, {"surface": Surface.Type.DEEP_ROUGH})
 		elif (natural == "wood" or str(t.get("landuse", "")) == "forest") and closed:
 			_add_poly(e, {"wood": true, "leaf": str(t.get("leaf_type", ""))})
+		elif t.has("building") and closed:
+			for g in _geo_rings(e):
+				for ring in Geometry2D.offset_polygon(_local_ring(g), 2.0):
+					var r := Rect2(ring[0], Vector2.ZERO)
+					for p in ring:
+						r = r.expand(p)
+					if r.intersects(area):
+						_buildings.append({"ring": ring, "box": r})
 		elif natural == "tree_row" and type == "way":
 			_rows.append({"line": _local_line(_geo_points(e)), "leaf": str(t.get("leaf_type", ""))})
 		elif STREAM_WIDTHS.has(str(t.get("waterway", ""))) and type == "way":
@@ -369,16 +419,38 @@ static func _metres(v: Variant) -> float:
 
 # --- Building the course --------------------------------------------------------
 
-func _fill_heights(c: DesignedCourse, height: Callable) -> void:
-	var lo := INF
-	var hi := -INF
+## `height` may return NAN where its data has gaps (lidar has none under
+## water and some buildings, and stops at borders); those samples take the
+## `fallback` heights, shifted by the mean difference between the two where
+## both exist, so the seams don't step.
+func _fill_heights(c: DesignedCourse, height: Callable, fallback: Callable) -> void:
+	var gaps := PackedInt32Array()
+	var diff := 0.0
+	var diff_n := 0
 	for j in c.rows:
 		for i in c.cols:
 			var p := c.sample_pos(i, j)
-			var h := maxf(float(height.call(frame.lat_of(p), frame.lon_of(p))), LOW_GROUND)
-			c.heights[j * c.cols + i] = h
-			lo = minf(lo, h)
-			hi = maxf(hi, h)
+			var lat := frame.lat_of(p)
+			var lon := frame.lon_of(p)
+			var h := float(height.call(lat, lon))
+			var k := j * c.cols + i
+			if is_nan(h):
+				gaps.append(k)
+				h = float(fallback.call(lat, lon)) if fallback.is_valid() else 0.0
+			elif fallback.is_valid() and i % 8 == 0 and j % 8 == 0:
+				diff += h - float(fallback.call(lat, lon))
+				diff_n += 1
+			c.heights[k] = h
+	if diff_n > 0:
+		var shift := diff / diff_n
+		for k in gaps:
+			c.heights[k] += shift
+	var lo := INF
+	var hi := -INF
+	for k in c.heights.size():
+		c.heights[k] = maxf(c.heights[k], LOW_GROUND)
+		lo = minf(lo, c.heights[k])
+		hi = maxf(hi, c.heights[k])
 	# Heights are stored round zero, within +-MAX_HEIGHT.
 	var base := (lo + hi) * 0.5
 	for k in c.heights.size():
@@ -403,7 +475,10 @@ func _add_shapes(c: DesignedCourse) -> void:
 
 func _add_holes(c: DesignedCourse) -> void:
 	# Holes in number order; ones without a number keep their map order.
-	var order: Array[Dictionary] = _holes.duplicate()
+	var order: Array[Dictionary] = []
+	for d in _holes:
+		if course_filter.is_empty() or d["course"] == course_filter:
+			order.append(d)
 	for i in order.size():
 		order[i]["index"] = i
 	order.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -482,12 +557,28 @@ func _add_paths(c: DesignedCourse) -> void:
 
 func _add_trees(c: DesignedCourse) -> void:
 	var clear := _play_rings()
+	_near.clear()
 	for t in _trees:
 		_plant(c, t["p"], t["leaf"], t["height"], clear)
 	for r in _rows:
 		var line: PackedVector2Array = r["line"]
 		for p in _resample(line, ROW_SPACING):
 			_plant(c, p, r["leaf"], 0.0, clear)
+	# Lidar crowns are real trees, typed by the wood they stand in (if any).
+	# A wooded course has tens of thousands, more than MAX_TREES, so the ones
+	# nearest the holes go in first and deep woods are left thinner.
+	var found: Array[Dictionary] = []
+	for t in lidar_trees:
+		var p := frame.to_local(t["lat"], t["lon"])
+		found.append({"p": p, "h": t["height"], "leaf": str(t.get("leaf", "")), "d": _hole_distance(p, c.holes)})
+	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["d"] < b["d"])
+	for t in found:
+		_plant(c, t["p"], t["leaf"] if not str(t["leaf"]).is_empty() else _leaf_at(t["p"]), t["h"], clear, 3.0)
+	if not lidar_trees.is_empty():
+		return
+	for p in photo_trees:
+		_plant(c, p, _leaf_at(p), 0.0, clear, 4.0)
+	_add_land_trees(c, clear)
 	# Woods are filled on a jittered grid, thinned to keep within MAX_TREES.
 	var wood_area := 0.0
 	for d in _polys:
@@ -510,19 +601,93 @@ func _add_trees(c: DesignedCourse) -> void:
 			while x < r.end.x:
 				var p := Vector2(x, z) + Vector2(_rng.randf_range(-0.4, 0.4), _rng.randf_range(-0.4, 0.4)) * spacing
 				if Geometry2D.is_point_in_polygon(p, ring):
-					_plant(c, p, d["leaf"], 0.0, clear)
+					_plant(c, p, d["leaf"], 0.0, clear, spacing * 0.5)
 				x += spacing
 			z += spacing
 
 
+## Land-cover trees outside the mapped woods (which are filled below),
+## nearest the holes first. Only without lidar or photo trees.
+func _add_land_trees(c: DesignedCourse, clear: Array[Dictionary]) -> void:
+	if not photo_trees.is_empty():
+		return
+	var found: Array[Dictionary] = []
+	for p in land_trees:
+		var in_wood := false
+		for d in _polys:
+			if d.has("wood") and Geometry2D.is_point_in_polygon(p, d["ring"]):
+				in_wood = true
+				break
+		var d := _hole_distance(p, c.holes)
+		# At 10 m, tree-lined fairways read as woods: keep the line of play
+		# clear even where its fairway isn't mapped.
+		if not in_wood and d > LAND_TREE_CLEAR:
+			found.append({"p": p, "d": d})
+	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["d"] < b["d"])
+	# Keep room for the mapped woods.
+	var budget := MAX_TREES >> 1
+	for t in found:
+		if budget <= 0:
+			break
+		var before := c.objects.size()
+		_plant(c, t["p"], _leaf_at(t["p"]), 0.0, clear, 5.0)
+		budget -= c.objects.size() - before
+
+
+## Distance from a point to the nearest hole's line of play.
+static func _hole_distance(p: Vector2, holes: Array[DesignedHole]) -> float:
+	var best := INF
+	for h in holes:
+		if h.tees.is_empty():
+			continue
+		var prev := h.tees[0]
+		for q in h.route + PackedVector2Array([h.pin]):
+			best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, prev, q)))
+			prev = q
+	return best
+
+
+## The leaf type of the wood a point is in, or "".
+func _leaf_at(p: Vector2) -> String:
+	for d in _polys:
+		if d.has("wood") and Geometry2D.is_point_in_polygon(p, d["ring"]):
+			return d["leaf"]
+	return ""
+
+
+## Course points on fairways, for the photo's grass colour.
+func grass_points() -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for r in _rings_of(Surface.Type.FAIRWAY):
+		var p := _centroid(r)
+		if Geometry2D.is_point_in_polygon(p, r) and area.has_point(p):
+			out.append(p)
+	return out
+
+
 ## Plants a tree unless it would stand on a fairway, green, tee, bunker or
 ## in water (OpenStreetMap woods often overlap the play areas a little).
-func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: Array[Dictionary]) -> void:
+func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: Array[Dictionary], gap := 0.0) -> void:
 	if c.objects.size() >= MAX_TREES or not area.grow(-2.0).has_point(p):
 		return
 	for d in clear:
 		if (d["box"] as Rect2).has_point(p) and Geometry2D.is_point_in_polygon(p, d["ring"]):
 			return
+	for d in _buildings:
+		if (d["box"] as Rect2).has_point(p) and Geometry2D.is_point_in_polygon(p, d["ring"]):
+			return
+	# Keep `gap` metres from trees already planted (a lidar crown that is
+	# also a mapped tree is planted once).
+	var cell := Vector2i((p / NEAR_CELL).floor())
+	if gap > 0.0:
+		for dj in range(-1, 2):
+			for di in range(-1, 2):
+				for q: Vector2 in _near.get(cell + Vector2i(di, dj), []):
+					if q.distance_to(p) < gap:
+						return
+	if not _near.has(cell):
+		_near[cell] = []
+	_near[cell].append(p)
 	var id: String
 	match leaf:
 		"needleleaved":
@@ -537,7 +702,7 @@ func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: A
 
 ## The play areas trees keep off, grown 2 m, with their bounds.
 func _play_rings() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
+	var out: Array[Dictionary] = _guessed.duplicate()
 	for d in _polys:
 		if d.has("wood") or not d["surface"] in [Surface.Type.FAIRWAY, Surface.Type.GREEN, Surface.Type.TEE, Surface.Type.SAND, Surface.Type.WATER]:
 			continue

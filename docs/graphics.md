@@ -141,6 +141,14 @@ at Medium and grass at Low.
   far banks dark and green at the bottom of the reflection and a quarter
   of every reflection taken by the banks round it; the water's own colour
   is a dark, slightly green deep.
+  The water reflects at most 60% of the plain sky colour (80% of the
+  photographed sky), so a glancing view still shows deep water, not white.
+  When the player picks a sky in Settings
+  (anything but the course's own), Photoreal shows that disc sky instead
+  and the light follows its weather (`Scenery._apply_weather`): the sun
+  loses up to 65% of its energy and, in Forward+, its shadows soften,
+  while the fill light grows by up to 60%; Sunrise and Mojave Sunset warm
+  the sun. Classic always shows the chosen or course sky.
 - **Matt surfaces**: ground (every terrain shader), grass tufts, trees
   and the golfer's cloth and skin are matt (roughness 0.9 to 1, specular
   0.1), so the sun and sky leave no plastic sheen; only the water and
@@ -148,9 +156,11 @@ at Medium and grass at Low.
   lighter to make up for the glare they no longer get.
 - **Ground relief** (`PHOTO_RELIEF` in `crz_terrain.gd`): each photo set's
   height map shifts the texture with the view within about 35 m
-  (two-step parallax, a few millimetres to 3.5 cm of relief per surface)
-  and darkens its low parts within about 110 m (cavities between blades,
-  pebbles and footprints), so the ground looks deep rather than printed on.
+  (two-step parallax, a few millimetres to 5 cm of relief per surface)
+  and darkens its low parts and lightens its tops around the map's own
+  mean (cavities between blades, pebbles and footprints), fading out
+  sooner on finely tiled ground (greens) before its repeat shows, so the
+  ground looks deep rather than printed on.
 - **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
   `course_objects.gd`): the disc's plant sprites are toned like the photo
   ground (more colour, less light, darker at the root where a clump
@@ -162,6 +172,16 @@ at Medium and grass at Low.
   Neutral grade under Photoreal lighting adds a gentle filmic S-curve on
   luminance, slightly warm highlights and cool shadows, so the render
   reads less flat and hazy. The other grades are unchanged.
+- **Course shading from the `.SHA` file** ([sha.md](formats/sha.md)):
+  billboards are darkened by how much light the course says reaches them
+  (an instance colour, so trees inside a wood are deeper than those in the
+  open), and 3D objects stamp their own footprint into the baked ground
+  shade as a shadow and a soft darkening underneath.
+- **Distance texture variants** (`terrain_mapped.gdshader`): disc ground
+  textures fade into their coarser `... 32.tga` and `... 128.tga` variants
+  with distance, which hides the tiling across a fairway. Only uniform
+  branches, so it costs nothing on materials without variants and works in
+  Compatibility.
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat

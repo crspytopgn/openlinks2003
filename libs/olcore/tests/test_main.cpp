@@ -621,6 +621,55 @@ void test_arc0_reads_entries() {
   CHECK(!a.find("missing"));
 }
 
+// An ARC0 archive of stored zlib entries.
+std::vector<std::uint8_t> make_arc0(const std::vector<std::string>& names, const std::vector<std::string>& bodies) {
+  std::vector<std::uint8_t> blob(16, 0);
+  std::vector<std::uint32_t> offs, sizes;
+  for (auto& b : bodies) {
+    auto z = stored_zlib(b);
+    offs.push_back(static_cast<std::uint32_t>(blob.size()));
+    sizes.push_back(static_cast<std::uint32_t>(z.size()));
+    blob.insert(blob.end(), z.begin(), z.end());
+  }
+  auto dir = static_cast<std::uint32_t>(blob.size());
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    put_u32(blob, 0);
+    std::string n = names[i];
+    n.resize(32, '\0');
+    blob.insert(blob.end(), n.begin(), n.end());
+    put_u32(blob, offs[i]);
+    put_u32(blob, sizes[i]);
+    put_u32(blob, static_cast<std::uint32_t>(bodies[i].size()));
+    put_u32(blob, 2);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+    put_u32(blob, 0);
+  }
+  std::vector<std::uint8_t> head = {'A', 'R', 'C', '0'};
+  put_u32(head, static_cast<std::uint32_t>(blob.size()));
+  put_u32(head, static_cast<std::uint32_t>(names.size()));
+  put_u32(head, dir);
+  std::copy(head.begin(), head.end(), blob.begin());
+  return blob;
+}
+
+// Uncompressed 32-bit TGA (bottom-up rows) of one colour.
+std::string flat_tga(int edge, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+  std::string t(18, '\0');
+  t[2] = 2;
+  t[12] = static_cast<char>(edge);
+  t[14] = static_cast<char>(edge);
+  t[16] = 32;
+  t[17] = 8;
+  for (int i = 0; i < edge * edge; ++i) {
+    t.push_back(static_cast<char>(b));
+    t.push_back(static_cast<char>(g));
+    t.push_back(static_cast<char>(r));
+    t.push_back(static_cast<char>(255));
+  }
+  return t;
+}
+
 void put_u16(std::vector<std::uint8_t>& v, std::uint16_t x) {
   v.push_back(static_cast<std::uint8_t>(x & 0xff));
   v.push_back(static_cast<std::uint8_t>(x >> 8));
@@ -776,6 +825,29 @@ void test_btcv_places_tiles_from_bottom() {
   CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 0, 0)[3] == 255);  // tile row 58
   CHECK(pixel(img, 10, 5)[0] < 140 && pixel(img, 10, 5)[0] > 120);  // tile row 63, grey
   CHECK(pixel(img, 66, 3)[3] == 0);
+}
+
+void test_sky_archive() {
+  // Two 8-pixel tiles (red, green), then five 4-pixel ones (blue): 16 x 12,
+  // the narrowest row's width.
+  std::vector<std::string> names, bodies;
+  for (int i = 0; i < 7; ++i) {
+    names.push_back("_s_k_y_" + std::to_string(i + 1) + ".tga");
+    bodies.push_back(i < 2 ? flat_tga(8, i == 0 ? 255 : 0, i == 1 ? 255 : 0, 0) : flat_tga(4, 0, 0, 255));
+  }
+  names.push_back("sky.prv");
+  bodies.push_back("preview");
+  RgbaImage img = decode_sky_archive(Arc0Archive(make_arc0(names, bodies)));
+  CHECK(img.width == 16 && img.height == 12);
+  CHECK(pixel(img, 0, 0)[0] == 255 && pixel(img, 15, 7)[1] == 255);
+  CHECK(pixel(img, 15, 11)[2] == 255 && pixel(img, 15, 11)[3] == 255);
+  bool threw = false;
+  try {
+    decode_sky_archive(Arc0Archive(make_arc0({"sky.prv"}, {"preview"})));
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
 }
 
 void test_panorama_tiles() {
@@ -2117,6 +2189,24 @@ void test_links_swing() {
     CHECK_NEAR(s.speed_scale, c.speed, 1e-8);
     CHECK_NEAR(s.loft_scale, c.loft, 1e-9);
   }
+  // A chip's PowerStroke miss turns it the same way but keeps its power.
+  for (int chip = 0; chip < 2; ++chip) {
+    LinksStrike full, chipped;
+    LinksStrike& s = chip ? chipped : full;
+    s.club = 16;
+    s.power = 30;
+    LinksSwing w;
+    w.skill = 3;
+    w.contact = 2;
+    w.chip = chip == 1;
+    LinksRand rng(99);
+    links_apply_swing(s, w, links_surface(kLinksFairway), rng);
+    if (chip) {
+      CHECK(std::abs(s.power - 30) <= 0.25);
+    } else {
+      CHECK(s.power < 29);
+    }
+  }
 }
 
 void test_links_computer_putt() {
@@ -2178,16 +2268,16 @@ void test_links_mouse_swing() {
   };
   const Case cases[] = {
       {3, LinksMouseShot::Full, 0, 1920, 11u, 20, 12, 90, 0, -4.772966, 0, 0, 90, 0.297828, 31.626182, 0, 0, 0.157841, 0},
-      {1, LinksMouseShot::Full, 9, 1100, 5u, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
-       0.068857, 0.071579, 0},
-      {2, LinksMouseShot::Putt, kLinksPutter, 1920, 7u, 12, 6, 40, -2, -0.592555, 0.24, 0, 40, 0.034813, 1.1, -0.360105,
+      {1, LinksMouseShot::Full, 9, 1100, 5u, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 11.886348, 0.004837,
+       -0.117355, 0.071311, 0},
+      {2, LinksMouseShot::Putt, kLinksPutter, 1920, 7u, 12, 6, 40, -2, -0.592555, 0.24, 0, 40, 0.034813, 1.0, -0.360105,
        0.398950, 0.033288, 0},
-      {0, LinksMouseShot::Chip, 16, 800, 3u, 10, 8, 50, 1, -0.884124, -0.04, 0, 50, 0.064996, 1.598884, 0, -0.029809,
-       0.064996, 0},
+      {0, LinksMouseShot::Chip, 16, 800, 3u, 10, 8, 50, 1, -0.884124, -0.04, 0, 50, 0.064996, 1.522239, 0.000077,
+       -0.021463, 0.064996, 0},
       {3, LinksMouseShot::Full, 4, 1920, 9u, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
        -0.825252, 0.517093, 1},
-      {2, LinksMouseShot::Full, 12, 1920, 21u, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
-       1.50984, 1.021502, 0.361243, 1},
+      {2, LinksMouseShot::Full, 12, 1920, 21u, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 46.535126,
+       0.244594, -0.477122, 0.355657, 0},
   };
   for (const Case& c : cases) {
     LinksMouseClub club(c.skill, c.shot, c.club, links_mouse_meter(c.width));
@@ -2225,6 +2315,35 @@ void test_links_mouse_swing() {
   CHECK(miss.power == 0);
   CHECK(links_mouse_meter(800).height == 278 && links_mouse_meter(1024).ball_line == 96 &&
         links_mouse_meter(2560).height == 442);
+  // An iron's drift past 10 turns the face three times over.
+  LinksMouseStroke iron;
+  iron.club = 13;
+  iron.speed = -6;
+  iron.down = 90;
+  iron.backswing = 0.8;
+  iron.drift = -12;
+  iron.drift_before = -12;
+  LinksRand rng2(5);
+  LinksMouseSwing hooked = links_mouse_swing(iron, rng2);
+  CHECK_NEAR(hooked.power, 44.295517, 1e-5);
+  CHECK_NEAR(hooked.face_deg, 35.1, 1e-5);
+  CHECK_NEAR(hooked.path_deg, 0, 1e-12);
+  // Swing help: a player whose strokes never move sideways gets nudged.
+  LinksMouseStroke still;
+  still.club = 0;
+  still.speed = -6;
+  still.down = 90;
+  still.backswing = 0.8;
+  LinksMouseHelp help;
+  help.enabled = true;
+  help.strokes = 3;
+  help.still_strokes = 3;
+  LinksRand rng3(42);
+  LinksMouseSwing nudged = links_mouse_swing(still, rng3, &help);
+  CHECK_NEAR(nudged.help_deg, 3.9, 1e-9);
+  CHECK_NEAR(nudged.path_deg, 2.600013, 1e-5);
+  CHECK_NEAR(nudged.power, 65.042229, 1e-5);
+  CHECK(help.strokes == 4 && help.still_strokes == 4);
 }
 
 void test_links_putt() {
@@ -2334,6 +2453,7 @@ int main() {
       {"block_runs_modes", test_block_runs_modes},
       {"btcv_places_tiles_from_bottom", test_btcv_places_tiles_from_bottom},
       {"panorama_tiles", test_panorama_tiles},
+      {"sky_archive", test_sky_archive},
       {"tga_rle_bottom_up", test_tga_rle_bottom_up},
       {"png_round_trip", test_png_round_trip},
       {"pad_and_bleed", test_pad_and_bleed},
