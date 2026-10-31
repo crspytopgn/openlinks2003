@@ -40,6 +40,25 @@ class Gltf:
         self.doc["accessors"].append(acc)
         return len(self.doc["accessors"]) - 1
 
+    def sparse_accessor(self, array, tolerance=0.0):
+        """A float VEC3 accessor of mostly zero rows (morph target offsets),
+        stored sparse: only the rows above `tolerance`. None if none are."""
+        a = np.ascontiguousarray(array, dtype=np.float32)
+        rows = np.nonzero(np.abs(a).max(axis=1) > tolerance)[0].astype(np.uint32)
+        if len(rows) == 0:
+            return None
+        values = a[rows]
+        index_type = USHORT if a.shape[0] < 65536 else UINT
+        acc = {"componentType": FLOAT, "count": int(a.shape[0]), "type": "VEC3",
+               "min": [float(x) for x in np.minimum(values.min(axis=0), 0)],
+               "max": [float(x) for x in np.maximum(values.max(axis=0), 0)],
+               "sparse": {"count": int(len(rows)),
+                          "indices": {"bufferView": self._view(rows.astype(_DTYPES[index_type]).tobytes()),
+                                      "componentType": index_type},
+                          "values": {"bufferView": self._view(values.tobytes())}}}
+        self.doc["accessors"].append(acc)
+        return len(self.doc["accessors"]) - 1
+
     def image(self, data, mime):
         self.doc["images"].append({"bufferView": self._view(data), "mimeType": mime})
         self.doc["textures"].append({"source": len(self.doc["images"]) - 1, "sampler": 0})
@@ -65,7 +84,9 @@ class Gltf:
         self.doc["nodes"].append(fields)
         return len(self.doc["nodes"]) - 1
 
-    def skinned_mesh(self, name, positions, normals, uvs, joints, weights, indices, material, skin):
+    def skinned_mesh(self, name, positions, normals, uvs, joints, weights, indices, material, skin, targets=()):
+        """targets: [(name, position offsets, normal offsets)], morph targets
+        (Godot blend shapes), left out where they don't move this mesh."""
         index_type = USHORT if len(positions) < 65536 else UINT
         prim = {"attributes": {
             "POSITION": self.accessor(positions, FLOAT, 34962, minmax=True),
@@ -75,7 +96,22 @@ class Gltf:
             "WEIGHTS_0": self.accessor(weights, FLOAT, 34962)},
             "indices": self.accessor(indices.reshape(-1), index_type, 34963),
             "material": material}
-        self.doc["meshes"].append({"name": name, "primitives": [prim]})
+        mesh = {"name": name, "primitives": [prim]}
+        names = []
+        for target, dpos, dnrm in targets:
+            acc = self.sparse_accessor(dpos, 2e-4)
+            if acc is None:
+                continue
+            entry = {"POSITION": acc}
+            nacc = self.sparse_accessor(dnrm, 0.03)
+            if nacc is not None:
+                entry["NORMAL"] = nacc
+            prim.setdefault("targets", []).append(entry)
+            names.append(target)
+        if names:
+            mesh["weights"] = [0.0] * len(names)
+            mesh["extras"] = {"targetNames": names}
+        self.doc["meshes"].append(mesh)
         n = self.node(name=name, mesh=len(self.doc["meshes"]) - 1, skin=skin)
         self.doc["scenes"][0]["nodes"].append(n)
         return n

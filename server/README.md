@@ -11,8 +11,12 @@ It is **not deployed yet**. Until it is, the game's online menu stays hidden.
 
 - **Live rooms.** `POST /rooms` makes a room and returns a 4-letter code. Each
   player's game opens a WebSocket to `/rooms/CODE`. The first player in is
-  the host, and the host's game runs the round. The server relays messages
-  and enforces who may send what (`src/room.js`), but it never runs any golf.
+  the host and starts the round. From then on every game plays the whole
+  round in step, from the host's setup (with its seed) and one numbered
+  stream of events: each shot's inputs and each drop. Each game replays the
+  others' shots through its own physics and reports any shot that stops
+  somewhere else. The server relays messages and checks who may send what
+  (`src/room.js`), but it never runs any golf.
 - **Rounds in your own time.** `POST /games` starts one: the server picks the
   seed, so nobody can reroll the wind. Each player sends their `RoundRecord`
   as they play (`/games/ID/record`). Shots already sent can't be changed or
@@ -24,21 +28,19 @@ It is **not deployed yet**. Until it is, the game's online menu stays hidden.
 ### Room messages
 
 Every message is JSON with a `type`. A new connection's first message is
-`{type: "hello", v: 1, name}`. The server answers with `welcome {code, you,
-seat, host}` and then the host's last `setup` and `state` (for late joiners).
-Everyone also gets `members`.
+`{type: "hello", v: 1, name}`, and the server answers with `welcome {code,
+you, seat, host}`. Everyone also gets `members` whenever someone comes or
+goes. Nobody can join once the round has started.
 
 | From | Type | Goes to | Notes |
 |---|---|---|---|
-| host | `setup`, `state` | everyone else | Kept for players who join later |
-| host | `turn {seat}` | everyone else | Whose shot it is |
-| player on `turn` | `shot {...}` | host | Anyone else is refused |
-| host | `result {...}` | everyone else | Ends the turn |
-| host | `end` | everyone else | Round over, room closes to newcomers |
+| host | `setup {owners, seed, ...}` | everyone else | Starts the round. `owners[i]` is the room seat whose game plays player `i` (computer golfers are the host's) |
+| owner of `player` | `event {seq, player, kind: "shot" or "drop", ...}` | everyone else | Must be the next `seq` |
+| host | `state`, `end` | everyone else | `end` closes the room |
 | anyone | `chat {id}` | everyone | Quick-chat number, 0 to 7; no free text |
-| anyone | `mismatch {shot}` | everyone | My replay of that shot disagrees |
+| anyone | `mismatch {shot}` | everyone | My replay of that event disagrees |
 | anyone | `ping` | sender (`pong`) | |
-| server | `members`, `left`, `host_left`, `error {reason}` | | When the host leaves, the oldest player becomes host |
+| server | `members`, `left`, `host_left`, `owners`, `error {reason}` | | When someone leaves, the host's game plays their players (`owners`). When the host leaves, the oldest remaining player becomes host |
 
 Limits: four players, 64 KB a message, 256 KB a round record. Idle rooms are
 deleted after 6 hours, and rounds 30 days after their last shot.

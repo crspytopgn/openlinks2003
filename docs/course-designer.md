@@ -99,8 +99,19 @@ browser's own storage for the site). **Open** lists the saved courses.
   fairway, fringe, tee, green, sand, water (later layers cover earlier ones).
   Every green gets a 1.8 m fringe ring. Ground with no area is rough, and
   everything outside the course is out of bounds.
+  The ground is drawn from the same raster (a splat map, `material()`):
+  the terrain shader looks up each pixel's surface there, with a slightly
+  wandering line, so edges are crisp at 0.5 m instead of blended across a
+  2 m grid cell, and mowing stripes are cut on the fairways, tees and
+  greens only. Under a pond's water line the bank is dark turf. Courses
+  over 2 km across get a coarser map (at most 4096 texels a side).
+- **Hazard stakes** (`build_stakes()`, drawn with the water) stand every
+  9 m round each pond, yellow, 0.8 m out from its edge, and every 18 m
+  round out-of-bounds areas, white. They are for the look only: the ball
+  passes them, as real stakes are movable.
 - **Trees and objects** are obstacles for the ball (`DesignerObjects`): the
-  built-in trees get a trunk and a canopy sized to their meshes. Catalog
+  built-in trees get a trunk and a canopy sized to their meshes, and the
+  built-in bush a canopy from the ground to 1.5 m. Catalog
   objects are measured from the node the player's object library builds for
   them (the bounds of all its meshes, at scale 1). Models become a solid box
   of that size, turned with the object. Billboards follow the catalog's
@@ -170,5 +181,5 @@ game/tests/designer_tests.gd                    data checks; run_tests.gd also o
   shapes than the measured boxes.
 - Built-in (free) bushes, rocks and buildings for players without the game
   files.
-- Hazard stakes, and lateral hazards for the rules.
+- Lateral hazards (red stakes) for the rules.
 - Per-course sky and horizon choices.

@@ -1,6 +1,9 @@
-// A live room: up to four players, one of them the host, who owns the round
-// (docs/online-play.md, "Live rounds"). The server only relays and enforces
-// who may send what; the golf runs in the players' games.
+// A live room: up to four players, one of them the host, who starts the round
+// (docs/online-play.md, "Live rounds"). Every game plays the whole round in
+// step from the host's setup and one numbered stream of events (each shot's
+// inputs, each drop). The server only relays and enforces who may send what:
+// an event must be the next number and come from the game that plays that
+// player (the setup's `owners`). The golf runs in the players' games.
 //
 // RoomState is plain data plus pure methods, so it can be stored between
 // messages (Durable Objects may sleep) and tested without Cloudflare.
@@ -10,7 +13,9 @@
 import { MAX_PLAYERS, QUICK_CHAT_COUNT, PROTOCOL_VERSION, cleanName } from "./protocol.js";
 
 // Messages only the host sends, relayed to everyone else.
-const HOST_ONLY = new Set(["setup", "turn", "result", "state", "end"]);
+const HOST_ONLY = new Set(["setup", "state", "end"]);
+// Events kept for nobody; a player who drops out has their seats played by
+// the host from then on.
 
 export class RoomState {
   constructor(code, data = null) {
@@ -19,8 +24,8 @@ export class RoomState {
     this.members = [];
     this.host = 0;
     this.nextId = 1;
-    // The seat whose shot the host is waiting for (from its last `turn`), or -1.
-    this.turnSeat = -1;
+    // Number of the next event of the round.
+    this.seq = 0;
     // The host's last `setup` and `state`, for players who join late or
     // reconnect.
     this.setup = null;
@@ -30,8 +35,8 @@ export class RoomState {
   }
 
   toJSON() {
-    const { code, members, host, nextId, turnSeat, setup, state, ended } = this;
-    return { code, members, host, nextId, turnSeat, setup, state, ended };
+    const { code, members, host, nextId, seq, setup, state, ended } = this;
+    return { code, members, host, nextId, seq, setup, state, ended };
   }
 
   member(id) {
@@ -54,6 +59,7 @@ export class RoomState {
     const name = cleanName(hello.name);
     if (!name) return { error: "pick a name of 1 to 20 letters" };
     if (this.ended) return { error: "this round has finished" };
+    if (this.setup) return { error: "this round has started" };
     if (this.members.length >= MAX_PLAYERS) return { error: "the room is full" };
     if (this.members.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
       return { error: `someone called ${name} is already here` };
@@ -81,10 +87,15 @@ export class RoomState {
     if (this.members.length === 0) return sends;
     if (id === this.host) {
       this.host = this.members[0].id;
-      this.turnSeat = -1;
       sends.push({ to: "all", msg: { type: "host_left", name: m.name, host: this.host } });
     } else {
       sends.push({ to: "all", msg: { type: "left", name: m.name, seat: m.seat } });
+    }
+    // The host's game plays the leaver's players from here on.
+    if (this.setup && Array.isArray(this.setup.owners)) {
+      const hostSeat = this.member(this.host).seat;
+      this.setup.owners = this.setup.owners.map((o) => (o === m.seat ? hostSeat : o));
+      sends.push({ to: "all", msg: { type: "owners", owners: this.setup.owners, host: hostSeat } });
     }
     sends.push({ to: "all", msg: this._roster() });
     return sends;
@@ -100,22 +111,30 @@ export class RoomState {
     if (HOST_ONLY.has(msg.type)) {
       if (!fromHost) return { error: `only the host sends ${msg.type}` };
       const out = { ...msg, from: m.seat };
-      if (msg.type === "setup") this.setup = out;
       if (msg.type === "state") this.state = out;
-      if (msg.type === "turn") {
-        if (!Number.isInteger(msg.seat) || msg.seat < 0 || msg.seat >= MAX_PLAYERS) return { error: "turn needs a seat" };
-        this.turnSeat = msg.seat;
+      if (msg.type === "setup") {
+        if (this.setup) return { error: "the round has started" };
+        if (!Array.isArray(msg.owners) || !msg.owners.every((o) => this.members.some((x) => x.seat === o))) {
+          return { error: "setup needs owners: a seat in the room for each player" };
+        }
+        this.seq = 0;
+        this.setup = out;
       }
-      if (msg.type === "result") this.turnSeat = -1;
       if (msg.type === "end") this.ended = true;
       return { sends: [{ to: { except: id }, msg: out }] };
     }
     switch (msg.type) {
-      case "shot":
-        // Only the player whose turn it is; it goes to the host, who runs it.
-        if (this.turnSeat !== m.seat) return { error: "it isn't your turn" };
-        if (fromHost) return { error: "the host plays its own shots" };
-        return { sends: [{ to: this.host, msg: { ...msg, from: m.seat } }] };
+      case "event": {
+        // The next shot or drop of the round, from the game that plays it.
+        if (!this.setup) return { error: "the round hasn't started" };
+        const owners = this.setup.owners;
+        if (!Number.isInteger(msg.player) || msg.player < 0 || msg.player >= owners.length) return { error: "event needs a player" };
+        if (owners[msg.player] !== m.seat) return { error: "that player isn't yours" };
+        if (msg.seq !== this.seq) return { error: `expected event ${this.seq}` };
+        if (msg.kind !== "shot" && msg.kind !== "drop") return { error: "events are shots or drops" };
+        this.seq++;
+        return { sends: [{ to: { except: id }, msg: { ...msg, from: m.seat } }] };
+      }
       case "chat":
         if (!Number.isInteger(msg.id) || msg.id < 0 || msg.id >= QUICK_CHAT_COUNT) return { error: "unknown quick chat" };
         return { sends: [{ to: "all", msg: { type: "chat", id: msg.id, from: m.seat, name: m.name } }] };

@@ -19,8 +19,10 @@ var _buttons: HBoxContainer
 var _play: Button
 var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
+var _online: OnlinePanel
 var _settings: SettingsPanel
 var _players: PlayersPanel
+var _creator: PlayerCreator
 var _career: CareerPanel
 var _graphics: GraphicsSettings
 var _community: VBoxContainer
@@ -35,6 +37,7 @@ var _busy := false
 
 func _ready() -> void:
 	_graphics = GraphicsSettings.load_saved()
+	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
 	_build_ui()
 	var menu_sounds := MenuSounds.from_game_folder(true)
 	if menu_sounds != null:
@@ -73,7 +76,15 @@ func _build_ui() -> void:
 	center.add_child(_settings)
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
+	_players.edit_golfer.connect(_open_creator)
 	center.add_child(_players)
+	_online = OnlinePanel.new()
+	_online.start_pressed.connect(_on_online_start)
+	_online.back_pressed.connect(_close_online)
+	center.add_child(_online)
+	_creator = PlayerCreator.new()
+	_creator.closed.connect(_close_creator)
+	add_child(_creator)
 	_career = CareerPanel.new()
 	_career.back_pressed.connect(_close_career)
 	_career.play_pressed.connect(_on_career_play)
@@ -139,16 +150,29 @@ func _set_buttons(items: Array) -> void:
 	for child in _buttons.get_children():
 		child.queue_free()
 	_play = null
-	for item: Array in items:
+	var labels: Array = items.map(func(item: Array) -> String: return item[0])
+	var primary := primary_button(labels)
+	for i in items.size():
+		var item: Array = items[i]
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(0, 40)
 		b.pressed.connect(item[1])
 		_buttons.add_child(b)
-		if item[0].begins_with("Play"):
+		if i == primary:
 			_play = b
 	if _play:
 		_play.grab_focus.call_deferred()
+
+
+## The button that gets keyboard focus: the first "Play ..." one, so Enter
+## starts a round ("Players" must not match).
+static func primary_button(labels: Array) -> int:
+	for i in labels.size():
+		var label: String = labels[i]
+		if label == "Play" or label.begins_with("Play "):
+			return i
+	return -1
 
 
 # --- Browser ----------------------------------------------------------------
@@ -281,6 +305,8 @@ func _show_ready(courses: PackedStringArray, extra: Array) -> void:
 		_status.text += "
 Saved round: %s." % SavedRound.describe()
 	var items: Array = [["Play a round", _open_setup]]
+	if OnlineSettings.available():
+		items.append(["Play online", _open_online])
 	if _can_resume():
 		items.append(["Resume round", _resume_round])
 	items.append(["Career", _open_career])
@@ -325,6 +351,35 @@ func _open_setup() -> void:
 	SceneFade.pop_in(_setup)
 
 
+## Play online: the same course list as the setup page.
+func _open_online() -> void:
+	if _busy:
+		return
+	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	_setup_paths = _all_courses()
+	for path in _setup_paths:
+		names.append(CourseFiles.display_name(path))
+	var saved := RoundSetup.load_saved()
+	var me := saved.names[0] if not saved.names.is_empty() and saved.names[0] != RoundSetup.DEFAULT_NAMES[0] else ""
+	_main_box.visible = false
+	_online.course_paths = _setup_paths
+	_online.open(names, me)
+	SceneFade.pop_in(_online)
+
+
+func _close_online() -> void:
+	_online.visible = false
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+
+
+func _on_online_start(chosen: RoundSetup, course_index: int, online_round: OnlineRound) -> void:
+	_online.visible = false
+	GolfRound.next_online = online_round
+	GolfRound.resume = {}
+	_launch(chosen, course_index)
+
+
 func _close_setup() -> void:
 	_setup.visible = false
 	_main_box.visible = true
@@ -337,6 +392,16 @@ func _open_players() -> void:
 	_main_box.visible = false
 	_players.open()
 	SceneFade.pop_in(_players)
+
+
+func _open_creator(player_name: String) -> void:
+	_players.close()
+	_creator.open(player_name)
+	SceneFade.pop_in(_creator)
+
+
+func _close_creator(_player_name: String) -> void:
+	_open_players()
 
 
 func _close_players() -> void:
@@ -448,6 +513,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_close_settings()
 		elif _setup.visible:
 			_close_setup()
+		elif _creator.visible:
+			_creator.cancel()
 		elif _players.visible:
 			_close_players()
 		elif _career.visible:

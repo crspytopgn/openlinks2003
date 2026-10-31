@@ -47,6 +47,18 @@ const COLORS := [
 ## fields, tracks and dry grass look as they really do. Same order as COLORS.
 const PHOTO_TINT := [0.15, 0.2, 0.2, 0.1, 0.55, 0.65, 0.5, 0.0, 0.75]
 const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
+## Largest splat map side in texels (older phones and browsers top out at
+## 4096); a bigger course gets a coarser one.
+const SPLAT_MAX := 4096
+## Hazard stakes (for the look only; the ball passes them, as stakes are
+## movable): yellow round each pond a little outside its edge, white along
+## out-of-bounds areas, a metre tall.
+const STAKE_WATER_SPACING := 9.0
+const STAKE_OB_SPACING := 18.0
+const STAKE_WATER_OFFSET := 0.8
+const STAKE_HEIGHT := 1.0
+const STAKE_YELLOW := Color(0.86, 0.68, 0.08)
+const STAKE_WHITE := Color(0.9, 0.9, 0.88)
 
 var course: DesignedCourse
 
@@ -57,6 +69,9 @@ var _sw := 0
 var _sh := 0
 var _vc := PackedColorArray()  ## surface colour per grid vertex
 var _vw := PackedVector2Array()  ## rough and sand weights per grid vertex
+var _vp := PackedFloat32Array()  ## surface colour per grid vertex before tint and stripes (RGB)
+var _material: ShaderMaterial
+var _splat: ImageTexture
 var _water_levels := {}  ## CourseShape -> water line
 var _meshes := {}  ## Vector2i chunk -> ArrayMesh
 var _tint := PackedByteArray()  ## softened photo colour per grid vertex (RGB8); empty without a photo
@@ -77,12 +92,15 @@ func rebuild() -> void:
 	_vc.resize(course.cols * course.rows)
 	_vw = PackedVector2Array()
 	_vw.resize(course.cols * course.rows)
+	_vp = PackedFloat32Array()
+	_vp.resize(course.cols * course.rows * 3)
 	_meshes.clear()
 	_make_tint()
 	var all := Rect2i(0, 0, course.cols, course.rows)
 	_raster(Rect2i(0, 0, _sw, _sh))
 	_derive(all)
 	_vertex_surfaces(all)
+	_update_splat()
 	update_objects()
 
 
@@ -114,6 +132,7 @@ func update_surfaces(area: Rect2) -> void:
 	cells = cells.intersection(Rect2i(0, 0, course.cols, course.rows))
 	_derive(cells)
 	_vertex_surfaces(cells)
+	_update_splat()
 	_invalidate(cells)
 
 
@@ -192,12 +211,53 @@ func build_visual() -> Node3D:
 		for ci in n.x:
 			var inst := MeshInstance3D.new()
 			inst.mesh = chunk_mesh(Vector2i(ci, cj))
-			inst.material_override = Materials.terrain()
+			inst.material_override = material()
 			root.add_child(inst)
 	root.add_child(build_apron())
 	root.add_child(build_paths())
 	root.add_child(build_water())
 	return root
+
+
+## The ground's material: the shared terrain shader with this course's
+## splat map, so surface edges are drawn at the raster's 0.5 m rather than
+## blended across the 2 m height grid.
+func material() -> ShaderMaterial:
+	if _material == null:
+		_material = Materials.terrain().duplicate() as ShaderMaterial
+		var cols := PackedVector3Array()
+		var wts := PackedVector2Array()
+		var mown := PackedFloat32Array()
+		for i in COLORS.size():
+			# Under the water line, the bank: darker rough rather than the
+			# map's blue, which would ring each pond.
+			var c: Color = COLORS[Surface.Type.ROUGH].darkened(0.35) if i == Surface.Type.WATER else COLORS[i]
+			cols.append(Vector3(c.r, c.g, c.b))
+			wts.append(Materials.terrain_weights(i))
+			mown.append(1.0 if i in [Surface.Type.FAIRWAY, Surface.Type.GREEN, Surface.Type.TEE] else 0.0)
+		_material.set_shader_parameter("surface_colors", cols)
+		_material.set_shader_parameter("surface_weights", wts)
+		_material.set_shader_parameter("surface_mown", mown)
+		_material.set_shader_parameter("has_splat", true)
+		_update_splat()
+	return _material
+
+
+func _update_splat() -> void:
+	if _material == null or _img == null:
+		return
+	var img := _img
+	if _sw > SPLAT_MAX or _sh > SPLAT_MAX:
+		var k := float(SPLAT_MAX) / maxi(_sw, _sh)
+		img = _img.duplicate() as Image
+		img.resize(maxi(1, floori(_sw * k)), maxi(1, floori(_sh * k)), Image.INTERPOLATE_NEAREST)
+	if _splat == null or _splat.get_size() != Vector2(img.get_size()):
+		_splat = ImageTexture.create_from_image(img)
+		_material.set_shader_parameter("splat_tex", _splat)
+	else:
+		_splat.update(img)
+	_material.set_shader_parameter("splat_origin", course.area.position)
+	_material.set_shader_parameter("splat_size", Vector2(_sw, _sh) * RES)
 
 
 ## Cart paths draped on the ground, and bridges with their rails.
@@ -355,7 +415,89 @@ func build_water() -> Node3D:
 		inst.material_override = Materials.water_surface()
 		inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(inst)
+	var stakes := build_stakes()
+	if stakes != null:
+		root.add_child(stakes)
 	return root
+
+
+## The hazard stakes as one MultiMesh, or null if the course has none.
+func build_stakes() -> MultiMeshInstance3D:
+	var at: Array[Vector3] = []
+	var colours: Array[Color] = []
+	for s in course.shapes:
+		if not s.is_valid():
+			continue
+		var line := PackedVector2Array()
+		var spacing := 0.0
+		var colour := STAKE_WHITE
+		if s.surface == Surface.Type.WATER:
+			var grown := Geometry2D.offset_polygon(s.outline(), STAKE_WATER_OFFSET)
+			if grown.is_empty():
+				continue
+			line = grown[0]
+			spacing = STAKE_WATER_SPACING
+			colour = STAKE_YELLOW
+		elif s.surface == Surface.Type.OUT_OF_BOUNDS:
+			line = s.outline()
+			spacing = STAKE_OB_SPACING
+		else:
+			continue
+		for p in stake_points(line, spacing):
+			at.append(Vector3(p.x, height_at(p.x, p.y), p.y))
+			colours.append(colour)
+	if at.is_empty():
+		return null
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.022
+	mesh.bottom_radius = 0.028
+	mesh.height = STAKE_HEIGHT
+	mesh.radial_segments = 6
+	mesh.rings = 1
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.85
+	mat.metallic_specular = 0.3
+	mesh.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = mesh
+	mm.instance_count = at.size()
+	for i in at.size():
+		# A little lean, as stakes knocked in by hand stand.
+		var lean := Basis(Vector3(sin(i * 1.7), 0.0, cos(i * 2.3)).normalized(), 0.04 * sin(i * 0.9))
+		mm.set_instance_transform(i, Transform3D(lean, at[i] + Vector3(0.0, STAKE_HEIGHT * 0.5 - 0.05, 0.0)))
+		mm.set_instance_color(i, colours[i])
+	var inst := MultiMeshInstance3D.new()
+	inst.name = "Stakes"
+	inst.multimesh = mm
+	return inst
+
+
+## Points every `spacing` metres round a closed outline, evenly spread so
+## the last gap matches the others.
+static func stake_points(poly: PackedVector2Array, spacing: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := poly.size()
+	if n < 3 or spacing <= 0.0:
+		return out
+	var perimeter := 0.0
+	for i in n:
+		perimeter += poly[i].distance_to(poly[(i + 1) % n])
+	var count := maxi(3, roundi(perimeter / spacing))
+	var step := perimeter / count
+	var next := 0.0
+	var walked := 0.0
+	for i in n:
+		var a := poly[i]
+		var b := poly[(i + 1) % n]
+		var seg := a.distance_to(b)
+		while next < walked + seg and out.size() < count:
+			out.append(a.lerp(b, (next - walked) / seg))
+			next += step
+		walked += seg
+	return out
 
 
 ## Ground running out from the course edge to the horizon, so the course
@@ -595,7 +737,6 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 	for s in COLORS.size():
 		palette.append(COLORS[s])
 		wts.append(Materials.terrain_weights(s))
-	var o := course.area.position
 	for j in range(cells.position.y, cells.end.y):
 		var r := mini(j * step, _sh - 1)
 		var row := r * _sw
@@ -611,16 +752,13 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 			var s3 := _surf[row_d + c]
 			var s4 := _surf[row_u + c]
 			var col: Color = (palette[s0] + palette[s1] + palette[s2] + palette[s3] + palette[s4]) * 0.2
-			if not _tint.is_empty():
-				col = _photo_tinted(col, s0, j * cols + i)
-			if s0 == Surface.Type.FAIRWAY or s0 == Surface.Type.GREEN or s0 == Surface.Type.TEE:
-				# Mowing stripes.
-				var x := o.x + i * DesignedCourse.CELL
-				var z := o.y + j * DesignedCourse.CELL
-				if posmod(floori((x + z * 0.15) / 6.0), 2) == 0:
-					col = col.lightened(0.06)
-			col.a = 1.0
 			var k := j * cols + i
+			_vp[k * 3] = col.r
+			_vp[k * 3 + 1] = col.g
+			_vp[k * 3 + 2] = col.b
+			if not _tint.is_empty():
+				col = _photo_tinted(col, s0, k)
+			col.a = 1.0
 			_vc[k] = col
 			_vw[k] = (wts[s0] + wts[s1] + wts[s2] + wts[s3] + wts[s4]) * 0.2
 
@@ -676,6 +814,8 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 	colors.resize(nx * nz)
 	var weights := PackedVector2Array()
 	weights.resize(nx * nz)
+	var palette := PackedFloat32Array()
+	palette.resize(nx * nz * 4)
 	var cell := DesignedCourse.CELL
 	for j in nz:
 		var gj := j0 + j
@@ -691,6 +831,8 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 			normals[j * nx + i] = Vector3(hl - hr, 2.0 * cell, hd - hu).normalized()
 			colors[j * nx + i] = _vc[k]
 			weights[j * nx + i] = _vw[k]
+			for ch in 3:
+				palette[(j * nx + i) * 4 + ch] = _vp[k * 3 + ch]
 	var indices := PackedInt32Array()
 	indices.resize((nx - 1) * (nz - 1) * 6)
 	var n := 0
@@ -714,7 +856,9 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_TEX_UV2] = weights
+	arrays[Mesh.ARRAY_CUSTOM0] = palette
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {},
+		Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 	return mesh

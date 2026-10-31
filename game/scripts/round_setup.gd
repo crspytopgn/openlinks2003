@@ -9,6 +9,7 @@ enum Tees { BACK, MIDDLE, FORWARD }
 
 const HOLES_NAMES := ["All holes", "Front nine", "Back nine"]
 const TEES_NAMES := ["Back tees", "Middle tees", "Forward tees"]
+const PINS_NAMES := ["Usual hole positions", "Random hole positions"]
 const MAX_PLAYERS := 4
 const DEFAULT_NAMES := ["Player 1", "Player 2", "Player 3", "Player 4"]
 const HUMAN := -1
@@ -23,6 +24,12 @@ var course_name := ""
 var mode: GameModes.Mode = GameModes.Mode.STROKE
 var holes: Holes = Holes.ALL
 var tees: Tees = Tees.BACK
+## 0 plays each hole's usual hole position, 1 one of the course's others,
+## picked by the round seed (so a friend's round plays the same ones).
+var pins := 0
+## The seed that picked the hole positions; 0 until a round starts. Kept in a
+## saved round so it resumes on the same ones.
+var pin_seed := 0
 var names: Array[String] = ["Player 1"]
 ## Best ball: the team (0 or 1) of each player.
 var teams: Array[int] = [0]
@@ -30,6 +37,11 @@ var teams: Array[int] = [0]
 var computer: Array[int] = [HUMAN]
 ## Play off handicaps: everyone's net scores decide the game.
 var handicaps := false
+## The round seed (every random draw in the round), or 0 for a new one. An
+## online round plays the host's.
+var round_seed := 0
+## Wind strength (Wind.Level) for this round, or -1 for the player's setting.
+var wind_level := -1
 ## Putting practice (PuttingPractice): the first player on a practice green
 ## with several cups on each chosen hole's green. Not saved with the setup.
 var putting := false
@@ -140,6 +152,17 @@ func hole_indices(count: int) -> Array[int]:
 	return out
 
 
+## The hole position `hole` plays with the `pins` setting in round
+## `round_seed`.
+static func pick_pin(hole: HoleData, pins_setting: int, round_seed: int) -> Vector3:
+	if hole.pins.is_empty():
+		return hole.pin
+	if pins_setting == 0 or hole.pins.size() == 1:
+		return hole.pins[0]
+	var h := (round_seed * 0x9E3779B1 + hole.number * 0x85EBCA77) & 0x7fffffff
+	return hole.pins[h % hole.pins.size()]
+
+
 ## Which of `count` tee boxes (back to forward) this setup plays from.
 func tee_index(count: int) -> int:
 	if count <= 1:
@@ -158,6 +181,7 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "mode", mode)
 	cfg.set_value("round", "holes", holes)
 	cfg.set_value("round", "tees", tees)
+	cfg.set_value("round", "pins", pins)
 	cfg.set_value("round", "names", PackedStringArray(names))
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
 	cfg.set_value("round", "computer", PackedInt32Array(computer))
@@ -175,6 +199,7 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.holes = clampi(cfg.get_value("round", "holes", 0), 0, HOLES_NAMES.size() - 1) as Holes
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
 	s.handicaps = cfg.get_value("round", "handicaps", false) == true
+	s.pins = clampi(int(cfg.get_value("round", "pins", 0)), 0, PINS_NAMES.size() - 1)
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	var saved_computer: PackedInt32Array = cfg.get_value("round", "computer", PackedInt32Array())

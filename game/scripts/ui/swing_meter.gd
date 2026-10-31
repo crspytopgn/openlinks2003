@@ -36,6 +36,21 @@ const TRACK := Color(1, 1, 1, 0.16)
 const SWING := Color(1, 1, 1, 0.92)
 const GOLD := Color(0.98, 0.76, 0.28)
 const GOOD := Color(0.45, 0.9, 0.55)
+## Settings > Colour-blind safe: blue instead of green and white instead of
+## red, so the meter reads the same with red-green colour blindness.
+static var colour_safe := false
+
+
+static func good() -> Color:
+	return Color(0.4, 0.7, 1.0) if colour_safe else GOOD
+
+
+static func _fill() -> Color:
+	return Color(0.3, 0.55, 1.0) if colour_safe else Color(0.3, 0.8, 0.35)
+
+
+static func _marker() -> Color:
+	return Color(1, 1, 1) if colour_safe else Color(0.9, 0.1, 0.1)
 
 var phase: Phase = Phase.IDLE
 var value := 0.0  ## marker position: 0 = snap line, 1 = full power
@@ -177,7 +192,7 @@ func _draw() -> void:
 	_arc(ACCURACY_ZONE, _high(), Color(0.85, 0.85, 0.85, 0.35), WIDTH)
 	match phase:
 		Phase.BACKSWING:
-			_arc(0.0, value, Color(0.3, 0.8, 0.35), WIDTH)
+			_arc(0.0, value, _fill(), WIDTH)
 		Phase.DOWNSWING, Phase.DONE:
 			_arc(0.0, power, Color(0.95, 0.55, 0.2), WIDTH)
 	for quarter in [0.25, 0.5, 0.75, 1.0]:
@@ -186,7 +201,7 @@ func _draw() -> void:
 	if target >= 0.0:
 		draw_circle(size * 0.5 + Vector2.from_angle(_angle(target)) * (RADIUS + WIDTH * 0.5 + 8.0), 5.0, TARGET)
 	if phase != Phase.IDLE:
-		_tick(value, Color(0.9, 0.1, 0.1), WIDTH * 0.5 + 2.0, 10.0, 4.0)
+		_tick(value, _marker(), WIDTH * 0.5 + 2.0, 10.0, 4.0)
 
 	var font := ThemeDB.fallback_font
 	var c := size * 0.5
@@ -227,7 +242,7 @@ func _draw_bar() -> void:
 	draw_rect(Rect2(_bar_x(-ACCURACY_ZONE), mid - band * 0.5, _bar_x(ACCURACY_ZONE) - _bar_x(-ACCURACY_ZONE), band), Color(1.0, 0.95, 0.5, 0.35))
 	match phase:
 		Phase.BACKSWING:
-			_bar_fill(0.0, value, Color(0.35, 1.0, 0.4, 0.75), mid, band)
+			_bar_fill(0.0, value, Color(_fill(), 0.75), mid, band)
 		Phase.DOWNSWING, Phase.DONE:
 			_bar_fill(0.0, power, Color(1.0, 0.6, 0.15, 0.75), mid, band)
 	for quarter in [0.25, 0.5, 0.75, 1.0]:
@@ -239,7 +254,7 @@ func _draw_bar() -> void:
 		draw_circle(Vector2(_bar_x(target), mid - bar_h * 1.4), 5.0, TARGET)
 	if phase != Phase.IDLE:
 		var x := _bar_x(value)
-		draw_line(Vector2(x, mid - bar_h * 1.1), Vector2(x, mid + bar_h * 1.1), Color(0.95, 0.1, 0.1), 4.0)
+		draw_line(Vector2(x, mid - bar_h * 1.1), Vector2(x, mid + bar_h * 1.1), _marker(), 4.0)
 
 	var font := ThemeDB.fallback_font
 	var text := ""
@@ -319,7 +334,7 @@ func _draw_modern() -> void:
 		draw_string(font, Vector2(MODERN_INSET + 52.0, top), "%d%%" % roundi(power * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, GOLD)
 	if phase == Phase.DONE:
 		var label := "PERFECT"
-		var colour := GOOD
+		var colour := good()
 		if accuracy < 0.0:
 			label = "HOOK %d%%" % roundi(-accuracy * 100.0)
 			colour = GOLD

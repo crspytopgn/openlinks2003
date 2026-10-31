@@ -11,7 +11,8 @@ extends Node3D
 ## (placeholders until the decoders land) and the ball physics from a
 ## ShotModel, so none of them is wired in here.
 
-enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, DRIVE }
+## REMOTE: an online round waits for another player's shot or drop.
+enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, DROP, DRIVE, REMOTE }
 
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
@@ -50,6 +51,7 @@ const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
 const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
 const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
+const HINT_REMOTE := "%s is playing    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const HINT_CAREER_DONE := "Space or click: back to your career    X: copy result code    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
@@ -103,6 +105,8 @@ static var record_rounds := true
 ## A saved round to carry on with (SavedRound.load_state); start_round uses it
 ## once and clears it.
 static var resume := {}
+## An online round for the next GolfRound to play (the lobby sets it).
+static var next_online: OnlineRound
 
 var state: State = State.AIM
 var course: CourseData
@@ -190,8 +194,14 @@ var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
+const AIM_FLAT := 0.1  ## height of the aim ring over its width
+const AIM_LIFT := 0.03  ## metres the ring floats above the grass
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
-var golfer: GolferRig
+var golfer: GolferRig  ## the golfer playing now: one of _golfers
+## Each player's golfer this hole; players who look the same share one.
+var _golfers: Array[GolferRig] = []
+## Each player's look (PlayerLook), or null to use the game's own golfer.
+var _looks: Array = []
 var hole_root: Node3D
 var marks: CourseMarks  ## divots, pitch marks and sand craters on this hole
 var graphics: GraphicsSettings
@@ -259,6 +269,10 @@ var _holes_started := 0
 var _mouse_stroke: LinksMouse.Stroke = null
 ## The swing help count before that stroke.
 var _mouse_help: LinksMouse.Help = null
+## The online round this game is part of, or null (OnlineRound).
+var online: OnlineRound
+## Another player's shot being played here, to check against theirs.
+var _incoming: ShotRecord = null
 
 
 func _ready() -> void:
@@ -284,6 +298,9 @@ func _ready() -> void:
 	hud.mouse_swing.stroke_cancelled.connect(_on_mouse_stroke_cancelled)
 	hud.touch_pad.club_pressed.connect(_change_club)
 	hud.touch_pad.menu_pressed.connect(_escape)
+	if online == null:
+		online = next_online
+	next_online = null
 	start_round()
 
 
@@ -300,6 +317,8 @@ func start_round() -> void:
 		round_setup.trim_for_practice()
 	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
 	# A friend's round: the same wind, shot for shot.
+	if round_setup.round_seed != 0:
+		round_seed = round_setup.round_seed
 	var versus := round_setup.challenge
 	if versus != null:
 		round_seed = versus.round_seed
@@ -308,6 +327,8 @@ func start_round() -> void:
 		h.pin = _home_pins[h]  # the last practice moved them
 	_home_pins.clear()
 	holes.clear()
+	if round_setup.pin_seed == 0 or resume.is_empty():
+		round_setup.pin_seed = round_seed
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
 	var stroke_index: Array[int] = []
@@ -315,6 +336,7 @@ func start_round() -> void:
 		var h := course.holes[i]
 		if h.tees.size() > 1:
 			h.tee = h.tees[round_setup.tee_index(h.tees.size())]
+		h.pin = RoundSetup.pick_pin(h, round_setup.pins if versus == null else versus.pins, round_setup.pin_seed)
 		holes.append(h)
 		pars.append(h.par)
 		numbers.append(h.number)
@@ -354,6 +376,7 @@ func start_round() -> void:
 			honour.append(i)
 	for i in scoring.player_count():
 		players[ball_of[i]].members.append(i)
+	_choose_looks()
 	current = 0
 	shooter = 0
 	_last_human = -1
@@ -373,7 +396,11 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	var wind_level := graphics.wind if versus == null else versus.wind_level
+	var wind_level := graphics.wind
+	if round_setup.wind_level >= 0:
+		wind_level = round_setup.wind_level
+	if versus != null:
+		wind_level = versus.wind_level
 	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
 	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
@@ -381,6 +408,8 @@ func start_round() -> void:
 	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
 	round_stats.clear()
+	_undo = {}
+	_mulligans_taken.clear()
 	for _i in scoring.player_count():
 		round_stats.append(PlayerProfiles.empty_stats())
 	_setup_practice()
@@ -492,6 +521,7 @@ func _round_name() -> String:
 func start_hole(index: int) -> void:
 	hole_index = index
 	shot_log.clear()
+	_undo = {}
 	_drop_pending = false
 	_drop_reason = -1
 	drop_marker.visible = false
@@ -536,8 +566,7 @@ func start_hole(index: int) -> void:
 		# The sun moves on through the round with that time of day.
 		scenery.set_round_progress(float(index) / maxf(holes.size() - 1, 1))
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
-	golfer = AssetProviders.golfer_assets.create_golfer()
-	hole_root.add_child(golfer)
+	_make_golfers()
 	camera.terrain = hole.terrain
 	if grass.terrain != hole.terrain:
 		grass.setup(hole.terrain, graphics.grass)
@@ -562,6 +591,7 @@ func start_hole(index: int) -> void:
 		p.fairway = -1
 		p.gir = false
 		p.putts = 0
+		_tint_ball(p.marker, i)
 	_clear_trail()
 	hud.scorecard.visible = false
 	if buggy != null:
@@ -608,6 +638,8 @@ func _next_player() -> int:
 func _begin_turn(index: int, snap_camera: bool) -> void:
 	current = index
 	shooter = _shooter_of(index)
+	_use_golfer(shooter)
+	_tint_ball(ball, index)
 	var p := players[index]
 	ball_at = p.at
 	strokes = p.strokes
@@ -627,7 +659,7 @@ func _begin_turn(index: int, snap_camera: bool) -> void:
 ## dim the screen until they're at the keyboard. Computer golfers don't need
 ## it, and a person playing against them alone never sees it.
 func _hand_over() -> void:
-	if opponents[shooter] != null:
+	if opponents[shooter] != null or online != null:
 		return
 	if _last_human >= 0 and _last_human != shooter:
 		var detail := "Hole %d    Shot %d    %s to the pin" % [hole.number, strokes + 1, _pin_text()]
@@ -688,6 +720,10 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
+	var p := players[current]
+	_undo = {"strokes": strokes, "putts": p.putts, "fairway": p.fairway, "gir": p.gir, "shots": p.shots - 1,
+		"lie": lie, "from": ball_at, "drive": int(round_stats[shooter].get("longest_drive_yd", 0)) if shooter < round_stats.size() else 0,
+		"record": record.shots.size()}
 	var rec := ShotRecord.new()
 	rec.index = record.shots.size()
 	rec.player = shooter
@@ -721,6 +757,8 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 		rec.help = null
 	rec.wind_level = wind.level
 	rec.wind = wind.velocity()
+	if _incoming != null:
+		rec.skill = _incoming.skill
 	_mouse_stroke = null
 	_mouse_help = null
 	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
@@ -729,6 +767,12 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	record.shots.append(rec)
 	if marks != null:
 		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
+	if online != null:
+		if _incoming == null:
+			online.send_shot(rec)
+		elif rec.outcome != _incoming.outcome or rec.rest.distance_to(_incoming.rest) > RoundReplay.REST_TOLERANCE_M:
+			online.report_mismatch(online.seq - 1)
+			hud.show_message("%s's shot stopped somewhere else here: the round is marked not agreed." % scoring.names[shooter], 3.0)
 	wind.next_shot()
 	_update_wind_shaders()
 	if free_ambience != null:
@@ -786,6 +830,9 @@ func auto_play_step() -> void:
 			_skip_drive()
 		State.HOLE_DONE:
 			_next_hole()
+		State.REMOTE:
+			_poll_online()
+			_apply_remote()
 
 
 func _process(delta: float) -> void:
@@ -797,6 +844,8 @@ func _process(delta: float) -> void:
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
 	hud.meter.visible = state != State.DROP
+	if online != null:
+		_poll_online()
 	if paused:
 		pass
 	elif _replaying:
@@ -816,8 +865,11 @@ func _process(delta: float) -> void:
 				_process_computer(delta)
 			State.DRIVE:
 				_process_drive(delta)
+			State.REMOTE:
+				_apply_remote()
 			State.HOLE_DONE:
-				if round_setup.all_computer() and not pause_menu.visible and not settings_panel.visible:
+				# Online, every game moves on by itself so nobody waits.
+				if (round_setup.all_computer() or online != null) and not pause_menu.visible and not settings_panel.visible:
 					result_timer -= delta
 					if result_timer <= 0.0:
 						_next_hole()
@@ -896,6 +948,10 @@ func _unhandled_input(event: InputEvent) -> void:
 						hud.scorecard.visible = false
 					else:
 						hud.scorecard.show_round(scoring, _round_name())
+					return
+				KEY_U:
+					if state == State.SHOT_RESULT and _can_mulligan():
+						_take_mulligan()
 					return
 				KEY_N, KEY_B:
 					if round_setup.practice and state == State.AIM and holes.size() > 1:
@@ -983,10 +1039,10 @@ func _on_swing_pressed() -> void:
 		State.HOLE_DONE:
 			_next_hole()
 		State.ROUND_DONE:
-			if round_setup.career.is_empty():
-				start_round()
-			else:
+			if online != null or not round_setup.career.is_empty():
 				_quit_to_menu()
+			else:
+				start_round()
 
 
 ## Esc (Start on a pad, the menu button on a touch screen): back out of the
@@ -1303,6 +1359,78 @@ func _on_monitor_shot(launch: OpenConnect.Launch) -> void:
 	play_shot(power, 0.0, launch)
 
 
+# --- Mulligans ----------------------------------------------------------------
+# Settings > Mulligans: right after a shot, U takes it again as if it never
+# happened. The shot stays in the record, marked, and off the card.
+
+## The state before the last shot, for a mulligan.
+var _undo := {}
+## Each player's mulligans so far: the hole index of each.
+var _mulligans_taken: Array = []
+
+
+func _can_mulligan() -> bool:
+	if graphics.mulligans == 0 or _undo.is_empty() or round_setup.practice or round_setup.challenge != null:
+		return false
+	if GameModes.shared_ball(round_setup.mode) or opponents[shooter] != null or shot == null:
+		return false
+	if players[current].done() or state == State.HOLE_DONE:
+		return false
+	if shot.outcome == ShotResult.Outcome.HOLED or int(_undo.record) != record.shots.size() - 1:
+		return false
+	while _mulligans_taken.size() <= shooter:
+		_mulligans_taken.append([])
+	for h: int in _mulligans_taken[shooter]:
+		if graphics.mulligans == 2 and h == hole_index:
+			return false
+		if graphics.mulligans == 1 and h / 9 == hole_index / 9:
+			return false
+	return true
+
+
+func _take_mulligan() -> void:
+	(_mulligans_taken[shooter] as Array).append(hole_index)
+	var rec: ShotRecord = record.shots[int(_undo.record)]
+	rec.mulligan = true
+	var p := players[current]
+	strokes = int(_undo.strokes)
+	p.putts = int(_undo.putts)
+	p.fairway = int(_undo.fairway)
+	p.gir = bool(_undo.gir)
+	p.shots = int(_undo.shots)
+	if shooter < round_stats.size():
+		round_stats[shooter]["longest_drive_yd"] = int(_undo.drive)
+	_drop_pending = false
+	ball_at = _undo.from
+	_undo = {}
+	_clear_trail()
+	ball.visible = true
+	_place_ball(ball_at)
+	hud.show_message("%sMulligan: take it again." % ["" if players.size() == 1 else scoring.names[shooter] + ": "], 2.0)
+	_prepare_shot(false)
+
+
+# --- Pick up -----------------------------------------------------------------
+
+## The score at which `par`'s hole is picked up for Settings > Pick up
+## (GraphicsSettings.pickup), never past MAX_STROKES.
+static func pickup_limit(setting: int, par: int) -> int:
+	match setting:
+		1:
+			return mini(MAX_STROKES, 2 * par)
+		2:
+			return mini(MAX_STROKES, par + 3)
+	return MAX_STROKES
+
+
+## This hole's pick-up score. A friend's round keeps the usual limit so the
+## result codes compare.
+func _pickup_at() -> int:
+	if round_setup.challenge != null:
+		return MAX_STROKES
+	return pickup_limit(graphics.pickup, hole.par)
+
+
 # --- Gimmes -------------------------------------------------------------------
 
 ## Settings > Gimmes: the ball stopped on the green close enough to concede.
@@ -1407,13 +1535,16 @@ func _prepare_shot(snap_camera: bool) -> void:
 	read_view = GreenRead.View.PLAY
 	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
 		_footprints_at = ball_at
-		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()))
+		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()), CourseMarks.stance_for(clubs[club_index]))
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
 	_update_green_grid()
 	_update_green_aids()
 	_save_progress()
+	if _is_remote():
+		_wait_remote()
+		return
 	_caddie_read()
 	if opponents[shooter] != null:
 		_start_computer_turn()
@@ -1598,7 +1729,7 @@ func _complete_flight() -> void:
 		return
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
-	if strokes >= MAX_STROKES:
+	if strokes >= _pickup_at():
 		_hole_out(true)
 		return
 	if players.size() > 1 and not msg.is_empty():
@@ -1608,6 +1739,9 @@ func _complete_flight() -> void:
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
+	if _can_mulligan():
+		hud.hint.text = HINT_WAIT + "    U: mulligan"
+		result_timer = RESULT_PAUSE * 2.0
 
 
 ## Fairways, greens in regulation and putts for the ball just played:
@@ -1726,6 +1860,9 @@ func _park_buggy(p: Vector3) -> void:
 func _start_drive(next: int) -> bool:
 	if buggy == null or opponents[_shooter_of(next)] != null:
 		return false
+	# Online, only the player's own game drives them to their ball.
+	if online != null and not online.owns(_shooter_of(next)):
+		return false
 	var to := players[next].at
 	if _flat_distance(buggy.drive.position, to) < DRIVE_MIN_M:
 		return false
@@ -1736,8 +1873,8 @@ func _start_drive(next: int) -> bool:
 		golfer.visible = false
 	if caddie != null:
 		caddie.step_aside()
-	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
-	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
+	aim_marker.scale = _aim_marker_scale(2.5)
 	aim_marker.visible = true
 	ball.visible = true
 	hud.show_message("")
@@ -1781,8 +1918,8 @@ func _end_drive() -> void:
 	_take_turn(next)
 
 
-## The current player is done with the hole: holed, or picked up after
-## MAX_STROKES. The hole ends when everyone is.
+## The current player is done with the hole: holed, or picked up at the
+## pick-up score (_pickup_at). The hole ends when everyone is.
 func _hole_out(picked_up: bool) -> void:
 	_store_turn()
 	_drop_pending = false
@@ -1907,8 +2044,8 @@ func _record_rounds() -> String:
 	var date := Time.get_date_string_from_system()
 	var lines: Array[String] = []
 	for i in scoring.player_count():
-		# Computer golfers keep no profile.
-		if round_setup.is_computer(i):
+		# Computer golfers keep no profile, nor do the other people online.
+		if round_setup.is_computer(i) or (online != null and not online.owns(i)):
 			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
@@ -1983,6 +2120,11 @@ func _begin_drop(reason: int) -> void:
 		return
 	_drop_choice = DropRules.best(_drop_zones, hole.pin)
 	_drop_spot = _drop_zones[_drop_choice].spot
+	if _is_remote():
+		# Their game picks the spot; it arrives as an event.
+		state = State.REMOTE
+		hud.hint.text = HINT_REMOTE % scoring.names[shooter]
+		return
 	if opponents[shooter] != null:
 		_finish_drop()
 		return
@@ -2103,11 +2245,13 @@ func _finish_drop() -> void:
 	record.drops.append({"ball": current, "hole": hole_index, "reason": reason,
 		"penalty": 0 if reason == DropRules.Reason.WATER else DropRules.penalty(reason),
 		"spot": [ball_at.x, ball_at.y, ball_at.z]})
+	if online != null and not _is_remote():
+		online.send_drop(shooter, reason, _drop_choice, ball_at)
 	var what := DropRules.OPTION_NAMES[z.option]
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()
 	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
-	if strokes >= MAX_STROKES:
+	if strokes >= _pickup_at():
 		_hole_out(true)
 		return
 	var msg := what + "."
@@ -2119,6 +2263,64 @@ func _finish_drop() -> void:
 		_store_turn()  # so the saved round has the dropped ball
 		_prepare_shot(false)
 	hud.show_message(msg, 2.0)
+
+
+# --- Online ------------------------------------------------------------------
+
+## True when another game in the online round plays the current shooter.
+func _is_remote() -> bool:
+	return online != null and not online.owns(shooter)
+
+
+func _wait_remote() -> void:
+	state = State.REMOTE
+	aim_marker.visible = false
+	hud.hint.text = HINT_REMOTE % scoring.names[shooter]
+	_apply_remote()
+
+
+func _poll_online() -> void:
+	online.poll()
+	if not online.notices.is_empty():
+		hud.show_message("\n".join(online.notices), 3.0)
+		online.notices.clear()
+	# Someone left and their seats came to this game: play them from here.
+	if state == State.REMOTE and not _is_remote() and _drop_reason < 0:
+		_prepare_shot(false)
+
+
+## Plays the next event of the online round if it has arrived: another
+## player's shot (their inputs, through this game's physics) or drop.
+func _apply_remote() -> void:
+	if state != State.REMOTE:
+		return
+	var ev := online.next_event()
+	if ev.is_empty():
+		return
+	if int(ev.get("player", -1)) != shooter:
+		hud.show_message("This game is out of step with the round.", 3.0)
+		return
+	online.done_event()
+	if str(ev.get("kind", "")) == "drop":
+		var reason := int(ev.get("reason", -1))
+		if _drop_reason != reason:
+			_begin_drop(reason)
+		if _drop_zones.is_empty():
+			return
+		_drop_choice = clampi(int(ev.get("choice", 0)), 0, _drop_zones.size() - 1)
+		var sp: Array = ev.get("spot", [])
+		if sp.size() == 3:
+			_drop_spot = Vector3(float(sp[0]), float(sp[1]), float(sp[2]))
+		_finish_drop()
+		return
+	var rec := ShotRecord.from_dict(ev.get("shot", {}))
+	club_index = clampi(rec.club, 0, clubs.size() - 1)
+	aim_deg = rec.aim_deg
+	_mouse_stroke = rec.stroke
+	_mouse_help = rec.help
+	_incoming = rec
+	play_shot(rec.power, rec.accuracy)
+	_incoming = null
 
 
 # --- Computer golfers --------------------------------------------------------
@@ -2270,7 +2472,8 @@ func _build_world() -> void:
 	aim_marker.mesh = ring
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.albedo_color = Color(1.0, 0.9, 0.2)
+	ring_mat.albedo_color = Color(1.0, 0.9, 0.2, 0.75)
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
 
@@ -2396,7 +2599,8 @@ func _apply_graphics() -> void:
 	_set_caddie(graphics.caddie)
 	_set_buggy(graphics.buggy)
 	_set_monitor(graphics.launch_monitor)
-	if wind != null:
+	# A round on set conditions (online, or a friend's result code) keeps them.
+	if wind != null and online == null and round_setup.wind_level < 0 and round_setup.challenge == null:
 		wind.set_level(graphics.wind)
 		_update_wind_shaders()
 		if hole != null:
@@ -2491,20 +2695,45 @@ func _add_flag() -> void:
 	hole_root.add_child(cup)
 
 
+## The tee markers: a pair of squat domes about 15 cm across, set square
+## to the line of the hole either side of the tee, as on a real tee box
+## (Rule 6.2b: the teeing area runs back two club-lengths from them).
+const TEE_MARKER_GAP := 5.5  ## metres between the two markers
+const TEE_MARKER_AHEAD := 0.6  ## how far in front of the ball they stand
+
+
 func _add_tee_markers() -> void:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.15, 0.15)
-	for side: float in [-1.0, 1.0]:
+	mat.albedo_color = Color(0.85, 0.12, 0.1)
+	mat.roughness = 0.45
+	var s := SphereMesh.new()
+	s.radius = 0.075
+	s.height = 0.11
+	s.is_hemisphere = true
+	# Square to the first leg of the hole, so doglegs face down the fairway.
+	var toward := hole.pin
+	for r in hole.route:
+		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
+			toward = Vector3(r.x, hole.tee.y, r.y)
+			break
+	for p in tee_marker_spots(hole.tee, toward):
 		var m := MeshInstance3D.new()
-		var s := SphereMesh.new()
-		s.radius = 0.12
-		s.height = 0.24
 		m.mesh = s
 		m.material_override = mat
-		var p: Vector3 = hole.tee + Vector3(3.5 * side, 0.0, 1.0)
-		p.y = hole.terrain.height_at(p.x, p.z) + 0.1
+		p.y = hole.terrain.height_at(p.x, p.z) - 0.005
 		m.position = p
 		hole_root.add_child(m)
+
+
+## Where the two tee markers go: across the line from `tee` toward `toward`.
+static func tee_marker_spots(tee: Vector3, toward: Vector3) -> Array[Vector3]:
+	var dir := Vector3(toward.x - tee.x, 0.0, toward.z - tee.z)
+	dir = Vector3(0, 0, 1) if dir.length() < 0.01 else dir.normalized()
+	var side := Vector3.UP.cross(dir)
+	var spots: Array[Vector3] = []
+	for k: float in [-0.5, 0.5]:
+		spots.append(tee + dir * TEE_MARKER_AHEAD + side * (k * TEE_MARKER_GAP))
+	return spots
 
 
 func _place_ball(p: Vector3) -> void:
@@ -2609,6 +2838,63 @@ func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
 		(_ball_shadow.material_override as ShaderMaterial).set_shader_parameter("strength", 0.6 * fade)
 
 
+## Each player's look: the golfer they made in the player creator, or the
+## standard golfer. Computer golfers get a look of their own (from their
+## name) unless the game's own golfers are loaded.
+func _choose_looks() -> void:
+	_looks.clear()
+	var profiles := PlayerProfiles.load_saved()
+	var free := AssetProviders.golfer_assets is PlaceholderGolferAssets
+	for i in scoring.player_count():
+		var player_name: String = round_setup.names[i] if i < round_setup.names.size() else ""
+		var look := profiles.look_of(player_name) if not player_name.is_empty() else null
+		if look == null and free:
+			look = PlayerLook.random(player_name.hash()) if round_setup.is_computer(i) else PlayerLook.new()
+		_looks.append(look)
+
+
+## This hole's golfers, one per look, hidden until their turn.
+func _make_golfers() -> void:
+	_golfers.clear()
+	golfer = null
+	var made := {}
+	for i in scoring.player_count():
+		var look: PlayerLook = _looks[i] if i < _looks.size() else null
+		var key := look.key() if look != null else ""
+		if not made.has(key):
+			var g: GolferRig = null
+			if look != null:
+				g = FreeGolfer.create(look)
+			if g == null:
+				g = AssetProviders.golfer_assets.create_golfer_for(look)
+			g.visible = false
+			hole_root.add_child(g)
+			made[key] = g
+		_golfers.append(made[key])
+	if not _golfers.is_empty():
+		golfer = _golfers[0]
+
+
+## Makes player `i`'s golfer the one on the tee.
+func _use_golfer(i: int) -> void:
+	if _golfers.is_empty():
+		return
+	var g := _golfers[clampi(i, 0, _golfers.size() - 1)]
+	if g != golfer and golfer != null:
+		golfer.visible = false
+	golfer = g
+
+
+## Colours a ball as player `i` chose (white unless they picked another).
+func _tint_ball(m: MeshInstance3D, i: int) -> void:
+	if m == null:
+		return
+	var look: PlayerLook = _looks[i] if i < _looks.size() else null
+	var mat := m.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = look.ball if look != null else Color.WHITE
+
+
 func _place_golfer() -> void:
 	if golfer == null:
 		return
@@ -2624,6 +2910,13 @@ func _place_golfer() -> void:
 	golfer.play(&"address")
 
 
+## The aim ring is a flat painted band, like a TV graphic laid on the
+## grass, not a 20 cm tyre: the torus is squashed to AIM_FLAT of its width,
+## so a putt's ring no longer stands over the cup like a yellow can.
+static func _aim_marker_scale(size: float) -> Vector3:
+	return Vector3(size, AIM_FLAT * size, size)
+
+
 func _update_aim_marker() -> void:
 	var club := clubs[club_index]
 	var dir := _aim_dir()
@@ -2636,9 +2929,9 @@ func _update_aim_marker() -> void:
 		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
-	p.y = hole.terrain.height_at(p.x, p.z) + 0.08
+	p.y = hole.terrain.height_at(p.x, p.z) + AIM_LIFT
 	aim_marker.position = p
-	aim_marker.scale = Vector3(size, 1.0, size)
+	aim_marker.scale = _aim_marker_scale(size)
 	aim_marker.visible = true
 	_update_breakline()
 

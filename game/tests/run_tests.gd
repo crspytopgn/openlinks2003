@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("shot_shape", _test_shot_shape)
+	_run("pin_positions", _test_pin_positions)
 	_run("swing_meter", _test_swing_meter)
 	_run("analog_swing", _test_analog_swing)
 	_run("scorecard", _test_scorecard)
@@ -74,6 +75,8 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("player_looks", _test_player_looks)
+	_run("face_from_photo", _test_face_from_photo)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
@@ -96,12 +99,15 @@ func _process(_delta: float) -> bool:
 	_done = true
 	_run("full_round", _test_full_round)
 	_run("round_replay", _test_round_replay)
+	_run("online_round", _test_online_round)
 	_run("drops_in_round", _test_drops_in_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("putting_practice_round", _test_putting_practice_round)
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
+	_run("mulligans", _test_mulligans)
+	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -411,6 +417,25 @@ func _test_swing_accuracy() -> void:
 	var rough := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.ROUGH), fairway)
 	var clean := BallPhysics.simulate_shot(Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY), fairway)
 	_check(rough.carry_m < clean.carry_m, "rough costs distance")
+
+
+func _test_pin_positions() -> void:
+	var h := HoleData.new()
+	h.number = 3
+	h.pin = Vector3(1, 0, 1)
+	_check(RoundSetup.pick_pin(h, 1, 1234) == h.pin, "a hole with one position keeps it")
+	for i in 18:
+		h.pins.append(Vector3(i, 0, 100))
+	_check(RoundSetup.pick_pin(h, 0, 1234) == h.pins[0], "usual positions play the first")
+	var seen := {}
+	for round_seed in range(1, 200):
+		var p := RoundSetup.pick_pin(h, 1, round_seed)
+		_check(p == RoundSetup.pick_pin(h, 1, round_seed), "the same seed, the same position")
+		seen[p] = true
+	_check(seen.size() >= 12, "random positions use most of the course's (%d of 18)" % seen.size())
+	var rec := RoundRecord.new()
+	rec.pins = 1
+	_check(RoundRecord.from_dict(rec.to_dict()).pins == 1, "the record keeps the pin setting")
 
 
 func _test_shot_shape() -> void:
@@ -1418,7 +1443,7 @@ func _test_real_scale() -> void:
 	_check_near(wheel.get_aabb().end.y, 0.2286, 0.003, "18 in tyres")
 	_check_near(absf((cart.find_child("Wheel_FR", true, false) as Node3D).position.z - wheel.position.z), BuggyDrive.WHEELBASE, 0.01, "wheelbase matches the physics")
 	cart.free()
-	var golfer := (load(FreeGolfer.SCENE_PATH) as PackedScene).instantiate() as Node3D
+	var golfer := FreeGolfer.create()
 	var top := -INF
 	var bottom := INF
 	for n in golfer.find_children("*", "MeshInstance3D", true, false):
@@ -1496,8 +1521,19 @@ func _test_graphics_settings() -> void:
 	s.green_firmness = 2
 	s.green_speed = 0
 	s.swing_method = 0
+	s.ui_scale = 3
+	s.gimme = 2
+	s.mulligans = 1
+	s.pickup = 2
+	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
+	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
+	_check(loaded.pickup == 2 and GraphicsSettings.new().pickup == 0, "pick up saved, off by default")
+	_check(GolfRound.pickup_limit(0, 4) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(1, 3) == 6
+			and GolfRound.pickup_limit(1, 5) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(2, 4) == 7,
+			"pick-up scores: off, double par, triple bogey, never past the limit")
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
 	_check(loaded.msaa == 4, "msaa saved")
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
@@ -1712,6 +1748,14 @@ func _test_course_marks() -> void:
 			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
 		_check(on_sand, "footprints only on sand")
 		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+	# Tee markers stand square to the line of the hole, 5.5 m apart.
+	var tm := GolfRound.tee_marker_spots(Vector3.ZERO, Vector3(100, 0, 0))
+	_check_near(tm[0].distance_to(tm[1]), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers 5.5 m apart")
+	_check_near(absf(tm[0].z - tm[1].z), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers square to an east-bound hole")
+	_check(tm[0].x > 0.0 and tm[1].x > 0.0, "tee markers just in front of the ball")
+	var all_clubs := Club.standard_set()
+	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.72 m off the ball")
+	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.57 m")
 
 
 func _test_course_life() -> void:
@@ -2612,6 +2656,106 @@ func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
 	GolfRound.setup = null
 
 
+## Two games in one online room play the same round in step: each plays its
+## own player's shots and replays the other's, and they agree on every shot,
+## drop and card. A computer golfer belongs to the host.
+func _test_online_round() -> void:
+	var setup := RoundSetup.single("")
+	setup.names.assign(["Ann", "Bo", "Club pro"])
+	setup.computer.assign([RoundSetup.HUMAN, RoundSetup.HUMAN, 1])
+	setup.teams.assign([0, 1, 0])
+	setup.holes = RoundSetup.Holes.FRONT_NINE
+	setup.round_seed = 4321
+	setup.wind_level = Wind.Level.STRONG
+	var owners: Array[int] = [0, 1, 0]
+	var msg := OnlineRound.setup_message(setup, 4321, Wind.Level.STRONG, owners, "")
+	var copy := OnlineRound.setup_from(JSON.parse_string(JSON.stringify(msg)))
+	_check(copy != null and copy.names == setup.names and copy.computer == setup.computer and copy.round_seed == 4321 and copy.wind_level == Wind.Level.STRONG,
+		"the setup message carries the round")
+	_check(OnlineRound.owners_from(msg) == owners, "and who plays each seat")
+	var links := LoopbackLink.room(2)
+	var scene: PackedScene = load("res://scenes/main.tscn")
+	var games: Array[GolfRound] = []
+	for seat in 2:
+		GolfRound.setup = OnlineRound.setup_from(JSON.parse_string(JSON.stringify(msg)))
+		var g := scene.instantiate() as GolfRound
+		g.online = OnlineRound.new(links[seat], seat, owners)
+		root.add_child(g)
+		games.append(g)
+	GolfRound.setup = null
+	var a := games[0]
+	var b := games[1]
+	_check(a.round_seed == 4321 and b.round_seed == 4321 and b.wind.level == Wind.Level.STRONG, "both games play the host's seed and wind")
+	var dropped := false
+	var steps := 0
+	while not (a.state == GolfRound.State.ROUND_DONE and b.state == GolfRound.State.ROUND_DONE) and steps < 6000:
+		# Bo takes an unplayable lie once, on his own machine.
+		if not dropped and b.state == GolfRound.State.AIM and b.shooter == 1 and b.lie != Surface.Type.TEE and b.lie != Surface.Type.GREEN:
+			b._start_drop(DropRules.Reason.UNPLAYABLE)
+			b._move_drop(1.0, 0.0)
+			dropped = true
+		a.auto_play_step()
+		b.auto_play_step()
+		steps += 1
+	_check(a.state == GolfRound.State.ROUND_DONE and b.state == GolfRound.State.ROUND_DONE, "both games finish the round (%d steps, states %d %d)" % [steps, a.state, b.state])
+	_check(dropped and a.record.drops.size() == b.record.drops.size() and b.record.drops.size() >= 1, "Bo's drop reached the host: %d %d" % [a.record.drops.size(), b.record.drops.size()])
+	_check(a.record.shots.size() == b.record.shots.size() and a.record.shots.size() > 20, "the same shots: %d and %d" % [a.record.shots.size(), b.record.shots.size()])
+	var same := true
+	for i in mini(a.record.shots.size(), b.record.shots.size()):
+		var x := a.record.shots[i]
+		var y := b.record.shots[i]
+		same = same and x.player == y.player and x.rest.distance_to(y.rest) < 1e-3 and x.wind.distance_to(y.wind) < 1e-4
+	_check(same, "every shot stops in the same place on both machines")
+	_check(a.online.mismatches == 0 and b.online.mismatches == 0, "no shot disagreed")
+	for i in 3:
+		_check(str(a.scoring.cards[i].strokes) == str(b.scoring.cards[i].strokes), "%s's card agrees: %s" % [setup.names[i], a.scoring.cards[i].strokes])
+	var computer_shots := 0
+	for r in b.record.shots:
+		computer_shots += 1 if r.player == 2 else 0
+	_check(computer_shots > 0, "the host's computer golfer played on the guest's machine too")
+	print("  online: %d shots, %d events, cards %s / %s / %s" % [a.record.shots.size(), a.online.seq,
+		a.scoring.cards[0].strokes, a.scoring.cards[1].strokes, a.scoring.cards[2].strokes])
+	for g in games:
+		g.queue_free()
+	_test_online_lobby()
+
+
+## The lobby: the host picks the course and starts; the guest's game gets the
+## same setup, seed and seats, and refuses a course it doesn't have.
+func _test_online_lobby() -> void:
+	var links := LoopbackLink.room(2)
+	var panels: Array[OnlinePanel] = []
+	var started: Array = []
+	for seat in 2:
+		var p := OnlinePanel.new()
+		root.add_child(p)
+		p.open(PackedStringArray(["Placeholder Nine (built in)"]), ["Ann", "Bo"][seat])
+		p.use_link(links[seat])
+		p.handle({"type": "welcome", "you": seat + 1, "seat": seat, "host": 1, "code": "ABCD"})
+		p.handle({"type": "members", "host": 1, "members": [{"id": 1, "name": "Ann", "seat": 0}, {"id": 2, "name": "Bo", "seat": 1}]})
+		p.start_pressed.connect(func(s: RoundSetup, i: int, r: OnlineRound) -> void: started.append([s, i, r]))
+		panels.append(p)
+	_check(panels[0]._host_box.visible and not panels[1]._host_box.visible, "only the host picks the course")
+	panels[0]._computers.select(1)
+	panels[0]._on_start()
+	panels[1]._process(0.0)
+	_check(started.size() == 2, "both games start")
+	if started.size() == 2:
+		var host_setup: RoundSetup = started[0][0]
+		var guest_setup: RoundSetup = started[1][0]
+		var guest: OnlineRound = started[1][2]
+		_check(guest_setup.names == host_setup.names and host_setup.names.size() == 3 and guest_setup.computer == host_setup.computer,
+			"the guest plays the host's players: %s" % [guest_setup.names])
+		_check(guest_setup.round_seed == host_setup.round_seed and guest_setup.round_seed != 0, "and the host's seed")
+		_check(guest.my_seat == 1 and str(guest.owners) == "[0, 1, 0]" and started[1][1] == 0, "Bo plays seat 1; the host plays the computer golfer")
+	panels[1].use_link(links[1])
+	panels[1].handle({"type": "setup", "course_file": "Nowhere.crz", "course_name": "Nowhere", "names": ["Ann", "Bo"],
+		"computer": [-1, -1], "teams": [0, 1], "owners": [0, 1], "seed": 5})
+	_check(panels[1]._status.text.contains("isn't among your courses"), "a course the guest doesn't have: %s" % panels[1]._status.text)
+	for p in panels:
+		p.queue_free()
+
+
 ## The free recordings: every event has takes, the ambience loops, and clubs
 ## and course names map as intended.
 func _test_free_sounds() -> void:
@@ -2686,6 +2830,165 @@ func _test_free_golfer() -> void:
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	golfer.free()
+
+
+## The player creator's looks: saved and read back, mapped to blend shapes,
+## kept with the player's profile, and dressing the free golfer.
+## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
+## fit finds known sliders again from the golfer's own landmarks; colours are
+## read from the right patches.
+func _test_face_from_photo() -> void:
+	var parts := GolferParts.shared()
+	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")
+	if parts == null or not parts.info.has("face_fit"):
+		return
+	var face_fit: Dictionary = parts.info.face_fit
+	_check(face_fit.points == PlayerFaceFit.POINTS, "face points match the pack's")
+	_check(PlayerFaceFit.MEDIAPIPE.size() == PlayerFaceFit.POINTS.size() and PlayerFaceFit.POINT_LABELS.size() == PlayerFaceFit.POINTS.size(), "every point has a MediaPipe index and a label")
+	var n := PlayerFaceFit.FEATURE_NAMES.size()
+	_check(PlayerFaceFit.OFFSET.size() == n and PlayerFaceFit.GAIN.size() == n and PlayerFaceFit.WEIGHT.size() == n, "calibration for every measurement")
+	var base := PlayerFaceFit.model_points(face_fit, PlayerLook.new().shape_weights())
+	var f0 := PlayerFaceFit.features(base)
+	_check(f0.size() == n, "measurements")
+	# The same face scaled, moved and tilted measures the same.
+	var moved := PackedVector2Array()
+	for p in base:
+		moved.append(p.rotated(0.2) * 37.0 + Vector2(120, -40))
+	var f1 := PlayerFaceFit.features(moved)
+	var worst := 0.0
+	for i in n:
+		worst = maxf(worst, absf(f1[i] - f0[i]))
+	_check(worst < 1e-4, "measurements don't depend on size or tilt (%.6f)" % worst)
+	# Image pixels (y down) flip to the face frame.
+	_check(PlayerFaceFit.from_image(PackedVector2Array([Vector2(3, 4)]))[0] == Vector2(3, -4), "pixels to the face frame")
+	var marks := PackedVector2Array()
+	for i in 478:
+		marks.append(Vector2(i, 0))
+	var picked := PlayerFaceFit.from_mediapipe(marks)
+	_check(picked.size() == PlayerFaceFit.POINTS.size() and picked[0] == Vector2(33, 0) and picked[4] == Vector2((105 + 52) / 2.0, 0), "MediaPipe indices picked and averaged")
+	_check(PlayerFaceFit.from_mediapipe(PackedVector2Array([Vector2.ZERO])).is_empty(), "too few MediaPipe landmarks is no face")
+	# A known face, measured straight from the golfer (no photo error), fits
+	# back close to its sliders; its body is kept.
+	var truth := PlayerLook.new()
+	truth.sex = 1.0
+	var want := {"face_width": 0.5, "face_full": -0.4, "nose_width": 0.6, "nose_length": -0.5, "eye_size": 0.3, "eye_spacing": -0.6, "brows": 0.7, "mouth_width": -0.5}
+	for key: String in want:
+		truth.face[key] = want[key]
+	var exact := {"offset": [], "gain": [], "weight": [], "regularise": 1e-6}
+	for i in n:
+		exact.offset.append(0.0)
+		exact.gain.append(1.0)
+		exact.weight.append(1.0)
+	var start := PlayerLook.new()
+	start.sex = 1.0
+	start.face["chin"] = 0.4
+	var got := PlayerFaceFit.fit(face_fit, start, PlayerFaceFit.model_points(face_fit, truth.shape_weights()), exact)
+	var err := 0.0
+	for key: String in want:
+		err = maxf(err, absf(float(got.get(key, 9.0)) - float(want[key])))
+	_check(err < 0.1, "fit finds a known face again (worst slider off by %.2f)" % err)
+	_check(not got.has("chin") and start.face_value("chin") == 0.4, "sliders a photo can't show are left alone")
+	_check(PlayerFaceFit.fit(face_fit, start, PackedVector2Array()).is_empty(), "no points, no fit")
+	# Colours: a photo with skin-coloured cheeks and forehead and dark hair above.
+	var img := Image.create(200, 200, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.1, 0.08, 0.06))
+	img.fill_rect(Rect2i(40, 60, 120, 140), Color(0.8, 0.6, 0.5))
+	var pts := PackedVector2Array([
+		Vector2(70, 110), Vector2(90, 110), Vector2(110, 110), Vector2(130, 110),
+		Vector2(80, 98), Vector2(120, 98),
+		Vector2(100, 135), Vector2(90, 138), Vector2(110, 138),
+		Vector2(85, 155), Vector2(115, 155), Vector2(100, 150), Vector2(100, 160),
+		Vector2(100, 185), Vector2(60, 155), Vector2(140, 155), Vector2(50, 125), Vector2(150, 125),
+		Vector2(65, 170), Vector2(135, 170),
+	])
+	var skin := PlayerFaceFit.skin_colour(img, pts)
+	_check(skin.is_equal_approx(Color(0.8, 0.6, 0.5)) or skin.r > 0.78, "skin colour from the cheeks and forehead")
+	var hair := PlayerFaceFit.hair_colour(img, pts)
+	_check(hair.r < 0.15, "hair colour from above the forehead")
+
+
+func _test_player_looks() -> void:
+	var look := PlayerLook.new()
+	look.sex = 1.0
+	look.height_cm = 168.0
+	look.weight = -0.5
+	look.age = 0.25
+	look.face["nose_width"] = 0.4
+	look.face["jaw"] = -0.3
+	look.hair = "ponytail"
+	look.outfit = "shorts"
+	look.cap = true
+	look.ball = Color(1.0, 0.55, 0.15)
+	var back := PlayerLook.from_dict(look.to_dict())
+	_check(back.key() == look.key(), "a look reads back as saved")
+	_check(back.wears_cap(), "a cap goes with a ponytail")
+	var w := look.shape_weights()
+	_check(w.get("female") == 1.0 and w.get("thin") == 0.5 and w.get("old") == 0.25, "body shape weights: %s" % w)
+	_check(w.get("nose_width_plus") == 0.4 and w.get("jaw_minus") == 0.3 and not w.has("jaw_plus"), "face shape weights: %s" % w)
+	var odd := PlayerLook.from_dict({"hair": "mohawk", "height_cm": 400, "skin": "not a colour", "weight": -9})
+	_check(odd.hair == "short" and odd.height_cm == PlayerLook.HEIGHT_MAX and odd.weight == -1.0, "bad values fall back")
+	_check(PlayerLook.random(42).key() == PlayerLook.random(42).key(), "a computer golfer's look is the same every time")
+	_check(PlayerLook.random(42).key() != PlayerLook.random(43).key(), "computer golfers look different")
+	var hat := PlayerLook.new()
+	hat.cap = true
+	hat.hair = "afro"
+	_check(not hat.wears_cap(), "no cap over an afro")
+
+	var profiles := PlayerProfiles.new()
+	_check(profiles.look_of("Zoe") == null, "no look before the creator")
+	profiles.set_look("Zoe", look)
+	_check(profiles.has_player("Zoe") and profiles.look_of("zoe ").key() == look.key(), "look kept with the profile")
+	_check(profiles.rename("Zoe", "Zoë") and profiles.look_of("Zoë").key() == look.key() and not profiles.has_player("Zoe"),
+		"renaming keeps the look")
+	profiles.set_look("Ann", PlayerLook.new())
+	_check(not profiles.rename("Zoë", "ann"), "can't rename onto another player")
+
+	var parts := GolferParts.shared()
+	_check(parts != null, "the look pack loads")
+	if parts == null:
+		return
+	for style: String in PlayerLook.HAIR_STYLES:
+		_check(style == "bald" or parts.has_part("Hair_" + style), "hair style %s in the pack" % style)
+	for o: String in PlayerLook.OUTFITS:
+		_check(parts.has_part("Top_" + o) and parts.has_part("Bottom_" + o), "outfit %s in the pack" % o)
+	for entry: Array in PlayerLook.FACE:
+		_check((parts.info.shapes as Dictionary).has(entry[0] + "_plus"), "face shape %s in the pack" % entry[0])
+	var plain := parts.bake("Body", {})
+	var shaped := parts.bake("Body", w)
+	_check(plain != null and shaped != null and plain != shaped, "body baked plain and shaped")
+	_check(parts.bake("Body", w) == shaped, "baked meshes are reused")
+	var a: PackedVector3Array = plain.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var b: PackedVector3Array = shaped.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var moved := 0
+	for i in a.size():
+		if a[i].distance_to(b[i]) > 0.001:
+			moved += 1
+	_check(a.size() == b.size() and moved > a.size() / 2, "the shape moves the body (%d of %d)" % [moved, a.size()])
+	_check(parts.standing_height(w) < parts.standing_height({}) - 0.05, "a woman's body is shorter before scaling")
+	var shown := FreeGolfer.parts_for(look, parts.info)
+	_check(shown.has("Top_shorts") and shown.has("Hair_ponytail") and shown.has("Cap") and not shown.has("Top_polo"),
+		"the look's parts: %s" % shown)
+	var legs := ""
+	for part_name in shown:
+		if part_name.begins_with("Body_") and not FreeGolfer.parts_for(PlayerLook.new(), parts.info).has(part_name):
+			legs = part_name
+	_check(not legs.is_empty(), "shorts show skin that trousers cover: %s" % parts.info.body_chunks)
+
+	var golfer := FreeGolfer.create(look)
+	_check(golfer != null, "the free golfer dresses for a look")
+	if golfer == null:
+		return
+	root.add_child(golfer)
+	var skeleton := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var head := skeleton.find_bone("head")
+	var head_y := skeleton.get_bone_global_rest(head).origin.y
+	_check(golfer.find_child("Hair_ponytail", true, false) != null, "the golfer has the look's hair")
+	var model := golfer.get_child(0) as Node3D
+	_check_near(model.scale.x * parts.standing_height(w), 1.68, 0.005, "scaled to the look's height")
+	_check_near(model.position.z, FreeGolfer.BALL.z * (1.0 - model.scale.x), 1e-5, "scaled about the ball")
+	golfer.apply_look(PlayerLook.new())
+	_check(skeleton.get_bone_global_rest(head).origin.y > head_y + 0.05, "the skeleton fits the new shape")
 	golfer.free()
 
 
@@ -2822,6 +3125,59 @@ func _test_launch_monitor_input() -> void:
 	_check(rec.monitor.size() == 5 and ShotRecord.from_dict(rec.to_dict()).monitor == rec.monitor, "recorded as measured")
 	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
 	_check(ok.ok and ok.checked == 1, "the monitor's shot replays: %s" % [ok.errors])
+	GolfRound.setup = null
+
+
+## Mulligans: the shot is taken again from the same spot, the card doesn't
+## count it, and the round still replays to the same card.
+func _test_pick_up() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.pickup = 1
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		_check(game.strokes <= GolfRound.MAX_STROKES, "never past the limit")
+		game.auto_play_step()
+		steps += 1
+	game.graphics.pickup = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with pick-ups finishes")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with pick-ups replays: %s" % [ok.errors])
+	GolfRound.setup = null
+
+
+func _test_mulligans() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.mulligans = 2
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var taken := 0
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		if game.state == GolfRound.State.SHOT_RESULT and game._can_mulligan() and game.hole_index % 2 == 0:
+			var from: Vector3 = game._undo.from
+			var before: int = game._undo.strokes
+			game._take_mulligan()
+			taken += 1
+			_check(game.state == GolfRound.State.AIM and game.ball_at == from and game.strokes == before, "mulligan %d back where it was" % taken)
+			_check(not game._can_mulligan(), "one per hole")
+		game.auto_play_step()
+		steps += 1
+	game.graphics.mulligans = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with mulligans finishes")
+	_check(taken >= 3, "mulligans taken (%d)" % taken)
+	var marked := 0
+	for r in game.record.shots:
+		marked += 1 if r.mulligan else 0
+	_check(marked == taken, "mulligans marked in the record")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with mulligans replays: %s" % [ok.errors])
+	print("  mulligans: %d, card %s" % [taken, str(game.card.strokes)])
 	GolfRound.setup = null
 
 
@@ -3040,13 +3396,20 @@ func _test_tee_view() -> void:
 	var reach := game._flat_distance(game.ball_at, game._aim_target())
 	var far := game.ball_at + game._aim_dir() * reach
 	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
-	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
 	var cam: RoundCamera = game.camera
+	# Links always shows the golfer and ball at address: the camera stays
+	# close, and the real camera (not just its planned pose) has them in view.
+	var rise := cam._aim_pos.y - game.ball_at.y
+	var back := Vector2(cam._aim_pos.x - game.ball_at.x, cam._aim_pos.z - game.ball_at.z).length()
+	_check(rise < 8.0 and back < 10.0, "tee view: the camera stays near the golfer (%.1f m up, %.1f m back)" % [rise, back])
 	var forward := (cam._aim_look - cam._aim_pos).normalized()
-	var half := deg_to_rad(cam.fov) * 0.5
-	var to_feet := (game.ball_at - cam._aim_pos).normalized()
-	_check(forward.angle_to(to_feet) < half, "tee view: the golfer and ball stay in frame")
-	_check(forward.angle_to((target - cam._aim_pos).normalized()) < half, "tee view: and so does the target")
+	var half := deg_to_rad(minf(cam.fov, RoundCamera.AIM_FRAME_FOV)) * 0.5
+	_check(forward.angle_to((game.ball_at - cam._aim_pos).normalized()) < half * 0.9, "tee view: the ball is in frame")
+	_check(forward.angle_to((game.golfer.global_position + Vector3.UP * 1.6 - cam._aim_pos).normalized()) < half, "tee view: the golfer's head is in frame")
+	_check(cam.global_position.distance_to(cam._aim_pos) < 0.01, "tee view: the camera is at its aim pose (%s, not %s)" % [cam._aim_pos, cam.global_position])
+	_check(cam.is_position_in_frustum(game.ball_at + Vector3.UP * 0.1), "tee view: the ball is inside the camera's frustum")
+	var seen := RoundCamera.sight_clear(game.hole.terrain, cam._aim_pos, target)
+	print("  tee view: %.1f m up, %.1f m back, target %.0f m %s" % [rise, back, reach, "in sight" if seen else "behind the rise"])
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
@@ -3101,6 +3464,10 @@ func _test_menu_resume() -> void:
 	s.course_key = key
 	SavedRound.save(s, {"hole": 0})
 	_check(boot._resume_slot() == 2, "menu: the saved course's slot")
+	var boot_script := load("res://scripts/boot.gd") as GDScript
+	_check(boot_script.primary_button(["Play with placeholders", "Career", "Players"]) == 0, "menu: Enter plays, not Players")
+	_check(boot_script.primary_button(["Load disc images...", "Players", "Play a round"]) == 2, "menu: focus skips Players")
+	_check(boot_script.primary_button(["Players", "Settings"]) == -1, "menu: no play button, no focus")
 	_check(boot._setup_paths.size() >= 2 and boot._setup_paths[1] == key, "menu: the setup list is filled for resuming")
 	s.course_key = "Courses/GONE.crz"
 	SavedRound.save(s, {"hole": 0})

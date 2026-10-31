@@ -54,6 +54,13 @@ static var force_look := -1
 
 var quality: int = Quality.HIGH
 var fullscreen := false
+## Size of the menus and HUD (an index into UI_SCALES): bigger for phones and
+## TVs, smaller for a big monitor up close.
+var ui_scale := 1
+const UI_SCALES := [0.85, 1.0, 1.15, 1.3]
+const UI_SCALE_NAMES := ["Smaller", "Normal", "Larger", "Largest"]
+## Colours that read with red-green colour blindness (SwingMeter.colour_safe).
+var colour_safe := false
 var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
@@ -99,6 +106,16 @@ var buggy := false
 ## Gimmes: a putt left this close is conceded for one stroke (an index into
 ## GIMME_FEET; 0 is off, as in Links 2003). Never in a friend's round.
 var gimme := 0
+## Mulligans: take a shot again, as if it never happened. 0 off (as in
+## Links 2003), 1 one per player per nine holes, 2 one per player per hole.
+## Never in a friend's round or the team modes.
+var mulligans := 0
+const MULLIGAN_NAMES := ["Off", "One per nine holes", "One per hole"]
+## Pick up: end a hole at this score instead of the usual limit
+## (GolfRound.MAX_STROKES). 0 off, 1 at double par, 2 at triple bogey.
+## Never in a friend's round.
+var pickup := 0
+const PICKUP_NAMES := ["Off (at 10)", "At double par", "At triple bogey"]
 ## Take real swings from a launch monitor app over OpenConnect (desktop).
 var launch_monitor := false
 const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
@@ -212,6 +229,8 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
+	s.colour_safe = bool(cfg.get_value(SECTION, "colour_safe", s.colour_safe))
+	s.ui_scale = clampi(int(cfg.get_value(SECTION, "ui_scale", s.ui_scale)), 0, UI_SCALES.size() - 1)
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))
 	var samples := int(cfg.get_value(SECTION, "msaa", s.msaa))
 	s.msaa = samples if MSAA_CHOICES.has(samples) else s.msaa
@@ -233,6 +252,8 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	s.launch_monitor = bool(cfg.get_value(GAME_SECTION, "launch_monitor", s.launch_monitor))
+	s.pickup = clampi(int(cfg.get_value(GAME_SECTION, "pickup", s.pickup)), 0, PICKUP_NAMES.size() - 1)
+	s.mulligans = clampi(int(cfg.get_value(GAME_SECTION, "mulligans", s.mulligans)), 0, MULLIGAN_NAMES.size() - 1)
 	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
@@ -264,6 +285,8 @@ func save(path := PATH) -> void:
 	cfg.load(path)  # keep the other sections; a missing file is fine
 	cfg.set_value(SECTION, "quality", quality)
 	cfg.set_value(SECTION, "fullscreen", fullscreen)
+	cfg.set_value(SECTION, "ui_scale", ui_scale)
+	cfg.set_value(SECTION, "colour_safe", colour_safe)
 	cfg.set_value(SECTION, "vsync", vsync)
 	cfg.set_value(SECTION, "msaa", msaa)
 	cfg.set_value(SECTION, "render_scale", render_scale)
@@ -284,6 +307,8 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
+	cfg.set_value(GAME_SECTION, "mulligans", mulligans)
+	cfg.set_value(GAME_SECTION, "pickup", pickup)
 	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
@@ -334,6 +359,9 @@ func soft_shadow_quality() -> RenderingServer.ShadowQuality:
 
 ## Applies the settings that belong to the window and the renderer.
 func apply_display(viewport: Viewport) -> void:
+	if viewport is Window:
+		(viewport as Window).content_scale_factor = UI_SCALES[ui_scale]
+	SwingMeter.colour_safe = colour_safe
 	if DisplayServer.get_name() != "headless":
 		var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 		if DisplayServer.window_get_mode() != mode:
