@@ -2,6 +2,11 @@ class_name LinksSoundBank
 extends SoundBank
 ## Game sounds from the player's own predefined.ssf (docs/formats/ssf.md).
 ## Events the bank has no sound for fall back to the placeholder sounds.
+##
+## The crowd reactions (applause, cheers, groans, "oohs") come from the
+## tournament bank, TOURNA_1.SSF, when the player's files have it. It is
+## large (about 80 MB), so it is read on a worker thread on desktop, and not
+## at all in the browser build for now.
 
 const EVENTS := {
 	&"hit": "Full Swing",
@@ -11,7 +16,21 @@ const EVENTS := {
 	&"splash": "Splash",
 }
 
+## Crowd events: each picks a random one of these tournament-bank events
+## (docs/formats/ssf.md#the-tournament-bank) that has waves.
+const CROWD_EVENTS := {
+	&"applause": ["Applause Ball On Green", "Courtesy Applause", "Putting Applause"],
+	&"crowd_cheer": ["Great Shot lands < 15", "Applause Close Shot", "Approach Shot Close (end <3)"],
+	&"crowd_roar": ["Hole Out (>100)", "Chip In", "Pitch In"],
+	&"crowd_groan": ["Shot OB or Water", "Bad Drive", "Short Putt Miss"],
+	&"crowd_ooh": ["Lip Out >8", "Miss Putt Barely"],
+	&"crowd_tee": ["Tee Shot"],
+}
+
 var _bank: SsfBank
+var _crowd: SsfBank
+var _crowd_path := ""
+var _crowd_task := -1
 var _player: AudioStreamPlayer
 var _fallback: PlaceholderSoundBank
 
@@ -27,6 +46,8 @@ static func from_game_folder() -> LinksSoundBank:
 		return null
 	var sounds := LinksSoundBank.new()
 	sounds._bank = bank
+	if not OS.has_feature("web"):
+		sounds._crowd_path = GameFolder.find_file(PackedStringArray(["tournament.ssf", "TOURNA_1.SSF"]))
 	return sounds
 
 
@@ -35,12 +56,49 @@ func _ready() -> void:
 	add_child(_player)
 	_fallback = PlaceholderSoundBank.new()
 	add_child(_fallback)
+	if not _crowd_path.is_empty():
+		_crowd_task = WorkerThreadPool.add_task(_load_crowd)
+
+
+func _load_crowd() -> void:
+	_crowd = SsfBank.load_file(_crowd_path)
+
+
+func _exit_tree() -> void:
+	if _crowd_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_crowd_task)
+		_crowd_task = -1
+
+
+## The tournament bank once it has loaded, else null.
+func _crowd_bank() -> SsfBank:
+	if _crowd_task >= 0 and WorkerThreadPool.is_task_completed(_crowd_task):
+		WorkerThreadPool.wait_for_task_completion(_crowd_task)
+		_crowd_task = -1
+		if _crowd == null:
+			push_warning("Could not read crowd sounds %s" % _crowd_path)
+	return _crowd if _crowd_task < 0 else null
+
+
+func _crowd_stream(event: StringName) -> AudioStreamWAV:
+	var bank := _crowd_bank()
+	if bank == null or not CROWD_EVENTS.has(event):
+		return null
+	var names: Array = CROWD_EVENTS[event].duplicate()
+	names.shuffle()
+	for n: String in names:
+		var stream := bank.random_stream(n)
+		if stream != null:
+			return stream
+	return null
 
 
 func play(event: StringName) -> void:
 	var stream: AudioStreamWAV = null
 	if EVENTS.has(event):
 		stream = _bank.random_stream(EVENTS[event])
+	elif CROWD_EVENTS.has(event):
+		stream = _crowd_stream(event)
 	if stream == null:
 		_fallback.play(event)
 		return

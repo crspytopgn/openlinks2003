@@ -65,6 +65,7 @@ feel) still need a working install.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
+  - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
   - [ ] Voice event conditions, commentary and menu sounds wired into the game
 
 ## Phase 4: the full game

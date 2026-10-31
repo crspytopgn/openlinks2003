@@ -18,6 +18,7 @@ func _ready() -> void:
 	_add(&"crowd_roar", _crowd(4.0, 0.5, 0.0))
 	_add(&"crowd_groan", _crowd(1.6, 0.3, -1.0))
 	_add(&"crowd_ooh", _crowd(1.4, 0.28, 1.0))
+	_add(&"crowd_tee", _crowd(1.8, 0.22, 0.0))
 
 
 func play(event: StringName) -> void:
