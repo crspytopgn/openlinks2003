@@ -255,7 +255,7 @@ game/scripts/
     golfer_assets.gd, golfer_rig.gd   interfaces for the golfer model and animation
     sound_bank.gd               SoundBank: interface for game audio
     free_golfer.gd              FreeGolfer: the CC0 MakeHuman golfer (assets/golfer/free_golfer.glb)
-    placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
+    placeholder_*.gd            Primitive trees, a hand-animated figure golfer
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
@@ -374,8 +374,8 @@ the physics, the swing and the scoring are the same in both.
   and up, since it draws the scene twice).
 - `scripts/broadcast/commentary.gd`: caption lines and the crowd reaction
   for each shot. The crowd sounds are `crowd_cheer`, `crowd_roar`,
-  `crowd_groan` and `crowd_ooh` (synthesised in `PlaceholderSoundBank` until
-  the game's own crowd sounds are mapped).
+  `crowd_groan` and `crowd_ooh` (the tournament bank with the game files,
+  recorded crowds from `FreeSoundBank` without them).
 
 In both presentations, scene changes fade through black and menu panels fade
 in (`scripts/ui/scene_fade.gd`).
@@ -420,12 +420,26 @@ Nothing in the round needs to change.
   `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
   If that file is missing it falls back to `PlaceholderGolfer`, the figure
   built from primitives.
-- **Audio:** subclass `SoundBank` (`play(event)`) and set
+- **Audio:** subclass `SoundBank` (`play(event)`, and optionally
+  `play_detail(event, detail)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
-  `&"hit"`, `&"putt"`, `&"land"`, `&"cup"`, `&"splash"`, `&"applause"`.
+  `&"hit"` (with the club, lie and power), `&"putt"`, `&"land"` (with the
+  surface and speed), `&"cup"`, `&"splash"`, `&"applause"`, `&"footsteps"`,
+  `&"club"` and the crowd reactions (see `sound_bank.gd`).
   `LinksSoundBank` (`scripts/audio/`) is used automatically when a game
   folder is configured (see `scripts/game_folder.gd`); it plays the
-  original effects from `predefined.ssf`.
+  original effects from `predefined.ssf`. Without the game files
+  `FreeSoundBank` plays real recordings from `game/assets/sounds/` (CC0
+  and CC BY field recordings from freesound.org, cut and mixed by
+  `tools/audio/build_free_sounds.py` from `tools/audio/free_sounds.json`;
+  credits in `game/assets/sounds/CREDITS.md`): a strike per club kind
+  (driver, fairway wood or hybrid, iron, wedge) with turf, grass or sand
+  layered in by lie, landings by surface and the crowd takes, each played
+  with a little random pitch and level. Courses with no ambient sounds of
+  their own get `FreeAmbience`: a looping bed picked from the course name
+  (parkland, woodland, seaside, desert), wind in the trees that follows the
+  wind, and running water on holes with water near the tee. Menu buttons
+  click with `ui_click.ogg`.
 - **Physics:** subclass `ShotModel` (`launch(...)`, `simulate(...)`) and set
   `AssetProviders.shot_model`. This is where a model tuned against the
   original game, or the C++ core through GDExtension, replaces the stand-in.

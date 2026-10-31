@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
 	_run("course_designer", _test_course_designer)
@@ -1389,6 +1390,40 @@ func _test_full_round() -> void:
 		line += " %d" % s
 		_check(s >= 1 and s <= GolfRound.MAX_STROKES, "hole %d strokes %d" % [i + 1, s])
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
+	# Without game files the round plays the free recordings.
+	_check(game.sounds is FreeSoundBank, "free sound bank without game files")
+	_check(game.free_ambience != null and game.free_ambience.get_child_count() == 3, "free ambience beds")
+	var before := game.sounds.get_child_count()
+	game.sounds.play_detail(&"hit", {"club": _club("Dr"), "lie": Surface.Type.ROUGH, "power": 1.0})
+	game.sounds.play_detail(&"land", {"surface": Surface.Type.SAND, "speed": 15.0})
+	_check(game.sounds.get_child_count() == before + 3, "driver from the rough plays strike and grass, sand landing plays")
+
+
+## The free recordings: every event has takes, the ambience loops, and clubs
+## and course names map as intended.
+func _test_free_sounds() -> void:
+	var bank := FreeSoundBank.new()
+	for event: StringName in FreeSoundBank.STEMS:
+		var takes := bank.takes(FreeSoundBank.STEMS[event])
+		_check(not takes.is_empty(), "takes for %s" % event)
+		for t: AudioStream in takes:
+			_check(t is AudioStreamOggVorbis and t.get_length() > 0.1 and t.get_length() < 12.0,
+				"%s take is a short OGG" % event)
+	for kind in ["driver", "wood", "iron", "wedge"]:
+		_check(not bank.takes("hit_" + kind).is_empty(), "strike for " + kind)
+	bank.free()
+	var kinds := {"Dr": &"driver", "3W": &"wood", "5W": &"wood", "3H": &"wood", "4i": &"iron", "9i": &"iron",
+		"PW": &"wedge", "SW": &"wedge", "LW": &"wedge", "Pt": &"putter"}
+	for c in Club.standard_set():
+		_check(SoundBank.club_kind(c) == kinds.get(c.short_name, &"iron"), "%s strikes as %s" % [c.short_name, kinds.get(c.short_name, &"iron")])
+	for stem: String in FreeAmbience.BEDS.values() + ["amb_breeze", "amb_water"]:
+		var s := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
+		_check(s != null and s.get_length() > 20.0, "%s is a long loop" % stem)
+	_check(load(MenuSounds.FREE_CLICK) is AudioStream, "free menu click")
+	_check(FreeAmbience.setting_for("Placeholder Nine") == FreeAmbience.Setting.PARKLAND, "parkland by default")
+	_check(FreeAmbience.setting_for("Kiawah Island Ocean Course") == FreeAmbience.Setting.SEASIDE, "seaside")
+	_check(FreeAmbience.setting_for("Desert Mountain") == FreeAmbience.Setting.DESERT, "desert before mountain")
+	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
 
 
 ## An unplayable lie and a water drop through the real round.

@@ -66,7 +66,7 @@ static func create_sound_bank() -> SoundBank:
 	var links := LinksSoundBank.from_game_folder()
 	if links != null:
 		return links
-	return PlaceholderSoundBank.new()
+	return FreeSoundBank.new()
 
 
 ## The player's real objects when a game folder is set up, with the

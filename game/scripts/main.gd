@@ -149,6 +149,7 @@ var scenery: Scenery
 var settings_panel: SettingsPanel
 var pause_menu: PauseMenu
 var ambience: CourseAmbience
+var free_ambience: FreeAmbience  ## for courses with no sounds of their own
 var voice: GolferVoice
 var post: PostProcess
 var dynamic_resolution: DynamicResolution
@@ -169,6 +170,7 @@ var _replay_delay := -1.0  ## counts down to an automatic replay
 var _pip := false
 var _commentary_rng := RandomNumberGenerator.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
+var _strike_sound := {}  ## the last shot's club, lie and power, for its replay
 
 
 func _ready() -> void:
@@ -251,6 +253,12 @@ func start_round() -> void:
 		ambience = CourseAmbience.create(course.read_entry)
 		if ambience != null:
 			add_child(ambience)
+	if free_ambience != null:
+		free_ambience.queue_free()
+		free_ambience = null
+	if ambience == null:
+		free_ambience = FreeAmbience.create(course)
+		add_child(free_ambience)
 	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
 	round_stats.clear()
@@ -376,6 +384,8 @@ func start_hole(index: int) -> void:
 
 	wind.start_hole()
 	_update_wind_shaders()
+	if free_ambience != null:
+		free_ambience.start_hole(hole, wind.velocity().length())
 	for i in players.size():
 		var p := players[i]
 		p.at = hole.tee
@@ -435,6 +445,7 @@ func _begin_turn(index: int, snap_camera: bool) -> void:
 	ball.visible = true
 	_update_markers()
 	_prepare_shot(snap_camera)
+	sounds.play(&"footsteps")  # stepping up to the ball
 	if broadcast:
 		var thru := card.holes_played()
 		hud.overlay.lower_third(scoring.names[shooter], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
@@ -498,7 +509,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
-	sounds.play(&"putt" if club.is_putter else &"hit")
+	_strike_sound = {"club": club, "lie": lie, "power": power}
+	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
 	if shot_model is LinksShotModel:
@@ -514,6 +526,8 @@ func play_shot(power: float, accuracy: float) -> void:
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
 	_update_wind_shaders()
+	if free_ambience != null:
+		free_ambience.set_wind(wind.velocity().length())
 	shot_time = 0.0
 	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
 	camera.follow(shot, hole.pin, club.is_putter)
@@ -729,7 +743,10 @@ func _on_swing_finished(power: float, accuracy: float) -> void:
 func _change_club(step: int) -> void:
 	if state != State.AIM:
 		return
+	var before := club_index
 	club_index = clampi(club_index + step, 0, clubs.size() - 1)
+	if club_index != before:
+		sounds.play(&"club")
 	_place_golfer()  # the golfer takes the new club
 	_update_aim_marker()
 	_update_hud()
@@ -788,9 +805,17 @@ func _process_flight(delta: float) -> void:
 	_draw_trail(shot.sample_index_at(shot_time), p)
 	if shot_time >= _land_time:
 		_land_time = INF
-		sounds.play(&"land")
+		_play_landing()
 	if shot_time >= shot.time_s:
 		_complete_flight()
+
+
+## The ball's first bounce, by the ground it lands on and how hard.
+func _play_landing() -> void:
+	var t := RoundCamera.time_near(shot, shot.first_landing)
+	var speed := (shot.position_at(t) - shot.position_at(t - 0.05)).length() / 0.05
+	sounds.play_detail(&"land", {
+		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed})
 
 
 func _complete_flight() -> void:
@@ -1740,7 +1765,7 @@ func start_replay() -> bool:
 	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
-	sounds.play(&"putt" if putting else &"hit")
+	sounds.play_detail(&"hit", _strike_sound)
 	return true
 
 

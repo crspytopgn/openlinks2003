@@ -69,6 +69,7 @@ feel) still need a working install.
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
   - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
   - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`), on desktop
+  - [x] Without the game files: real recordings (CC0 and CC BY, from freesound.org) for club strikes by club and lie, putts, landings by surface, the cup, water, crowd reactions, footsteps, the bag and menu clicks, and looping course ambience by kind of course, with wind and water layers ([tools/audio](tools/audio/build_free_sounds.py), [credits](game/assets/sounds/CREDITS.md))
   - [ ] Voice event conditions (the condition block), in-flight voice lines, and these sounds in the browser build
 
 ## Phase 4: the full game
