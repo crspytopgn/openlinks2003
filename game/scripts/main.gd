@@ -1243,8 +1243,11 @@ func _start_drive(next: int) -> bool:
 		return false
 	_drive_to = next
 	state = State.DRIVE
+	# The golfer (and caddie) are aboard.
+	if golfer:
+		golfer.visible = false
 	if caddie != null:
-		caddie.quiet()
+		caddie.step_aside()
 	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
 	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
 	aim_marker.visible = true
