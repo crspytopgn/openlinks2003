@@ -43,6 +43,8 @@ var stance := 30
 ## A real swing from a launch monitor (OpenConnect.Launch.to_array):
 ## played as measured instead of through the swing. Empty otherwise.
 var monitor: Array = []
+## Taken again as a mulligan: played, but not counted on the card.
+var mulligan := false
 ## What happened.
 var rest := Vector3.ZERO
 var outcome: int = ShotResult.Outcome.REST
@@ -60,6 +62,8 @@ func to_dict() -> Dictionary:
 		d["setup"] = [ball_position, face, stance]
 	if not monitor.is_empty():
 		d["monitor"] = monitor
+	if mulligan:
+		d["mulligan"] = true
 	if stroke != null:
 		d["stroke"] = {
 			"skill": stroke.skill, "shot": stroke.shot, "club": stroke.club, "speed": stroke.speed,
@@ -99,6 +103,7 @@ static func from_dict(d: Dictionary) -> ShotRecord:
 		r.ball_position = int(setup[0])
 		r.face = int(setup[1])
 		r.stance = int(setup[2])
+	r.mulligan = bool(d.get("mulligan", false))
 	var mon: Variant = d.get("monitor")
 	if mon is Array and (mon as Array).size() == 5:
 		r.monitor = (mon as Array).duplicate()

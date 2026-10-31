@@ -34,8 +34,8 @@ product lead builds it.
    auto club also picks a 3 hybrid on a 389-yard par 4. Fixed in #101.
 4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
    rounds (off in Classic Links). Gimmes done (Settings > Gimmes,
-   [game-shell.md](docs/game-shell.md#gimmes)); mulligans and a choice of
-   pick-up limit to come. Owner: lead.
+   [game-shell.md](docs/game-shell.md#gimmes)) and mulligans (Settings >
+   Mulligans, U after a shot); a choice of pick-up limit to come. Owner: lead.
 5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).
@@ -54,9 +54,24 @@ product lead builds it.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
-   marker, UI scale, captions for voice and commentary. Owner: lead.
+   marker, UI scale, captions for voice and commentary. UI scale
+   (Settings > Interface size) and a colour-blind-safe meter (Settings >
+   Colours) done. Owner: lead.
 10. [x] **Personal records**: longest drive, best rounds per course, birdie,
    eagle and hole-in-one counts on the players page. Owner: lead.
+11. [x] **Hole positions**: Links 2003 courses keep 18 hole positions per
+   hole but we always played the first. Round setup > Pins: usual or random
+   (picked by the round seed, so a friend's round plays the same ones).
+12. [ ] **Click to aim**: click a spot on the hole map (or the course) to aim
+   there and get the club for that distance, as modern sims do. Owner: lead.
+13. [x] **Pick-up limit**: an option to pick up at double par or net double
+   bogey, like real stableford and casual rounds, to keep rounds moving.
+   Done: Settings > Pick up (double par or triple bogey).
+14. [ ] **Conditions**: firm or soft greens and fairways and the day's wind
+   strength chosen in round setup, so the same course plays differently.
+   Needs the original's conditions options read first. Owner: physics.
+15. [ ] **Captions**: on-screen text for the commentary and caddie lines
+   (part of accessibility). Owner: broadcast presentation.
 
 ## Phase 1: formats (see `docs/formats/`)
 
@@ -167,12 +182,17 @@ product lead builds it.
   - [ ] Online play, leaderboards and fair play ([online-play.md](docs/online-play.md))
     - [x] Phase 1: replayable rounds (round seed, shot records, replay checker in CI), challenge and result codes
     - [ ] Phase 2: server (Cloudflare Worker), rooms by code over WebSocket, every client checks every shot, rounds in your own time
+      - [x] Server (not deployed yet: needs a Cloudflare account), live rounds played in step with every game checking every shot, lobby by room code
+      - [ ] Deploy, rejoining a round, timeouts, quick-chat buttons, rounds in your own time in the game
     - [ ] Phase 3: olcore in wasm, server-checked leaderboards on open courses, daily and weekly challenges, replays and ghosts
     - [ ] Phase 4: simultaneous play, GitHub or Discord sign-in, handicap boards, swing plausibility checks, reports
 - [ ] Player profiles and saves (original format optional)
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
+  - [x] Player creator: body, height, skin, face, hair, clothes and equipment looks, saved with the profile and played in rounds ([game-shell.md](docs/game-shell.md#player-creator))
+  - [x] Face from a photo, processed on the player's own device (found automatically in the browser; tapped on desktop)
+  - [ ] Find the face automatically on desktop too (MediaPipe or similar through GDExtension)
 - [ ] Settings, controller support, performance
   - [x] Touch swipe swing and on-screen aim and club buttons for phones and tablets; game pad play with an analog-stick mouse swing ([game-shell.md](docs/game-shell.md#touch-screens-and-game-pads))
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))

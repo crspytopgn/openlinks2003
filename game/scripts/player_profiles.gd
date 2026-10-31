@@ -3,8 +3,9 @@ extends RefCounted
 ## Player profiles, matched by name: each player's finished rounds and the
 ## handicap index they give (Handicap), plus career stats (fairways, greens
 ## in regulation, putts). A player with fewer than three rounds can set a
-## starting index instead. Saved in user://profiles.cfg, one
-## section per player.
+## starting index instead. Each player's golfer (PlayerLook, from the player
+## creator) is kept too. Saved in user://profiles.cfg, one section per
+## player.
 
 ## Where the profiles are kept; the tests point this somewhere else.
 static var path := "user://profiles.cfg"
@@ -230,6 +231,40 @@ static func career_text(c: Dictionary) -> String:
 		parts.append("Greens %d%%" % roundi(100.0 * c.gir / c.stat_holes))
 		parts.append("Putts %.1f per 18" % (18.0 * c.putts / c.stat_holes))
 	return "   ".join(parts)
+
+
+## The player's golfer from the player creator, or null if they haven't
+## made one.
+func look_of(player_name: String) -> PlayerLook:
+	var saved: Variant = _cfg.get_value(_section(player_name), "look", {})
+	return PlayerLook.from_dict(saved) if saved is Dictionary and not (saved as Dictionary).is_empty() else null
+
+
+## Saves the player's golfer; adds the player if they are new.
+func set_look(player_name: String, look: PlayerLook) -> void:
+	var s := _section(player_name)
+	_cfg.set_value(s, "name", player_name.strip_edges())
+	_cfg.set_value(s, "look", look.to_dict())
+
+
+## Renames a player, keeping their rounds, stats and golfer. False if the
+## new name is empty or taken.
+func rename(old_name: String, new_name: String) -> bool:
+	new_name = new_name.strip_edges()
+	if new_name.is_empty() or not has_player(old_name):
+		return false
+	if _section(new_name) == _section(old_name):
+		_cfg.set_value(_section(old_name), "name", new_name)
+		return true
+	if has_player(new_name):
+		return false
+	var from := _section(old_name)
+	var to := _section(new_name)
+	for key in _cfg.get_section_keys(from):
+		_cfg.set_value(to, key, _cfg.get_value(from, key))
+	_cfg.set_value(to, "name", new_name)
+	_cfg.erase_section(from)
+	return true
 
 
 func remove(player_name: String) -> void:

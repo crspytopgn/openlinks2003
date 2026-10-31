@@ -33,32 +33,33 @@ test("joining: the first player hosts, seats fill in order, four at most", () =>
   assert.match(room.join({ type: "shot" }).error, /hello/);
 });
 
-test("late joiners get the host's setup and state", () => {
-  const room = new RoomState("ABCD");
-  const a = room.join(hello("Ann")).id;
-  room.message(a, { type: "setup", course: "Kauri" });
-  room.message(a, { type: "state", hole: 3 });
-  const b = room.join(hello("Bo"));
-  assert.deepEqual(typesTo(b.sends, b.id), ["welcome", "setup", "state", "members"]);
-});
-
-test("only the host runs the round; shots only on your turn, to the host", () => {
+test("players who come before the start get the setup; after it, nobody joins", () => {
   const room = new RoomState("ABCD");
   const a = room.join(hello("Ann")).id;
   const b = room.join(hello("Bo")).id;
-  const c = room.join(hello("Cy")).id;
-  assert.match(room.message(b, { type: "setup" }).error, /only the host/);
-  assert.match(room.message(b, { type: "result" }).error, /only the host/);
-  assert.match(room.message(b, { type: "shot", power: 1 }).error, /your turn/);
-  const turn = room.message(a, { type: "turn", seat: 1 });
-  assert.deepEqual(turn.sends, [{ to: { except: a }, msg: { type: "turn", seat: 1, from: 0 } }]);
-  assert.match(room.message(c, { type: "shot" }).error, /your turn/);
-  const shot = room.message(b, { type: "shot", power: 0.9 });
-  assert.deepEqual(shot.sends, [{ to: a, msg: { type: "shot", power: 0.9, from: 1 } }]);
-  room.message(a, { type: "result", rest: [1, 2, 3] });
-  assert.equal(room.turnSeat, -1);
-  assert.match(room.message(b, { type: "shot" }).error, /your turn/);
-  assert.match(room.message(a, { type: "turn" }).error, /seat/);
+  assert.match(room.message(a, { type: "setup", owners: [0, 5] }).error, /owners/);
+  assert.match(room.message(b, { type: "setup", owners: [0, 1] }).error, /only the host/);
+  const setup = room.message(a, { type: "setup", owners: [0, 1, 0] });
+  assert.deepEqual(setup.sends[0].to, { except: a });
+  assert.match(room.message(a, { type: "setup", owners: [0] }).error, /started/);
+  assert.match(room.join(hello("Cy")).error, /started/);
+});
+
+test("events: the next number, from the game that plays that player", () => {
+  const room = new RoomState("ABCD");
+  const a = room.join(hello("Ann")).id;
+  const b = room.join(hello("Bo")).id;
+  const ev = (seq, player) => ({ type: "event", seq, player, kind: "shot", shot: { power: 1 } });
+  assert.match(room.message(a, ev(0, 0)).error, /hasn't started/);
+  room.message(a, { type: "setup", owners: [0, 1, 0] });
+  assert.match(room.message(b, ev(0, 0)).error, /isn't yours/);
+  assert.match(room.message(a, ev(1, 0)).error, /expected event 0/);
+  assert.match(room.message(a, { ...ev(0, 0), kind: "teleport" }).error, /shots or drops/);
+  const sent = room.message(a, ev(0, 0));
+  assert.deepEqual(sent.sends, [{ to: { except: a }, msg: { ...ev(0, 0), from: 0 } }]);
+  assert.ok(room.message(b, ev(1, 1)).sends);
+  assert.ok(room.message(a, ev(2, 2)).sends, "the host plays the computer golfer");
+  assert.match(room.message(a, ev(2, 0)).error, /expected event 3/);
 });
 
 test("quick chat, mismatch reports and pings", () => {
@@ -74,28 +75,31 @@ test("quick chat, mismatch reports and pings", () => {
   assert.match(room.message(42, { type: "ping" }).error, /not in the room/);
 });
 
-test("when the host leaves, the next player hosts; a finished room takes nobody", () => {
+test("when someone leaves, the host plays their players; when the host leaves, the next player hosts", () => {
   const room = new RoomState("ABCD");
   const a = room.join(hello("Ann")).id;
   const b = room.join(hello("Bo")).id;
-  room.message(a, { type: "turn", seat: 1 });
-  const sends = room.leave(a);
+  const c = room.join(hello("Cy")).id;
+  room.message(a, { type: "setup", owners: [0, 1, 2] });
+  let sends = room.leave(c);
+  assert.deepEqual(sends.map((s) => s.msg.type), ["left", "owners", "members"]);
+  assert.deepEqual(room.setup.owners, [0, 1, 0]);
+  sends = room.leave(a);
   assert.equal(room.host, b);
-  assert.equal(room.turnSeat, -1);
-  assert.deepEqual(sends.map((s) => s.msg.type), ["host_left", "members"]);
-  // Ann comes back and takes the lowest free seat.
-  const again = room.join(hello("Ann"));
-  assert.equal(room.member(again.id).seat, 0);
+  assert.deepEqual(sends.map((s) => s.msg.type), ["host_left", "owners", "members"]);
+  assert.deepEqual(sends[1].msg, { type: "owners", owners: [1, 1, 1], host: 1 });
+  assert.ok(room.message(b, { type: "event", seq: 0, player: 0, kind: "shot" }).sends);
   room.message(b, { type: "end" });
-  assert.match(room.join(hello("Cy")).error, /finished/);
+  assert.match(room.join(hello("Di")).error, /finished/);
 });
 
 test("the state survives being stored", () => {
   const room = new RoomState("ABCD");
   const a = room.join(hello("Ann")).id;
-  room.message(a, { type: "setup", course: "Kauri" });
+  room.message(a, { type: "setup", course: "Kauri", owners: [0] });
   const copy = new RoomState("ABCD", JSON.parse(JSON.stringify(room.toJSON())));
   assert.equal(copy.host, a);
   assert.equal(copy.setup.course, "Kauri");
-  assert.equal(copy.join(hello("Bo")).id, 2);
+  assert.match(copy.join(hello("Bo")).error, /started/);
+  assert.equal(copy.seq, 0);
 });

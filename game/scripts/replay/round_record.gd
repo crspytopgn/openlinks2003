@@ -30,6 +30,8 @@ var course_hash := ""
 var mode := 0
 var holes := 0
 var tees := 0
+## RoundSetup.pins.
+var pins := 0
 var names: Array[String] = []
 var computer: Array[int] = []
 var wind_level := 0
@@ -66,6 +68,7 @@ static func begin(setup: RoundSetup, p_seed: int, model_name: String, level: int
 	r.mode = setup.mode
 	r.holes = setup.holes
 	r.tees = setup.tees
+	r.pins = setup.pins
 	r.names = setup.names.duplicate()
 	r.computer = setup.computer.duplicate()
 	r.wind_level = level
@@ -96,7 +99,7 @@ func to_dict() -> Dictionary:
 		"course_name": course_name, "course_file": course_file, "course_hash": course_hash, "mode": mode, "holes": holes,
 		"tees": tees, "names": names, "computer": computer, "wind_level": wind_level,
 		"resumed": resumed, "started_at": started_at, "shots": list, "drops": drops,
-		"cards": cards, "finished": finished,
+		"cards": cards, "finished": finished, "pins": pins,
 	}
 
 
@@ -112,6 +115,7 @@ static func from_dict(d: Dictionary) -> RoundRecord:
 	r.mode = int(d.get("mode", 0))
 	r.holes = int(d.get("holes", 0))
 	r.tees = int(d.get("tees", 0))
+	r.pins = int(d.get("pins", 0))
 	for n: Variant in d.get("names", []):
 		r.names.append(str(n))
 	for c: Variant in d.get("computer", []):

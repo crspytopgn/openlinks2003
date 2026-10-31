@@ -30,6 +30,8 @@ static func save(setup: RoundSetup, state: Dictionary) -> void:
 	cfg.set_value("setup", "mode", setup.mode)
 	cfg.set_value("setup", "holes", setup.holes)
 	cfg.set_value("setup", "tees", setup.tees)
+	cfg.set_value("setup", "pins", setup.pins)
+	cfg.set_value("setup", "pin_seed", setup.pin_seed)
 	cfg.set_value("setup", "names", PackedStringArray(setup.names))
 	cfg.set_value("setup", "teams", PackedInt32Array(setup.teams))
 	cfg.set_value("setup", "computer", PackedInt32Array(setup.computer))
@@ -56,6 +58,8 @@ static func load_setup() -> RoundSetup:
 	s.tees = clampi(cfg.get_value("setup", "tees", 0), 0, RoundSetup.TEES_NAMES.size() - 1) as RoundSetup.Tees
 	s.handicaps = cfg.get_value("setup", "handicaps", false) == true
 	s.career = str(cfg.get_value("setup", "career", ""))
+	s.pins = clampi(int(cfg.get_value("setup", "pins", 0)), 0, RoundSetup.PINS_NAMES.size() - 1)
+	s.pin_seed = int(cfg.get_value("setup", "pin_seed", 0))
 	var saved_names: PackedStringArray = cfg.get_value("setup", "names", PackedStringArray())
 	if saved_names.is_empty() or saved_names.size() > RoundSetup.MAX_PLAYERS:
 		return null

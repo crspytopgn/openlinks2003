@@ -12,6 +12,9 @@ var tee := Vector3.ZERO
 ## Every tee box, back to forward, when the course has more than one.
 var tees: Array[Vector3] = []
 var pin := Vector3.ZERO
+## Every hole position the course has (Links 2003 courses keep 18 per hole),
+## the usual one first; empty when the course has only `pin`.
+var pins: Array[Vector3] = []
 var terrain: CourseTerrain
 var objects: Array[PlacedObject] = []
 ## Points (x, z) the hole is designed to be played along, from the tee to the

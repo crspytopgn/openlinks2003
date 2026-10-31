@@ -85,28 +85,37 @@ it can use fixed maths and be bit-exact.
 
 ### Live rounds
 
-The round in `GolfRound` (`main.gd`) already separates whose ball is in play
-(`current`) from who is hitting it (`shooter`), and every turn passes through
-`_begin_turn`, `play_shot(power, accuracy)` and `_complete_flight`. That
-gives a small protocol:
+Built (phase 2, not yet live: the server isn't deployed). Every game in the
+room plays the whole round itself, **in step**:
 
-1. The **host** (whoever made the room) owns the round: the setup, the seed,
-   the order of play, the cards. It is the state `SavedRound` already writes,
-   so a late joiner or a reconnect gets the whole round in one message.
-2. On a remote player's turn the host sends `turn {shooter, ball, at, lie}`.
-   That player aims and swings locally (the meter is timing-critical, so it
-   never waits on the network) and sends `shot {club, aim_deg, power,
-   accuracy | mouse stroke}`.
-3. The host runs the shot and broadcasts `result {inputs, final position,
-   lie, strokes}`. Everyone replays the inputs for the flight and then snaps
-   to the host's final position.
-4. **Everyone checks everyone.** Each client runs the same inputs through its
-   own copy of the physics and course. If its stopping point differs by more
-   than the tolerance, the round is marked "not agreed" for all players. A
-   cheating host or player would need every other player to cheat with them.
-5. Computer golfers run on the host and send `shot` messages like anyone.
-6. Quick-chat only to start ("Nice shot", "Unlucky", "Good game"), no free
+1. The **host** (whoever made the room) picks the course and starts the
+   round. Its `setup` message carries the `RoundSetup`, the seed, the wind
+   level and `owners`: which game plays each player. Computer golfers belong
+   to the host. A guest finds the course by file name and checks its hash.
+2. From then on the round is one numbered stream of **events**: each shot's
+   inputs (a `ShotRecord`) and each drop (reason, option, spot). A player's
+   own game plays their shot at once (the meter is timing-critical, so it
+   never waits on the network) and sends it. Every other game waits in
+   `State.REMOTE` until that event arrives, then plays the same inputs through
+   its own physics (`GolfRound._apply_remote`). Turn order, honour, penalties
+   and cards follow by themselves, because every game runs the same rules
+   on the same events.
+3. **Everyone checks everyone.** If a replayed shot stops more than 5 cm
+   from where the sender's did, that game sends `mismatch` and everyone sees
+   that the round is not agreed. A cheating player would need every other
+   player to cheat with them.
+4. The server checks that each event is the next number and comes from the
+   game that owns that player. When someone leaves, the host's game plays
+   their players from then on. When the host leaves, the oldest remaining
+   player becomes host.
+5. Quick-chat only to start ("Nice shot", "Unlucky", "Good game"), no free
    text or voice, so there is nothing to moderate.
+
+The headless tests play a nine-hole round between two games joined in one
+process: two people and the host's computer golfer, with a drop. Both games
+agree on every shot and card. The lobby (main menu > Play online, shown once
+a server is set) makes or joins a room by its 4-letter code. Not yet built:
+rejoining a round in progress, timeouts, and quick-chat buttons.
 
 Waiting on three other people is the slow part of online golf, so a room can
 pick **simultaneous play**: each player plays their own ball without waiting,
@@ -114,10 +123,8 @@ others' balls appear as ghosts when their shots arrive, and the hole ends when
 all are in. Stroke play and Stableford suit it; match play and the team modes
 keep strict turns.
 
-Timeouts: a live turn waits 90 s, then the others can skip that player or let
-a computer golfer play the shot. A dropped host ends the round with a
-`SavedRound` on every machine, so anyone can resume as host; host migration
-comes later.
+Timeouts (to come): a live turn waits 90 s, then the others can let the
+host's game play the shot with a computer golfer.
 
 ### Correspondence rounds (in your own time)
 
