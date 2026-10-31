@@ -22,6 +22,7 @@ const CAPTION_LINE := 24.0
 const LOWER_THIRD_S := 4.5
 const SHOT_CARD_S := 6.0
 const HOLE_CARD_S := 5.5
+const HOLE_CARD_FADE := 0.35  # the fade of _ease_in_out
 const WIPE_S := 0.55
 const TICKER_SPEED := 70.0  ## pixels per second
 
@@ -120,6 +121,16 @@ func hole_card(info: Dictionary, map: Texture2D) -> void:
 	_hole = info
 	_hole_map = map
 	_hole_t = 0.0
+
+
+## Fades the hole card out now, when the player swings before it has gone.
+func end_hole_card() -> void:
+	if _hole_t >= 0.0 and _hole_t < HOLE_CARD_S - HOLE_CARD_FADE:
+		_hole_t = HOLE_CARD_S - HOLE_CARD_FADE
+
+
+func hole_card_showing() -> bool:
+	return _hole_t >= 0.0
 
 
 func caption(text: String, seconds := 4.0) -> void:
@@ -381,5 +392,5 @@ func _text_right(at: Vector2, text: String, fs: int, col: Color) -> void:
 
 ## 0 -> 1 over the first 0.35 s, 1 until the last 0.35 s, then back to 0.
 static func _ease_in_out(t: float, length: float) -> float:
-	var u := clampf(minf(t, length - t) / 0.35, 0.0, 1.0)
+	var u := clampf(minf(t, length - t) / HOLE_CARD_FADE, 0.0, 1.0)
 	return u * u * (3.0 - 2.0 * u)
