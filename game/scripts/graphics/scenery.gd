@@ -101,7 +101,8 @@ func apply(settings: GraphicsSettings) -> void:
 	sun.light_color = Color(1.0, 0.94, 0.84) if photo else Color(1.0, 0.95, 0.86)
 	if photo:
 		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
-		environment.tonemap_exposure = PHOTO_EXPOSURE
+		# Compatibility has no sky fill light, so the same sun reads hotter.
+		environment.tonemap_exposure = PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8
 		environment.tonemap_white = 6.0
 		environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY
 		# Fill light from the sky itself (blue from above, green bounce from

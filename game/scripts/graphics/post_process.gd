@@ -51,12 +51,12 @@ func apply(s: GraphicsSettings) -> void:
 	_mat.set_shader_parameter("sharpen", GraphicsSettings.SHARPEN_LEVELS[s.sharpen])
 	_mat.set_shader_parameter("exposure", g[0])
 	_mat.set_shader_parameter("contrast", g[1])
-	# Under ACES the sky fill light on Forward+ greys the greens a little,
-	# while Compatibility (flat colour fill) comes out lurid: even them out.
+	# Under ACES the sky fill light on Forward+ greys the greens a little:
+	# put some colour back.
 	var photo := s.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	var balance := 1.0
 	if photo:
-		balance = 1.15 if GraphicsSettings.is_forward_plus() else 0.88
+		balance = 1.15 if GraphicsSettings.is_forward_plus() else 1.0
 	_mat.set_shader_parameter("saturation", g[2] * balance)
 	_mat.set_shader_parameter("tint", _vec(g[3]))
 	_mat.set_shader_parameter("shadow_tint", _vec(g[4]))

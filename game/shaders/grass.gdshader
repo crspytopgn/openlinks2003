@@ -34,6 +34,9 @@ void vertex() {
 void fragment() {
 	// Darker in the tuft, sun-bleached at the tips.
 	ALBEDO = base_color * mix(0.55, 1.2, height) * vec3(0.97, 1.03, 0.9);
+	// Both faces lit like the ground: without this the back faces flip
+	// their normal and go dark (Compatibility shows it most).
+	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
 	ROUGHNESS = 0.9;
 	BACKLIGHT = vec3(0.25, 0.3, 0.1);
 }
