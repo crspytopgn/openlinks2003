@@ -113,6 +113,12 @@ Settings > Interface size scales the menus and HUD (the window's content
 scale: 0.85, 1, 1.15 or 1.3 on top of the usual stretch), larger for phones
 and TVs, smaller for a big monitor up close.
 
+### Colours
+
+Settings > Colours swaps the swing meter's green and red (good and bad
+marks, the fill past the snap point) for blue and white, which stay apart
+for red-green colour blindness (`SwingMeter.colour_safe`).
+
 ### Hole positions
 
 Links 2003 courses keep 18 hole positions for each hole, in three groups of

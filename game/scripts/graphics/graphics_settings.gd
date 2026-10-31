@@ -59,6 +59,8 @@ var fullscreen := false
 var ui_scale := 1
 const UI_SCALES := [0.85, 1.0, 1.15, 1.3]
 const UI_SCALE_NAMES := ["Smaller", "Normal", "Larger", "Largest"]
+## Colours that read with red-green colour blindness (SwingMeter.colour_safe).
+var colour_safe := false
 var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
@@ -222,6 +224,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
+	s.colour_safe = bool(cfg.get_value(SECTION, "colour_safe", s.colour_safe))
 	s.ui_scale = clampi(int(cfg.get_value(SECTION, "ui_scale", s.ui_scale)), 0, UI_SCALES.size() - 1)
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))
 	var samples := int(cfg.get_value(SECTION, "msaa", s.msaa))
@@ -277,6 +280,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "quality", quality)
 	cfg.set_value(SECTION, "fullscreen", fullscreen)
 	cfg.set_value(SECTION, "ui_scale", ui_scale)
+	cfg.set_value(SECTION, "colour_safe", colour_safe)
 	cfg.set_value(SECTION, "vsync", vsync)
 	cfg.set_value(SECTION, "msaa", msaa)
 	cfg.set_value(SECTION, "render_scale", render_scale)
@@ -350,6 +354,7 @@ func soft_shadow_quality() -> RenderingServer.ShadowQuality:
 func apply_display(viewport: Viewport) -> void:
 	if viewport is Window:
 		(viewport as Window).content_scale_factor = UI_SCALES[ui_scale]
+	SwingMeter.colour_safe = colour_safe
 	if DisplayServer.get_name() != "headless":
 		var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 		if DisplayServer.window_get_mode() != mode:
