@@ -98,9 +98,10 @@ var putting_assistant := false
 ## A caddie at the players' shots with a read scaled to the swing skill
 ## (Caddie, CaddieAdvice). Off by default, as in Links 2003.
 var caddie := false
-## Draw the ball at its true size everywhere. Off by default: like Links,
-## the ball is drawn bigger with distance so it stays easy to follow.
-var true_size_ball := false
+## Draw the ball at its true size (42.67 mm), only kept from shrinking
+## below a few pixels far away (GolfRound.ball_radius). On by default; off
+## draws it bigger with distance, as Links 2003 does.
+var true_size_ball := true
 ## Drive a golf buggy to the ball between shots (GolfBuggy). Off by default.
 var buggy := false
 ## Gimmes: a putt left this close is conceded for one stroke (an index into
@@ -251,7 +252,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.putting_assistant = bool(cfg.get_value(GAME_SECTION, "putting_assistant", s.putting_assistant))
 	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
 	s.time_of_day = clampi(int(cfg.get_value(SECTION, "time_of_day", s.time_of_day)), TimeOfDay.AFTERNOON, TimeOfDay.ROUND)
-	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
+	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "ball_true_size", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	s.launch_monitor = bool(cfg.get_value(GAME_SECTION, "launch_monitor", s.launch_monitor))
 	s.captions = cfg.get_value(GAME_SECTION, "captions", s.captions) == true
@@ -307,7 +308,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "putting_assistant", putting_assistant)
 	cfg.set_value(GAME_SECTION, "caddie", caddie)
 	cfg.set_value(SECTION, "time_of_day", time_of_day)
-	cfg.set_value(GAME_SECTION, "true_size_ball", true_size_ball)
+	cfg.set_value(GAME_SECTION, "ball_true_size", true_size_ball)
 	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	cfg.set_value(GAME_SECTION, "mulligans", mulligans)

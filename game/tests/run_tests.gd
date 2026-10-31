@@ -4121,6 +4121,12 @@ func _analog_power(mc: LinksMouse.MouseClub) -> float:
 
 
 func _test_analog_swing() -> void:
+	# The ball at true size: 42.67 mm close up, never under 0.3% of the view
+	# far away, and far smaller than Links 2003's bigger-far-away ball.
+	_check_near(GolfRound.ball_radius(4.0, 50.0, true), BallPhysics.RADIUS, 1e-9, "true-size ball close up")
+	var far := GolfRound.ball_radius(100.0, 50.0, true)
+	_check_near(far * 2.0 / (2.0 * 100.0 * tan(deg_to_rad(25.0))), GolfRound.BALL_MIN_SCREEN, 1e-6, "true-size ball far away keeps a few pixels")
+	_check(far < GolfRound.ball_radius(100.0, 50.0, false) * 0.5, "true-size ball is smaller than Links' far away")
 	_check(AnalogSwing.dead_zone(0.1) == 0.0 and AnalogSwing.dead_zone(1.0) == 1.0, "stick dead zone")
 	_check_near(AnalogSwing.dead_zone(-0.56), -0.5, 1e-6, "stick dead zone rescales")
 	_check(AnalogSwing.touch(Vector2(0, 100), Vector2(0, 500), 1000.0) == Vector2(0, 1), "a finger 40% of the screen back is a full deflection")
@@ -4158,14 +4164,14 @@ func _touch(game: GolfRound, pressed: bool, at: Vector2) -> void:
 	e.index = 0
 	e.pressed = pressed
 	e.position = at
-	game._unhandled_input(e)
+	game._input(e)
 
 
 func _drag(game: GolfRound, at: Vector2) -> void:
 	var e := InputEventScreenDrag.new()
 	e.index = 0
 	e.position = at
-	game._unhandled_input(e)
+	game._input(e)
 	game.hud.mouse_swing.advance(1.0 / 60.0)
 
 
@@ -4209,6 +4215,42 @@ func _test_touch_and_stick_swings() -> void:
 	_touch(game, true, from)
 	_touch(game, false, from)
 	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "touch: a tap starts the meter")
+	# The mouse click the browser makes up from that tap doesn't click the
+	# meter a second time.
+	var compat := InputEventMouseButton.new()
+	compat.button_index = MOUSE_BUTTON_LEFT
+	compat.pressed = true
+	game._unhandled_input(compat)
+	_check(game.hud.meter.phase == SwingMeter.Phase.BACKSWING and game.hud.meter.power_position == 0,
+			"touch: the made-up click after a tap is ignored")
+	# Taps two and three set the power and the accuracy the moment they land,
+	# even over the HUD's panels.
+	for f in 40:
+		game.hud.meter._process(1.0 / 60.0)
+	_touch(game, true, from)
+	_touch(game, false, from)
+	_check(game.hud.meter.power_position > 0, "touch: the second tap sets the power")
+	for f in 300:
+		if game.hud.meter.phase != SwingMeter.Phase.DOWNSWING:
+			break
+		if game.hud.meter.value <= 0.02:
+			break
+		game.hud.meter._process(1.0 / 60.0)
+	_touch(game, true, from)
+	_check(game.state == GolfRound.State.FLIGHT, "touch: the third tap strikes the ball")
+	# Neither that tap's release, its made-up clicks nor a quick second tap
+	# skips the flight: the ball is seen in the air.
+	_touch(game, false, from)
+	game._unhandled_input(fake)
+	game._unhandled_input(compat)
+	_touch(game, true, from)
+	_touch(game, false, from)
+	_check(game.state == GolfRound.State.FLIGHT, "touch: the strike doesn't skip the flight")
+	game.shot_time = GolfRound.FLIGHT_SKIP_GRACE_S + 0.1
+	_touch(game, true, from)
+	_touch(game, false, from)
+	_check(game.state != GolfRound.State.FLIGHT, "touch: a later tap skips the flight")
+	game._touch_ms = -100000
 	# A swipe: drag back 40% of the screen, then flick up.
 	_ready_to_aim(game)
 	_touch(game, true, from)
@@ -4258,6 +4300,7 @@ func _test_touch_and_stick_swings() -> void:
 	game.hud.mouse_swing.reset()
 	game._on_mouse_stroke_cancelled()
 	_stick(game, 0.0)
+	game._touch_ms = -100000
 	game.graphics.presentation = presentation
 	game._apply_graphics()
 
