@@ -200,7 +200,7 @@ func close() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not visible:
+	if not visible or _scroll == null:
 		return
 	var chrome := get_combined_minimum_size().y - _scroll.custom_minimum_size.y
 	var h := scroll_height(_columns.get_combined_minimum_size().y, chrome, get_viewport_rect().size.y)
