@@ -38,6 +38,8 @@ func _initialize() -> void:
 	_run("player_profiles", _test_player_profiles)
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
+	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
+	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
@@ -51,6 +53,7 @@ func _initialize() -> void:
 	_run("free_golfer", _test_free_golfer)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
+	_run("course_designer", _test_course_designer)
 	# Nodes added here only get _ready() once the main loop runs, so the
 	# full round is played from _process().
 	# Fixed wind, so the shots (and what the camera sees) are the same every run.
@@ -67,8 +70,11 @@ func _process(_delta: float) -> bool:
 	_done = true
 	_run("full_round", _test_full_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("computer_opponents", _test_computer_opponents)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("broadcast_round", _test_broadcast_round)
+	_run("designer_scene", _test_designer_scene)
+	_run("designed_round", _test_designed_round)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
@@ -107,6 +113,64 @@ func _test_course_reader() -> void:
 	var tests: RefCounted = load("res://tests/course_tests.gd").new()
 	for failure: String in tests.call("run_all"):
 		_check(false, failure)
+
+
+func _test_course_designer() -> void:
+	var tests: RefCounted = load("res://tests/designer_tests.gd").new()
+	for failure: String in tests.call("run_all"):
+		_check(false, failure)
+
+
+## Opens the designer on a fresh starter course, adds a hole and undoes it.
+func _test_designer_scene() -> void:
+	CourseDesigner.last_path = ""
+	var scene: PackedScene = load("res://scenes/course_designer.tscn")
+	var d := scene.instantiate() as CourseDesigner
+	root.add_child(d)
+	_check(d.is_node_ready() and d.course != null and d.course.holes.size() == 1, "the designer opens on a starter course")
+	if d.course == null:
+		d.queue_free()
+		return
+	d._process(0.016)
+	var built := 0
+	for c: Vector2i in d._chunks:
+		if (d._chunks[c] as MeshInstance3D).mesh != null:
+			built += 1
+	_check(built > 0 and built == d._chunks.size(), "every ground chunk has a mesh (%d of %d)" % [built, d._chunks.size()])
+	var shapes := d.course.shapes.size()
+	d._add_hole()
+	d._process(0.016)
+	_check(d.course.holes.size() == 2 and d.hole_index == 1, "a hole is added")
+	_check(d.course.shapes.size() > shapes, "with its tee box and green")
+	d._undo_step(d._undo, d._redo, "undo")
+	_check(d.course.holes.size() == 1 and d.course.shapes.size() == shapes, "undo takes it away again")
+	d._undo_step(d._redo, d._undo, "redo")
+	_check(d.course.holes.size() == 2, "redo puts it back")
+	_check(d._pick(Vector2(640, 360)) != null, "the middle of the view is on the ground")
+	d.queue_free()
+
+
+## A whole round on the designer's starter course.
+func _test_designed_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var path := "user://designed_round_test.olc"
+	var c := DesignedCourse.starter()
+	c.course_name = "Designed test"
+	_check(c.save_file(path) == OK, "the course saves")
+	GolfRound.setup = RoundSetup.single(path)
+	game.course_path = ""
+	game.start_round()
+	_check(game.course.course_name == "Designed test", "the round plays the designed course")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 400:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "the designed round finishes")
+	print("  designed course: %d strokes on a par %d" % [game.card.total_strokes(), game.holes[0].par])
+	GolfRound.setup = null
+	DirAccess.remove_absolute(path)
 
 
 func _test_format_readers() -> void:
@@ -478,6 +542,12 @@ func _test_round_setup() -> void:
 	var loaded := RoundSetup.load_saved(path)
 	_check(loaded.mode == GameModes.Mode.BEST_BALL and loaded.holes == RoundSetup.Holes.FRONT_NINE and loaded.tees == RoundSetup.Tees.MIDDLE, "setup saved")
 	_check(loaded.names == s.names and loaded.teams == s.teams, "players saved")
+	_check(loaded.computer == _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, RoundSetup.HUMAN]), "everyone human by default")
+	s.computer = _ints([RoundSetup.HUMAN, OpponentSkill.Level.TOUR, OpponentSkill.Level.BEGINNER])
+	s.save(path)
+	loaded = RoundSetup.load_saved(path)
+	_check(loaded.computer == s.computer, "computer players saved: %s" % [loaded.computer])
+	_check(not loaded.is_computer(0) and loaded.computer_level(1) == OpponentSkill.Level.TOUR and not loaded.all_computer(), "who is a computer")
 	_check(not loaded.handicaps, "handicaps off by default")
 	s.handicaps = true
 	s.save(path)
@@ -530,6 +600,69 @@ func _test_round_scoring() -> void:
 	r.cards[2].record(0, 6)
 	_check(r.standings()[0] == ["Ann", "3 points"], "stableford leader: %s" % [r.standings()])
 	_check(r.winner_text() == "Ann wins: 3 points", "stableford winner: %s" % r.winner_text())
+
+
+## Same seeds and inputs as test_opponent_rng_and_swings and
+## test_expected_strokes in libs/olcore/tests/test_main.cpp.
+func _test_opponent_skill_matches_olcore() -> void:
+	var r := OpponentSkill.Rng.new(2003)
+	_check(r.next() == 532058734 and r.next() == 1922934515, "xorshift32 sequence")
+	var q := OpponentSkill.Rng.new(7)
+	_check_near(q.uniform(), 0.000440598, 1e-9, "uniform")
+	_check_near(q.normal(), 0.396480682, 1e-8, "normal")
+	var expected := [
+		[0.897376, 0.170120, 7.908560, 0.387823, -5.478538],
+		[0.863215, 0.203403, 10.076681, 0.332468, -6.730970],
+		[0.839794, -0.049017, 9.693239, 0.380458, -6.656684],
+		[0.890076, -0.374709, 10.435747, 0.406676, -5.654990],
+	]
+	var s := OpponentSkill.Rng.new(42)
+	for level in OpponentSkill.LEVEL_NAMES.size():
+		var skill := OpponentSkill.new(level)
+		var full := skill.execute(0.9, 0.0, 10.0, false, s)
+		var putt := skill.execute(0.4, 0.0, -5.0, true, s)
+		var e: Array = expected[level]
+		_check_near(full[0], e[0], 2e-6, "%s full power" % skill.level_name())
+		_check_near(full[1], e[1], 2e-6, "%s full accuracy" % skill.level_name())
+		_check_near(full[2], e[2], 2e-6, "%s full aim" % skill.level_name())
+		_check_near(putt[0], e[3], 2e-6, "%s putt pace" % skill.level_name())
+		_check_near(putt[2], e[4], 2e-6, "%s putt aim" % skill.level_name())
+	_check_near(OpponentSkill.expected_strokes(0.5, Surface.Type.GREEN), 1.008202, 2e-6, "0.5 m putt")
+	_check_near(OpponentSkill.expected_strokes(6.0, Surface.Type.FRINGE), 1.964331, 2e-6, "6 m from the fringe")
+	_check_near(OpponentSkill.expected_strokes(30.0, Surface.Type.SAND), 2.878084, 2e-6, "30 m bunker shot")
+	_check_near(OpponentSkill.expected_strokes(140.0, Surface.Type.GREEN), 3.877270, 2e-6, "140 m on a green")
+	_check_near(OpponentSkill.expected_strokes(600.0, Surface.Type.SAND), 5.552756, 2e-6, "600 m from sand")
+
+
+## The planner on flat ground: it holes a straight putt and puts an approach
+## close, without any of its level's mistakes.
+func _test_computer_golfer_plans() -> void:
+	var model := StandardShotModel.new()
+	var clubs := Club.standard_set()
+	var hole := HoleData.new()
+	hole.terrain = FlatTerrain.new(Surface.Type.GREEN)
+	hole.pin = Vector3(0.0, 0.0, 4.0)
+	var cpu := ComputerGolfer.new(OpponentSkill.Level.TOUR, 5)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.GREEN, Vector3.ZERO)
+	cpu.finish()
+	_check(cpu.is_putt(), "putts on the green")
+	_check(cpu.expected == 0.0, "plans to hole a flat 4 m putt (expects %f)" % cpu.expected)
+
+	hole.terrain = FlatTerrain.new(Surface.Type.FAIRWAY)
+	hole.pin = Vector3(10.0, 0.0, 140.0)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	var start := model.launch(clubs[cpu.club_index], cpu.power, 0.0, cpu.aim_deg, Surface.Type.FAIRWAY, Vector3.ZERO)
+	var r := model.simulate(start, hole.terrain, hole.pin, Vector3(3.0, 0.0, 0.0))
+	var miss := Vector2(r.rest.x - hole.pin.x, r.rest.z - hole.pin.z).length()
+	print("  approach: %s at %.2f power, aim %.2f deg, %.1f m from the pin" % [clubs[cpu.club_index].short_name, cpu.power, cpu.aim_deg, miss])
+	_check(not clubs[cpu.club_index].is_putter, "a full club from the fairway")
+	_check(miss < 6.0, "approach plan ends within 6 m in a crosswind (%.1f m)" % miss)
+
+	var weak := ComputerGolfer.new(OpponentSkill.Level.BEGINNER, 5)
+	weak.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3.ZERO)
+	weak.finish()
+	_check(weak.power <= weak.skill.strength + 1e-6, "never swings harder than its strength")
 
 
 func _test_placeholder_course() -> void:
@@ -1074,6 +1207,63 @@ func _test_multiplayer_rounds() -> void:
 	GolfRound.setup = null
 
 
+## Computer golfers through the real round: a tour pro and a weekend golfer
+## play nine holes on their own, then a person (the test's auto-play) plays a
+## match against a club golfer.
+func _test_computer_opponents() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.names = _strs(["Pro", "Hacker"])
+	s.teams = _ints([0, 1])
+	s.computer = _ints([OpponentSkill.Level.TOUR, OpponentSkill.Level.BEGINNER])
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.state == GolfRound.State.COMPUTER, "a computer golfer is on the tee")
+	var started := Time.get_ticks_msec()
+	var steps := 0
+	var worst := 0
+	var worst_log := PackedStringArray()
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		game.auto_play_step()
+		steps += 1
+		if game.state == GolfRound.State.HOLE_DONE and game.players[0].strokes > worst:
+			worst = game.players[0].strokes
+			worst_log = game.shot_log.duplicate()
+	_check(game.state == GolfRound.State.ROUND_DONE, "computer round finishes")
+	print("  the tour pro's worst hole:\n    " + "\n    ".join(worst_log))
+	var pro := game.scoring.cards[0]
+	var hacker := game.scoring.cards[1]
+	_check(pro.holes_played() == game.holes.size() and hacker.holes_played() == game.holes.size(), "both played every hole")
+	print("  tour pro %s: %d (%s)   weekend golfer %s: %d (%s)   %.1f s" % [
+		pro.strokes, pro.total_strokes(), Scorecard.format_to_par(pro.to_par()),
+		hacker.strokes, hacker.total_strokes(), Scorecard.format_to_par(hacker.to_par()),
+		(Time.get_ticks_msec() - started) / 1000.0])
+	_check(pro.total_strokes() < hacker.total_strokes(), "the tour pro beats the weekend golfer")
+	_check(pro.to_par() <= 6, "the tour pro plays near par (%s)" % Scorecard.format_to_par(pro.to_par()))
+
+	s = RoundSetup.new()
+	s.names = _strs(["Ann", "Club"])
+	s.teams = _ints([0, 1])
+	s.computer = _ints([RoundSetup.HUMAN, OpponentSkill.Level.CLUB])
+	s.mode = GameModes.Mode.MATCH
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.state == GolfRound.State.AIM, "the person tees off first")
+	steps = 0
+	var computer_turns := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
+		if game.state == GolfRound.State.COMPUTER:
+			computer_turns += 1
+			_check(game.current == 1, "only the computer seat plays itself")
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE and computer_turns > 0, "match against the computer finishes")
+	print("  match: %s" % game.scoring.winner_text())
+	GolfRound.setup = null
+
+
 ## The full and multiplayer rounds above went into the test profiles.
 func _test_rounds_recorded() -> void:
 	var p := PlayerProfiles.load_saved()
@@ -1093,6 +1283,25 @@ func _test_golfer_file_readers() -> void:
 	_check(tris == PackedInt32Array([10, 11, 13, 13, 11, 12]), "strip_to_triangles: %s" % tris)
 	_check(GolferAnimData.influence_joint(18) == 18 and GolferAnimData.influence_joint(21) == 20,
 			"influence numbers skip 19")
+	_check(LinksGolfer.shot_section("Dr", false, 250.0) == "Driver", "driver uses [Driver]")
+	_check(LinksGolfer.shot_section("3W", false, 200.0) == "Driver", "fairway wood uses [Driver]")
+	_check(LinksGolfer.shot_section("7i", false, 150.0) == "Iron", "iron uses [Iron]")
+	_check(LinksGolfer.shot_section("SW", false, 90.0) == "Iron", "full wedge uses [Iron]")
+	_check(LinksGolfer.shot_section("PW", false, 25.0) == "Chip", "short shot uses [Chip]")
+	_check(LinksGolfer.shot_section("Pt", true, 3.0) == "Putter", "putter uses [Putter]")
+	var putts := LinksGolfer.parse_clip_list("PutterLong( 2@35),PutterMedium( 2@41),PutterShort( 2@36)")
+	_check(LinksGolfer.pick_swing(putts, "Putter", 15.0, 1.0)["clip"] == "PutterLong", "long putt clip")
+	_check(LinksGolfer.pick_swing(putts, "Putter", 6.0, 1.0)["clip"] == "PutterMedium", "medium putt clip")
+	_check(LinksGolfer.pick_swing(putts, "Putter", 1.0, 1.0)["clip"] == "PutterShort", "short putt clip")
+	var irons := LinksGolfer.parse_clip_list("IronSwing( 2@47),IronHalfSwing( 2@43)")
+	_check(LinksGolfer.pick_swing(irons, "Iron", 150.0, 1.0)["clip"] == "IronSwing", "full iron swing")
+	_check(LinksGolfer.pick_swing(irons, "Iron", 150.0, 0.4)["clip"] == "IronHalfSwing", "half swing when weak")
+	var outfit := LinksGolfer.parse_script("[customizable part 1]\nTitle=Shirts\nVarieties=3\nTextures=2\n"
+			+ "Texture1=L_A01_Shirt01_%%.TGA\nTexture2=L_A01_Shirt01_CLR_%%.TGA\n")
+	var swaps := LinksGolfer.outfit_swaps(outfit, func(key: String) -> String: return "2" if key == "shirts" else "")
+	_check(swaps.get("L_A01_SHIRT01_01.TGA", "") == "L_A01_SHIRT01_02.TGA", "shirt variety swap: %s" % swaps)
+	_check(swaps.get("L_A01_SHIRT01_CLR_01.TGA", "") == "L_A01_SHIRT01_CLR_02.TGA", "shirt colour swap")
+	_check(LinksGolfer.outfit_swaps(outfit, func(_key: String) -> String: return "").is_empty(), "default outfit")
 	var m := GolferAnimData.read_matrix(PackedFloat32Array([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 2, 3, 4, 1]).to_byte_array(), 0)
 	# Row-vector matrix: the x axis stays, y maps onto +z, and it translates by (2, 3, 4).
 	_check(m * Vector3(0, 1, 0) == Vector3(2, 3, 5), "read_matrix: %s" % (m * Vector3(0, 1, 0)))

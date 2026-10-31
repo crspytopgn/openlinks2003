@@ -27,6 +27,12 @@ static func ensure_defaults() -> void:
 	if not has_crz:
 		# Real courses (.CRZ / .RNG) from the player's own files.
 		course_loaders.push_front(CrzCourseLoader.new())
+	var has_designed := false
+	for loader in course_loaders:
+		has_designed = has_designed or loader is DesignedCourseLoader
+	if not has_designed:
+		# Courses made in the course designer.
+		course_loaders.push_front(DesignedCourseLoader.new())
 	if object_library == null:
 		object_library = _default_object_library()
 	if golfer_assets == null:

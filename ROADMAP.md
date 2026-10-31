@@ -61,10 +61,11 @@ feel) still need a working install.
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
   - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets with a hand-keyed swing, putt and celebration ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
-  - [ ] Iron and wedge clubs, lie-specific clips, the low-detail model, shirt and pants choices
+  - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
+  - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
   - [ ] Voice event conditions, commentary and menu sounds wired into the game
 
 ## Phase 4: the full game
@@ -73,9 +74,12 @@ feel) still need a working install.
   - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
   - [x] Handicaps: player profiles with their rounds, a WHS-style index, and net scoring in every mode ([game-shell.md](docs/game-shell.md#handicaps-and-player-profiles))
   - [ ] Alternate shot, scramble and the other original modes
-- [ ] AI opponents
+- [x] AI opponents: computer golfers at four levels (weekend, club, scratch, tour pro) that plan through the real physics and play every mode ([game-shell.md](docs/game-shell.md#computer-opponents))
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
+- [ ] Course designer
+  - [x] In-game designer that works in the browser: sculpt the ground, paint fairways, greens, tees, bunkers, ponds and rough, plant trees, lay out holes, play the course, save, export and import `.olc` files ([course-designer.md](docs/course-designer.md))
+  - [ ] Crisp surface edges (splat map), more object kinds, cart paths and bridges, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))
 - [ ] Game-folder picker on each platform, including the browser file picker

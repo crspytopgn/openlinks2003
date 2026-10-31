@@ -1,7 +1,7 @@
 class_name RoundSetupPanel
 extends PanelContainer
 ## The "Play a round" page: course, tees, holes, game mode, handicaps and
-## players. Each player's handicap index comes from their profile
+## players, each played by a person or by a computer golfer of a chosen level. Each player's handicap index comes from their profile
 ## (PlayerProfiles); a player with fewer than three rounds can type one in.
 ## Emits start_pressed with the chosen RoundSetup and the index of the chosen
 ## course in the list it was opened with (its course_path is left for the
@@ -18,6 +18,7 @@ var _mode_help: Label
 var _count: OptionButton
 var _names: Array[LineEdit] = []
 var _teams: Array[OptionButton] = []
+var _who: Array[OptionButton] = []
 var _handicaps: OptionButton
 var _indexes: Array[LineEdit] = []
 var _records: Array[Label] = []
@@ -31,7 +32,7 @@ func _ready() -> void:
 	MenuStyle.panel(self)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
-	box.custom_minimum_size = Vector2(640, 0)
+	box.custom_minimum_size = Vector2(760, 0)
 	add_child(box)
 	box.add_child(MenuStyle.heading("Play a round", 30))
 
@@ -73,6 +74,14 @@ func _ready() -> void:
 		edit.placeholder_text = RoundSetup.DEFAULT_NAMES[i]
 		edit.text_changed.connect(func(_text: String) -> void: _on_name_changed(i))
 		row.add_child(edit)
+		var who := OptionButton.new()
+		who.add_item("Human")
+		for level_name: String in OpponentSkill.LEVEL_NAMES:
+			who.add_item("Computer: " + level_name)
+		who.custom_minimum_size = Vector2(230, 34)
+		who.item_selected.connect(func(_item: int) -> void: _on_name_changed(i))
+		row.add_child(who)
+		_who.append(who)
 		var index := LineEdit.new()
 		index.max_length = 5
 		index.custom_minimum_size = Vector2(80, 34)
@@ -125,9 +134,11 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_profiles = PlayerProfiles.load_saved()
 	_count.select(saved.player_count() - 1)
 	for i in RoundSetup.MAX_PLAYERS:
-		var named: bool = i < saved.names.size() and saved.names[i] != RoundSetup.DEFAULT_NAMES[i]
+		var named: bool = i < saved.names.size() and saved.names[i] != RoundSetup.DEFAULT_NAMES[i] \
+				and not (saved.is_computer(i) and saved.names[i].begins_with(OpponentSkill.LEVEL_NAMES[saved.computer_level(i)]))
 		_names[i].text = saved.names[i] if named else ""
 		_teams[i].select(saved.teams[i] if i < saved.teams.size() else i % 2)
+		_who[i].select(saved.computer_level(i) + 1)
 		_fill_index(i)
 	_refresh()
 	visible = true
@@ -143,16 +154,29 @@ func current_setup() -> RoundSetup:
 	s.handicaps = _handicaps.selected == 1
 	s.names.clear()
 	s.teams.clear()
+	s.computer.clear()
 	for i in _count.selected + 1:
 		s.names.append(_player_name(i))
 		s.teams.append(_teams[i].selected)
+		s.computer.append(_who[i].selected - 1)
 		s.indexes.append(_index_of(i))
 	return s
 
 
+## A computer golfer left unnamed goes by its level ("Tour pro", or
+## "Tour pro 3" when two share it).
 func _player_name(i: int) -> String:
 	var n := _names[i].text.strip_edges()
-	return n if not n.is_empty() else RoundSetup.DEFAULT_NAMES[i]
+	if not n.is_empty():
+		return n
+	var level := _who[i].selected - 1
+	if level == RoundSetup.HUMAN:
+		return RoundSetup.DEFAULT_NAMES[i]
+	n = OpponentSkill.LEVEL_NAMES[level]
+	for j in i:
+		if _names[j].text.strip_edges().is_empty() and _who[j].selected == _who[i].selected:
+			return "%s %d" % [n, i + 1]
+	return n
 
 
 ## The profile's index once it has a record, otherwise what was typed.
@@ -197,6 +221,8 @@ func _refresh() -> void:
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
+		var level := _who[i].selected - 1
+		_names[i].placeholder_text = RoundSetup.DEFAULT_NAMES[i] if level == RoundSetup.HUMAN else OpponentSkill.LEVEL_NAMES[level]
 		_teams[i].visible = best_ball
 		_indexes[i].visible = _handicaps.selected == 1
 		_records[i].visible = _handicaps.selected == 1

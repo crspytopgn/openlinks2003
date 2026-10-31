@@ -40,8 +40,10 @@ environment variable, or `folder=` under `[game]` in `user://settings.cfg`.
 The round then plays the original swing, landing, cup and splash sounds,
 and your golfer (the first archive in `POLYANI`, or set `golfer=ERIC.L3`
 under `[game]`) appears as the original textured model, holding the
-driver or putter, and swings with the original animations. The browser
-build can't read local folders yet.
+driver, iron or putter, and plays the original swing, chip, half swing and
+putt animations for each shot. Also under `[game]`: `golfer_detail=low` for
+the low-detail model, and `shirts=2` or `pants=3` to pick the golfer's
+outfit. The browser build can't read local folders yet.
 
 ## Play in the browser
 
