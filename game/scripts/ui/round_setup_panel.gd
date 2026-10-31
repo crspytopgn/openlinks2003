@@ -39,7 +39,8 @@ func _ready() -> void:
 	MenuStyle.panel(self)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
-	box.custom_minimum_size = Vector2(760, 0)
+	# No fixed width: the panel fits what is showing (handicap and team
+	# columns appear only when needed), so it stays centred on screen.
 	add_child(box)
 	box.add_child(MenuStyle.heading("Play a round", 30))
 

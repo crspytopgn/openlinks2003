@@ -50,6 +50,8 @@ var _last := {}  ## stem -> index of the take played last
 var _rng := RandomNumberGenerator.new()
 
 
+var _distance_db := 0.0  ## the "gain_db" detail of the event playing
+
 func _ready() -> void:
 	_rng.randomize()
 
@@ -78,6 +80,12 @@ func play(event: StringName) -> void:
 ## &"putt"; "surface" (Surface.Type) and "speed" (m/s) for &"land";
 ## "power" (0..1) for &"hit".
 func play_detail(event: StringName, detail: Dictionary) -> void:
+	_distance_db = float(detail.get("gain_db", 0.0))
+	_play_event(event, detail)
+	_distance_db = 0.0
+
+
+func _play_event(event: StringName, detail: Dictionary) -> void:
 	match event:
 		&"hit":
 			var club: Club = detail.get("club")
@@ -128,7 +136,7 @@ func _play(event: StringName, gain_db: float) -> void:
 	_last[stem] = i
 	var p := AudioStreamPlayer.new()
 	p.stream = list[i]
-	p.volume_db = float(VOLUME_DB.get(event, 0.0)) + gain_db
+	p.volume_db = float(VOLUME_DB.get(event, 0.0)) + gain_db + _distance_db
 	var spread := CROWD_PITCH_SPREAD if stem in ["applause", "tee", "cheer", "roar", "groan", "ooh"] else PITCH_SPREAD
 	p.pitch_scale = 1.0 + _rng.randf_range(-spread, spread)
 	add_child(p)

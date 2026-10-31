@@ -7,9 +7,10 @@ extends RefCounted
 
 ## Trees, walls and the like the ball can hit; null for none.
 var obstacles: ObstacleField
-## The course's billboards for the Links 2003 shot model (trees, bushes,
-## rocks), met as the game meets them; null without. They are then left out
-## of the obstacles, and `model_obstacles` (walls, bridges) is used.
+## The course's billboards and 3D objects for the Links 2003 shot model
+## (trees, bushes, rocks, walls, bridges), met as the game meets them; null
+## without. The obstacles are then left out, and only `model_obstacles`
+## (none at present) is used.
 var links_objects: LinksObjects
 var model_obstacles: ObstacleField
 ## The hole being played (1 to 18), for courses that limit each hole to its

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Replaces the free golfer's hand-keyed swing and putt with motion-captured
-ones from the CMU Graphics Lab Motion Capture Database (subject 64, golf).
+"""Gives the free golfer motion-captured animations (address, swing, putt,
+walk and reactions) from the CMU Graphics Lab Motion Capture Database.
 
     python3 tools/golfer/mocap_swing.py [--glb game/assets/golfer/free_golfer.glb] [--cache DIR]
 
@@ -15,6 +15,10 @@ Then the feet are pinned with two-bone IK to where the actor's feet go
 (scaled to the golfer), and the right hand is kept on the grip. The
 downswing is retimed to a tour tempo, since the game launches the ball as
 the swing clip starts.
+
+Standing clips (walk, reactions) are measured from the actor's T pose
+instead: each bone of the golfer's rest pose is first turned onto the
+matching T-pose bone. The walk is played in place with the club carried.
 """
 
 import argparse
@@ -29,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import glb_edit  # noqa: E402
 import pose  # noqa: E402
 
-BVH_URL = "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/064/{}.bvh"
+BVH_URL = "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/{:03d}/{}.bvh"
 MOCAP_FPS = 120.0
 STEP = 2  # keep every second mocap frame: 60 keys a second
 
@@ -50,9 +54,17 @@ BONES = {
 # real time); after impact time runs at follow times real time. hold adds
 # seconds of the last frame.
 CLIPS = {
+    # Address: the actor's own sway over the ball, back and forth so it
+    # loops, with a look at the target.
+    "address": dict(take="64_01", ref="address", address=150, putt=False, loop=0.3,
+                    frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
+                    glance=(1.3, 0.4, 0.7, 70.0)),
+    "address_putt": dict(take="64_13", ref="address_putt", address=95, putt=True, loop=0.3,
+                         frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
+                         glance=(0.9, 0.45, 0.8, 75.0)),
     "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=329, putt=False),
     "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=329,
-                  downswing=0.30, follow=0.7, hold=1.0, putt=False),
+                  downswing=0.30, follow=0.7, hold=2.5, putt=False),
     "putt": dict(take="64_13", ref="address_putt", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
 }
@@ -87,6 +99,7 @@ class Bvh:
     def __init__(self, path):
         tok = open(path).read().split()
         self.names, self.parents, self.offsets, self.channels = [], [], [], []
+        self.ends = {}
         i, stack, cur = 0, [], -1
         while tok[i] != "MOTION":
             t = tok[i]
@@ -95,8 +108,9 @@ class Bvh:
                 self.parents.append(stack[-1] if stack else -1)
                 cur = len(self.names) - 1
                 i += 2
-            elif t == "End":
-                i += 8  # End Site { OFFSET x y z }
+            elif t == "End":  # End Site { OFFSET x y z }
+                self.ends[stack[-1]] = np.array([float(x) for x in tok[i + 4:i + 7]])
+                i += 8
             elif t == "{":
                 stack.append(cur)
                 i += 1
@@ -144,7 +158,7 @@ def load_take(name, cache):
     path = os.path.join(cache, name + ".bvh")
     if not os.path.exists(path):
         os.makedirs(cache, exist_ok=True)
-        urllib.request.urlretrieve(BVH_URL.format(name), path)
+        urllib.request.urlretrieve(BVH_URL.format(int(name.split("_")[0]), name), path)
     return Bvh(path)
 
 
@@ -245,9 +259,10 @@ def facing_transform(bvh, f):
 
 def retarget(glb, rig, clip, cache):
     bvh = load_take(clip["take"], cache)
-    address, start, end = clip["address"], clip["start"], clip["end"]
+    address = clip["address"]
+    frames = clip.get("frames") or list(range(clip["start"], clip["end"] + 1))
     g = facing_transform(bvh, address)
-    ref_local, ref_root = rig.sample(glb, clip["ref"])
+    ref_local, ref_root = rig.sample(glb, "ref_" + clip["ref"])
     ref_rots, ref_poss = rig.world(ref_local, ref_root)
     m_rots0, m_poss0 = bvh.frame(address)
     # Scale: the golfer's hip height over the actor's.
@@ -263,9 +278,8 @@ def retarget(glb, rig, clip, cache):
     grip_r = ref_rots[hands_l].T @ (ref_poss[rig.index["hand_r"]] - ref_poss[hands_l])
     hand_r_in_l = ref_rots[hands_l].T @ ref_rots[rig.index["hand_r"]]
 
-    frames = list(range(start, end + 1))
     out_rots, out_root = [], []
-    for f in frames:
+    for i, f in enumerate(frames):
         m_rots, m_poss = bvh.frame(f)
         rots = [None] * len(rig.names)
         for j, name in enumerate(rig.names):
@@ -273,6 +287,8 @@ def retarget(glb, rig, clip, cache):
             if src:
                 k = bvh.index[src]
                 rots[j] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ ref_rots[j]
+        if clip.get("glance"):
+            glance(rig, rots, i / MOCAP_FPS, clip["glance"])
         root = ref_root + scale * (g @ (m_poss[bvh.index["Hips"]] - m_poss0[bvh.index["Hips"]]))
         rots = fill(rig, rots, ref_local)
         _, poss = rig.world(rig.locals(rots), root)
@@ -285,7 +301,7 @@ def retarget(glb, rig, clip, cache):
             rots[rig.index[f"foot_{s}"]] = foot
         rots = fill(rig, rots, ref_local, keep=True)
         rots, poss = rig.world(rig.locals(rots), root)
-        if not clip["putt"]:
+        if not clip["putt"] and "top" in clip:
             arm = plane_dir(poss[hands_l] - poss[rig.index["upperarm_l"]], plane)
             step = math.degrees(math.atan2(np.dot(np.cross(arm0, arm), plane), np.dot(arm0, arm))) - arm_angle
             arm_angle += (step + 180.0) % 360.0 - 180.0  # unwrapped
@@ -308,6 +324,8 @@ def retarget(glb, rig, clip, cache):
         out_rots.append(rig.locals(rots))
         out_root.append(root)
 
+    if clip.get("loop"):
+        loop_blend(out_rots, out_root, clip["loop"])
     times = retime(clip, frames)
     keep = list(range(0, len(frames), STEP))
     if keep[-1] != len(frames) - 1:
@@ -357,6 +375,8 @@ def fill(rig, rots, ref_local, keep=False):
 
 def retime(clip, frames):
     """Seconds from the clip's start for each mocap frame."""
+    if "top" not in clip:
+        return [i / MOCAP_FPS for i in range(len(frames))]
     start, top, impact = frames[0], clip["top"], clip["impact"]
     back = 1.0
     if clip.get("back"):
@@ -385,14 +405,14 @@ def smooth(quats):
     return out / np.linalg.norm(out, axis=1, keepdims=True)
 
 
-def write_clip(glb, rig, name, times, rots, root):
+def write_clip(glb, rig, name, times, rots, root, filtered=True):
     t_acc = glb.add(times, minmax=True)
     samplers, channels = [], []
     for j, node in enumerate(rig.joints):
         if rig.names[j] == "club":
             continue
         q = np.array([pose.quat(r[j]) for r in rots])
-        q = smooth(q).astype(np.float32)
+        q = (smooth(q) if filtered and len(q) > 2 else q).astype(np.float32)
         samplers.append({"input": t_acc, "output": glb.add(q), "interpolation": "LINEAR"})
         channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "rotation"}})
     samplers.append({"input": t_acc, "output": glb.add(root), "interpolation": "LINEAR"})
@@ -400,17 +420,204 @@ def write_clip(glb, rig, name, times, rots, root):
     glb.set_animation({"name": name, "samplers": samplers, "channels": channels})
 
 
+def glance(rig, rots, t, at):
+    """Turns the head and neck towards the target (-x) and back: at is
+    (start, seconds turning, seconds held, degrees)."""
+    start, turn, hold, degrees = at
+    if t < start + turn:
+        u = (t - start) / turn
+    else:
+        u = 1 - (t - start - turn - hold) / turn
+    u = float(np.clip(u, 0, 1))
+    a = degrees * u * u * (3 - 2 * u)
+    for name, share in (("neck_01", 0.4), ("head", 0.6)):
+        j = rig.index[name]
+        # About the bone's own axis, so a golfer bent over the ball turns
+        # his head along his spine rather than round the vertical.
+        axis = rots[j] @ np.array([0.0, 1.0, 0.0])
+        rots[j] = pose.rot(axis, a * share) @ rots[j]
+
+
+def loop_blend(rots, roots, seconds):
+    """Eases the last seconds of a clip into its first frame so it loops."""
+    n = min(int(seconds * MOCAP_FPS), len(rots) - 1)
+    for k in range(n):
+        i = len(rots) - n + k
+        w = (k + 1) / n
+        w = w * w * (3 - 2 * w)
+        rots[i] = [pose.slerp(a, b, w) for a, b in zip(rots[i], rots[0])]
+        roots[i] = roots[i] * (1 - w) + roots[0] * w
+
+
+def ensure_refs(glb, rig):
+    """Keeps the hand-keyed address poses the golf clips are measured from,
+    as one-key clips, before "address" itself is replaced."""
+    for name in ("address", "address_putt"):
+        if glb.animation("ref_" + name):
+            continue
+        local, root = rig.sample(glb, name)
+        write_clip(glb, rig, "ref_" + name, np.zeros(1, np.float32), [local], np.array([root], np.float32),
+                   filtered=False)
+
+
+# ---- standing clips -----------------------------------------------------
+
+# Direction of each mapped bone: (golfer child, actor child). None means up;
+# "forward" and "end" use the golfer's facing and the actor's end site.
+BONE_DIRS = {
+    "pelvis": (None, None), "spine_01": ("spine_02", "Spine"), "spine_02": ("spine_03", "Spine1"),
+    "spine_03": ("neck_01", "Neck1"), "neck_01": ("head", "Head"), "head": (None, None),
+    "foot_l": ("ball_l", "LeftToeBase"), "foot_r": ("ball_r", "RightToeBase"),
+    "ball_l": ("forward", "end"), "ball_r": ("forward", "end"),
+}
+for _s, _a in (("l", "Left"), ("r", "Right")):
+    BONE_DIRS.update({
+        f"clavicle_{_s}": (f"upperarm_{_s}", f"{_a}Arm"), f"upperarm_{_s}": (f"lowerarm_{_s}", f"{_a}ForeArm"),
+        f"lowerarm_{_s}": (f"hand_{_s}", f"{_a}Hand"), f"hand_{_s}": (f"middle_01_{_s}", f"{_a}HandIndex1"),
+        f"thigh_{_s}": (f"calf_{_s}", f"{_a}Leg"), f"calf_{_s}": (f"foot_{_s}", f"{_a}Foot"),
+    })
+
+# Standing clips: take, frames, where the golfer faces (golfer frame), and
+# options. walk is played in place (the game moves the golfer) with the
+# club carried; loop eases the end into the start.
+STAND_CLIPS = {
+    "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25),
+    "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
+    "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
+    # Standing at ease: weight shifts and breathing (the caddie).
+    "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5),
+    # Crouching behind the ball to read a putt, putter in hand.
+    "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
+}
+CARRY_HEAD_HEIGHT = 0.12  # the club head's height when carried, metres
+
+
+def actor_facing(bvh, f):
+    _, p = bvh.frame(f)
+    side = p[bvh.index["LeftArm"]] - p[bvh.index["RightArm"]]
+    facing = np.cross(side, [0.0, 1.0, 0.0])
+    facing[1] = 0
+    return pose.unit(facing)
+
+
+def yaw_between(a, b):
+    a, b = pose.unit(np.array([a[0], 0, a[2]])), pose.unit(np.array([b[0], 0, b[2]]))
+    return pose.rot([0, 1, 0], math.degrees(math.atan2(np.cross(a, b)[1], np.dot(a, b))))
+
+
+def retarget_stand(glb, rig, clip, cache):
+    bvh = load_take(clip["take"], cache)
+    fps = MOCAP_FPS
+    start, end = clip["start"], clip["end"]
+    frames = list(range(start, end + 1))
+    m_rots0, m_poss0 = bvh.frame(0)  # the T pose
+    up = np.array([0.0, 1.0, 0.0])
+    if clip.get("in_place"):
+        _, pa = bvh.frame(start)
+        _, pb = bvh.frame(end)
+        heading = pb[bvh.index["Hips"]] - pa[bvh.index["Hips"]]
+    else:
+        heading = actor_facing(bvh, start)
+    g = yaw_between(heading, clip["facing"])
+    # The golfer's rest pose turned to the actor's T pose, bone by bone.
+    rest_rots, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
+    rest_facing = np.array([0.0, 0.0, -1.0])
+    t_facing = g @ actor_facing(bvh, 0)
+    ref = {}
+    for name, (child, actor_child) in BONE_DIRS.items():
+        j, k = rig.index[name], bvh.index[BONES[name]]
+        if child is None:
+            d0, d1 = up, up
+        elif child == "forward":
+            d0 = rest_facing
+            d1 = g @ m_rots0[k] @ bvh.ends[k]
+        else:
+            d0 = rest[rig.index[child]] - rest[j]
+            d1 = g @ (m_poss0[bvh.index[actor_child]] - m_poss0[k])
+        n0, n1 = (rest_facing, t_facing) if abs(np.dot(pose.unit(d0), rest_facing)) < 0.7 else (up, up)
+        ref[name] = pose.aim(d0, n0, d1, n1)
+    # Scale and the point the actor's positions are measured from.
+    pelvis_rest = rest[rig.index["pelvis"]]
+    ankle_rest = rest[rig.index["foot_l"]][1]
+    hips0 = m_poss0[bvh.index["Hips"]]
+    scale = (pelvis_rest[1] - ankle_rest) / (hips0[1] - m_poss0[bvh.index["LeftFoot"]][1])
+    _, ps = bvh.frame(start)
+    origin0 = np.array([ps[bvh.index["Hips"]][0], hips0[1], ps[bvh.index["Hips"]][2]])
+    drift = np.zeros(3)
+    if clip.get("in_place"):
+        drift = heading / (end - start)
+        drift[1] = 0
+    relaxed = {}
+    grip_local, _ = rig.sample(glb, "ref_address")
+    for j, name in enumerate(rig.names):
+        if name.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb"):
+            curl = 1.0 if (clip.get("carry") and name.endswith("_l")) else 0.35
+            relaxed[j] = pose.slerp(np.eye(3), grip_local[j], curl)
+    club_dir = club_direction(glb, rig)
+    facing = pose.unit(np.array(clip["facing"], dtype=float))
+
+    out_rots, out_root = [], []
+    for i, f in enumerate(frames):
+        m_rots, m_poss = bvh.frame(f)
+        origin = origin0 + drift * i
+        rots = [None] * len(rig.names)
+        for j, name in enumerate(rig.names):
+            if name in ref:
+                k = bvh.index[BONES[name]]
+                rots[j] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ ref[name]
+        local0 = [relaxed.get(j, np.eye(3)) for j in range(len(rig.names))]
+
+        def place(x):
+            return pelvis_rest + scale * (g @ (x - origin))
+
+        root = place(m_poss[bvh.index["Hips"]]) - rig.offsets[rig.index["pelvis"]]
+        rots = fill(rig, rots, local0)
+        _, poss = rig.world(rig.locals(rots), root)
+        for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
+            foot = rots[rig.index[f"foot_{s}"]]
+            two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", place(m_poss[bvh.index[actor]]))
+            rots[rig.index[f"foot_{s}"]] = foot
+        rots = fill(rig, rots, local0, keep=True)
+        if clip.get("carry"):
+            # The club in the left hand: head low in front, or held up
+            # when the hand is raised above the shoulder.
+            rots, poss = rig.world(rig.locals(rots), root)
+            h = rig.index["hand_l"]
+            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / 1.07, 0.3, 0.95))
+            low = facing * math.sqrt(1 - drop * drop) - up * drop
+            raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
+            w = float(np.clip(raised, 0, 1))
+            want = pose.unit(low * (1 - w * w * (3 - 2 * w)) + pose.unit(up + 0.5 * facing) * w * w * (3 - 2 * w))
+            rots[h] = between(rots[h] @ club_dir, want) @ rots[h]
+            rots = fill(rig, rots, local0, keep=True)
+        out_rots.append(rig.locals(rots))
+        out_root.append(root)
+    if clip.get("loop"):
+        loop_blend(out_rots, out_root, clip["loop"])
+    times = [i / fps for i in range(len(frames))]
+    step = max(1, int(round(fps / 60.0)))
+    keep = list(range(0, len(frames), step))
+    if keep[-1] != len(frames) - 1:
+        keep.append(len(frames) - 1)
+    return (np.array([times[i] for i in keep], np.float32), [out_rots[i] for i in keep],
+            np.array([out_root[i] for i in keep], np.float32))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--glb", default=os.path.join(os.path.dirname(__file__), "../../game/assets/golfer/free_golfer.glb"))
     ap.add_argument("--cache", default=os.path.join(os.path.expanduser("~"), ".cache", "cmu-mocap"))
     ap.add_argument("--out", default=None)
-    ap.add_argument("--clips", default=",".join(CLIPS))
+    ap.add_argument("--clips", default=",".join(list(CLIPS) + list(STAND_CLIPS)))
     args = ap.parse_args()
     glb = glb_edit.Glb(args.glb)
     rig = Rig(glb)
+    ensure_refs(glb, rig)
     for name in args.clips.split(","):
-        times, rots, root = retarget(glb, rig, CLIPS[name], args.cache)
+        if name in STAND_CLIPS:
+            times, rots, root = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
+        else:
+            times, rots, root = retarget(glb, rig, CLIPS[name], args.cache)
         write_clip(glb, rig, name, times, rots, root)
         print(f"{name}: {len(times)} keys, {times[-1]:.2f} s")
     glb.save(args.out or args.glb)

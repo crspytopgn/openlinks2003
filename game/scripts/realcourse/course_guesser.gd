@@ -13,9 +13,11 @@ extends RefCounted
 ## - greenside bunkers either side of the green, and on par 4s and 5s a
 ##   fairway bunker at the driving distance.
 ##
-## Before guessing a green or bunkers it looks for the real ones
-## (CourseDetector): in the aerial photo if there is one, and bunkers as
-## hollows in lidar heights. Found shapes have the meta "detected".
+## Before guessing a green, fairway or bunkers it looks for the real ones
+## in the aerial photo (CourseDetector), in a close-up round the green when
+## there is one. Found shapes have `found` set. (Lidar hollows were
+## tried for bunkers and were wrong two times in three, worse than a
+## marked guess, so heights aren't used.)
 ##
 ## Shapes it adds are marked `guessed`, so the designer can tell them from
 ## mapped ones. Holes already mapped in full are left as they are.
@@ -30,7 +32,7 @@ const DRIVE := 230.0  ## fairway bunker distance from the back tee
 
 
 ## Adds the missing shapes to `c` and returns them.
-static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar := false) -> Array[CourseShape]:
+static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, details: Array[Dictionary] = []) -> Array[CourseShape]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var added: Array[CourseShape] = []
@@ -49,11 +51,20 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar 
 		if approach == Vector2.ZERO:
 			approach = Vector2(0, 1)
 
+		# Round the green, a close-up photo if there is one.
+		var near_photo := photo
+		var near_area := c.area
+		for d in details:
+			if (d["area"] as Rect2).grow(-45.0).has_point(h.pin):
+				near_photo = d["image"]
+				near_area = d["area"]
+				break
+
 		# Green.
 		var radius := 0.0
 		var green := _find(c, Surface.Type.GREEN, h.pin, 20.0)
 		if green == null:
-			var ring := CourseDetector.find_green(photo, c.area, h.pin)
+			var ring := CourseDetector.find_green(near_photo, near_area, h.pin)
 			if ring.size() >= 3:
 				green = CourseShape.new(Surface.Type.GREEN, ring)
 				_add(c, added, green, true)
@@ -76,12 +87,16 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar 
 			if _find(c, Surface.Type.TEE, t, 6.0) == null:
 				_add(c, added, _box(Surface.Type.TEE, t, first_dir, TEE_HALF))
 
-		# Fairway.
+		# Fairway: the real one in the photo, else a typical one.
 		if par >= 4 and not _has_fairway(c, line, length):
-			var start := minf(length * (0.3 if par == 4 else 0.22), FAIRWAY_START)
 			var stop := length - radius - 4.0
-			if stop - start > 60.0:
-				_add(c, added, _fairway(line, start, stop, FAIRWAY_WIDTH * rng.randf_range(0.9, 1.1), rng))
+			var ring := CourseDetector.find_fairway(photo, c.area, line, minf(60.0, length * 0.2), stop)
+			if ring.size() >= 3:
+				_add(c, added, CourseShape.new(Surface.Type.FAIRWAY, ring), true)
+			else:
+				var start := minf(length * (0.3 if par == 4 else 0.22), FAIRWAY_START)
+				if stop - start > 60.0:
+					_add(c, added, _fairway(line, start, stop, FAIRWAY_WIDTH * rng.randf_range(0.9, 1.1), rng))
 
 		# Bunkers only on holes with none mapped: a mapper who drew one
 		# bunker of a hole drew them all.
@@ -92,11 +107,9 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar 
 			var spots := [[h.pin, radius + 22.0]]
 			if par >= 4 and length > DRIVE + 90.0:
 				spots.append([_point_at(line, DRIVE), 45.0])
-			for spot: Array in spots:
-				var rings := CourseDetector.find_sand(photo, c.area, spot[0], spot[1])
-				if rings.is_empty() and lidar:
-					rings = CourseDetector.find_hollows(c, spot[0], spot[1])
-				for ring in rings:
+			for k in spots.size():
+				var spot: Array = spots[k]
+				for ring in CourseDetector.find_sand(near_photo if k == 0 else photo, near_area if k == 0 else c.area, spot[0], spot[1]):
 					var mid := _ring_centre(ring)
 					if (green == null or not Geometry2D.is_point_in_polygon(mid, green.outline())) and not _on_path(c, mid):
 						found.append(ring)
@@ -129,8 +142,7 @@ static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar 
 
 static func _add(c: DesignedCourse, added: Array[CourseShape], s: CourseShape, detected := false) -> void:
 	s.guessed = true
-	if detected:
-		s.set_meta("detected", true)
+	s.found = detected
 	c.shapes.append(s)
 	added.append(s)
 

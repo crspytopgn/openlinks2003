@@ -18,7 +18,8 @@ namespace olcore {
 // the ball. See docs/formats/physics.md. The GDScript port is
 // game/scripts/physics/links_objects.gd; change both together.
 
-// The opaque parts of a type's largest picture. Row 0 is the bottom row.
+// The opaque parts of a picture. Row 0 is the bottom row for billboards,
+// the top row for the textures of 3D objects (as their uvs count).
 struct LinksSpriteMask {
   int width = 0, height = 0;
   std::vector<std::uint8_t> alpha;
@@ -54,6 +55,28 @@ struct LinksBillboard {
   int type = 0;
 };
 
+// A 3D object's mesh (bridges, walls, buildings) as stored: model units, z
+// up, polygons fanned from their first corner (see docs/formats/model.md).
+struct LinksMesh {
+  struct Face {
+    std::uint16_t first = 0, count = 0, texture = 0;
+  };
+  std::vector<std::array<float, 3>> positions;
+  std::vector<std::array<float, 2>> uvs;  // one per corner, v = 0 at the top
+  std::vector<std::uint16_t> corners;     // position index per corner
+  std::vector<Face> faces;
+  // Per texture: the holes of a texture the game marks see-through (rows
+  // top first), or an empty mask for a solid one.
+  std::vector<LinksSpriteMask> holes;
+};
+
+// One placed 3D object: its mesh's points in the game's frame, feet.
+struct LinksModel {
+  int mesh = 0;
+  std::vector<Vec3> points;  // per mesh position
+  Vec3 box_min, box_max;
+};
+
 // A placement's anchors from its `2DPlant` extra fields (-1 when absent).
 double links_anchor_x(std::int32_t extra_byte);
 double links_anchor_z(std::int32_t extra_word);
@@ -61,15 +84,19 @@ double links_anchor_z(std::int32_t extra_word);
 class LinksObjects {
  public:
   std::vector<LinksObjectType> types;
+  std::vector<LinksMesh> meshes;
 
   void add(const LinksBillboard& b);
   const std::vector<LinksBillboard>& billboards() const { return billboards_; }
+  // A 3D object: `points` holds its mesh's positions already placed.
+  void add_model(LinksModel m);
+  const std::vector<LinksModel>& models() const { return models_; }
 
   struct Hit {
-    int object = -1;
-    Vec3 point;   // where the centre's path meets the billboard
-    Vec3 normal;  // horizontal, back towards the viewer
-    int kind = 0;  // 1 solid, 2 slowed by the canopy
+    int object = -1;  // the billboard, or for kind 8 the 3D object
+    Vec3 point;   // where the centre's path meets it
+    Vec3 normal;  // billboards: horizontal, back towards the viewer; 3D: the face's
+    int kind = 0;  // 1 solid, 2 slowed by the canopy, 8 a 3D object's face
     double factor = 0;  // kind 1: restitution; kind 2: speed kept
   };
   // The first billboard the path p -> q goes through, skipping `last` (the
@@ -79,11 +106,17 @@ class LinksObjects {
   bool hit(Vec3 p, Vec3 q, Vec3 facing, int last, Hit& out) const;
   // One billboard: whether the ray p + t d (d unit) meets it.
   bool hit_one(int index, Vec3 p, Vec3 d, Vec3 facing, Hit& out) const;
+  // One 3D object: the nearest face the ray p + t d (d unit) meets within
+  // `reach` (any distance when negative), through its see-through holes.
+  // Faces seen from behind let it through.
+  bool hit_model(int index, Vec3 p, Vec3 d, double reach, Hit& out) const;
 
  private:
   static constexpr double kCell = 64.0;
   std::vector<LinksBillboard> billboards_;
-  std::unordered_map<std::int64_t, std::vector<int>> cells_;
+  std::vector<LinksModel> models_;
+  std::unordered_map<std::int64_t, std::vector<int>> cells_;  // billboards
+  std::unordered_map<std::int64_t, std::vector<int>> model_cells_;
   static std::int64_t key(std::int64_t cx, std::int64_t cy) { return cx * 1000003 + cy; }
 };
 

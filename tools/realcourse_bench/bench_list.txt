@@ -1,0 +1,30 @@
+hilversum|Hilversumsche Golf Club
+noordwijk|Noordwijkse Golf Club
+haagsche|Koninklijke Haagsche Golf & Country Club
+depan|Utrechtse Golf Club De Pan
+antwerp|Royal Antwerp Golf Club
+zoute|Royal Zoute Golf Club
+latem|Royal Latem Golf Club
+hubbelrath|Golf Club Hubbelrath
+duesseldorf|Düsseldorfer Golf Club
+crans|Golf Club Crans-sur-Sierre
+zumikon|Golf & Country Club Zürich
+fontana|Fontana Golf Club
+freudenau|Golf Club Wien
+golfnational|Golf National
+chantilly|Golf de Chantilly
+morfontaine|Golf de Morfontaine
+valderrama|Real Club Valderrama
+elprat|Real Club de Golf El Prat
+pgacat|PGA Catalunya
+kasumigaseki|Kasumigaseki Country Club
+hirono|Hirono Golf Club
+augusta|Augusta National Golf Club
+sawgrass|TPC Sawgrass
+pinehurst|Pinehurst No. 2
+bethpage|Bethpage State Park Golf Course
+torrey|Torrey Pines Golf Course
+wentworth|Wentworth Club
+sunningdale|Sunningdale Golf Club
+birkdale|Royal Birkdale Golf Club
+lytham|Royal Lytham & St Annes Golf Club

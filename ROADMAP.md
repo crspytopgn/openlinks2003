@@ -33,7 +33,7 @@ feel) still need a working install.
 
 ## Phase 2: a playable round
 
-- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. The three-click meter runs at the game's own positions and speeds, and chips are picked and played as the game does (its chip meter, chip power and chip misses). The cup (rim, lip-outs, the drop into the hole) and the flagstick match the game's code step for step. Trees, bushes, grasses and rocks (the course's billboards) stop, turn and slow the ball as the game's code does. Still to do: the game's own test for 3D objects (walls, bridges), which still use their boxes. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
+- [ ] Ball physics on real terrain: bounce and roll per surface, spin on greens, lie effects, trees and water **(needs data for tuning)**. Flight, launch, bounce and roll now use the game's own model ([physics.md](docs/formats/physics.md)): the coefficient and club tables are read from the player's executable, the launch matches the game's code on random strikes, and the bounce, skid, roll, rough hops and rock kicks match the game's code step for step. Lie effects (rough, deep grass, the sand contact model) and the human swing's miss model (PowerStroke misses becoming pulls, pushes, lost power and poor strikes per lie and skill level) the computer golfers' own miss generator and the game's green firmness and speed options are in too, and so are putts (the putter's own launch, starting on the ground, its PowerStroke miss and the computer golfers' putt misses). The PowerStroke mouse swing works as the game's does (the mouse drives a club with momentum up and down the game's meter, frame by frame; drift hooks, slices or misses), checked against the game's code in an emulator, putts and chips included. The three-click meter runs at the game's own positions and speeds, and chips are picked and played as the game does (its chip meter, chip power and chip misses). The cup (rim, lip-outs, the drop into the hole) and the flagstick match the game's code step for step. Trees, bushes, grasses and rocks (the course's billboards) stop, turn and slow the ball as the game's code does. 3D objects (walls, bridges, buildings) use the game's own face test, see-through textures and its roll along decks and bridges. The bounce and roll use each course's own `TerrainTypes` values, and out of bounds and hazards come from the course files
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
@@ -66,7 +66,7 @@ feel) still need a working install.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
-  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, with a motion-captured swing and putt (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)) and a hand-keyed celebration ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
+  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, a walk up to each ball, a crouch to read each putt, his head following the ball, feet planted on slopes, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
   - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
@@ -76,6 +76,7 @@ feel) still need a working install.
   - [x] Without the game files: real recordings (CC0 and CC BY, from freesound.org) for club strikes by club and lie, putts, landings by surface, the cup, water, crowd reactions, footsteps, the bag and menu clicks, and looping course ambience by kind of course, with wind and water layers ([tools/audio](tools/audio/build_free_sounds.py), [credits](game/assets/sounds/CREDITS.md))
   - [x] Voice lines at impact, in flight and on landing (best-guess timing); the disc sounds in the browser as an opt-in setting
   - [ ] Voice event conditions (the condition block) read from the banks instead of our own rules
+  - [x] Landings, the cup and splashes heard from where the camera stands: late by the speed of sound and fainter with distance (`SoundBank.heard_from`)
 
 ## Phase 4: the full game
 
@@ -95,8 +96,11 @@ feel) still need a working install.
   - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
   - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
   - [x] Real courses: greens, tees, fairways and bunkers the map lacks drawn at typical sizes along each hole (marked as guessed)
-  - [x] Real courses: find missing greens and bunkers in the photos (and bunkers in the lidar) before guessing
-  - [ ] Real courses: find missing fairways in the photos, and greens in the lidar
+  - [x] Real courses: find missing greens and bunkers in the photos before guessing
+  - [x] Real courses: find missing fairways in the photos (clear photos; low-contrast ones fall back)
+  - [x] Real courses: close-up photos round the greens, bunkers only where they sit in grass, and a benchmark of 21 mapped courses (`tools/realcourse_bench/`)
+  - [x] Real courses: imported areas the map lacked are dashed in the designer (guesses in orange); hole lengths checked against scorecards
+  - [ ] Real courses: find fairways on more holes, and greens and bunkers where there is no open photo (England)
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
@@ -107,8 +111,8 @@ feel) still need a working install.
 
 - [ ] Optional extras, off by default so Classic Links plays as the original ([caddie-and-buggy.md](docs/caddie-and-buggy.md))
   - [x] Caddie (Settings > Caddie): yardage, plays-like, club, line and green reads planned through the real physics, saying less at the harder swing skill levels
-  - [ ] Drivable golf buggy between shots, with a skip
-  - [ ] Caddie animations (walking, handing over the club)
+  - [x] Drivable golf buggy between shots (Settings > Golf buggy), with a skip
+  - [ ] Caddie animations (walking, handing over the club); standing at ease with mocap is done
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
   - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
@@ -122,6 +126,7 @@ feel) still need a working install.
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
 - [ ] Settings, controller support, performance
+  - [x] Touch swipe swing and on-screen aim and club buttons for phones and tablets; game pad play with an analog-stick mouse swing ([game-shell.md](docs/game-shell.md#touch-screens-and-game-pads))
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [x] Photo-textured 3D trees with impostors, also in place of the disc courses' tree billboards, baked tree shadows and AO per hole, and a performance budget in CI ([graphics.md](docs/graphics.md))
   - [x] Cloud shadows (Settings > Graphics, on in the Photoreal, Natural and Cinematic looks)
