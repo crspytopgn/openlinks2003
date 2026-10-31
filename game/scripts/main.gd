@@ -844,6 +844,8 @@ func _process(delta: float) -> void:
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
 	hud.meter.visible = state != State.DROP
+	if state != State.AIM and hud.overlay != null:
+		hud.overlay.end_hole_card()  # the hole card must not sit over the shot
 	if online != null:
 		_poll_online()
 	if paused:
