@@ -600,6 +600,7 @@ func play_shot(power: float, accuracy: float) -> void:
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
+		golfer.watch(ball, 0.7 if club.is_putter else 0.3)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
@@ -2119,6 +2120,7 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
+	golfer.set_ground(hole.terrain.height_at)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
@@ -2339,6 +2341,7 @@ func start_replay() -> bool:
 	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
+		golfer.watch(ball, 0.7 if putting else 0.3)
 	sounds.play_detail(&"hit", _strike_sound)
 	return true
 

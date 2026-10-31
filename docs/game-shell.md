@@ -453,9 +453,13 @@ Nothing in the round needs to change.
   MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, moving
   with motion capture (CMU mocap, retargeted by
   `tools/golfer/mocap_swing.py`): address with a look at the target, swing,
-  putt, a walk up to each new ball, and `celebrate` and `upset` reactions,
-  baked into
+  putt, a walk up to each new ball, a crouch behind the ball to read each
+  putt, `celebrate` and `upset` reactions, and an `idle` stand (used by the
+  caddie), baked into
   `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
+  Two `SkeletonModifier3D`s run on top of the clips: `GolferLook` turns his
+  head to follow the ball in flight (`GolferRig.watch`) and `GolferFeet`
+  plants his feet on slopes (`GolferRig.set_ground`).
   If that file is missing it falls back to `PlaceholderGolfer`, the figure
   built from primitives.
 - **Audio:** subclass `SoundBank` (`play(event)`, and optionally

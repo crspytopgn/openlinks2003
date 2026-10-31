@@ -94,7 +94,9 @@ func _stand(hole: HoleData, ball: Vector3, dir: Vector3, putting: bool) -> void:
 	visible = true
 
 
-## The free golfer's model standing at ease, arms down, in white overalls;
+## The free golfer's model standing at ease in white overalls, breathing and
+## shifting his weight (the mocap `idle` clip, from a random point so two
+## figures never move together); arms posed down if the clip is missing.
 ## null without the model.
 static func make_figure() -> Node3D:
 	if not ResourceLoader.exists(FreeGolfer.SCENE_PATH):
@@ -117,6 +119,13 @@ static func make_figure() -> Node3D:
 				suit.albedo_color = OVERALLS
 				mesh.set_surface_override_material(0, suit)
 	var player := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if player != null and player.has_animation(&"idle"):
+		player.get_animation(&"idle").loop_mode = Animation.LOOP_LINEAR
+		# Started once the figure is in the scene.
+		player.ready.connect(func() -> void:
+			player.play(&"idle")
+			player.seek(randf() * player.current_animation_length, true), CONNECT_ONE_SHOT)
+		return model
 	if player != null:
 		player.stop()
 		player.active = false

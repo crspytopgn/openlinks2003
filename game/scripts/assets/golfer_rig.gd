@@ -16,3 +16,14 @@ func play(_animation: StringName) -> void:
 
 func set_shot(_club: Club, _distance_m: float, _power: float = 1.0) -> void:
 	pass
+
+
+## Turns the golfer's head to follow `target` (the ball in flight) after
+## `delay` seconds, until the next play().
+func watch(_target: Node3D, _delay: float = 0.3) -> void:
+	pass
+
+
+## Ground height at (x, z) in world space, for planting the feet on slopes.
+func set_ground(_height: Callable) -> void:
+	pass
