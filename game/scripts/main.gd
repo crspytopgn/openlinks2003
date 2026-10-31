@@ -61,6 +61,11 @@ class PlayerBall:
 	## best of their shots so far ({at, add, score, by}).
 	var round_turn := 0
 	var round_best := {}
+	## This hole's stats: tee shot on the fairway (-1 on a par 3), green in
+	## regulation, putts.
+	var fairway := -1
+	var gir := false
+	var putts := 0
 
 	func done() -> bool:
 		return holed or picked_up or inactive
@@ -92,8 +97,12 @@ var players: Array[PlayerBall] = []
 var opponents: Array[ComputerGolfer] = []
 var current := 0  ## whose ball is being played
 var shooter := 0  ## who is hitting it (a partner, in a shared-ball mode)
+## The last person to play, for the hot-seat hand-over; -1 at the start.
+var _last_human := -1
 ## The ball each player plays: their own, or their team's in a shared-ball mode.
 var ball_of: Array[int] = []
+## Each player's stats over the holes finished so far (PlayerProfiles.STATS).
+var round_stats: Array[Dictionary] = []
 var honour: Array[int] = []  ## tee-off order for this hole
 ## The current player's card.
 var card: Scorecard
@@ -140,6 +149,7 @@ var scenery: Scenery
 var settings_panel: SettingsPanel
 var pause_menu: PauseMenu
 var ambience: CourseAmbience
+var voice: GolferVoice
 var post: PostProcess
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
@@ -170,6 +180,13 @@ func _ready() -> void:
 	_apply_graphics()
 	sounds = AssetProviders.create_sound_bank()
 	add_child(sounds)
+	var assets := AssetProviders.golfer_assets
+	voice = GolferVoice.from_game_folder((assets as LinksGolferAssets).archive_path() if assets is LinksGolferAssets else "")
+	if voice != null:
+		add_child(voice)
+	var menu_sounds := MenuSounds.from_game_folder(false)
+	if menu_sounds != null:
+		add_child(menu_sounds)
 	hud.meter.backswing_started.connect(_on_backswing_started)
 	hud.meter.swing_finished.connect(_on_swing_finished)
 	start_round()
@@ -223,6 +240,8 @@ func start_round() -> void:
 		players[ball_of[i]].members.append(i)
 	current = 0
 	shooter = 0
+	_last_human = -1
+	hud.hand_over.close()
 	card = scoring.cards[0]
 	scenery.set_backdrop(course.horizon)
 	if ambience != null:
@@ -234,6 +253,9 @@ func start_round() -> void:
 			add_child(ambience)
 	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
+	round_stats.clear()
+	for _i in scoring.player_count():
+		round_stats.append(PlayerProfiles.empty_stats())
 	var saved := resume
 	resume = {}
 	if saved.is_empty():
@@ -250,6 +272,11 @@ func _restore(saved: Dictionary) -> void:
 		var row: Array = Array(saved_cards[i])
 		for h in mini(row.size(), holes.size()):
 			scoring.cards[i].record(h, int(row[h]))
+	var saved_stats: Array = saved.get("stats", [])
+	for i in mini(saved_stats.size(), round_stats.size()):
+		var st: Dictionary = saved_stats[i]
+		for key: String in round_stats[i]:
+			round_stats[i][key] = int(st.get(key, 0))
 	var order: Array = Array(saved.get("honour", []))
 	var sorted := order.duplicate()
 	sorted.sort()
@@ -272,6 +299,9 @@ func _restore(saved: Dictionary) -> void:
 		players[i].shots = int(b.get("shots", 0))
 		players[i].round_turn = int(b.get("round_turn", 0))
 		players[i].round_best = b.get("round_best", {})
+		players[i].fairway = int(b.get("fairway", -1))
+		players[i].gir = b.get("gir", false) == true
+		players[i].putts = int(b.get("putts", 0))
 	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
 	var next := _next_player()
 	if next < 0:
@@ -291,10 +321,12 @@ func _save_progress() -> void:
 	var balls: Array = []
 	for p in players:
 		balls.append({"at": p.at, "strokes": p.strokes, "holed": p.holed, "picked_up": p.picked_up,
-			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best})
+			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best,
+			"fairway": p.fairway, "gir": p.gir, "putts": p.putts})
 	SavedRound.save(round_setup, {
 		"hole": hole_index, "number": hole.number, "current": current,
 		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
+		"stats": round_stats,
 	})
 
 
@@ -354,6 +386,9 @@ func start_hole(index: int) -> void:
 		p.shots = 0
 		p.round_turn = 0
 		p.round_best = {}
+		p.fairway = -1
+		p.gir = false
+		p.putts = 0
 	_clear_trail()
 	hud.scorecard.visible = false
 	_begin_turn(_next_player(), true)
@@ -404,6 +439,21 @@ func _begin_turn(index: int, snap_camera: bool) -> void:
 		var thru := card.holes_played()
 		hud.overlay.lower_third(scoring.names[shooter], "%s    THRU %d    SHOT %d    %s TO THE PIN" % [
 			"E" if thru == 0 else Scorecard.format_to_par(card.to_par()), thru, strokes + 1, _pin_text().to_upper()])
+	_hand_over()
+
+
+## Hot seat: when the next swing is a different person's from the last one,
+## dim the screen until they're at the keyboard. Computer golfers don't need
+## it, and a person playing against them alone never sees it.
+func _hand_over() -> void:
+	if opponents[shooter] != null:
+		return
+	if _last_human >= 0 and _last_human != shooter:
+		var detail := "Hole %d    Shot %d    %s to the pin" % [hole.number, strokes + 1, _pin_text()]
+		if players[current].members.size() > 1:
+			detail = "For %s    %s" % [_side_name(current), detail]
+		hud.hand_over.open(scoring.names[shooter], detail)
+	_last_human = shooter
 
 
 ## Shows the other players' balls where they lie.
@@ -451,6 +501,10 @@ func play_shot(power: float, accuracy: float) -> void:
 	sounds.play(&"putt" if club.is_putter else &"hit")
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
+	if shot_model is LinksShotModel:
+		var links := shot_model as LinksShotModel
+		links.skill = graphics.skill
+		links.computer = round_setup != null and round_setup.is_computer(shooter)
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
@@ -477,6 +531,7 @@ func play_shot(power: float, accuracy: float) -> void:
 ## Advances the game one step without input, playing sensible shots: used by
 ## the headless tests to play a whole round.
 func auto_play_step() -> void:
+	hud.hand_over.close()
 	match state:
 		State.COMPUTER:
 			opponents[shooter].finish()
@@ -510,7 +565,8 @@ func _process(delta: float) -> void:
 	else:
 		match state:
 			State.AIM:
-				_process_aim(delta)
+				if not hud.hand_over.visible:
+					_process_aim(delta)
 			State.FLIGHT:
 				_process_flight(delta)
 			State.SHOT_RESULT:
@@ -559,6 +615,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					_apply_graphics()
 					return
 	if settings_panel.visible or pause_menu.visible:
+		return
+	if hud.hand_over.visible and not (event is InputEventKey and (event as InputEventKey).keycode == KEY_TAB):
+		var go := event.is_action_pressed("swing") or event.is_action_pressed("ui_accept")
+		if event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			go = go or (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT)
+		if go:
+			hud.hand_over.close()
+			get_viewport().set_input_as_handled()
 		return
 	if state == State.DROP and event is InputEventKey and (event as InputEventKey).pressed:
 		if _drop_key(event as InputEventKey):
@@ -729,10 +794,16 @@ func _complete_flight() -> void:
 	_draw_trail(shot.points.size() - 1, shot.rest)
 	var strokes_before := strokes
 	strokes += 1
+	_count_stats(strokes_before)
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
 		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
+	if voice != null:
+		var rest_pin := _flat_distance(shot.rest, hole.pin)
+		var past := Vector2(shot.rest.x - hole.pin.x, shot.rest.z - hole.pin.z).dot(Vector2(hole.pin.x - shot_from.x, hole.pin.z - shot_from.z)) > 0.0
+		voice.say(GolferVoice.event_for(shot, hole.terrain.surface_at(shot.rest.x, shot.rest.z), clubs[club_index].is_putter,
+			strokes == 1, hole.par, strokes, rest_pin, _shot_from_pin, past))
 	if broadcast:
 		_report_shot()
 	var msg := ""
@@ -774,6 +845,22 @@ func _complete_flight() -> void:
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
+
+
+## Fairways, greens in regulation and putts for the ball just played:
+## `strokes_before` is its score before this shot.
+func _count_stats(strokes_before: int) -> void:
+	var p := players[current]
+	if lie == Surface.Type.GREEN:
+		p.putts += 1
+	var holed := shot.outcome == ShotResult.Outcome.HOLED
+	var on_ground := holed or not (shot.outcome == ShotResult.Outcome.WATER or shot.outcome == ShotResult.Outcome.OUT_OF_BOUNDS)
+	var rest: int = hole.terrain.surface_at(shot.rest.x, shot.rest.z) if on_ground else Surface.Type.WATER
+	if strokes_before == 0 and hole.par >= 4:
+		p.fairway = 1 if holed or (on_ground and rest == Surface.Type.FAIRWAY) else 0
+	# On the green (or in the hole) with two putts left for par.
+	if strokes_before + 1 <= hole.par - 2 and (holed or (on_ground and rest == Surface.Type.GREEN)):
+		p.gir = true
 
 
 ## Scramble: keeps this shot if it is the team's best so far. Until everyone
@@ -852,7 +939,15 @@ func _hole_out(picked_up: bool) -> void:
 
 func _finish_hole() -> void:
 	for i in players.size():
-		scoring.cards[i].record(hole_index, players[ball_of[i]].strokes)
+		var p := players[ball_of[i]]
+		scoring.cards[i].record(hole_index, p.strokes)
+		var st := round_stats[i]
+		if p.fairway >= 0:
+			st.fairway_holes += 1
+			st.fairways += p.fairway
+		st.gir += 1 if p.gir else 0
+		st.putts += p.putts
+		st.holes += 1
 	state = State.HOLE_DONE
 	if players.size() == 1:
 		var p := players[0]
@@ -931,7 +1026,7 @@ func _record_rounds() -> String:
 			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
-		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):
+		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date, round_stats[i]):
 			continue
 		var after := profiles.index_of(player)
 		if after == Handicap.NONE:

@@ -67,7 +67,8 @@ feel) still need a working install.
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
   - [x] Course ambient sounds (`EnvSound` and the course's WAVs) and the ball landing sound
   - [x] Tournament crowd reactions from `TOURNA_1.SSF` in the Broadcast presentation ([ssf.md](docs/formats/ssf.md#the-tournament-bank))
-  - [ ] Voice event conditions, commentary and menu sounds wired into the game
+  - [x] Golfer voice reactions (`POLYANI/*.SSF`, chosen by shot outcome) and menu clicks and music (`SOUNDS.LS`), on desktop
+  - [ ] Voice event conditions (the condition block), in-flight voice lines, and these sounds in the browser build
 
 ## Phase 4: the full game
 
@@ -90,9 +91,12 @@ feel) still need a working install.
 
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
+  - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
+  - [ ] Online: one host, shots sent as messages over WebRTC ([online-play.md](docs/online-play.md))
 - [ ] Player profiles and saves (original format optional)
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))
+  - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [ ] Photoscanned 3D trees with impostors, baked shadows and AO per hole, texture compression tiers, a performance budget in CI

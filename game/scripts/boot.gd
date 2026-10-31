@@ -35,6 +35,9 @@ var _busy := false
 func _ready() -> void:
 	_graphics = GraphicsSettings.load_saved()
 	_build_ui()
+	var menu_sounds := MenuSounds.from_game_folder(true)
+	if menu_sounds != null:
+		add_child(menu_sounds)
 	if WebGameFiles.is_supported():
 		_web = WebGameFiles.new()
 		_web.progress.connect(_on_progress)

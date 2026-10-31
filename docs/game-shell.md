@@ -72,7 +72,12 @@ names. The choice is a `RoundSetup`, saved under `[round]` in
 Players share the round in turn (hot seat). On each hole everyone tees off
 in order of the honour (the lowest score on the last hole goes first; ties
 keep their order), then whoever is furthest from the hole plays. The other
-balls stay on the ground where they lie. The modes:
+balls stay on the ground where they lie. When the next swing is a different
+person's from the last one, the screen dims and names who plays next, with
+the hole, shot and distance (`ui/hand_over_panel.gd`); Space, Enter or a
+click carries on, and Tab still shows the scorecard. Computer golfers'
+turns skip it, so one person against the computer never sees it. Online
+play is still a design: [online-play.md](online-play.md). The modes:
 
 | Mode | Players | Scoring |
 | --- | --- | --- |
@@ -172,9 +177,22 @@ go on the hardest holes first, by the course's stroke index (a nine keeps
 the order of the 18). Net scores then decide every mode, and the scorecard
 adds a net row under each player, whose label shows their playing handicap.
 
+Computer golfers keep no profile and play off a fixed index for their level
+(`RoundSetup.computer_index`): weekend golfer 24.0, club golfer 12.0,
+scratch golfer 0.0, tour pro +4.0. The setup page shows it in the player's
+index box, so net and Stableford games against them work.
+
+Each round also counts every player's fairways hit (tee shots on par 4s and
+5s that finish on the fairway), greens in regulation (on the green, or in
+the hole, with two strokes to spare for par) and putts (strokes played from
+the green). They go on the round's record and into career totals that keep
+counting after old rounds drop off the list.
+
 The main menu's **Players** page (`PlayersPanel`) lists every profile with
-its index, rounds and last date. Picking a player shows their recent rounds
-and stars the ones the index counts. Delete asks once more, then removes
+its index, rounds and last date. Picking a player shows their career line
+(scoring average per 18, fairways, greens in regulation, putts per 18) and
+their recent rounds with each round's stats, and stars the rounds the index
+counts. Delete asks once more, then removes
 the profile.
 
 ### Saved rounds
@@ -237,6 +255,7 @@ game/scripts/
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
 ```

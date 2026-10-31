@@ -179,8 +179,12 @@ func _player_name(i: int) -> String:
 	return n
 
 
-## The profile's index once it has a record, otherwise what was typed.
+## A computer golfer's level index, the profile's index once it has a
+## record, otherwise what was typed.
 func _index_of(i: int) -> int:
+	var level := _who[i].selected - 1
+	if level != RoundSetup.HUMAN:
+		return RoundSetup.computer_index(level)
 	var player := _player_name(i)
 	if _profiles.has_record(player):
 		return _profiles.index_of(player)
@@ -189,6 +193,12 @@ func _index_of(i: int) -> int:
 
 ## Shows player `i`'s index and how many rounds it comes from.
 func _fill_index(i: int) -> void:
+	var level := _who[i].selected - 1
+	if level != RoundSetup.HUMAN:
+		_indexes[i].text = Handicap.format(RoundSetup.computer_index(level))
+		_indexes[i].editable = false
+		_records[i].text = "computer"
+		return
 	var player := _player_name(i)
 	var index := _profiles.index_of(player)
 	var played := _profiles.rounds(player).size()
@@ -245,7 +255,7 @@ func _on_start() -> void:
 	# A typed index becomes the starting index of a player without a record.
 	if s.handicaps:
 		for i in s.player_count():
-			if not _profiles.has_record(s.names[i]):
+			if not s.is_computer(i) and not _profiles.has_record(s.names[i]):
 				_profiles.set_start_index(s.names[i], s.indexes[i])
 		_profiles.save()
 	start_pressed.emit(s, _course.selected)

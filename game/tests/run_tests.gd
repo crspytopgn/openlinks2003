@@ -471,9 +471,24 @@ func _test_player_profiles() -> void:
 		_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "a full nine counts")
 	_check(p.rounds("Ann").size() == 3 and p.rounds("Ann")[0].differential == 180, "rounds kept: %s" % [p.rounds("Ann")])
 	_check(p.has_record("Ann") and p.index_of("Ann") == 160, "index from three rounds: %d" % p.index_of("Ann"))
+	var c := p.career("Ann")
+	_check(c.rounds == 3 and c.holes == 27 and c.strokes == 135 and c.par == 108 and c.stat_holes == 0, "career totals: %s" % c)
+	var stats := {"holes": 9, "fairways": 4, "fairway_holes": 7, "gir": 3, "putts": 16}
+	_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31", stats), "a round with stats")
+	_check(p.rounds("Ann").back().putts == 16 and p.rounds("Ann").back().gir == 3, "stats on the round")
+	c = p.career("Ann")
+	_check(c.rounds == 4 and c.stat_holes == 9 and c.fairways == 4 and c.fairway_holes == 7 and c.putts == 16, "career stats: %s" % c)
+	var text := PlayerProfiles.career_text(c)
+	_check(text == "Average 90.0 per 18   Fairways 57%   Greens 33%   Putts 32.0 per 18", "career text: %s" % text)
+	_check(PlayerProfiles.career_text(p.career("Nobody")).is_empty(), "no career yet")
+	# A profile saved before career stats starts from its rounds.
+	p._cfg.set_value(PlayerProfiles._section("Old"), "rounds", [{"holes": 18, "gross": 90, "par": 72, "differential": 180}])
+	_check(p.career("Old").rounds == 1 and p.career("Old").strokes == 90, "career from old rounds")
+	p.remove("Old")
 	p.save()
 	var again := PlayerProfiles.load_saved()
-	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 160, "profiles saved")
+	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 170, "profiles saved: %d" % again.index_of("Ann"))
+	_check(again.career("Ann").putts == 16, "career saved")
 	again.remove("Ann")
 	_check(not again.has_player("Ann"), "profile removed")
 	again.save()
@@ -518,6 +533,15 @@ func _test_handicap_scoring() -> void:
 	s.handicaps = false
 	r = RoundScoring.new(s, pars, numbers, si)
 	_check(r.playing == _ints([0, 0]) and r.label(0) == "Ann", "handicaps off")
+
+	# Computer golfers play off their level's index.
+	_check(RoundSetup.computer_index(OpponentSkill.Level.BEGINNER) == 240 and RoundSetup.computer_index(OpponentSkill.Level.TOUR) == -40, "computer indexes")
+	s.handicaps = true
+	s.mode = GameModes.Mode.STABLEFORD
+	s.computer = _ints([RoundSetup.HUMAN, OpponentSkill.Level.BEGINNER])
+	_check(s.index_of(1) == 240 and s.index_of(0) == 20, "the computer seat's index")
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([1, 11]), "a weekend golfer gets strokes: %s" % [r.playing])
 
 
 func _ints(values: Array) -> Array[int]:
@@ -815,6 +839,7 @@ func _test_graphics_settings() -> void:
 	s.fov = 70.0
 	s.wind = Wind.Level.STRONG
 	s.presentation = GraphicsSettings.Presentation.CLASSIC
+	s.skill = 1
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -823,6 +848,7 @@ func _test_graphics_settings() -> void:
 	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
 	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
+	_check(loaded.skill == 1, "swing skill saved")
 	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
@@ -1392,11 +1418,17 @@ func _test_multiplayer_rounds() -> void:
 	game.start_round()
 	_check(game.players.size() == 3, "three players")
 	_check(game.honour == _ints([0, 1, 2]), "first hole in player order")
+	_check(not game.hud.hand_over.visible, "no hand-over before the first shot")
 	var steps := 0
+	var hand_overs := 0
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
+		if game.hud.hand_over.visible:
+			hand_overs += 1
+			_check(game.state == GolfRound.State.AIM, "the hand-over waits on a person's shot")
 	_check(game.state == GolfRound.State.ROUND_DONE, "skins round finishes")
+	_check(hand_overs >= game.holes.size() * 2, "the controls are handed over between people (%d)" % hand_overs)
 	var won := 0
 	var sk := GameModes.skins(game.scoring.strokes_table())
 	for i in 3:
@@ -1473,6 +1505,7 @@ func _test_computer_opponents() -> void:
 		if game.state == GolfRound.State.COMPUTER:
 			computer_turns += 1
 			_check(game.current == 1, "only the computer seat plays itself")
+		_check(not game.hud.hand_over.visible, "one person against the computer needs no hand-over")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE and computer_turns > 0, "match against the computer finishes")
@@ -1524,6 +1557,10 @@ func _test_rounds_recorded() -> void:
 	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
 	for r: Dictionary in p.rounds("Player 1"):
 		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
+		# The placeholder nine has seven par 4s and 5s.
+		_check(r.fairway_holes == 7 and r.fairways <= 7 and r.gir <= 9 and r.putts >= 1 and r.putts <= r.gross, "round stats: %s" % r)
+	_check(not PlayerProfiles.career_text(p.career("Player 1")).is_empty(), "Player 1 has a career line")
+	print("  Player 1: %s" % PlayerProfiles.career_text(p.career("Player 1")))
 
 
 ## A round saved part way through carries on where it stopped.
@@ -1704,6 +1741,28 @@ func _test_broadcast_pieces() -> void:
 	var wet := ShotResult.new()
 	wet.outcome = ShotResult.Outcome.WATER
 	_check(Commentary.pick(wet, Surface.Type.WATER, false, 50.0, 150.0, rng)[1] == Commentary.Crowd.GROAN, "water groans")
+
+	# Golfer voice lines, by what the shot did.
+	_check(GolferVoice.event_for(wet, Surface.Type.WATER, false, false, 4, 2, 50.0, 150.0, false) == "In Water", "voice: water")
+	var rolled := ShotResult.new()
+	_check(GolferVoice.event_for(rolled, Surface.Type.GREEN, true, false, 4, 3, 3.0, 8.0, true) == "Putt Too Hard", "voice: putt past")
+	_check(GolferVoice.event_for(rolled, Surface.Type.GREEN, true, false, 4, 3, 3.0, 8.0, false) == "Putt Too Soft", "voice: putt short")
+	_check(GolferVoice.event_for(holed, Surface.Type.GREEN, true, false, 4, 3, 0.0, 12.0, false) == "Birdie", "voice: birdie")
+	_check(GolferVoice.event_for(holed, Surface.Type.GREEN, false, true, 3, 1, 0.0, 150.0, false) == "Hole In One!", "voice: ace")
+	var drive := ShotResult.new()
+	drive.total_m = 250.0
+	_check(GolferVoice.event_for(drive, Surface.Type.FAIRWAY, false, true, 4, 1, 150.0, 400.0, false) == "Great Tee Shot", "voice: big drive")
+
+	# SOUNDS.LS entries keep their block header before the RIFF data.
+	var wav := PackedByteArray()
+	wav.resize(LsArchiveFile.BLOCK_HEADER_SIZE)
+	wav.append_array("RIFF".to_ascii_buffer())
+	wav.append_array(PackedByteArray([36, 0, 0, 0]))
+	wav.append_array("WAVEfmt ".to_ascii_buffer())
+	wav.append_array(PackedByteArray([16, 0, 0, 0, 1, 0, 1, 0, 0x22, 0x56, 0, 0, 0x44, 0xac, 0, 0, 2, 0, 16, 0]))
+	wav.append_array("data".to_ascii_buffer())
+	wav.append_array(PackedByteArray([4, 0, 0, 0, 0, 0, 0, 0]))
+	_check(MenuSounds._stream(wav) != null, "menu sound past the block header")
 
 
 ## A round in each presentation, with a replay, a flyover and the green grid.

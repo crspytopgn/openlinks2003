@@ -10,6 +10,7 @@ var hint: Label
 var meter: SwingMeter
 var wind: WindIndicator
 var scorecard: ScorecardPanel
+var hand_over: HandOverPanel
 ## With the player's own interface art: one chrome bar per line of `info`.
 var art: HudArt
 var _bars: Array[InfoBar] = []
@@ -49,6 +50,10 @@ func _ready() -> void:
 	overlay.visible = false
 	add_child(overlay)
 	move_child(overlay, 0)
+
+	# Under the scorecard, so Tab still shows the card while it is up.
+	hand_over = HandOverPanel.new()
+	add_child(hand_over)
 
 	scorecard = ScorecardPanel.new()
 	scorecard.visible = false
