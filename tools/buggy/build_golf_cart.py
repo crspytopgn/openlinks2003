@@ -295,7 +295,7 @@ def black_shape():
     parts.append(rbox((0.0, 0.28, -0.94), (0.46, 0.04, 0.07), 0.02))
     parts.append(rbox((0.0, 0.33, 1.305), (0.52, 0.06, 0.04), 0.025))
     # Seat back shell, the bag well behind it and the bag rack arms.
-    parts.append(rotated_x(rbox((0.0, 0.99, 0.665), (0.535, 0.18, 0.03), 0.02), (0.0, 0.99, 0.665), -18))
+    parts.append(rotated_x(rbox((0.0, 0.99, 0.665), (0.535, 0.18, 0.03), 0.02), (0.0, 0.99, 0.665), 16))
     well = rbox((0.0, 0.79, 0.90), (0.46, 0.09, 0.12), 0.03)
     well = smooth_cut(0.01, well, rbox((0.0, 0.86, 0.90), (0.435, 0.1, 0.095), 0.02))
     parts.append(well)
@@ -312,9 +312,9 @@ def vinyl_shape():
     cushion = rbox((0.0, 0.745, 0.30), (0.53, 0.075, 0.26), 0.065)
     cushion = smooth_cut(0.008, cushion, rbox((0.0, 0.83, 0.30), (0.004, 0.03, 0.3), 0.003))
     back_c = (0.0, 1.0, 0.615)
-    back = rotated_x(rbox(back_c, (0.52, 0.175, 0.06), 0.06), back_c, -18)
+    back = rotated_x(rbox(back_c, (0.52, 0.175, 0.06), 0.06), back_c, 16)
     back = smooth_cut(0.08, back, sphere((0.0, 1.26, 0.70), 0.12))
-    back = smooth_cut(0.006, back, rotated_x(rbox((0.0, 1.0, 0.56), (0.004, 0.2, 0.02), 0.003), back_c, -18))
+    back = smooth_cut(0.006, back, rotated_x(rbox((0.0, 1.0, 0.56), (0.004, 0.2, 0.02), 0.003), back_c, 16))
     return smooth_union(0.01, cushion, back)
 
 

@@ -26,6 +26,7 @@ const DAMPING := 9.0  ## and damping, 1/s
 const PITCH_PER_ACCEL := 0.012  ## radians of squat or dive per m/s^2
 const ROLL_PER_ACCEL := 0.016  ## radians of lean per m/s^2 of cornering
 const BODY_PIVOT := 0.3  ## the body leans about this height
+const BAG_APART := 0.22  ## two bags side by side, from the middle
 
 static var _body_mesh: ArrayMesh
 static var _wheel_mesh: ArrayMesh
@@ -39,6 +40,7 @@ var _pitch_rate := 0.0
 var _roll := 0.0
 var _roll_rate := 0.0
 var _spin := 0.0
+var _bags: Array[GolfBag] = []
 var _chase_pos := Vector3.INF
 var _chase_look := Vector3.ZERO
 
@@ -60,10 +62,25 @@ func _init() -> void:
 			add_child(w)
 			_wheels.append(w)
 			_wheel_base.append(Basis.IDENTITY)
-	var bag := GolfBag.new()
-	bag.position = Vector3(0.0, 0.72 - BODY_PIVOT, 1.0)
-	bag.rotation = Vector3(deg_to_rad(-12.0), PI, 0.0)
-	_chassis.add_child(bag)
+	set_bags(1)
+
+
+## Stands one or two golf bags in the well behind the seat, leaning on the
+## rack, as many as there are golfers sharing the cart.
+func set_bags(count: int) -> void:
+	count = clampi(count, 1, 2)
+	if _bags.size() == count:
+		return
+	for b in _bags:
+		b.queue_free()
+	_bags.clear()
+	for i in count:
+		var bag := GolfBag.new()
+		var x := 0.0 if count == 1 else (-BAG_APART if i == 0 else BAG_APART)
+		bag.position = Vector3(x, 0.71 - BODY_PIVOT, 1.0)
+		bag.rotation = Vector3(deg_to_rad(14.0), PI, 0.0)  # top forward, on the rack
+		_chassis.add_child(bag)
+		_bags.append(bag)
 
 
 ## Puts the cart at `p` facing `heading_deg` (0 is +z), stopped.

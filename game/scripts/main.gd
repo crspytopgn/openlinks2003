@@ -595,6 +595,7 @@ func start_hole(index: int) -> void:
 	_clear_trail()
 	hud.scorecard.visible = false
 	if buggy != null:
+		buggy.set_bags(players.size())
 		_park_buggy(hole.tee)
 	_begin_turn(_next_player(), true)
 	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
@@ -1854,6 +1855,7 @@ func _set_buggy(on: bool) -> void:
 		return
 	buggy = GolfBuggy.new()
 	add_child(buggy)
+	buggy.set_bags(players.size())
 	if hole != null:
 		_park_buggy(ball_at)
 
