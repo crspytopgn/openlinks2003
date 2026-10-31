@@ -37,6 +37,8 @@ func _process(_delta: float) -> bool:
 	elif _frames == 2:
 		_game.start_hole(1)
 		_game.scenery.set_backdrop(_test_horizon())
+	elif _frames == 3:
+		print("post process: visible %s, covers %s" % [_game.post.visible, _game.post.covered_size()])
 	elif _frames == SHOT_FRAME:
 		_save_jpg(root.get_texture().get_image(), "-tee")
 		_game.auto_play_step()

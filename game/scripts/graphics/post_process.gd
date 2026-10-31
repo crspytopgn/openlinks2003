@@ -22,15 +22,28 @@ var _mat: ShaderMaterial
 
 func _init() -> void:
 	name = "PostProcess"
-	# Above the 3D view, below the HUD (CanvasLayers default to layer 1).
-	layer = -1
+	# Above the 3D view and the root canvas, below the HUD (CanvasLayers
+	# default to layer 1).
+	layer = 0
 	_mat = ShaderMaterial.new()
 	_mat.shader = SHADER
 	_rect = ColorRect.new()
 	_rect.material = _mat
 	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_rect)
+
+
+func _ready() -> void:
+	_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_rect.offset_left = 0.0
+	_rect.offset_top = 0.0
+	_rect.offset_right = 0.0
+	_rect.offset_bottom = 0.0
+
+
+## The size of the effect's rectangle, which should be the whole screen.
+func covered_size() -> Vector2:
+	return _rect.size
 
 
 func apply(s: GraphicsSettings) -> void:
