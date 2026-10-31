@@ -2,11 +2,13 @@ class_name LinksShotModel
 extends StandardShotModel
 ## The launch (LinksLaunch), ball flight (LinksAero), bounce and roll
 ## (LinksGround) of Links 2003, used when the player's game folder has the
-## executable. The swing meter's accuracy and the lie still use stand-in
-## numbers; see docs/formats/physics.md for what is left.
+## executable. How the swing meter's accuracy maps onto the strike is still a
+## stand-in; see docs/formats/physics.md for what is left.
 
 ## Face angle at accuracy +/-1 until the game's swing meter is ported.
 const MAX_FACE_ERROR_DEG := 4.0
+## Sand contact (steps of extra sand) at accuracy +/-1, likewise.
+const SAND_CONTACT_AT_FULL_MISS := 10.0
 
 var aero: LinksAero
 var clubs: LinksLaunch
@@ -32,8 +34,10 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	s.power = 100.0 * clampf(power, 0.0, 1.0)
 	# Late (positive accuracy) opens the face: a push-slice.
 	s.face_error = -deg_to_rad(MAX_FACE_ERROR_DEG) * clampf(accuracy, -1.0, 1.0)
-	s.speed_scale = Surface.lie_power(lie)
-	s.spin_scale = Surface.lie_spin(lie)
+	# The sand contact comes from the meter too; until the meters are ported
+	# a perfect strike is the standard splash and misses take more sand.
+	var lie_params := LinksGround.surface_for_class(LinksGround.ground_class_for(lie))
+	LinksLaunch.apply_lie(s, lie_params, roundi(absf(accuracy) * SAND_CONTACT_AT_FULL_MISS))
 	var b := clubs.launch_state(s)
 	b.position = from
 	return b

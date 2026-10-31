@@ -115,6 +115,29 @@ LinksLaunch links_launch(const LinksClubTable& clubs, const LinksStrike& s) {
   return out;
 }
 
+void links_apply_lie(LinksStrike& s, const LinksSurface& lie, int sand_contact) {
+  double spin = 1, speed = 1;
+  if (lie.ground_class == kLinksSand) {
+    s.face_error = 0;
+    int c = sand_contact;
+    if (c >= 0) {
+      speed = 0.3 + (15 - c) / 150.0;
+      spin = 0.25 + (15 - c) / 12.0;
+    } else {
+      double clean = -c;
+      spin = 1.5 - 0.1 * clean;
+      if (c >= -5) {
+        speed = 0.4 + 0.1 * clean;
+      } else {
+        speed = 0.9 - 0.065 * (clean - 5);
+        s.loft_scale = 1 - 0.09 * (clean - 5);
+      }
+    }
+  }
+  s.spin_scale = spin * lie.lie_spin;
+  s.speed_scale = speed * lie.lie_power;
+}
+
 BallState links_launch_state(const LinksClubTable& clubs, const LinksStrike& s) {
   LinksLaunch l = links_launch(clubs, s);
   BallState b;
