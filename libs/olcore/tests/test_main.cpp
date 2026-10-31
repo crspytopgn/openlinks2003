@@ -1075,6 +1075,63 @@ void test_game_modes() {
   CHECK(match_text(match_status({0, 0}, {0, 0})) == "All square");
 }
 
+// game/tests/run_tests.gd checks the GDScript port against the same cases.
+void test_handicaps() {
+  CHECK(div_round(95, 10) == 10 && div_round(94, 10) == 9 && div_round(-95, 10) == -10 && div_round(-94, 10) == -9);
+
+  // The back nine of an 18 keeps its order; holes without an index go last.
+  CHECK((stroke_ranks({8, 2, 16, 4, 12, 18, 6, 14, 10}) == std::vector<int>{4, 1, 8, 2, 6, 9, 3, 7, 5}));
+  CHECK((stroke_ranks({0, 3, 0, 1}) == std::vector<int>{3, 2, 4, 1}));
+
+  std::vector<int> ranks = {3, 1, 2};
+  CHECK((handicap_strokes(4, ranks) == std::vector<int>{1, 2, 1}));
+  CHECK((handicap_strokes(6, ranks) == std::vector<int>{2, 2, 2}));
+  CHECK((handicap_strokes(0, ranks) == std::vector<int>{0, 0, 0}));
+  // +1 gives a stroke back on the easiest hole.
+  CHECK((handicap_strokes(-1, ranks) == std::vector<int>{-1, 0, 0}));
+  CHECK((handicap_strokes(-4, ranks) == std::vector<int>{-2, -1, -1}));
+
+  CHECK((net_scores({5, 3, 0, 2}, {1, 2, 1, 3}) == std::vector<int>{4, 1, 0, 1}));
+  CHECK((net_scores({4, 4}, {-1, 0}) == std::vector<int>{5, 4}));
+
+  CHECK(playing_handicap(100, 18, 95) == 10);   // 9.5 rounds up
+  CHECK(playing_handicap(184, 18, 100) == 18);  // 18.4
+  CHECK(playing_handicap(184, 9, 100) == 9);    // 9.2
+  CHECK(playing_handicap(-14, 18, 100) == -1);
+  CHECK(playing_handicap(kNoHandicap, 18, 100) == 0);
+
+  Scorecard card({4, 3, 5});
+  card.record(0, 9);
+  card.record(1, 4);
+  card.record(2, 5);
+  // Net double bogey: 4 + 2 + 1 caps the 9 at 7.
+  CHECK(adjusted_gross(card, {1, 0, 0}, true) == 16);
+  CHECK(adjusted_gross(card, {0, 0, 0}, false) == 18);  // par + 5 caps the 9 at 9
+
+  CHECK(score_differential(85, 72, 18) == 130);
+  CHECK(score_differential(42, 36, 9) == 120);
+  CHECK(score_differential(70, 72, 18) == -20);
+  CHECK(score_differential(41, 35, 7) == 154);  // 6 * 18 / 7 = 15.43
+
+  CHECK(handicap_index({130, 120}) == kNoHandicap);
+  CHECK(handicap_index({130, 120, 150}) == 100);       // lowest one, -2.0
+  CHECK(handicap_index({130, 120, 150, 140}) == 110);  // -1.0
+  CHECK(handicap_index({130, 125, 150, 140, 160, 170}) == 118);  // (12.5 + 13.0) / 2 = 12.75 -> 12.8, -1.0
+  std::vector<int> many;
+  for (int i = 0; i < 25; ++i) {
+    many.push_back(100 + i * 10);  // the oldest five drop out
+  }
+  // Recent 20 are 15.0 to 34.0; the lowest 8 average 18.5.
+  CHECK(handicap_index(many) == 185);
+  CHECK(handicap_index({700, 650, 800}) == kMaxHandicapTenths);
+  CHECK(handicap_index({-300, -250, -200}) == kMinHandicapTenths);
+
+  CHECK(format_handicap(123) == "12.3");
+  CHECK(format_handicap(-14) == "+1.4");
+  CHECK(format_handicap(0) == "0.0");
+  CHECK(format_handicap(kNoHandicap) == "-");
+}
+
 // Builds a store from named objects. Each object's bytes may hold pointers
 // to other objects as "index + 1 into objs" placeholders in the slots listed
 // in `pointers`; they are patched to file offsets.
@@ -1627,6 +1684,7 @@ int main() {
       {"links_shot", test_links_shot},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
+      {"handicaps", test_handicaps},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

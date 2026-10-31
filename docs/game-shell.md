@@ -58,8 +58,40 @@ balls stay on the ground where they lie. The modes:
 functions in `libs/olcore/src/scoring.cpp`. `RoundScoring` holds everyone's
 cards and turns them into the HUD status line, the end-of-hole result and the
 final standings. The scorecard shows a row per player plus the mode's rows
-(points, skin winners, match holes, team best balls). Handicaps and computer
-opponents are not done yet.
+(points, skin winners, match holes, team best balls). Computer opponents are
+not done yet.
+
+### Handicaps and player profiles
+
+Every finished round of nine holes or more goes on the player's profile,
+matched by name (`PlayerProfiles`, saved in `user://profiles.cfg`; the
+browser keeps it in IndexedDB). After three rounds the profile gives a
+handicap index; until then the player can type a starting index on the setup
+page ("12.3", or "+1.4" for a plus handicap). Rounds that stop early, such as
+a match won 3 & 2, don't count.
+
+The index follows the World Handicap System, simplified because Links
+courses have a stroke index per hole but no course or slope rating: par
+stands in for the course rating and every course has the standard slope.
+
+- Each hole is capped at net double bogey (par + 2 + strokes received; par + 5
+  without an index) to give the adjusted gross score.
+- Score differential = adjusted gross - par, doubled for a nine.
+- Index = the lowest 1 to 8 of the most recent 20 differentials, averaged,
+  with the WHS adjustment of up to -2.0 for three to six rounds. Between +10.0
+  and 54.0.
+
+With "Handicaps: On" in the round setup, each player's playing handicap is
+their index scaled to the holes played at the mode's allowance: 95% for
+stroke play and Stableford, 100% for match play and skins, 90% for best
+ball. Match play, skins and best ball play off the lowest handicap. Strokes
+go on the hardest holes first, by the course's stroke index (a nine keeps
+the order of the 18). Net scores then decide every mode, and the scorecard
+adds a net row under each player, whose label shows their playing handicap.
+
+`Handicap` (`handicap.gd`) mirrors the handicap functions in
+`libs/olcore/src/scoring.cpp`; indexes and differentials are in tenths of a
+stroke so both sides round the same way.
 
 ## Code map
 
@@ -70,7 +102,9 @@ game/scripts/
   scorecard.gd                  Scorecard (mirrors olcore/scoring)
   game_modes.gd                 GameModes: match, skins, best ball, Stableford (mirrors olcore/scoring)
   round_setup.gd                RoundSetup: course, tees, holes, mode and players for a round
-  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode
+  round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
+  handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
+  player_profiles.gd            PlayerProfiles: each player's rounds and handicap index
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
     standard_shot_model.gd      StandardShotModel: the stand-in model below
@@ -284,4 +318,4 @@ together.
 ## Not done yet
 
 Gusts during a flight, wind that changes with height, lie-specific animations,
-camera styles from the original, handicaps, computer opponents, and the real-time mouse swing.
+camera styles from the original, computer opponents, and the real-time mouse swing.

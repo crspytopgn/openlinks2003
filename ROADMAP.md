@@ -71,7 +71,8 @@ feel) still need a working install.
 
 - [ ] Game modes: stroke, match, skins, best ball and others
   - [x] Stroke play, match play, skins, best ball and Stableford for 1 to 4 players, with tee and nine-hole choices ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
-  - [ ] Handicaps, alternate shot, scramble and the other original modes
+  - [x] Handicaps: player profiles with their rounds, a WHS-style index, and net scoring in every mode ([game-shell.md](docs/game-shell.md#handicaps-and-player-profiles))
+  - [ ] Alternate shot, scramble and the other original modes
 - [ ] AI opponents
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
@@ -84,4 +85,6 @@ feel) still need a working install.
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
 - [ ] Player profiles and saves (original format optional)
+  - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
+  - [ ] A players page to view and delete profiles; saving a round in progress
 - [ ] Settings, controller support, performance

@@ -16,6 +16,9 @@ var _done := false
 
 
 func _initialize() -> void:
+	# Rounds the tests finish go here, not into the player's own profiles.
+	PlayerProfiles.path = "user://test_profiles.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	_run("physics_matches_olcore", _test_physics_matches_olcore)
 	_run("club_table_matches_physics", _test_club_table_matches_physics)
 	_run("putting", _test_putting)
@@ -29,8 +32,11 @@ func _initialize() -> void:
 	_run("swing_meter", _test_swing_meter)
 	_run("scorecard", _test_scorecard)
 	_run("game_modes_match_olcore", _test_game_modes)
+	_run("handicaps_match_olcore", _test_handicaps)
+	_run("player_profiles", _test_player_profiles)
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
+	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -58,7 +64,9 @@ func _process(_delta: float) -> bool:
 	_done = true
 	_run("full_round", _test_full_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
+	_run("rounds_recorded", _test_rounds_recorded)
 	_run("broadcast_round", _test_broadcast_round)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
 		quit(1)
@@ -304,6 +312,123 @@ func _test_game_modes() -> void:
 	_check(GameModes.match_text(GameModes.match_status(_ints([0, 0]), _ints([0, 0]))) == "All square", "all square")
 
 
+## The same cases as test_handicaps in libs/olcore/tests/test_main.cpp.
+func _test_handicaps() -> void:
+	_check(Handicap.div_round(95, 10) == 10 and Handicap.div_round(94, 10) == 9, "div_round")
+	_check(Handicap.div_round(-95, 10) == -10 and Handicap.div_round(-94, 10) == -9, "div_round negative")
+	var r := Handicap.stroke_ranks(_ints([8, 2, 16, 4, 12, 18, 6, 14, 10]))
+	_check(r == _ints([4, 1, 8, 2, 6, 9, 3, 7, 5]), "back nine ranks: %s" % [r])
+	r = Handicap.stroke_ranks(_ints([0, 3, 0, 1]))
+	_check(r == _ints([3, 2, 4, 1]), "missing index ranks last: %s" % [r])
+	var ranks := _ints([3, 1, 2])
+	_check(Handicap.strokes(4, ranks) == _ints([1, 2, 1]), "4 over 3 holes")
+	_check(Handicap.strokes(6, ranks) == _ints([2, 2, 2]), "6 over 3 holes")
+	_check(Handicap.strokes(0, ranks) == _ints([0, 0, 0]), "scratch")
+	_check(Handicap.strokes(-1, ranks) == _ints([-1, 0, 0]), "plus 1 gives back on the easiest")
+	_check(Handicap.strokes(-4, ranks) == _ints([-2, -1, -1]), "plus 4")
+	_check(Handicap.net_scores(_ints([5, 3, 0, 2]), _ints([1, 2, 1, 3])) == _ints([4, 1, 0, 1]), "net scores")
+	_check(Handicap.net_scores(_ints([4, 4]), _ints([-1, 0])) == _ints([5, 4]), "net with a plus handicap")
+	_check(Handicap.playing_handicap(100, 18, 95) == 10, "9.5 rounds up")
+	_check(Handicap.playing_handicap(184, 18, 100) == 18, "18.4")
+	_check(Handicap.playing_handicap(184, 9, 100) == 9, "9.2 over nine")
+	_check(Handicap.playing_handicap(-14, 18, 100) == -1, "plus 1.4")
+	_check(Handicap.playing_handicap(Handicap.NONE, 18, 100) == 0, "no index plays scratch")
+	var card := Scorecard.new(_ints([4, 3, 5]))
+	card.record(0, 9)
+	card.record(1, 4)
+	card.record(2, 5)
+	_check(Handicap.adjusted_gross(card, _ints([1, 0, 0]), true) == 16, "net double bogey cap")
+	_check(Handicap.adjusted_gross(card, _ints([0, 0, 0]), false) == 18, "par + 5 cap")
+	_check(Handicap.score_differential(85, 72, 18) == 130, "differential")
+	_check(Handicap.score_differential(42, 36, 9) == 120, "nine-hole differential")
+	_check(Handicap.score_differential(70, 72, 18) == -20, "under par")
+	_check(Handicap.score_differential(41, 35, 7) == 154, "seven holes")
+	_check(Handicap.index(_ints([130, 120])) == Handicap.NONE, "two rounds: no index")
+	_check(Handicap.index(_ints([130, 120, 150])) == 100, "three rounds")
+	_check(Handicap.index(_ints([130, 120, 150, 140])) == 110, "four rounds")
+	_check(Handicap.index(_ints([130, 125, 150, 140, 160, 170])) == 118, "six rounds")
+	var many: Array[int] = []
+	for i in 25:
+		many.append(100 + i * 10)
+	_check(Handicap.index(many) == 185, "most recent 20: %d" % Handicap.index(many))
+	_check(Handicap.index(_ints([700, 650, 800])) == Handicap.MAX_TENTHS, "capped at 54")
+	_check(Handicap.index(_ints([-300, -250, -200])) == Handicap.MIN_TENTHS, "capped at +10")
+	_check(Handicap.format(123) == "12.3" and Handicap.format(-14) == "+1.4", "format")
+	_check(Handicap.format(0) == "0.0" and Handicap.format(Handicap.NONE) == "-", "format scratch and none")
+	_check(Handicap.parse("12.3") == 123 and Handicap.parse("+1.4") == -14 and Handicap.parse("8") == 80, "parse")
+	_check(Handicap.parse("") == Handicap.NONE and Handicap.parse("abc") == Handicap.NONE, "parse rejects")
+
+
+func _test_player_profiles() -> void:
+	var p := PlayerProfiles.load_saved()
+	_check(not p.has_player("Ann"), "no profile yet")
+	_check(p.index_of("Ann") == Handicap.NONE, "no index yet")
+	p.set_start_index("Ann", 200)
+	_check(p.index_of("ann ") == 200, "names match without case or spaces")
+	var pars := _ints([4, 4, 3, 5, 4, 4, 3, 5, 4])
+	var ranks := Handicap.stroke_ranks(_ints([1, 3, 5, 7, 9, 11, 13, 15, 17]))
+	var short := Scorecard.new(_ints([4, 4, 3]))
+	for h in 3:
+		short.record(h, 5)
+	_check(not p.record_round("Ann", short, _ints([1, 2, 3]), "Test", "2026-10-31"), "three holes don't count")
+	var card := Scorecard.new(pars)
+	_check(not p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "an unfinished round doesn't count")
+	# 45 on a par 36: 9 over, so 18.0 scaled to 18 holes.
+	for h in 9:
+		card.record(h, pars[h] + 1)
+	for _n in 3:
+		_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "a full nine counts")
+	_check(p.rounds("Ann").size() == 3 and p.rounds("Ann")[0].differential == 180, "rounds kept: %s" % [p.rounds("Ann")])
+	_check(p.has_record("Ann") and p.index_of("Ann") == 160, "index from three rounds: %d" % p.index_of("Ann"))
+	p.save()
+	var again := PlayerProfiles.load_saved()
+	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 160, "profiles saved")
+	again.remove("Ann")
+	_check(not again.has_player("Ann"), "profile removed")
+	again.save()
+
+
+func _test_handicap_scoring() -> void:
+	var s := RoundSetup.new()
+	s.names = _strs(["Ann", "Bob"])
+	s.teams = _ints([0, 1])
+	s.mode = GameModes.Mode.MATCH
+	s.handicaps = true
+	s.indexes = _ints([20, 80])  # 2.0 and 8.0: 1 and 4 strokes over nine at 100%
+	var pars := _ints([4, 3, 5, 4, 4, 3, 5, 4, 4])
+	var numbers := _ints([1, 2, 3, 4, 5, 6, 7, 8, 9])
+	var si := _ints([5, 15, 3, 7, 1, 17, 11, 9, 13])
+	var r := RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([0, 3]), "match plays off the low: %s" % [r.playing])
+	# Bob gets his strokes on the three hardest holes: 5, 3 and 1.
+	_check(r.received[1] == _ints([1, 0, 1, 0, 1, 0, 0, 0, 0]), "strokes on the hardest: %s" % [r.received[1]])
+	_check(r.label(1) == "Bob (3)", "label: %s" % r.label(1))
+	r.cards[0].record(0, 4)
+	r.cards[1].record(0, 5)
+	_check(r.hole_result(0) == "Hole halved.", "a stroke halves the hole: %s" % r.hole_result(0))
+	r.cards[0].record(1, 3)
+	r.cards[1].record(1, 4)
+	_check(r.hole_result(1) == "Ann wins the hole.", "no stroke on hole 2")
+	_check(r.status_text() == "Match: Ann 1 up", "net match: %s" % r.status_text())
+
+	s.mode = GameModes.Mode.STROKE
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([1, 4]), "stroke play at 95%%: %s" % [r.playing])
+	for h in 9:
+		r.cards[0].record(h, pars[h] + 1)
+		r.cards[1].record(h, pars[h] + 1)
+	_check(r.scored_card(1).total_strokes() == 41 and r.scored_card(0).total_strokes() == 44, "net totals")
+	_check(r.standings()[0] == ["Bob", "net 41 (+5)"], "net standings: %s" % [r.standings()])
+
+	s.mode = GameModes.Mode.STABLEFORD
+	r = RoundScoring.new(s, pars, numbers, si)
+	r.cards[1].record(4, 5)  # bogey with a stroke on the hardest hole: net par
+	_check(GameModes.stableford_total(r.scored_card(1)) == 2, "net Stableford")
+	s.handicaps = false
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([0, 0]) and r.label(0) == "Ann", "handicaps off")
+
+
 func _ints(values: Array) -> Array[int]:
 	var out: Array[int] = []
 	for v: int in values:
@@ -350,6 +475,10 @@ func _test_round_setup() -> void:
 	var loaded := RoundSetup.load_saved(path)
 	_check(loaded.mode == GameModes.Mode.BEST_BALL and loaded.holes == RoundSetup.Holes.FRONT_NINE and loaded.tees == RoundSetup.Tees.MIDDLE, "setup saved")
 	_check(loaded.names == s.names and loaded.teams == s.teams, "players saved")
+	_check(not loaded.handicaps, "handicaps off by default")
+	s.handicaps = true
+	s.save(path)
+	_check(RoundSetup.load_saved(path).handicaps, "handicaps saved")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
@@ -791,6 +920,15 @@ func _test_multiplayer_rounds() -> void:
 	_check(m.finished, "match is decided at the end: %s" % m)
 	print("  match: %s after %d holes" % [game.scoring.winner_text(), m.played])
 	GolfRound.setup = null
+
+
+## The full and multiplayer rounds above went into the test profiles.
+func _test_rounds_recorded() -> void:
+	var p := PlayerProfiles.load_saved()
+	_check(p.rounds("Player 1").size() >= 1, "the full round is on Player 1's record")
+	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
+	for r: Dictionary in p.rounds("Player 1"):
+		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
 
 
 ## The readers behind LinksGolfer, on synthetic data (no original files).
