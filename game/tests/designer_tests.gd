@@ -23,7 +23,26 @@ func run_all() -> Array[String]:
 	_test_object_info()
 	_test_bad_files()
 	_test_water_surface()
+	_test_splat_and_stakes()
 	return failures
+
+
+## The ground's splat map is the surface raster, and ponds get stakes.
+func _test_splat_and_stakes() -> void:
+	var poly := PackedVector2Array([Vector2(0, 0), Vector2(60, 0), Vector2(60, 40), Vector2(0, 40)])
+	var pts := DesignedTerrain.stake_points(poly, 10.0)
+	check(pts.size() == 20 and pts[0] == Vector2.ZERO and pts[1].is_equal_approx(Vector2(10, 0)), "stakes every 10 m round a 200 m outline")
+	var c := DesignedCourse.starter()
+	var t := DesignedTerrain.new(c)
+	var mat := t.material()
+	var splat := mat.get_shader_parameter("splat_tex") as Texture2D
+	check(mat.get_shader_parameter("has_splat") == true and splat != null, "the ground has a splat map")
+	if splat != null:
+		check(splat.get_width() == ceili(c.area.size.x / DesignedTerrain.RES), "splat map at the raster's 0.5 m")
+	var stakes := t.build_stakes()
+	check(stakes != null and stakes.multimesh.instance_count > 5, "the starter pond has hazard stakes")
+	if stakes != null:
+		stakes.free()
 
 
 ## A pond's water carries how far each vertex is from the bank, for the
@@ -123,7 +142,8 @@ func _test_starter_surfaces() -> void:
 	var n := t.chunk_count()
 	check(visual.get_child_count() == n.x * n.y + 3, "a mesh per chunk, the apron, the paths and the water")
 	var water := visual.get_child(visual.get_child_count() - 1)
-	check(water.get_child_count() == 1, "one pond mesh")
+	check(water.find_children("*", "MeshInstance3D", false, false).size() == 1, "one pond mesh")
+	check(water.get_node_or_null("Stakes") != null, "and its hazard stakes")
 	visual.free()
 
 
@@ -235,13 +255,22 @@ func _test_bad_files() -> void:
 
 func _test_objects() -> void:
 	var cats := DesignerObjects.categories()
-	check(not cats.is_empty() and cats[0].items.size() == 2, "the built-in trees come first")
+	check(not cats.is_empty() and cats[0].items.size() == 3, "the built-in trees and bush come first")
 	var field := ObstacleField.new()
 	DesignerObjects.add_obstacles(field, PlacedObject.new("tree_pine", Vector3(0, 0, 0)), 0.0)
 	DesignerObjects.add_obstacles(field, PlacedObject.new("Nothing like this.btx", Vector3(20, 0, 0)), 0.0)
 	field.finalize()
 	check(field.size() == 3, "a trunk and canopy for a tree, a post for an object the library doesn't know")
 	check(not field.segment_hit(Vector3(15, 1, 0), Vector3(25, 1, 0)).is_empty(), "the unknown object still stops the ball")
+	var bush := ObstacleField.new()
+	DesignerObjects.add_obstacles(bush, PlacedObject.new("bush", Vector3(0, 0, 0)), 0.0)
+	bush.finalize()
+	check(bush.size() == 1 and not bush.segment_hit(Vector3(-5, 0.8, 0), Vector3(5, 0.8, 0)).is_empty(), "a bush catches a low ball")
+	check(bush.segment_hit(Vector3(-5, 3.0, 0), Vector3(5, 3.0, 0)).is_empty(), "and not one over it")
+	var node := AssetProviders.object_library.instantiate("bush") if AssetProviders.object_library != null else null
+	check(AssetProviders.object_library == null or node != null, "the built-in bush can be drawn")
+	if node != null:
+		node.free()
 
 
 func _test_paths() -> void:

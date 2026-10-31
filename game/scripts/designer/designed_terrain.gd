@@ -50,6 +50,15 @@ const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
 ## Largest splat map side in texels (older phones and browsers top out at
 ## 4096); a bigger course gets a coarser one.
 const SPLAT_MAX := 4096
+## Hazard stakes (for the look only; the ball passes them, as stakes are
+## movable): yellow round each pond a little outside its edge, white along
+## out-of-bounds areas, a metre tall.
+const STAKE_WATER_SPACING := 9.0
+const STAKE_OB_SPACING := 18.0
+const STAKE_WATER_OFFSET := 0.8
+const STAKE_HEIGHT := 1.0
+const STAKE_YELLOW := Color(0.86, 0.68, 0.08)
+const STAKE_WHITE := Color(0.9, 0.9, 0.88)
 
 var course: DesignedCourse
 
@@ -406,7 +415,89 @@ func build_water() -> Node3D:
 		inst.material_override = Materials.water_surface()
 		inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(inst)
+	var stakes := build_stakes()
+	if stakes != null:
+		root.add_child(stakes)
 	return root
+
+
+## The hazard stakes as one MultiMesh, or null if the course has none.
+func build_stakes() -> MultiMeshInstance3D:
+	var at: Array[Vector3] = []
+	var colours: Array[Color] = []
+	for s in course.shapes:
+		if not s.is_valid():
+			continue
+		var line := PackedVector2Array()
+		var spacing := 0.0
+		var colour := STAKE_WHITE
+		if s.surface == Surface.Type.WATER:
+			var grown := Geometry2D.offset_polygon(s.outline(), STAKE_WATER_OFFSET)
+			if grown.is_empty():
+				continue
+			line = grown[0]
+			spacing = STAKE_WATER_SPACING
+			colour = STAKE_YELLOW
+		elif s.surface == Surface.Type.OUT_OF_BOUNDS:
+			line = s.outline()
+			spacing = STAKE_OB_SPACING
+		else:
+			continue
+		for p in stake_points(line, spacing):
+			at.append(Vector3(p.x, height_at(p.x, p.y), p.y))
+			colours.append(colour)
+	if at.is_empty():
+		return null
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.022
+	mesh.bottom_radius = 0.028
+	mesh.height = STAKE_HEIGHT
+	mesh.radial_segments = 6
+	mesh.rings = 1
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.85
+	mat.metallic_specular = 0.3
+	mesh.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = mesh
+	mm.instance_count = at.size()
+	for i in at.size():
+		# A little lean, as stakes knocked in by hand stand.
+		var lean := Basis(Vector3(sin(i * 1.7), 0.0, cos(i * 2.3)).normalized(), 0.04 * sin(i * 0.9))
+		mm.set_instance_transform(i, Transform3D(lean, at[i] + Vector3(0.0, STAKE_HEIGHT * 0.5 - 0.05, 0.0)))
+		mm.set_instance_color(i, colours[i])
+	var inst := MultiMeshInstance3D.new()
+	inst.name = "Stakes"
+	inst.multimesh = mm
+	return inst
+
+
+## Points every `spacing` metres round a closed outline, evenly spread so
+## the last gap matches the others.
+static func stake_points(poly: PackedVector2Array, spacing: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := poly.size()
+	if n < 3 or spacing <= 0.0:
+		return out
+	var perimeter := 0.0
+	for i in n:
+		perimeter += poly[i].distance_to(poly[(i + 1) % n])
+	var count := maxi(3, roundi(perimeter / spacing))
+	var step := perimeter / count
+	var next := 0.0
+	var walked := 0.0
+	for i in n:
+		var a := poly[i]
+		var b := poly[(i + 1) % n]
+		var seg := a.distance_to(b)
+		while next < walked + seg and out.size() < count:
+			out.append(a.lerp(b, (next - walked) / seg))
+			next += step
+		walked += seg
+	return out
 
 
 ## Ground running out from the course edge to the horizon, so the course
