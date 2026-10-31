@@ -13,6 +13,8 @@ const MIN_POWER := 0.12  ## softest full swing it plans
 const PUTT_TRIES := 8
 const PUTT_PAST_M := 0.35  ## putts are paced to stop this far past the cup
 const RISK_CANDIDATES := 3  ## best plans re-tried with likely misses
+const SHORT_GAME_M := 45.0  ## inside this, wedges also try lines either side
+const SHORT_GAME_OFFSETS_DEG := [-25.0, -10.0, 10.0, 25.0]
 
 var skill: OpponentSkill
 var rng: OpponentSkill.Rng
@@ -80,7 +82,11 @@ func plan(model: ShotModel, clubs: Array[Club], hole: HoleData, from: Vector3, l
 		var lofted := i >= clubs.size() - 3  # the wedges are always worth a look
 		if not lofted and (to_pin < reach * 0.3 or reach < 0.4 * minf(to_pin, reach_max)):
 			continue
-		_jobs.append(_job_club.bind(i))
+		_jobs.append(_job_club.bind(i, 0.0))
+		# Round a tree or past a bank: a short game shot may need another line.
+		if lofted and to_pin < SHORT_GAME_M:
+			for offset: float in SHORT_GAME_OFFSETS_DEG:
+				_jobs.append(_job_club.bind(i, offset))
 	_jobs.append(_job_rank)
 
 
@@ -113,28 +119,37 @@ func swing() -> PackedFloat64Array:
 # --- Jobs --------------------------------------------------------------------
 
 ## A club: aim at the pin if it is in range (with the power to get there) or
-## down the hole's route, then correct once or twice for wind and curve.
-func _job_club(i: int) -> void:
+## down the hole's route, then correct for wind, curve and slopes. A nonzero
+## `offset_deg` starts the line that far off the target (short game only) and
+## corrects only the power, to find a way round trees or up a bank.
+func _job_club(i: int, offset_deg: float) -> void:
 	var reach := _reach(i)
 	var target := _hole.aim_point(_from, reach)
 	var to_target := _flat(_from, target)
 	var at_pin := target.is_equal_approx(_hole.pin)
 	var c := Candidate.new()
 	c.club = i
-	c.aim_deg = _heading(_from, target)
+	c.aim_deg = _heading(_from, target) + offset_deg
 	c.power = skill.strength
 	if at_pin:
 		c.power = clampf(skill.strength * to_target / reach, MIN_POWER, skill.strength)
 	var r := _simulate(c.club, c.power, c.aim_deg)
-	for attempt in 2:
+	for attempt in (3 if at_pin else 2):
 		var rest := r.rest if r.outcome != ShotResult.Outcome.HOLED else _hole.pin
-		var travelled := _flat(_from, rest)
-		if travelled > 1.0:
-			c.aim_deg += wrapf(_heading(_from, target) - _heading(_from, rest), -180.0, 180.0)
-		if at_pin and travelled > 1.0:
-			c.power = clampf(c.power * to_target / travelled, MIN_POWER, skill.strength)
-		elif attempt > 0:
+		if r.outcome == ShotResult.Outcome.HOLED:
 			break
+		# Progress towards the target: a ball that comes back down a bank or
+		# off a tree has made little or none, so hit it harder.
+		var progress := _flat(_from, rest) * cos(deg_to_rad(_heading(_from, rest) - _heading(_from, target)))
+		if offset_deg == 0.0 and progress > 1.0:
+			c.aim_deg += wrapf(_heading(_from, target) - _heading(_from, rest), -180.0, 180.0)
+		if not at_pin:
+			if attempt > 0:
+				break
+		elif progress > 1.0:
+			c.power = clampf(c.power * minf(to_target / progress, 3.0), MIN_POWER, skill.strength)
+		else:
+			c.power = minf(c.power * 2.0, skill.strength)
 		r = _simulate(c.club, c.power, c.aim_deg)
 	c.nominal = _value(r)
 	c.score = c.nominal
