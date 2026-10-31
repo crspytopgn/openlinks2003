@@ -22,6 +22,8 @@ const SKILL_NAMES := ["Level 1 (forgiving)", "Level 2", "Level 3", "Level 4 (Lin
 
 var _quality: OptionButton
 var _window: OptionButton
+var _ui_scale: OptionButton
+var _colour_safe: OptionButton
 var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
@@ -44,6 +46,7 @@ var _caddie: OptionButton
 var _buggy: OptionButton
 var _gimme: OptionButton
 var _mulligans: OptionButton
+var _pickup: OptionButton
 var _monitor: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
@@ -88,6 +91,8 @@ func _ready() -> void:
 	var grid := _grid(columns)
 	_quality = _row(grid, "Quality", GraphicsSettings.QUALITY_NAMES)
 	_window = _row(grid, "Display", ["Windowed", "Fullscreen"])
+	_ui_scale = _row(grid, "Interface size", GraphicsSettings.UI_SCALE_NAMES)
+	_colour_safe = _row(grid, "Colours", ["Standard", "Colour-blind safe (blue and white for green and red)"])
 	_vsync = _row(grid, "V-sync", ["Off", "On"])
 	_msaa = _row(grid, "Anti-aliasing", ["Off (FXAA)", "MSAA 2x", "MSAA 4x", "MSAA 8x"])
 	var scales: Array = []
@@ -122,6 +127,7 @@ func _ready() -> void:
 	_buggy = _row(grid, "Golf buggy", ["Off (walk)", "Drive between shots"])
 	_gimme = _row(grid, "Gimmes", GraphicsSettings.GIMME_NAMES)
 	_mulligans = _row(grid, "Mulligans", GraphicsSettings.MULLIGAN_NAMES)
+	_pickup = _row(grid, "Pick up", GraphicsSettings.PICKUP_NAMES)
 	if OpenConnectServer.supported():
 		_monitor = _row(grid, "Launch monitor", ["Off", "On (OpenConnect, port 921)"])
 	_add_hd_rows(box, grid)
@@ -148,6 +154,8 @@ func open(s: GraphicsSettings) -> void:
 	settings = s
 	_quality.select(s.quality)
 	_window.select(1 if s.fullscreen else 0)
+	_ui_scale.select(s.ui_scale)
+	_colour_safe.select(1 if s.colour_safe else 0)
 	_vsync.select(1 if s.vsync else 0)
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
@@ -170,6 +178,7 @@ func open(s: GraphicsSettings) -> void:
 	_buggy.select(1 if s.buggy else 0)
 	_gimme.select(s.gimme)
 	_mulligans.select(s.mulligans)
+	_pickup.select(s.pickup)
 	if _monitor != null:
 		_monitor.select(1 if s.launch_monitor else 0)
 	_show_look()
@@ -371,6 +380,8 @@ func _on_selected() -> void:
 	var before := _look_values()
 	settings.quality = _quality.selected
 	settings.fullscreen = _window.selected == 1
+	settings.ui_scale = _ui_scale.selected
+	settings.colour_safe = _colour_safe.selected == 1
 	settings.vsync = _vsync.selected == 1
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
@@ -392,6 +403,7 @@ func _on_selected() -> void:
 	settings.buggy = _buggy.selected == 1
 	settings.gimme = _gimme.selected
 	settings.mulligans = _mulligans.selected
+	settings.pickup = _pickup.selected
 	if _monitor != null:
 		settings.launch_monitor = _monitor.selected == 1
 	settings.lighting = _lighting.selected

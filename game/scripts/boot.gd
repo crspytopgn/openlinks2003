@@ -37,6 +37,7 @@ var _busy := false
 
 func _ready() -> void:
 	_graphics = GraphicsSettings.load_saved()
+	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
 	_build_ui()
 	var menu_sounds := MenuSounds.from_game_folder(true)
 	if menu_sounds != null:

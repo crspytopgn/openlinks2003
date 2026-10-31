@@ -54,12 +54,24 @@ product lead builds it.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
-   marker, UI scale, captions for voice and commentary. Owner: lead.
+   marker, UI scale, captions for voice and commentary. UI scale
+   (Settings > Interface size) and a colour-blind-safe meter (Settings >
+   Colours) done. Owner: lead.
 10. [x] **Personal records**: longest drive, best rounds per course, birdie,
    eagle and hole-in-one counts on the players page. Owner: lead.
 11. [x] **Hole positions**: Links 2003 courses keep 18 hole positions per
    hole but we always played the first. Round setup > Pins: usual or random
    (picked by the round seed, so a friend's round plays the same ones).
+12. [ ] **Click to aim**: click a spot on the hole map (or the course) to aim
+   there and get the club for that distance, as modern sims do. Owner: lead.
+13. [x] **Pick-up limit**: an option to pick up at double par or net double
+   bogey, like real stableford and casual rounds, to keep rounds moving.
+   Done: Settings > Pick up (double par or triple bogey).
+14. [ ] **Conditions**: firm or soft greens and fairways and the day's wind
+   strength chosen in round setup, so the same course plays differently.
+   Needs the original's conditions options read first. Owner: physics.
+15. [ ] **Captions**: on-screen text for the commentary and caddie lines
+   (part of accessibility). Owner: broadcast presentation.
 
 ## Phase 1: formats (see `docs/formats/`)
 

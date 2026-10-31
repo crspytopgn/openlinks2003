@@ -107,6 +107,7 @@ func _process(_delta: float) -> bool:
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
 	_run("mulligans", _test_mulligans)
+	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -1520,8 +1521,19 @@ func _test_graphics_settings() -> void:
 	s.green_firmness = 2
 	s.green_speed = 0
 	s.swing_method = 0
+	s.ui_scale = 3
+	s.gimme = 2
+	s.mulligans = 1
+	s.pickup = 2
+	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
+	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
+	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
+	_check(loaded.pickup == 2 and GraphicsSettings.new().pickup == 0, "pick up saved, off by default")
+	_check(GolfRound.pickup_limit(0, 4) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(1, 3) == 6
+			and GolfRound.pickup_limit(1, 5) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(2, 4) == 7,
+			"pick-up scores: off, double par, triple bogey, never past the limit")
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
 	_check(loaded.msaa == 4, "msaa saved")
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
@@ -3110,6 +3122,25 @@ func _test_launch_monitor_input() -> void:
 
 ## Mulligans: the shot is taken again from the same spot, the card doesn't
 ## count it, and the round still replays to the same card.
+func _test_pick_up() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.pickup = 1
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		_check(game.strokes <= GolfRound.MAX_STROKES, "never past the limit")
+		game.auto_play_step()
+		steps += 1
+	game.graphics.pickup = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with pick-ups finishes")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with pick-ups replays: %s" % [ok.errors])
+	GolfRound.setup = null
+
+
 func _test_mulligans() -> void:
 	var game := _game
 	if not game.is_node_ready():
