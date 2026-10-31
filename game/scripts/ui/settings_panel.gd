@@ -43,6 +43,7 @@ var _speed: OptionButton
 var _caddie: OptionButton
 var _buggy: OptionButton
 var _gimme: OptionButton
+var _mulligans: OptionButton
 var _monitor: OptionButton
 var _hd: OptionButton
 var _hd_note: Label
@@ -120,6 +121,7 @@ func _ready() -> void:
 	_caddie = _row(grid, "Caddie", ["Off", "On (advice follows swing skill)"])
 	_buggy = _row(grid, "Golf buggy", ["Off (walk)", "Drive between shots"])
 	_gimme = _row(grid, "Gimmes", GraphicsSettings.GIMME_NAMES)
+	_mulligans = _row(grid, "Mulligans", GraphicsSettings.MULLIGAN_NAMES)
 	if OpenConnectServer.supported():
 		_monitor = _row(grid, "Launch monitor", ["Off", "On (OpenConnect, port 921)"])
 	_add_hd_rows(box, grid)
@@ -167,6 +169,7 @@ func open(s: GraphicsSettings) -> void:
 	_caddie.select(1 if s.caddie else 0)
 	_buggy.select(1 if s.buggy else 0)
 	_gimme.select(s.gimme)
+	_mulligans.select(s.mulligans)
 	if _monitor != null:
 		_monitor.select(1 if s.launch_monitor else 0)
 	_show_look()
@@ -388,6 +391,7 @@ func _on_selected() -> void:
 	settings.caddie = _caddie.selected == 1
 	settings.buggy = _buggy.selected == 1
 	settings.gimme = _gimme.selected
+	settings.mulligans = _mulligans.selected
 	if _monitor != null:
 		settings.launch_monitor = _monitor.selected == 1
 	settings.lighting = _lighting.selected

@@ -457,6 +457,8 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 		var pin: Vector3 = pins[0]
 		hole.tee = Vector3(tee.x, terrain.height_at(tee.x, tee.z), tee.z)
 		hole.pin = Vector3(pin.x, terrain.height_at(pin.x, pin.z), pin.z)
+		for p: Vector3 in pins:
+			hole.pins.append(Vector3(p.x, terrain.height_at(p.x, p.z), p.z))
 		for t: Dictionary in tees:
 			var at: Vector3 = t.position
 			hole.tees.append(Vector3(at.x, terrain.height_at(at.x, at.z), at.z))

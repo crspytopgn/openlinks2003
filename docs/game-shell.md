@@ -72,6 +72,15 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Mulligans
+
+Settings > Mulligans (off by default): one per player per nine holes, or
+one per hole. Right after a shot, while its result shows, U takes it again
+from the same spot as if it never happened: the strokes, penalties and that
+hole's stats go back. The shot stays in the round's record marked
+`"mulligan": true`, and the replay checker leaves it off the card. Not on a
+holed shot, in a friend's round, the shared-ball team modes or practice.
+
 ### Launch monitors
 
 Settings > Launch monitor (desktop builds; a browser can't listen on a
@@ -96,6 +105,17 @@ counted as a putt. The conceded stroke is kept with the round's drops
 (`"gimme": true`, penalty 1), so the replay checker adds it to the card.
 Never in a friend's round from a result code, nor in a scramble, whose best
 ball is picked only after everyone has played.
+
+### Hole positions
+
+Links 2003 courses keep 18 hole positions for each hole, in three groups of
+six (`HoleData.pins`, [crz.md](formats/crz.md)). Round setup > Pins plays
+the usual one (the first) or a random one per hole, picked from the round
+seed (`RoundSetup.pick_pin`), so a friend's round from a result code and a
+resumed round play the same positions. What the three groups stand for
+(days of a tournament, or difficulty) isn't known yet, so the choice is
+over all of them. Courses with one position (the placeholder and designed
+courses) keep it.
 
 ### Practice range
 
