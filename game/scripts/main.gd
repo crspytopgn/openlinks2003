@@ -32,6 +32,7 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 ## red.
 const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
+const HINT_MOUSE_SWING := "Keep holding: pull back, push smoothly up through the white line and let go on it"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    M: main menu    Esc: menu"
@@ -124,6 +125,8 @@ var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
+## The mouse stroke for the shot being played, or null (play_shot uses it once).
+var _mouse_stroke: LinksLaunch.MouseStroke = null
 ## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
 var _drop_reason := -1
 var _drop_zones: Array[DropRules.Zone] = []
@@ -206,6 +209,9 @@ func _ready() -> void:
 		add_child(menu_sounds)
 	hud.meter.backswing_started.connect(_on_backswing_started)
 	hud.meter.swing_finished.connect(_on_swing_finished)
+	hud.mouse_swing.backswing_started.connect(_on_backswing_started)
+	hud.mouse_swing.stroke_finished.connect(_on_mouse_stroke)
+	hud.mouse_swing.stroke_cancelled.connect(_on_mouse_stroke_cancelled)
 	start_round()
 
 
@@ -540,6 +546,8 @@ func play_shot(power: float, accuracy: float) -> void:
 		if links.computer and opponents[shooter] != null:
 			links.computer_ratings = LinksLaunch.GolferRatings.even(opponents[shooter].skill.links_rating)
 			links.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
+		links.mouse_stroke = null if links.computer else _mouse_stroke
+	_mouse_stroke = null
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
@@ -710,6 +718,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.AIM and opponents[current] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
+	if _mouse_swing_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	var swing_pressed := event.is_action_pressed("swing")
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -751,6 +762,48 @@ func _on_swing_pressed() -> void:
 			start_round()
 
 
+## Links 2003's mouse swing: holding the left button while aiming starts
+## it (with the mouse swing chosen); Space still uses the meter.
+func _mouse_swing_input(event: InputEvent) -> bool:
+	var ms := hud.mouse_swing
+	var t := Time.get_ticks_usec() / 1e6
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var mb := event as InputEventMouseButton
+		if ms.is_swinging():
+			if not mb.pressed:
+				ms.release(mb.position, t)
+			return true
+		if mb.pressed and state == State.AIM and graphics.swing_method == 1 and not _replaying and not camera.flying():
+			hud.scorecard.visible = false
+			state = State.SWING
+			hud.hint.text = HINT_MOUSE_SWING
+			hud.meter.reset()
+			ms.skill = graphics.skill
+			ms.begin(mb.position, t)
+			return true
+	elif event is InputEventMouseMotion and ms.is_swinging():
+		ms.motion((event as InputEventMouseMotion).position, t)
+		return true
+	return false
+
+
+## A finished mouse stroke: the Links model makes the swing from it; the
+## standard model gets its power and an accuracy from the release.
+func _on_mouse_stroke(stroke: LinksLaunch.MouseStroke) -> void:
+	if state != State.SWING:
+		return
+	_mouse_stroke = stroke
+	play_shot(clampf(stroke.power / 100.0, 0.0, 1.0), clampf(-stroke.release / 18.0, -1.0, 1.0))
+
+
+func _on_mouse_stroke_cancelled() -> void:
+	if state == State.SWING:
+		state = State.AIM
+		hud.hint.text = HINT_AIM
+		if golfer:
+			golfer.play(&"address")
+
+
 func _on_backswing_started() -> void:
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
@@ -787,6 +840,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	var target := _aim_target()
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
 	hud.meter.reset()
+	hud.mouse_swing.reset()
 	hud.hint.text = HINT_AIM
 	if hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 		hud.hint.text += HINT_FREE_DROP
