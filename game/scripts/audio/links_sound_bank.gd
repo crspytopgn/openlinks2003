@@ -1,7 +1,8 @@
 class_name LinksSoundBank
 extends SoundBank
 ## Game sounds from the player's own predefined.ssf (docs/formats/ssf.md).
-## Events the bank has no sound for fall back to the placeholder sounds.
+## Events the bank has no sound for fall back to the free recorded sounds
+## (FreeSoundBank).
 ##
 ## The crowd reactions (applause, cheers, groans, "oohs") come from the
 ## tournament bank, TOURNA_1.SSF, when the player's files have it. It is
@@ -32,7 +33,7 @@ var _crowd: SsfBank
 var _crowd_path := ""
 var _crowd_task := -1
 var _player: AudioStreamPlayer
-var _fallback: PlaceholderSoundBank
+var _fallback: FreeSoundBank
 
 
 ## Null if no game folder is configured or it has no readable sound bank.
@@ -54,7 +55,7 @@ static func from_game_folder() -> LinksSoundBank:
 func _ready() -> void:
 	_player = AudioStreamPlayer.new()
 	add_child(_player)
-	_fallback = PlaceholderSoundBank.new()
+	_fallback = FreeSoundBank.new()
 	add_child(_fallback)
 	if not _crowd_path.is_empty():
 		if OS.has_feature("web"):
@@ -94,6 +95,13 @@ func _crowd_stream(event: StringName) -> AudioStreamWAV:
 		if stream != null:
 			return stream
 	return null
+
+
+func play_detail(event: StringName, detail: Dictionary) -> void:
+	if EVENTS.has(event) or CROWD_EVENTS.has(event):
+		play(event)
+	else:
+		_fallback.play_detail(event, detail)
 
 
 func play(event: StringName) -> void:

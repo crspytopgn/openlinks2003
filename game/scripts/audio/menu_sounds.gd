@@ -2,11 +2,12 @@ class_name MenuSounds
 extends Node
 ## Menu clicks and music from the player's own SOUNDS.LS
 ## (docs/formats/ls-archive.md): every Button in the scene clicks when
-## pressed, and the menu can play the game's menu music on a loop. Silent
-## without the game files. Read on a worker thread; not in the browser build
-## yet (the archive is 27 MB, most of it music).
+## pressed, and the menu can play the game's menu music on a loop. Read on
+## a worker thread (at once in the single-threaded browser build). Without the game files the buttons click with a free
+## recorded click (game/assets/sounds/ui_click.ogg) and there is no music.
 
 const CLICK := "BC_CLICK.WAV"
+const FREE_CLICK := "res://assets/sounds/ui_click.ogg"
 const MUSIC := "MUSIC1.WAV"
 const MUSIC_DB := -10.0
 const CLICK_DB := -4.0
@@ -14,19 +15,18 @@ const CLICK_DB := -4.0
 var play_music := false
 var _path := ""
 var _task := -1
-var _click: AudioStreamWAV
+var _click: AudioStream
 var _music: AudioStreamWAV
 var _click_player: AudioStreamPlayer
 var _music_player: AudioStreamPlayer
 
 
-## Null without SOUNDS.LS in the game folder.
+## The game's own sounds from SOUNDS.LS in the game folder, or the free
+## click when there is none or the disc sounds are turned off.
 static func from_game_folder(with_music: bool) -> MenuSounds:
-	if not GraphicsSettings.disc_sounds():
-		return null
-	var path := GameFolder.find_file(PackedStringArray(["sounds.ls", "SOUNDS.LS"]))
-	if path.is_empty():
-		return null
+	var path := ""
+	if GraphicsSettings.disc_sounds():
+		path = GameFolder.find_file(PackedStringArray(["sounds.ls", "SOUNDS.LS"]))
 	var m := MenuSounds.new()
 	m._path = path
 	m.play_music = with_music
@@ -40,7 +40,10 @@ func _ready() -> void:
 	_music_player = AudioStreamPlayer.new()
 	_music_player.volume_db = MUSIC_DB
 	add_child(_music_player)
-	if OS.has_feature("web"):
+	if _path.is_empty():
+		_click = load(FREE_CLICK) as AudioStream
+		set_process(false)
+	elif OS.has_feature("web"):
 		_load()  # single-threaded build
 	else:
 		_task = WorkerThreadPool.add_task(_load)
