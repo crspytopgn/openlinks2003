@@ -369,6 +369,8 @@ func _test_scorecard() -> void:
 	_check(Scorecard.format_to_par(card.to_par()) == "E", "even")
 	card.record(2, 7)
 	_check(Scorecard.format_to_par(card.to_par()) == "+2", "+2")
+	var board := GolfRound.leaderboard_lines([["Ann", "70 (-2)"], ["Bob", "72 (E)"], ["Cy", "72 (E)"], ["Di", "75 (+3)"]])
+	_check(board == _strs(["1. ANN  70 (-2)", "T2. BOB  72 (E)", "T2. CY  72 (E)", "4. DI  75 (+3)"]), "leaderboard ties: %s" % [board])
 	# An 18-hole card gets an Out column after the ninth.
 	var s18 := RoundSetup.new()
 	s18.mode = GameModes.Mode.STABLEFORD
