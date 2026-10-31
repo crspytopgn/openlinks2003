@@ -32,6 +32,8 @@ What the file holds and when the game loads it.
   billboards (`MasterObj`, `2DPlant`) and 3D objects (`MasterObj3D`,
   `3DPlant`, `.t3l`, `.maq`) and tournament spectators (`TrnyPlant`).
 - [btcv.md](btcv.md): `BTCV` textures and DXT5 block runs.
+- [sha.md](sha.md): course shadow files (`.SHA`): tree shadow shapes and
+  what else is known.
 - [panorama.md](panorama.md): course horizons and cloud skies (`Panorama`, `PANSKY.LIB`).
 - [object-library.md](object-library.md): the Course Designer catalog
   (`OBJECT.LIB`), palette sets, billboards and the setup file-name table.

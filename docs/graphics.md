@@ -87,7 +87,9 @@ at Medium and grass at Low.
   within 250 m of the tee, route and pin stamps a soft shadow (along
   the sun, stretched by the crown's height) and a soft dark patch at its
   foot into one top-down map, up to 1536 pixels and at least 0.5 m a
-  pixel. The stamps are soft ellipses in one MultiMesh, multiplied into a
+  pixel. The stamps are soft ellipses, or for a tree or bush with a shape
+  in the course's `.SHA` file that shape ([sha.md](formats/sha.md), from a
+  64-pixel-a-cell atlas), in one MultiMesh, multiplied into a
   white off-screen viewport on the GPU and read back once. The ground
   and grass shaders darken by it (R the sun shadow, G the occlusion)
   through global uniforms. The disc courses' standard ground materials
@@ -109,7 +111,24 @@ at Medium and grass at Low.
   turf is (`realistic()`; pale disc rough becomes straw and olive). It is
   sampled at two scales, fades to its mean colour with distance, and has
   large lighter and darker patches. Fairways and greens get mowing stripes.
-  Paths, dirt and rocks keep the disc textures.
+  Paths, dirt and rocks keep the disc textures. A blended edge (fairway to
+  rough, round bunkers and tees) draws both layers' photo grounds, faded by
+  the course's own ragged edge mask.
+- **Texture mappings and blended edges** (`TerrainMappings`,
+  `shaders/terrain_mapped.gdshader`): the disc textures lie on the ground
+  the way the course's `Mappings` entry says (per-hole fairway planars
+  turned along the hole, cart paths running along the path, cylinders on
+  rock walls; [crz.md](formats/crz.md#mappings-texture-projections)). The
+  mesh carries the first layer's coordinates in UV, the second's in UV2
+  and the mask's in CUSTOM0. Blended materials fade one texture into the
+  other through their `... Alpha.tga` mask, so the edges between fairway
+  and rough are soft and ragged instead of following the triangles.
+- **Cloud shadows** (`cloud_shadow`, `cloud_offset` in
+  `ground_shade.gdshaderinc`; Settings > Graphics): soft patches of value
+  noise a few hundred metres across that drift with a wind aloft (2.5
+  times the course's wind, at least 3 m/s) and take 32% of the light. Every
+  ground shader and the grass take them through `ground_shading()`. On in
+  every look but Classic and Performance.
 - **Sky with Photoreal lighting**: the photographed cloud sky (Poly Haven)
   replaces the disc's painted sky. The course's own horizon panorama
   stays, which keeps Kauri's sea, and fades 30% into the haze.
@@ -138,6 +157,6 @@ written here.
 
 ## Still to do
 
-- Cloud shadows, and occlusion from the terrain itself (hollows, cliffs).
+- Occlusion from the terrain itself (hollows, cliffs).
 - Texture compression tiers per device (Basis/ASTC), and the HD pack in
   the browser.

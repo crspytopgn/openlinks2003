@@ -9,10 +9,13 @@
 #include <string>
 #include <vector>
 
+#include "olcore/binary_reader.hpp"
 #include "olcore/bunky.hpp"
 #include "olcore/course.hpp"
 #include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
+#include "olcore/shadow_file.hpp"
+#include "olcore/terrain_mapping.hpp"
 
 namespace {
 
@@ -624,6 +627,152 @@ void test_crowd_placements() {
 
 }  // namespace
 
+void put_name(Bytes& b, const std::string& name) {
+  put_u32(b, std::uint32_t(name.size()));
+  b.insert(b.end(), name.begin(), name.end());
+}
+
+// A `Mappings` entry with one record of each kind. The GDScript port
+// (game/tests/course_tests.gd) builds the same bytes.
+Bytes test_mappings_entry() {
+  Bytes b;
+  put_u32(b, 5);
+  put_u32(b, 4);
+  while (b.size() < 48) b.push_back(0);
+  // 0: planar, 12 feet per repeat, rotated 90 degrees, origin (100, 200, 0).
+  put_u32(b, 0);
+  put_u32(b, 0x8000);
+  put_name(b, "Planar");
+  put_f32(b, 1);
+  put_f32(b, 1);
+  for (float f : {0.f, 12.f, 0.f, 0.f, -12.f, 0.f, 0.f, 0.f, 0.f, 0.f, 12.f, 0.f, 100.f, 200.f, 0.f, 1.f}) put_f32(b, f);
+  // 1: cylindrical round the z axis, 4 repeats round, 10 feet tall.
+  put_u32(b, 1);
+  put_u32(b, 0x8001);
+  put_name(b, "Pool");
+  put_f32(b, 4);
+  put_f32(b, 1);
+  for (float f : {20.f, 0.f, 0.f, 0.f, 0.f, 20.f, 0.f, 0.f, 0.f, 0.f, 10.f, 0.f, 0.f, 0.f, 0.f, 1.f}) put_f32(b, f);
+  // 2: a strip over triangle 7 (vertices 3, 4, 5).
+  put_u32(b, 3);
+  put_u32(b, 0x8002);
+  put_name(b, "Edge path");
+  put_f32(b, 1);
+  put_f32(b, 12);
+  put_u32(b, 1);
+  for (std::uint32_t v : {999u, 7u, 2u, 0u, 1u}) put_u32(b, v);
+  put_u32(b, 3);
+  for (std::uint32_t c = 0; c < 3; ++c) {
+    put_u32(b, 999);
+    put_u32(b, 3 + c);
+    put_f32(b, c == 1 ? 1.f : 0.f);
+    put_f32(b, 0.5f * float(c));
+  }
+  // 3: blend, the strip for the mask, the planar for both layers.
+  put_u32(b, 4);
+  put_u32(b, 0x8003);
+  put_name(b, "Edge multi");
+  for (std::uint32_t v : {2u, 0u, 0u, 0u, 0u}) put_u32(b, v);
+  return b;
+}
+
+void test_mappings() {
+  auto m = parse_mappings(test_mappings_entry());
+  CHECK(m.size() == 4);
+  if (m.size() != 4) return;
+  CHECK(m[0].kind == MappingKind::kPlanar && m[0].name == "Planar");
+  // origin + 1 * row0 + 2 * row1 = (100 - 24, 200 + 12, 0).
+  auto uv = mapping_uv(m[0], {76, 212, 5});
+  CHECK(std::fabs(uv[0] - 1) < 1e-5f && std::fabs(uv[1] - 2) < 1e-5f);
+  CHECK(m[1].kind == MappingKind::kCylindrical);
+  auto cyl = mapping_uv(m[1], {0, 20, 5});  // a quarter round, half way up
+  CHECK(std::fabs(cyl[0] - 1) < 1e-5f && std::fabs(cyl[1] - 0.5f) < 1e-5f);
+  CHECK(m[2].kind == MappingKind::kStrip && m[2].scale_v == 12);
+  CHECK(m[2].triangles.size() == 1 && m[2].triangles[0].triangle == 7);
+  CHECK(m[2].triangles[0].corner == (std::array<std::uint32_t, 3>{2, 0, 1}));
+  CHECK(m[2].corners.size() == 3 && m[2].corners[1].vertex == 4 && m[2].corners[1].u == 1 &&
+        m[2].corners[2].v == 1);
+  CHECK(m[3].kind == MappingKind::kBlend && m[3].layers == (std::array<std::uint32_t, 3>{2, 0, 0}));
+  Bytes bad = test_mappings_entry();
+  bad.push_back(0);
+  bool threw = false;
+  try {
+    parse_mappings(bad);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+  TerrainTriangle t;
+  t.mapping = 0x616d0006;
+  CHECK(mapping_index(t) == 6);
+}
+
+void test_material_layers() {
+  TerrainMaterial plain;
+  plain.textures = {4, 5, 6};
+  plain.kind = 0x3;  // two detail variants of the only layer
+  auto p = material_layers(plain);
+  CHECK(!p.blended && p.mask == -1 && p.layers == (std::vector<std::int32_t>{4}));
+  TerrainMaterial blend;
+  blend.mode = 3;
+  blend.layer_count = 3;
+  // Mask with one detail, layer A with two, layer B with none.
+  blend.textures = {10, 11, 20, 21, 22, 30};
+  blend.kind = 0x1 | 0xc;
+  auto b = material_layers(blend);
+  CHECK(b.blended && b.mask == 10 && b.layers == (std::vector<std::int32_t>{20, 30}));
+}
+
+// A shadow file: 2 light maps of 2 x 2, some undecoded words, then three
+// shapes (none, 32 x 32, none) and a tail.
+Bytes test_shadow_file() {
+  Bytes b(0x136, 0);
+  std::memcpy(b.data(), "VER5JDHSHADOW", 14);
+  std::memcpy(b.data() + 14, "test.CRZ", 8);
+  set_u32(b, 0x10e, 12345);
+  set_u32(b, 0x11e, 2);  // models
+  set_u32(b, 0x122, 3);  // billboard types
+  set_u32(b, 0x126, 1);  // model placements
+  set_u32(b, 0x12a, 2);  // billboards
+  set_u32(b, 0x12e, 2);
+  set_u32(b, 0x132, 2);
+  for (int i = 0; i < 8; ++i) b.push_back(0xfe);
+  put_u32(b, 5);
+  put_f32(b, 1.0f);
+  put_f32(b, 0.25f);
+  put_u32(b, 0);
+  put_u32(b, 0);
+  put_u32(b, 32);
+  put_u32(b, 32);
+  for (int i = 0; i < 32 * 32; ++i) b.push_back(std::uint8_t(i));
+  put_u32(b, 0);
+  put_u32(b, 0);
+  put_u32(b, 3);  // tail
+  put_u32(b, 3);
+  return b;
+}
+
+void test_shadow_file_shapes() {
+  auto f = parse_shadow_file(test_shadow_file());
+  CHECK(f.course == "test.CRZ" && f.course_size == 12345);
+  CHECK(f.model_count == 2 && f.billboard_type_count == 3 && f.billboard_count == 2);
+  CHECK(f.shapes.size() == 3);
+  if (f.shapes.size() != 3) return;
+  CHECK(f.shapes[0].width == 0 && f.shapes[0].pixels.empty());
+  CHECK(f.shapes[1].width == 32 && f.shapes[1].height == 32 && f.shapes[1].pixels.size() == 1024);
+  CHECK(f.shapes[1].pixels[33] == 33);
+  CHECK(f.shapes[2].width == 0);
+  Bytes bad = test_shadow_file();
+  bad[0] = 'X';
+  bool threw = false;
+  try {
+    parse_shadow_file(bad);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"bunky_known_answers", test_bunky_known_answers},
@@ -642,6 +791,9 @@ int main() {
       {"course_models", test_course_models},
       {"model_placements", test_model_placements},
       {"object_textures_and_maq", test_object_textures_and_maq},
+      {"mappings", test_mappings},
+      {"material_layers", test_material_layers},
+      {"shadow_file_shapes", test_shadow_file_shapes},
   };
   for (auto& [name, fn] : tests) {
     std::printf("%s\n", name.c_str());

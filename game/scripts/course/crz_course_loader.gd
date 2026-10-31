@@ -12,7 +12,7 @@ extends CourseLoader
 const FEET := 0.3048
 const KEYS_PATH := "user://crz_keys.cfg"
 const CACHE_DIR := "user://course_cache"
-const CACHE_VERSION := 2
+const CACHE_VERSION := 3
 const EXE_NAMES := ["LINKSM_1.EXE", "LinksMMIII.exe", "LinksM~1.exe"]
 const TEXTURE_LIBRARIES := ["STDTER_1.LIB", "StdTerrain.lib", "StdTer~1.lib"]
 ## How far one repeat of a free ground texture spans.
@@ -31,6 +31,7 @@ const MATERIAL_SLOTS := 12
 
 static var _keys := {}
 static var _free_means := {}  ## free ground slot -> its average colour
+static var _library: Arc0 = null
 
 
 func can_load(path: String) -> bool:
@@ -134,7 +135,8 @@ static func _store_cache(path: String, data: Dictionary) -> void:
 
 ## Everything the game needs from an open archive, as plain data (so it can
 ## be cached): {version, name, holes, positions, triangles, triangle_material,
-## ground_classes, material_textures, objects}. Empty on error.
+## ground_classes, material_textures, material_layers, triangle_mapping,
+## mappings, objects}. Empty on error.
 static func decode(archive: CrzArchive) -> Dictionary:
 	var holes := parse_holes(archive.read_named("header"))
 	var terrain := parse_terrain(archive.read_named("vertex"))
@@ -150,15 +152,22 @@ static func decode(archive: CrzArchive) -> Dictionary:
 
 	var textures := parse_texture_list(archive.read_named("txtrdesc"))
 	var material_textures := PackedStringArray()
+	var material_layers: Array[Dictionary] = []
 	for m in parse_materials(archive.read_named("Materials")):
-		# Blended materials list a greyscale mask first ("Fairway To Rough
-		# Alpha.tga"); show the first texture that is not a mask.
-		var chosen := ""
-		for t in m.textures as PackedInt32Array:
-			if t < textures.size() and not textures[t].to_lower().contains("alpha"):
-				chosen = textures[t]
-				break
-		material_textures.append(chosen)
+		# A plain material is one texture layer; a blended one has a mask
+		# ("Fairway To Rough Alpha.tga") and two layers. Detail variants of
+		# a layer are skipped.
+		var layers := TerrainMappings.material_layers(m)
+		var names := PackedStringArray()
+		for t in layers.layers as PackedInt32Array:
+			names.append(textures[t] if t < textures.size() else "")
+		var mask: int = layers.mask
+		material_textures.append(names[0] if not names.is_empty() else "")
+		material_layers.append({
+			"blended": layers.blended and names.size() >= 2,
+			"mask": textures[mask] if mask >= 0 and mask < textures.size() else "",
+			"layers": names,
+		})
 
 	return {
 		"version": CACHE_VERSION,
@@ -169,6 +178,9 @@ static func decode(archive: CrzArchive) -> Dictionary:
 		"triangle_material": terrain.triangle_material,
 		"ground_classes": parse_ground_classes(archive.read_named("TerrainTypes")),
 		"material_textures": material_textures,
+		"material_layers": material_layers,
+		"triangle_mapping": terrain.triangle_mapping,
+		"mappings": TerrainMappings.parse(archive.read_named("Mappings")) if archive.has("Mappings") else [],
 		"objects": CourseObjects.decode(archive.read_named),
 	}
 
@@ -235,7 +247,8 @@ static func parse_course_text(b: PackedByteArray) -> Dictionary:
 	return out
 
 
-## `vertex` entry: {positions, triangles, triangle_material}, with the
+## `vertex` entry: {positions, triangles, triangle_material,
+## triangle_mapping (index into `Mappings`)}, with the
 ## triangles wound clockwise seen from above. Empty on error.
 static func parse_terrain(b: PackedByteArray) -> Dictionary:
 	if b.size() < 8 or b.decode_u32(0) != TERRAIN_VERSION:
@@ -260,8 +273,11 @@ static func parse_terrain(b: PackedByteArray) -> Dictionary:
 	triangles.resize(nt * 3)
 	var material := PackedInt32Array()
 	material.resize(nt)
+	var mapping := PackedInt32Array()
+	mapping.resize(nt)
 	for t in nt:
 		material[t] = b.decode_u16(o)
+		mapping[t] = b.decode_u16(o + 2)  # the low half of a u32; the high half is something else
 		var v0 := b.decode_u32(o + 8) if wide else b.decode_u16(o + 8)
 		var v1 := b.decode_u32(o + 12) if wide else b.decode_u16(o + 10)
 		var v2 := b.decode_u32(o + 16) if wide else b.decode_u16(o + 12)
@@ -278,7 +294,8 @@ static func parse_terrain(b: PackedByteArray) -> Dictionary:
 		triangles[3 * t + 1] = v1
 		triangles[3 * t + 2] = v2
 		o += record
-	return {"positions": positions, "triangles": triangles, "triangle_material": material}
+	return {"positions": positions, "triangles": triangles, "triangle_material": material,
+		"triangle_mapping": mapping}
 
 
 ## `txtrdesc` entry: texture names.
@@ -294,7 +311,8 @@ static func parse_texture_list(b: PackedByteArray) -> PackedStringArray:
 	return out
 
 
-## `Materials` entry: [{textures: PackedInt32Array, kind}].
+## `Materials` entry: [{mode, layer_count, textures: PackedInt32Array, kind}]
+## (see olcore::TerrainMaterial).
 static func parse_materials(b: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if b.size() < 8 or b.decode_u32(0) != MATERIALS_VERSION:
@@ -309,7 +327,8 @@ static func parse_materials(b: PackedByteArray) -> Array[Dictionary]:
 			var t := b.decode_s32(o + 8 + 4 * s)
 			if t >= 0:
 				textures.append(t)
-		out.append({"textures": textures, "kind": b.decode_u32(o + 56)})
+		out.append({"mode": b.decode_u32(o), "layer_count": b.decode_u32(o + 4), "textures": textures,
+			"kind": b.decode_u32(o + 56)})
 	return out
 
 
@@ -341,6 +360,12 @@ func _build(path: String, data: Dictionary, archive: CrzArchive) -> CourseData:
 	if archive == null:
 		archive = _open(path)
 	terrain.materials = _materials(data.material_textures, terrain.ground_classes, archive)
+	terrain.triangle_mapping = data.get("triangle_mapping", PackedInt32Array())
+	var mappings: Array = data.get("mappings", [])
+	terrain.mappings.assign(mappings)
+	_add_blend_layers(terrain, data.get("material_layers", []), data.material_textures, archive)
+	_library = null
+	CourseObjects.shadow_shapes = _shadow_shapes(path)
 
 	var course := CourseData.new()
 	course.course_name = data.name
@@ -401,10 +426,7 @@ static func _vertex_normals(positions: PackedVector3Array, triangles: PackedInt3
 ## A stock texture that isn't there (add-on courses played without the
 ## standard library) falls back to the free ground texture for its surface.
 func _materials(names: PackedStringArray, classes: PackedByteArray, archive: CrzArchive) -> Array[Dictionary]:
-	var library: Arc0 = null
-	var lib_path := GameFolder.find_file(PackedStringArray(TEXTURE_LIBRARIES))
-	if not lib_path.is_empty():
-		library = Arc0.from_bytes(FileAccess.get_file_as_bytes(lib_path))
+	var library := _texture_library()
 	var loaded := {}
 	var out: Array[Dictionary] = []
 	for m in names.size():
@@ -420,6 +442,59 @@ func _materials(names: PackedStringArray, classes: PackedByteArray, archive: Crz
 				info.merge(_free_ground(ground, info.colour), true)
 		out.append(info)
 	return out
+
+
+## Gives each blended material (materials[m].blend) its mask and second
+## layer: {mask, texture_b, ground_a, ground_b}. A layer's ground class is
+## that of a plain material drawn with the same texture, so a fairway to
+## rough edge fades fairway into rough even in the photo ground.
+func _add_blend_layers(terrain: CrzTerrain, layers: Array, names: PackedStringArray, archive: CrzArchive) -> void:
+	var class_of := {}
+	for m in mini(names.size(), terrain.ground_classes.size()):
+		var plain: bool = m >= layers.size() or not (layers[m] as Dictionary).get("blended", false)
+		if plain and not names[m].is_empty() and not class_of.has(names[m].to_lower()):
+			class_of[names[m].to_lower()] = terrain.ground_classes[m]
+	var library := _texture_library()
+	var loaded := {}
+	for m in mini(layers.size(), terrain.materials.size()):
+		var l: Dictionary = layers[m]
+		if not l.get("blended", false):
+			continue
+		var pair: PackedStringArray = l.layers
+		var own := terrain.ground_classes[m] if m < terrain.ground_classes.size() else 3
+		var blend := {
+			"ground_a": class_of.get(pair[0].to_lower(), own),
+			"ground_b": class_of.get(pair[1].to_lower(), own),
+		}
+		for key in ["mask", "texture_b"]:
+			var tex_name: String = l.mask if key == "mask" else pair[1]
+			var k := tex_name.to_lower()
+			if not loaded.has(k):
+				loaded[k] = _load_texture(tex_name, archive, library)
+			blend[key] = loaded[k]
+		if blend.mask != null and blend.texture_b != null:
+			terrain.materials[m].blend = blend
+
+
+## The tree shadow shapes from the course's .SHA file (beside it), or an
+## empty array.
+static func _shadow_shapes(path: String) -> Array:
+	var base := path.get_basename()
+	for ext in [".SHA", ".sha", ".Sha"]:
+		if FileAccess.file_exists(base + ext):
+			var parsed := ShadowFile.parse(FileAccess.get_file_as_bytes(base + ext))
+			return parsed.get("shapes", [])
+	return []
+
+
+## The standard terrain texture library on the game disc, or null. Kept
+## while a course loads (_build clears it).
+static func _texture_library() -> Arc0:
+	if _library == null:
+		var lib_path := GameFolder.find_file(PackedStringArray(TEXTURE_LIBRARIES))
+		if not lib_path.is_empty():
+			_library = Arc0.from_bytes(FileAccess.get_file_as_bytes(lib_path))
+	return _library
 
 
 static func _load_texture(tex_name: String, archive: CrzArchive, library: Arc0) -> Texture2D:

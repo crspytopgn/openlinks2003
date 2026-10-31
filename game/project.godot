@@ -49,6 +49,14 @@ ground_shade_near={
 "type": "float",
 "value": 0.0
 }
+cloud_shadow={
+"type": "float",
+"value": 0.0
+}
+cloud_offset={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
 tree_impostor_distance={
 "type": "float",
 "value": 1e+06

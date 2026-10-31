@@ -176,8 +176,8 @@ std::vector<TerrainMaterial> parse_materials(const std::vector<std::uint8_t>& da
   if (count > r.remaining() / 64) throw ReadError("materials table runs past end of entry");
   std::vector<TerrainMaterial> out(count);
   for (TerrainMaterial& m : out) {
-    r.u32();  // always 0
-    r.u32();  // always 1
+    m.mode = r.u32();
+    m.layer_count = r.u32();
     for (std::size_t i = 0; i < kMaterialSlots; ++i) {
       std::int32_t tex = r.i32();
       if (tex >= 0) m.textures.push_back(tex);
