@@ -88,6 +88,7 @@ func _process(_delta: float) -> bool:
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("viewer_return", _test_viewer_return)
+	_run("retee_after_ob", _test_retee_after_ob)
 	_run("players_panel", _test_players_panel)
 	SavedRound.clear()
 	_run("menu_resume", _test_menu_resume)
@@ -368,6 +369,28 @@ func _test_scorecard() -> void:
 	_check(Scorecard.format_to_par(card.to_par()) == "E", "even")
 	card.record(2, 7)
 	_check(Scorecard.format_to_par(card.to_par()) == "+2", "+2")
+	# An 18-hole card gets an Out column after the ninth.
+	var s18 := RoundSetup.new()
+	s18.mode = GameModes.Mode.STABLEFORD
+	var pars18: Array[int] = []
+	var numbers: Array[int] = []
+	for i in 18:
+		pars18.append(4)
+		numbers.append(i + 1)
+	var scoring := RoundScoring.new(s18, pars18, numbers)
+	for i in 10:
+		scoring.cards[0].record(i, 5)
+	var panel := ScorecardPanel.new()
+	panel._ready()  # not in the tree yet: nodes added now only get _ready() once the main loop runs
+	panel.show_round(scoring, "Test")
+	var grid: GridContainer = panel._grid
+	_check(grid.columns == 21, "scorecard: 18 holes, Out and Tot")
+	# Rows: hole, par, score, points.
+	_check(grid.get_child_count() == 21 * 4, "scorecard: every row has the Out column (%d cells)" % grid.get_child_count())
+	_check((grid.get_child(21 + 10) as Label).text == "36", "scorecard: par out")
+	_check((grid.get_child(42 + 10) as Label).text == "45", "scorecard: strokes out")
+	_check((grid.get_child(63 + 10) as Label).text == "9", "scorecard: points out")
+	panel.free()
 
 
 ## The same cases as test_game_modes in libs/olcore/tests/test_main.cpp.
@@ -1955,6 +1978,31 @@ func _test_viewer_return() -> void:
 		_check(int(game.round_stats[0][key]) == int(stats[key]), "viewer: %s counted once" % key)
 	game.auto_play_step()
 	_check(game.hole_index == 1 and game.state == GolfRound.State.AIM, "viewer: on to hole 2")
+	SavedRound.clear()
+
+
+## A tee shot out of bounds is played again from the tee, teed up.
+func _test_retee_after_ob() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	var tee := game.ball_at
+	_check(game.lie == Surface.Type.TEE, "re-tee: first shot teed up")
+	var ob := ShotResult.new()
+	ob.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
+	ob.rest = tee + Vector3(80.0, 0.0, 200.0)
+	ob.first_landing = ob.rest
+	ob.time_s = 5.0
+	ob.add_sample(0.0, tee)
+	ob.add_sample(5.0, ob.rest)
+	game.shot = ob
+	game.shot_from = tee
+	game._complete_flight()
+	game._after_result()
+	_check(game.state == GolfRound.State.AIM and game.strokes == 2, "re-tee: stroke and distance")
+	_check(game.lie == Surface.Type.TEE, "re-tee: the third shot is teed up too")
 	SavedRound.clear()
 
 

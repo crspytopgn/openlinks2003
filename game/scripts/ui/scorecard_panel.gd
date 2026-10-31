@@ -11,6 +11,9 @@ const OVER := Color(0.1, 0.2, 0.7)
 var _title: Label
 var _grid: GridContainer
 var _footer: Label
+## True while show_round draws an 18-hole card, which gets an Out column
+## after the ninth hole.
+var _split := false
 
 
 func _ready() -> void:
@@ -71,16 +74,19 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 	var pars := scoring.cards[0].pars
 	var holes := pars.size()
 	var mode := scoring.mode
-	_grid.columns = holes + 2
+	_split = holes > 9
+	_grid.columns = holes + 2 + (1 if _split else 0)
 	_cell("Hole", true, INK, true)
 	for i in holes:
 		_cell(str(scoring.numbers[i]) if i < scoring.numbers.size() else str(i + 1), true)
+		_out(i, "Out")
 	_cell("Tot", true)
 	_cell("Par", true, INK, true)
 	var total_par := 0
-	for p in pars:
-		_cell(str(p), false)
-		total_par += p
+	for i in holes:
+		_cell(str(pars[i]), false)
+		total_par += pars[i]
+		_out(i, str(_front(pars)))
 	_cell(str(total_par), true)
 	for n in scoring.player_count():
 		if GameModes.shared_ball(mode):
@@ -92,9 +98,14 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 			_score_row("  net", scored)
 		if mode == GameModes.Mode.STABLEFORD:
 			_cell("  points", false, INK, true)
+			var front := 0
 			for i in holes:
 				var s := scored.strokes[i]
-				_cell(str(GameModes.stableford_points(s, pars[i])) if s > 0 else "", false)
+				var pts := GameModes.stableford_points(s, pars[i]) if s > 0 else 0
+				if i < 9:
+					front += pts
+				_cell(str(pts) if s > 0 else "", false)
+				_out(i, str(front))
 			_cell(str(GameModes.stableford_total(scored)), true)
 	match mode:
 		GameModes.Mode.BEST_BALL, GameModes.Mode.SCRAMBLE, GameModes.Mode.ALTERNATE_SHOT:
@@ -106,6 +117,7 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 			for i in holes:
 				var w: int = sk.hole_winner[i]
 				_cell(_initials(scoring.names[w]) if w >= 0 else ("=" if w == -1 else ""), false)
+				_out(i, "")
 			_cell("", false)
 		GameModes.Mode.MATCH:
 			_cell("Hole won", true, INK, true)
@@ -118,9 +130,11 @@ func show_round(scoring: RoundScoring, course_name: String, footer := "") -> voi
 					_cell("=", false)
 				else:
 					_cell(_initials(scoring.names[0] if a[i] < b[i] else scoring.names[1]), false)
+				_out(i, "")
 			_cell("", false)
 	_footer.text = scoring.status_text()
 	_footer.visible = not _footer.text.is_empty()
+	_split = false
 	visible = true
 
 
@@ -134,7 +148,21 @@ func _score_row(label: String, card: Scorecard) -> void:
 		elif s > card.pars[i]:
 			color = OVER
 		_cell(str(s) if s > 0 else "-", false, color)
+		_out(i, str(_front(card.strokes)) if _front(card.strokes) > 0 else "-")
 	_cell("%d (%s)" % [card.total_strokes(), Scorecard.format_to_par(card.to_par())] if card.holes_played() > 0 else "-", true)
+
+
+## After the ninth hole of an 18-hole card: the front nine's subtotal.
+func _out(i: int, text: String) -> void:
+	if _split and i == 8:
+		_cell(text, true)
+
+
+static func _front(values: Array[int]) -> int:
+	var total := 0
+	for i in mini(9, values.size()):
+		total += maxi(0, values[i])
+	return total
 
 
 ## "Michael" -> "Mi", so a hole's winner fits in a column.
