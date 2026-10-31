@@ -20,6 +20,13 @@ const MIN_TEXEL := 0.5  ## metres per pixel at most this fine
 const SHADOW := 0.45  ## how much of the light a crown's shadow takes
 const AO := 0.3
 const MAX_SLANT := 3.0  ## longest shadow per metre of height (low sun)
+const CASTER_SIZE := 7  ## floats per caster, see stamps()
+const STAMP_SIZE := 8  ## floats per stamp, see stamps()
+const SHAPE_CELL := 64  ## pixels per shadow shape in the atlas
+const SHAPE_COLUMNS := 16
+
+static var _atlas: ImageTexture
+static var _atlas_of: Array = []  ## the shapes _atlas was built from
 
 static var _generation := 0
 
@@ -35,34 +42,37 @@ static func hole_rect(hole: HoleData) -> Rect2:
 
 
 ## The stamps of the shadow casters `casters` (per caster: base x, y, z,
-## crown bottom and top above the base, crown radius, as from
-## CourseObjects.shade_casters) for a sun shining along `sun_travel` (the
-## way its light goes, pointing down). Per stamp: centre x, z, half length
-## along the shadow, half width, the shadow's direction (radians about
-## +y), how dark in R and in G.
+## crown bottom and top above the base, crown radius, shadow shape or -1,
+## as from CourseObjects.shade_casters) for a sun shining along
+## `sun_travel` (the way its light goes, pointing down). Per stamp: centre
+## x, z, half length along the shadow, half width, the shadow's direction
+## (radians about +y), how dark in R and in G, and the shadow shape (a
+## cell of the shape atlas, see shape_atlas) or -1 for a soft ellipse.
 static func stamps(casters: PackedFloat32Array, sun_travel: Vector3) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	@warning_ignore("integer_division")
-	var n := casters.size() / 6
+	var n := casters.size() / CASTER_SIZE
 	var down := maxf(-sun_travel.y, 0.05)
 	var slant := Vector2(sun_travel.x, sun_travel.z) / down  # ground offset per metre of height
 	if slant.length() > MAX_SLANT:
 		slant = slant.normalized() * MAX_SLANT
 	var angle := atan2(slant.x, slant.y)
-	out.resize(n * 2 * 7)
+	out.resize(n * 2 * STAMP_SIZE)
 	var o := 0
 	for i in n:
-		var x := casters[6 * i]
-		var z := casters[6 * i + 2]
-		var bottom := casters[6 * i + 3]
-		var top := casters[6 * i + 4]
-		var r := casters[6 * i + 5]
+		var c := CASTER_SIZE * i
+		var x := casters[c]
+		var z := casters[c + 2]
+		var bottom := casters[c + 3]
+		var top := casters[c + 4]
+		var r := casters[c + 5]
+		var shape := casters[c + 6]
 		var mid := slant * (bottom + top) * 0.5
 		var values := [
 			# Shadow of the crown, stretched along the sun.
-			x + mid.x, z + mid.y, r + slant.length() * (top - bottom) * 0.5, r, angle, SHADOW, 0.0,
+			x + mid.x, z + mid.y, r + slant.length() * (top - bottom) * 0.5, r, angle, SHADOW, 0.0, shape,
 			# Occlusion at the foot.
-			x, z, r * 1.3, r * 1.3, 0.0, 0.0, AO,
+			x, z, r * 1.3, r * 1.3, 0.0, 0.0, AO, -1.0,
 		]
 		for v in values:
 			out[o] = v
@@ -109,7 +119,7 @@ static func bake(hole: HoleData, objects: CourseObjects, sun_travel: Vector3) ->
 	cam.environment = env
 	vp.add_child(cam)
 	var mi := MultiMeshInstance3D.new()
-	mi.multimesh = _stamp_multimesh(stamps(casters, sun_travel))
+	mi.multimesh = _stamp_multimesh(stamps(casters, sun_travel), shape_atlas(CourseObjects.shadow_shapes))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	vp.add_child(mi)
 	tree.root.add_child.call_deferred(vp)
@@ -144,31 +154,61 @@ static func placed_casters(hole: HoleData) -> PackedFloat32Array:
 		var s := o.scale
 		var p := o.position
 		if o.id.begins_with("tree_pine"):
-			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 2.0 * s, 13.0 * s, 2.6 * s]))
+			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 2.0 * s, 13.0 * s, 2.6 * s, -1]))
 		elif o.id.begins_with("tree"):
-			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 4.0 * s, 12.0 * s, 3.8 * s]))
+			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 4.0 * s, 12.0 * s, 3.8 * s, -1]))
 		elif o.id.begins_with("bush"):
-			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 0.0, 1.5 * s, 1.2 * s]))
+			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 0.0, 1.5 * s, 1.2 * s, -1]))
 		elif o.id.begins_with("rock"):
-			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 0.0, 1.0 * s, 1.0 * s]))
+			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 0.0, 1.0 * s, 1.0 * s, -1]))
 	return out
 
 
-static func _stamp_multimesh(st: PackedFloat32Array) -> MultiMesh:
+## The shadow shapes (per billboard type an L8 Image or null) packed into
+## one texture, SHAPE_COLUMNS cells of SHAPE_CELL pixels a row, a type's
+## shape in cell number type. Null without any.
+static func shape_atlas(shapes: Array) -> ImageTexture:
+	if shapes.is_empty():
+		return null
+	if _atlas != null and is_same(_atlas_of, shapes):
+		return _atlas
+	@warning_ignore("integer_division")
+	var rows := (shapes.size() + SHAPE_COLUMNS - 1) / SHAPE_COLUMNS
+	var img := Image.create(SHAPE_COLUMNS * SHAPE_CELL, rows * SHAPE_CELL, false, Image.FORMAT_L8)
+	for t in shapes.size():
+		var shape: Image = shapes[t]
+		if shape == null:
+			continue
+		var cell := shape.duplicate() as Image
+		cell.resize(SHAPE_CELL, SHAPE_CELL, Image.INTERPOLATE_BILINEAR)
+		@warning_ignore("integer_division")
+		img.blit_rect(cell, Rect2i(0, 0, SHAPE_CELL, SHAPE_CELL), Vector2i(t % SHAPE_COLUMNS, t / SHAPE_COLUMNS) * SHAPE_CELL)
+	img.generate_mipmaps()
+	_atlas = ImageTexture.create_from_image(img)
+	_atlas_of = shapes
+	return _atlas
+
+
+static func _stamp_multimesh(st: PackedFloat32Array, atlas: ImageTexture) -> MultiMesh:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2.ONE
 	var mat := ShaderMaterial.new()
 	mat.shader = STAMP_SHADER
+	if atlas != null:
+		mat.set_shader_parameter("shapes", atlas)
+		mat.set_shader_parameter("shape_grid", Vector2(atlas.get_size()) / SHAPE_CELL)
 	plane.material = mat
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true
 	mm.mesh = plane
 	@warning_ignore("integer_division")
-	var n := st.size() / 7
+	var n := st.size() / STAMP_SIZE
 	mm.instance_count = n
 	for i in n:
-		var b := Basis(Vector3.UP, st[7 * i + 4]).scaled(Vector3(st[7 * i + 3] * 2.0, 1.0, st[7 * i + 2] * 2.0))
-		mm.set_instance_transform(i, Transform3D(b, Vector3(st[7 * i], 0.0, st[7 * i + 1])))
-		mm.set_instance_custom_data(i, Color(st[7 * i + 5], st[7 * i + 6], 0.0, 0.0))
+		var o := STAMP_SIZE * i
+		var b := Basis(Vector3.UP, st[o + 4]).scaled(Vector3(st[o + 3] * 2.0, 1.0, st[o + 2] * 2.0))
+		mm.set_instance_transform(i, Transform3D(b, Vector3(st[o], 0.0, st[o + 1])))
+		var shape := st[o + 7] if atlas != null else -1.0
+		mm.set_instance_custom_data(i, Color(st[o + 5], st[o + 6], shape + 1.0, 0.0))
 	return mm

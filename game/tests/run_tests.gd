@@ -866,7 +866,7 @@ func _test_graphics_settings() -> void:
 	# saved before looks existed get one picked for the device.
 	s = GraphicsSettings.new()
 	s.apply_look(GraphicsSettings.Look.PHOTOREAL)
-	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind, "photoreal look")
+	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind and s.cloud_shadows, "photoreal look")
 	s.apply_look(GraphicsSettings.Look.CLASSIC)
 	_check(s.lighting == GraphicsSettings.Lighting.CLASSIC and s.grass == 0 and s.sharpen == 0 and not s.dof, "classic look is plain")
 	_check(s.trees == 0, "classic look keeps the course's own trees")
@@ -930,14 +930,23 @@ func _test_trees() -> void:
 func _test_ground_shade() -> void:
 	# A 10 m tree at the origin with its crown from 4 to 10 m, radius 3 m,
 	# and a sun 45 degrees up shining towards +z.
-	var casters := PackedFloat32Array([0, 0, 0, 4, 10, 3])
+	var casters := PackedFloat32Array([0, 0, 0, 4, 10, 3, 5])
 	var sun := Vector3(0, -1, 1).normalized()
 	var st := GroundShade.stamps(casters, sun)
-	_check(st.size() == 14, "a shadow and an occlusion stamp per caster")
+	_check(st.size() == 16, "a shadow and an occlusion stamp per caster")
 	_check(is_equal_approx(st[0], 0.0) and is_equal_approx(st[1], 7.0), "shadow falls away from the sun, under the crown's middle")
 	_check(is_equal_approx(st[2], 6.0) and is_equal_approx(st[3], 3.0), "shadow stretched along the sun")
 	_check(st[5] > 0.0 and is_zero_approx(st[6]), "shadow stamp darkens R only")
-	_check(is_zero_approx(st[7]) and is_zero_approx(st[8]) and is_zero_approx(st[12]) and st[13] > 0.0, "occlusion at the foot, in G")
+	_check(is_equal_approx(st[7], 5.0) and is_equal_approx(st[15], -1.0), "the crown's shadow takes the tree type's shape, the occlusion an ellipse")
+	_check(is_zero_approx(st[8]) and is_zero_approx(st[9]) and is_zero_approx(st[13]) and st[14] > 0.0, "occlusion at the foot, in G")
+	var shape := Image.create(128, 128, false, Image.FORMAT_L8)
+	shape.fill(Color.WHITE)
+	var atlas := GroundShade.shape_atlas([null, shape])
+	_check(atlas != null and atlas.get_width() == GroundShade.SHAPE_COLUMNS * GroundShade.SHAPE_CELL, "shadow shapes packed into an atlas")
+	if atlas != null:
+		var img := atlas.get_image()
+		_check(img.get_pixel(GroundShade.SHAPE_CELL + 5, 5).r > 0.9 and img.get_pixel(5, 5).r < 0.1, "a type's shape sits in its own cell")
+	_check(GroundShade.shape_atlas([]) == null, "no atlas without shapes")
 	var low := GroundShade.stamps(casters, Vector3(0, -0.01, 1).normalized())
 	_check(Vector2(low[0], low[1]).length() <= GroundShade.MAX_SLANT * 7.0 + 1e-3, "low sun shadows stay bounded")
 	var course := AssetProviders.load_course("")
@@ -945,7 +954,7 @@ func _test_ground_shade() -> void:
 	var rect := GroundShade.hole_rect(hole)
 	_check(rect.has_point(Vector2(hole.tee.x, hole.tee.z)) and rect.has_point(Vector2(hole.pin.x, hole.pin.z)), "bake covers the hole")
 	var placed := GroundShade.placed_casters(hole)
-	_check(placed.size() % 6 == 0, "placed objects give whole casters")
+	_check(placed.size() % GroundShade.CASTER_SIZE == 0, "placed objects give whole casters")
 	GroundShade.bake(hole, null, sun)  # headless: nothing to draw, no error
 	# Photo ground: the pale 2003 colours become deeper, darker turf.
 	var pale := Color(0.62, 0.78, 0.55)

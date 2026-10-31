@@ -14,6 +14,7 @@ const TILE_METRES := 12.0 * 0.3048
 ## disc's own when photo_ground is on (not paths, dirt or rocks).
 const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 8, 10]
 const GROUND_SHADER := preload("res://shaders/course_ground.gdshader")
+const MAPPED_SHADER := preload("res://shaders/terrain_mapped.gdshader")
 
 ## Set from the graphics settings: the Photoreal lighting draws the ground
 ## with the free photo textures (COURSE_GROUND shader), Classic with the
@@ -54,8 +55,14 @@ var triangle_material := PackedInt32Array()
 var ground_classes := PackedByteArray()
 ## Per material: {"texture": Texture2D or null, "colour": Color}, and for a
 ## free stand-in texture also "normal" (Texture2D or null), "tint" (Color)
-## and "tile" (metres per repeat)
+## and "tile" (metres per repeat). A blended material also has "blend":
+## {mask, texture_b (Texture2D), ground_a, ground_b (ground classes)}.
 var materials: Array[Dictionary] = []
+## Texture mapping (index into `mappings`) per triangle; empty when the
+## course has none, and the textures then repeat every TILE_METRES.
+var triangle_mapping := PackedInt32Array()
+## The course's `Mappings` records (TerrainMappings.parse).
+var mappings: Array[Dictionary] = []
 
 var _origin := Vector2.ZERO
 var _cols := 0
@@ -66,6 +73,8 @@ var _last := -1
 var _mesh: ArrayMesh
 var _mesh_photo := false
 var _ground_colors := {}  ## material * 2 + photo -> Color, see ground_color_at()
+var _strips := {}  ## strip mapping -> {triangle: [vertex, uv] x 3}
+var _frames := {}  ## planar or cylindrical mapping -> [inverse axes, origin]
 
 
 ## Builds the lookup grid. Call once after filling the arrays.
@@ -229,6 +238,9 @@ func build_visual() -> Node3D:
 
 
 ## One surface per material, each with its own copy of the vertices it uses.
+## UV is the first texture layer's coordinates under the triangle's
+## mapping, UV2 the second layer's, and CUSTOM0 the mask's (blended
+## materials only).
 func _build_mesh() -> ArrayMesh:
 	var by_material := {}
 	for t in triangles.size() / 3:
@@ -239,45 +251,156 @@ func _build_mesh() -> ArrayMesh:
 	var keys := by_material.keys()
 	keys.sort()
 	var mesh := ArrayMesh.new()
-	var remap := PackedInt32Array()
-	remap.resize(positions.size())
+	var mapped := not mappings.is_empty() and triangle_mapping.size() == triangles.size() / 3
 	for m in keys:
-		remap.fill(-1)
+		var blended := _blend_of(int(m)) != null
+		var remap := {}
 		var verts := PackedVector3Array()
 		var norms := PackedVector3Array()
+		var uv1 := PackedVector2Array()
+		var uv2 := PackedVector2Array()
+		var mask := PackedFloat32Array()
 		var indices := PackedInt32Array()
 		for t: int in by_material[m]:
+			var layers := _triangle_layers(t) if mapped else PackedInt32Array([-1, -1, -1])
+			var a := _corner_uvs(layers[1], t)
+			var b := a if layers[2] == layers[1] else _corner_uvs(layers[2], t)
+			var s := _corner_uvs(layers[0], t) if blended else PackedVector2Array()
+			# Corners share a vertex when they come from the same mapping
+			# and no seam fix-up changed them.
+			var key_base := (triangle_mapping[t] + 1) if mapped else 0
+			if a.size() > 3 or b.size() > 3:
+				key_base = -1
 			for k in 3:
 				var v := triangles[3 * t + k]
-				if remap[v] < 0:
-					remap[v] = verts.size()
+				var key := v * 131072 + key_base if key_base >= 0 else -1 - verts.size()
+				if not remap.has(key):
+					remap[key] = verts.size()
 					verts.append(positions[v])
 					norms.append(normals[v])
-				indices.append(remap[v])
+					uv1.append(a[k])
+					uv2.append(b[k])
+					if blended:
+						mask.append(clampf(s[k].x, 0.0, 1.0))
+						mask.append(s[k].y)
+				indices.append(remap[key])
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = verts
 		arrays[Mesh.ARRAY_NORMAL] = norms
+		arrays[Mesh.ARRAY_TEX_UV] = uv1
+		arrays[Mesh.ARRAY_TEX_UV2] = uv2
+		var flags := 0
+		if blended:
+			arrays[Mesh.ARRAY_CUSTOM0] = mask
+			flags = Mesh.ARRAY_CUSTOM_RG_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 		arrays[Mesh.ARRAY_INDEX] = indices
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(int(m)))
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(int(m), mapped))
 	return mesh
 
 
-func _material(m: int) -> Material:
+## The mappings triangle t uses: [mask strip, first layer, second layer],
+## -1 where there is none.
+func _triangle_layers(t: int) -> PackedInt32Array:
+	var k := triangle_mapping[t]
+	if k < 0 or k >= mappings.size():
+		return PackedInt32Array([-1, -1, -1])
+	var m: Dictionary = mappings[k]
+	if m.kind == TerrainMappings.Kind.BLEND:
+		return m.layers
+	return PackedInt32Array([-1, k, k])
+
+
+## Texture coordinates of triangle t's three corners under mapping l (12
+## feet per repeat, laid flat, without one). A cylindrical triangle that
+## straddles the seam gets a fourth, unused entry, so its corners are not
+## shared.
+func _corner_uvs(l: int, t: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	out.resize(3)
+	if l < 0:
+		for k in 3:
+			var p := positions[triangles[3 * t + k]]
+			out[k] = Vector2(p.x, p.z) / TILE_METRES
+		return out
+	var m: Dictionary = mappings[l]
+	if m.kind == TerrainMappings.Kind.STRIP:
+		if not _strips.has(l):
+			_strips[l] = _strip_lookup(m)
+		var e: Array = (_strips[l] as Dictionary).get(t, [])
+		for k in 3:
+			var v := triangles[3 * t + k]
+			for i in range(0, e.size(), 2):
+				if e[i] == v:
+					out[k] = e[i + 1]
+		return out
+	if not _frames.has(l):
+		var f: PackedFloat32Array = m.frame
+		var axes := Basis(Vector3(f[0], f[1], f[2]), Vector3(f[4], f[5], f[6]), Vector3(f[8], f[9], f[10]))
+		_frames[l] = [axes.inverse() if absf(axes.determinant()) > 1e-12 else Basis(), Vector3(f[12], f[13], f[14])]
+	var frame: Array = _frames[l]
+	var inv: Basis = frame[0]
+	var scale: Vector2 = m.scale
+	for k in 3:
+		var local: Vector3 = inv * (TerrainMappings.to_course(positions[triangles[3 * t + k]]) - (frame[1] as Vector3))
+		if m.kind == TerrainMappings.Kind.CYLINDRICAL:
+			out[k] = Vector2(atan2(local.y, local.x) / TAU * scale.x, local.z * scale.y)
+		else:
+			out[k] = Vector2(local.x * scale.x, local.y * scale.y)
+	if m.kind == TerrainMappings.Kind.CYLINDRICAL:
+		var top := maxf(out[0].x, maxf(out[1].x, out[2].x))
+		if top - minf(out[0].x, minf(out[1].x, out[2].x)) > absf(scale.x) * 0.5:
+			for k in 3:
+				if top - out[k].x > absf(scale.x) * 0.5:
+					out[k].x += absf(scale.x)
+			out.append(Vector2.ZERO)
+	return out
+
+
+static func _strip_lookup(m: Dictionary) -> Dictionary:
+	var out := {}
+	var tris: PackedInt32Array = m.strip_triangles
+	var cv: PackedInt32Array = m.corner_vertex
+	var cu: PackedVector2Array = m.corner_uv
+	for i in tris.size() / 4:
+		var e := []
+		for k in 3:
+			var c := tris[4 * i + 1 + k]
+			e.append(cv[c])
+			e.append(cu[c])
+		out[tris[4 * i]] = e
+	return out
+
+
+func _blend_of(m: int) -> Variant:
+	if m >= materials.size():
+		return null
+	return materials[m].get("blend")
+
+
+func _material(m: int, mapped := false) -> Material:
 	var ground := ground_classes[m] if m < ground_classes.size() else 3
 	var surface: Surface.Type = CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
 	if surface == Surface.Type.WATER:
 		return Materials.water_surface()
 	var info: Dictionary = materials[m] if m < materials.size() else {}
-	if photo_ground and ground in PHOTO_CLASSES:
-		var photo := _photo_material(surface, info)
-		if photo != null:
-			return photo
+	var blend: Variant = info.get("blend") if mapped else null
+	if photo_ground:
+		if blend != null:
+			var photo := _photo_blend(info, blend as Dictionary)
+			if photo != null:
+				return photo
+		elif ground in PHOTO_CLASSES:
+			var photo := _photo_material(surface, info)
+			if photo != null:
+				return photo
+	var tex: Texture2D = info.get("texture")
+	if tex != null and mapped and not info.has("tile"):
+		return _mapped_material(surface, info, blend)
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 1.0
 	mat.albedo_color = info.get("colour", Color(0.3, 0.5, 0.2))
-	var tex: Texture2D = info.get("texture")
 	if tex != null:
 		mat.albedo_texture = tex
 		mat.albedo_color = info.get("tint", Color.WHITE)
@@ -292,9 +415,7 @@ func _material(m: int) -> Material:
 			mat.normal_enabled = true
 			mat.normal_texture = normal
 			mat.normal_scale = scale
-		if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY:
-			# Mown grass has a faint sheen.
-			mat.roughness = 0.82
+		mat.roughness = _disc_roughness(surface)
 		mat.uv1_triplanar = true
 		mat.uv1_world_triplanar = true
 		mat.uv1_scale = Vector3.ONE / float(info.get("tile", TILE_METRES))
@@ -303,50 +424,116 @@ func _material(m: int) -> Material:
 	return mat
 
 
+## Mown grass has a faint sheen.
+static func _disc_roughness(surface: Surface.Type) -> float:
+	return 0.82 if surface == Surface.Type.GREEN or surface == Surface.Type.FAIRWAY else 1.0
+
+
+## The disc's own texture (and for a blended material its mask and second
+## texture) laid out by the course's mappings (MAPPED_SHADER).
+static func _mapped_material(surface: Surface.Type, info: Dictionary, blend: Variant) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = MAPPED_SHADER
+	mat.set_shader_parameter("texture_a", info.texture)
+	mat.set_shader_parameter("roughness_a", _disc_roughness(surface))
+	var normal := FreeAssets.ground(FreeAssets.slot_for(surface), "normal")
+	mat.set_shader_parameter("normal_tex", normal)
+	mat.set_shader_parameter("has_normal", normal != null)
+	if blend != null:
+		var b: Dictionary = blend
+		var surface_b: Surface.Type = CLASS_SURFACE.get(b.ground_b, Surface.Type.ROUGH)
+		mat.set_shader_parameter("blended", true)
+		mat.set_shader_parameter("texture_b", b.texture_b)
+		mat.set_shader_parameter("mask_tex", b.mask)
+		mat.set_shader_parameter("roughness_a", _disc_roughness(CLASS_SURFACE.get(b.ground_a, surface)))
+		mat.set_shader_parameter("roughness_b", _disc_roughness(surface_b))
+	return mat
+
+
 ## The photo ground for a material: the free texture of its surface,
 ## tinted to the mean colour of the course's own texture (or its class
 ## colour), toned down to the brightness of real turf. Null without the
 ## free textures.
 static func _photo_material(surface: Surface.Type, info: Dictionary) -> ShaderMaterial:
+	var params := _photo_params(surface, info)
+	if params.is_empty():
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = GROUND_SHADER
+	for key: String in params:
+		mat.set_shader_parameter(key, params[key])
+	return mat
+
+
+## A blended material in the photo ground: both layers' photo grounds,
+## faded by the course's mask. Null when either layer has no photo ground
+## (paths, dirt, rocks).
+static func _photo_blend(info: Dictionary, blend: Dictionary) -> ShaderMaterial:
+	var ga: int = blend.ground_a
+	var gb: int = blend.ground_b
+	if not (ga in PHOTO_CLASSES and gb in PHOTO_CLASSES):
+		return null
+	var a := _photo_params(CLASS_SURFACE.get(ga, Surface.Type.ROUGH), info)
+	var b := _photo_params(CLASS_SURFACE.get(gb, Surface.Type.ROUGH), {"texture": blend.texture_b})
+	if a.is_empty() or b.is_empty():
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = GROUND_SHADER
+	for key: String in a:
+		mat.set_shader_parameter(key, a[key])
+	for key: String in b:
+		if key != "stripe_angle":
+			mat.set_shader_parameter(key + "_b", b[key])
+	mat.set_shader_parameter("blended", true)
+	mat.set_shader_parameter("mask_tex", blend.mask)
+	return mat
+
+
+## The COURSE_GROUND parameters for one photo layer, or empty without the
+## free textures.
+static func _photo_params(surface: Surface.Type, info: Dictionary) -> Dictionary:
 	var slot := FreeAssets.slot_for(surface)
 	var photo := FreeAssets.ground(slot, "albedo")
 	if photo == null:
-		return null
+		return {}
 	var own: Texture2D = info.get("texture")
 	var target: Color = info.get("colour", Color(0.3, 0.5, 0.2))
 	if own != null and own != photo:
 		target = _mean(own)
 	target = realistic(target, surface)
-	var mean := _mean(photo)
-	var mat := ShaderMaterial.new()
-	mat.shader = GROUND_SHADER
-	mat.set_shader_parameter("albedo_tex", photo)
 	var normal := FreeAssets.ground(slot, "normal")
-	mat.set_shader_parameter("normal_tex", normal)
-	mat.set_shader_parameter("has_normal", normal != null)
 	var rough := FreeAssets.ground(slot, "roughness")
-	mat.set_shader_parameter("roughness_tex", rough)
-	mat.set_shader_parameter("has_roughness", rough != null)
-	mat.set_shader_parameter("photo_mean", mean)
-	mat.set_shader_parameter("far_color", target)
-	mat.set_shader_parameter("tile", PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES))
-	mat.set_shader_parameter("detail_gain", PHOTO_GAINS.get(slot, 1.0))
-	# The lawn scan's yellow tips would turn the course's greens lime.
-	mat.set_shader_parameter("photo_hue", 0.1 if slot == "grass" else 0.3)
+	var p := {
+		"albedo_tex": photo,
+		"normal_tex": normal,
+		"has_normal": normal != null,
+		"roughness_tex": rough,
+		"has_roughness": rough != null,
+		"photo_mean": _mean(photo),
+		"far_color": target,
+		"tile": PHOTO_TILES.get(slot, CrzCourseLoader.FREE_TILE_METRES),
+		"detail_gain": PHOTO_GAINS.get(slot, 1.0),
+		# The lawn scan's yellow tips would turn the course's greens lime.
+		"photo_hue": 0.1 if slot == "grass" else 0.3,
+		"stripes": 0.0,
+		"stripe_width": 9.0,
+		"roughness_value": 0.92,
+		"variation": 0.14,
+	}
 	match surface:
 		Surface.Type.GREEN:
-			mat.set_shader_parameter("stripes", 0.07)
-			mat.set_shader_parameter("stripe_width", 3.0)
-			mat.set_shader_parameter("roughness_value", 0.78)
-			mat.set_shader_parameter("variation", 0.05)
+			p.stripes = 0.07
+			p.stripe_width = 3.0
+			p.roughness_value = 0.78
+			p.variation = 0.05
 		Surface.Type.FAIRWAY:
-			mat.set_shader_parameter("stripes", 0.09)
-			mat.set_shader_parameter("roughness_value", 0.82)
-			mat.set_shader_parameter("variation", 0.09)
+			p.stripes = 0.09
+			p.roughness_value = 0.82
+			p.variation = 0.09
 		Surface.Type.SAND:
-			mat.set_shader_parameter("variation", 0.06)
-			mat.set_shader_parameter("roughness_value", 0.95)
-	return mat
+			p.variation = 0.06
+			p.roughness_value = 0.95
+	return p
 
 
 ## A course colour (sRGB) as real ground of that surface would be: the 2003

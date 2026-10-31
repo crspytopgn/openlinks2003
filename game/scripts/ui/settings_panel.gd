@@ -46,6 +46,7 @@ var _vignette: OptionButton
 var _grain: OptionButton
 var _grass: OptionButton
 var _foliage: OptionButton
+var _clouds: OptionButton
 var _trees: OptionButton
 var _filling := false  ## true while open() sets the controls
 
@@ -154,6 +155,7 @@ func _add_look_rows(grid: GridContainer) -> void:
 	_grain = _row(grid, "Film grain", GraphicsSettings.LEVEL_NAMES)
 	_grass = _row(grid, "3D grass", GraphicsSettings.LEVEL_NAMES)
 	_foliage = _row(grid, "Trees in the wind", ["Still", "Sway"])
+	_clouds = _row(grid, "Cloud shadows", ["Off", "On"])
 	_trees = _row(grid, "Trees", GraphicsSettings.TREE_NAMES)
 	_trees.tooltip_text = "Photo-textured 3D trees. Takes effect on the next hole."
 	if not GraphicsSettings.is_forward_plus():
@@ -179,6 +181,7 @@ func _show_look() -> void:
 	_grain.select(s.grain)
 	_grass.select(s.grass)
 	_foliage.select(1 if s.foliage_wind else 0)
+	_clouds.select(1 if s.cloud_shadows else 0)
 	_trees.select(s.trees)
 	_filling = false
 
@@ -312,6 +315,7 @@ func _on_selected() -> void:
 	settings.grain = _grain.selected
 	settings.grass = _grass.selected
 	settings.foliage_wind = _foliage.selected == 1
+	settings.cloud_shadows = _clouds.selected == 1
 	settings.trees = _trees.selected
 	if before != _look_values():
 		settings.look = GraphicsSettings.Look.CUSTOM
@@ -324,7 +328,7 @@ func _on_selected() -> void:
 func _look_values() -> Array:
 	return [settings.quality, settings.msaa, settings.render_scale, settings.lighting, settings.upscaler,
 		settings.dynamic_res, settings.sharpen, settings.bloom, settings.ssao, settings.dof, settings.grade,
-		settings.vignette, settings.grain, settings.grass, settings.foliage_wind, settings.trees]
+		settings.vignette, settings.grain, settings.grass, settings.foliage_wind, settings.cloud_shadows, settings.trees]
 
 
 static func _closest(choices: Array, value: float) -> int:

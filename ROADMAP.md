@@ -54,7 +54,8 @@ feel) still need a working install.
   - [x] HD texture packs: `tools/oltex export` writes the textures as PNG for upscaling, and the game loads an upscaled pack in their place (`HdPack`, [hd-textures.md](docs/hd-textures.md)). Still to do: packs in the browser build, the HUD and menu art, the patch `.sky` skies
   - [x] Course horizon panoramas and `PANSKY.LIB` cloud skies ([panorama.md](docs/formats/panorama.md)), drawn behind the round
   - [ ] Where exactly the game puts the horizon (eye-level row) and which sky each course uses
-  - [ ] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks); `.SHA` shadow maps
+  - [x] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks) ([crz.md](docs/formats/crz.md#mappings-texture-projections)); `.SHA` tree shadow shapes in the baked ground shade ([sha.md](docs/formats/sha.md))
+  - [ ] The rest of `.SHA` (3D object light maps, per-billboard shade) and the detail texture variants
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
   - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))
@@ -105,4 +106,5 @@ feel) still need a working install.
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [x] Photo-textured 3D trees with impostors, also in place of the disc courses' tree billboards, baked tree shadows and AO per hole, and a performance budget in CI ([graphics.md](docs/graphics.md))
-  - [ ] Texture compression tiers per device, the HD pack in the browser, cloud shadows
+  - [x] Cloud shadows (Settings > Graphics, on in the Photoreal, Natural and Cinematic looks)
+  - [ ] Texture compression tiers per device, the HD pack in the browser

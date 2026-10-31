@@ -16,6 +16,7 @@ enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, D
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
 const MAX_STROKES := 10  ## pick up after this many on a hole
+const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
@@ -175,6 +176,7 @@ var _putt := {}
 var _putt_from := Vector3.INF
 var grid_on := true
 var _replaying := false
+var _cloud_offset := Vector2.ZERO  ## metres the cloud shadows have drifted
 var _replay_time := 0.0
 var _replay_count := 0
 var _ball_was_visible := true
@@ -597,6 +599,7 @@ func auto_play_step() -> void:
 
 
 func _process(delta: float) -> void:
+	_drift_clouds(delta)
 	if _replaying:
 		_process_replay(delta)
 	else:
@@ -1470,6 +1473,7 @@ func _apply_graphics() -> void:
 	camera.fov = graphics.fov
 	camera.attributes = _camera_attributes()
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
+	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
@@ -1510,6 +1514,19 @@ func _camera_attributes() -> CameraAttributes:
 	a.dof_blur_far_transition = 400.0
 	a.dof_blur_amount = 0.05 if graphics.look == GraphicsSettings.Look.CINEMATIC else 0.03
 	return a
+
+
+## Moves the cloud shadows on: the clouds ride a wind aloft that runs
+## with the one on the course but stronger, and never quite stops.
+func _drift_clouds(delta: float) -> void:
+	if graphics == null or wind == null or not graphics.cloud_shadows:
+		return
+	var v := wind.velocity()
+	var aloft := Vector2(v.x, v.z) * 2.5
+	if aloft.length() < 3.0:
+		aloft = (aloft.normalized() if aloft.length() > 0.01 else Vector2(0.6, 0.8)) * 3.0
+	_cloud_offset += aloft * delta
+	RenderingServer.global_shader_parameter_set("cloud_offset", _cloud_offset)
 
 
 ## Tells the grass, trees and water which way the wind blows.

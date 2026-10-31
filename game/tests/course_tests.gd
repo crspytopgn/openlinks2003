@@ -16,6 +16,8 @@ func run_all() -> Array[String]:
 	_test_bunky_round_trips()
 	_test_locked_archive()
 	_test_terrain()
+	_test_mappings()
+	_test_shadow_file()
 	_test_holes_and_ground()
 	_test_community_courses()
 	return failures
@@ -28,6 +30,7 @@ func check(cond: bool, what: String) -> void:
 
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/course/crz_course_loader.gd", "res://scripts/course/crz_terrain.gd",
+			"res://scripts/course/terrain_mappings.gd", "res://scripts/course/shadow_file.gd",
 			"res://scripts/course_viewer.gd", "res://scripts/course/community_courses.gd", "res://scripts/boot.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
@@ -192,9 +195,9 @@ func _square_terrain(wide: bool) -> PackedByteArray:
 	put_u32(b, 2)
 	for _i in 6:
 		put_u32(b, (1 << 30) | 0xfffff)
-	for tri in [[0, 1, 2, 4], [0, 2, 3, 7]]:
+	for tri in [[0, 1, 2, 4, 0x616d0000], [0, 2, 3, 7, 3]]:
 		put_u16(b, tri[3])  # material
-		put_u32(b, 0)
+		put_u32(b, tri[4])  # mapping in the low half
 		put_u16(b, 0)
 		for k in 3:
 			if wide:
@@ -212,6 +215,7 @@ func _test_terrain() -> void:
 			continue
 		check((t.triangles as PackedInt32Array).size() == 6, "two triangles (wide %s)" % wide)
 		check((t.triangle_material as PackedInt32Array) == PackedInt32Array([4, 7]), "triangle materials")
+		check((t.triangle_mapping as PackedInt32Array) == PackedInt32Array([0, 3]), "triangle mappings: the low half")
 	var broken := _square_terrain(false)
 	broken.append(0)
 	check(CrzCourseLoader.parse_terrain(broken).is_empty(), "rejects trailing data")
@@ -243,6 +247,155 @@ func _test_terrain() -> void:
 		var a := pos[tri[3 * k]]
 		var n := (pos[tri[3 * k + 1]] - a).cross(pos[tri[3 * k + 2]] - a)
 		check(n.y < 0.0, "triangle %d is clockwise seen from above" % k)
+
+
+func _put_name(b: PackedByteArray, name: String) -> void:
+	put_u32(b, name.length())
+	b.append_array(name.to_ascii_buffer())
+
+
+## The `Mappings` entry test_mappings_entry() in
+## libs/olcore/tests/test_course.cpp builds: one record of each kind.
+func _mappings_entry() -> PackedByteArray:
+	var b := PackedByteArray()
+	put_u32(b, 5)
+	put_u32(b, 4)
+	while b.size() < 48:
+		b.append(0)
+	put_u32(b, 0)
+	put_u32(b, 0x8000)
+	_put_name(b, "Planar")
+	put_f32(b, 1)
+	put_f32(b, 1)
+	for f in [0, 12, 0, 0, -12, 0, 0, 0, 0, 0, 12, 0, 100, 200, 0, 1]:
+		put_f32(b, f)
+	put_u32(b, 1)
+	put_u32(b, 0x8001)
+	_put_name(b, "Pool")
+	put_f32(b, 4)
+	put_f32(b, 1)
+	for f in [20, 0, 0, 0, 0, 20, 0, 0, 0, 0, 10, 0, 0, 0, 0, 1]:
+		put_f32(b, f)
+	put_u32(b, 3)
+	put_u32(b, 0x8002)
+	_put_name(b, "Edge path")
+	put_f32(b, 1)
+	put_f32(b, 12)
+	put_u32(b, 1)
+	for v in [999, 7, 2, 0, 1]:
+		put_u32(b, v)
+	put_u32(b, 3)
+	for c in 3:
+		put_u32(b, 999)
+		put_u32(b, 3 + c)
+		put_f32(b, 1.0 if c == 1 else 0.0)
+		put_f32(b, 0.5 * c)
+	put_u32(b, 4)
+	put_u32(b, 0x8003)
+	_put_name(b, "Edge multi")
+	for v in [2, 0, 0, 0, 0]:
+		put_u32(b, v)
+	return b
+
+
+func _test_mappings() -> void:
+	var m := TerrainMappings.parse(_mappings_entry())
+	check(m.size() == 4, "mappings: four records")
+	if m.size() != 4:
+		return
+	check(m[0].kind == TerrainMappings.Kind.PLANAR and m[0].name == "Planar", "mappings: planar record")
+	check(TerrainMappings.uv(m[0], Vector3(76, 212, 5)).is_equal_approx(Vector2(1, 2)), "mappings: planar coordinates")
+	check(m[1].kind == TerrainMappings.Kind.CYLINDRICAL, "mappings: cylindrical record")
+	check(TerrainMappings.uv(m[1], Vector3(0, 20, 5)).is_equal_approx(Vector2(1, 0.5)), "mappings: cylindrical coordinates")
+	check(m[2].kind == TerrainMappings.Kind.STRIP and m[2].scale == Vector2(1, 12), "mappings: strip record")
+	check(m[2].strip_triangles == PackedInt32Array([7, 2, 0, 1]), "mappings: strip triangle")
+	check(m[2].corner_vertex == PackedInt32Array([3, 4, 5]) and (m[2].corner_uv as PackedVector2Array)[1] == Vector2(1, 0.5), "mappings: strip corners")
+	check(m[3].kind == TerrainMappings.Kind.BLEND and m[3].layers == PackedInt32Array([2, 0, 0]), "mappings: blend record")
+	var bad := _mappings_entry()
+	bad.append(0)
+	check(TerrainMappings.parse(bad).is_empty(), "mappings: rejects trailing data")
+	var f := CrzCourseLoader.FEET
+	check(TerrainMappings.to_course(CrzCourseLoader.to_godot(1, 2, 3)).is_equal_approx(Vector3(1, 2, 3)), "mappings: Godot metres back to course feet")
+
+	var plain := TerrainMappings.material_layers({"textures": PackedInt32Array([4, 5, 6]), "kind": 0x3})
+	check(not plain.blended and plain.mask == -1 and plain.layers == PackedInt32Array([4]), "materials: a plain layer and its details")
+	var blend := TerrainMappings.material_layers({"mode": 3, "layer_count": 3, "kind": 0x1 | 0xc,
+		"textures": PackedInt32Array([10, 11, 20, 21, 22, 30])})
+	check(blend.blended and blend.mask == 10 and blend.layers == PackedInt32Array([20, 30]), "materials: mask and two layers")
+
+	# A terrain whose triangle 0 uses the planar mapping and triangle 1 the
+	# blend (its mask strip covers triangle 1 with vertices 0, 2, 3).
+	var terrain := CrzTerrain.new()
+	terrain.positions = PackedVector3Array([CrzCourseLoader.to_godot(76, 212, 0), CrzCourseLoader.to_godot(100, 200, 0),
+		CrzCourseLoader.to_godot(88, 200, 0), CrzCourseLoader.to_godot(76, 200, 0)])
+	terrain.triangles = PackedInt32Array([0, 1, 2, 0, 2, 3])
+	terrain.triangle_mapping = PackedInt32Array([0, 3])
+	m[2].strip_triangles = PackedInt32Array([1, 0, 1, 2])
+	m[2].corner_vertex = PackedInt32Array([0, 2, 3])
+	terrain.mappings = m
+	check(terrain._triangle_layers(0) == PackedInt32Array([-1, 0, 0]), "terrain: a plain mapping is both layers")
+	check(terrain._triangle_layers(1) == PackedInt32Array([2, 0, 0]), "terrain: a blend gives the mask strip and the layers")
+	var planar := terrain._corner_uvs(0, 0)
+	check(planar.size() == 3 and planar[0].is_equal_approx(Vector2(1, 2)) and planar[1].is_equal_approx(Vector2.ZERO), "terrain: planar corners")
+	var mask := terrain._corner_uvs(2, 1)
+	check(mask.size() == 3 and mask[0] == Vector2(0, 0) and mask[1] == Vector2(1, 0.5) and mask[2] == Vector2(0, 1), "terrain: mask corners from the strip")
+	var flat := terrain._corner_uvs(-1, 0)
+	check(flat[1].is_equal_approx(Vector2(100, -200) * f / CrzTerrain.TILE_METRES), "terrain: no mapping repeats every 12 feet")
+
+
+## The shadow file test_shadow_file() in libs/olcore/tests/test_course.cpp
+## builds.
+func _shadow_bytes() -> PackedByteArray:
+	var b := PackedByteArray()
+	b.resize(0x136)
+	b.fill(0)
+	var magic := "VER5JDHSHADOW".to_ascii_buffer()
+	for i in magic.size():
+		b[i] = magic[i]
+	var name := "test.CRZ".to_ascii_buffer()
+	for i in name.size():
+		b[14 + i] = name[i]
+	b.encode_u32(0x10E, 12345)
+	b.encode_u32(0x11E, 2)
+	b.encode_u32(0x122, 3)
+	b.encode_u32(0x126, 1)
+	b.encode_u32(0x12A, 2)
+	b.encode_u32(0x12E, 2)
+	b.encode_u32(0x132, 2)
+	for _i in 8:
+		b.append(0xFE)
+	put_u32(b, 5)
+	put_f32(b, 1.0)
+	put_f32(b, 0.25)
+	put_u32(b, 0)
+	put_u32(b, 0)
+	put_u32(b, 32)
+	put_u32(b, 32)
+	for i in 32 * 32:
+		b.append(i & 0xFF)
+	put_u32(b, 0)
+	put_u32(b, 0)
+	put_u32(b, 3)
+	put_u32(b, 3)
+	return b
+
+
+func _test_shadow_file() -> void:
+	var f := ShadowFile.parse(_shadow_bytes())
+	check(not f.is_empty(), "shadow file parses")
+	if f.is_empty():
+		return
+	check(f.course == "test.CRZ" and f.course_size == 12345, "shadow file: course name and size")
+	check(f.model_count == 2 and f.billboard_type_count == 3 and f.billboard_count == 2, "shadow file: counts")
+	var shapes: Array = f.shapes
+	check(shapes.size() == 3 and shapes[0] == null and shapes[2] == null, "shadow file: types without a shadow")
+	if shapes.size() == 3 and shapes[1] != null:
+		var img: Image = shapes[1]
+		check(img.get_width() == 32 and img.get_height() == 32, "shadow file: shape size")
+		check(img.get_data()[33] == 33, "shadow file: shape pixels")
+	var bad := _shadow_bytes()
+	bad[0] = 0x58
+	check(ShadowFile.parse(bad).is_empty(), "shadow file: rejects other files")
 
 
 func _test_holes_and_ground() -> void:

@@ -82,6 +82,8 @@ var dof := false
 ## 3D grass in the rough, 0 (off) to 3 (dense and far).
 var grass := 0
 var foliage_wind := false
+## Shadows of passing clouds drifting over the course with the wind.
+var cloud_shadows := false
 ## 0 classic trees, 1 to 3 photo-textured 3D trees (see TREE_NAMES).
 var trees := 0
 
@@ -127,6 +129,7 @@ func apply_look(which: int) -> void:
 		Look.CLASSIC:
 			_set_look(Quality.HIGH, Lighting.CLASSIC, Upscaler.OFF, 2, 1.0, [0, 0, 0, 0], Grade.NEUTRAL, false, false, 0)
 			foliage_wind = false
+			cloud_shadows = false
 			dynamic_res = 0
 			trees = 0
 			return
@@ -137,6 +140,7 @@ func apply_look(which: int) -> void:
 		_:
 			return
 	foliage_wind = true
+	cloud_shadows = which != Look.PERFORMANCE
 	dynamic_res = 2
 	trees = 1 if which == Look.PERFORMANCE else (3 if quality >= Quality.ULTRA else 2)
 	if OS.has_feature("web"):
@@ -200,6 +204,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.dof = bool(cfg.get_value(SECTION, "dof", s.dof))
 	s.grass = clampi(int(cfg.get_value(SECTION, "grass", s.grass)), 0, 3)
 	s.foliage_wind = bool(cfg.get_value(SECTION, "foliage_wind", s.foliage_wind))
+	s.cloud_shadows = bool(cfg.get_value(SECTION, "cloud_shadows", s.cloud_shadows))
 	s.trees = clampi(int(cfg.get_value(SECTION, "trees", s.trees)), 0, TREE_NAMES.size() - 1)
 	return s
 
@@ -219,7 +224,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "skill", skill)
 	cfg.set_value(GAME_SECTION, "green_firmness", green_firmness)
 	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
-	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "trees"]:
+	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)
 	if err != OK:

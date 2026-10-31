@@ -26,10 +26,12 @@ add_library(olcore STATIC
   src/object_library.cpp
   src/rules.cpp
   src/scoring.cpp
+  src/shadow_file.cpp
   src/shot.cpp
   src/ssf.cpp
   src/strings.cpp
   src/swing.cpp
+  src/terrain_mapping.cpp
   src/wav.cpp
 )
 target_include_directories(olcore PUBLIC include)
