@@ -3,9 +3,12 @@ extends PanelContainer
 ## The "Players" page: every saved profile (PlayerProfiles) with its handicap
 ## index and rounds. Picking a player shows their career stats (scoring
 ## average, fairways, greens in regulation, putts) and lists their recent
-## rounds; Delete asks once more, then removes the profile.
+## rounds; Delete asks once more, then removes the profile. "Golfer" and
+## "New player" open the player creator (PlayerCreator).
 
 signal back_pressed
+## Asks for the player creator on this player ("" for a new one).
+signal edit_golfer(player_name: String)
 
 ## Rounds listed for the picked player, newest first.
 const SHOWN_ROUNDS := 20
@@ -28,13 +31,13 @@ func _ready() -> void:
 	add_child(box)
 	box.add_child(MenuStyle.heading("Players", 30))
 	var help := Label.new()
-	help.text = "Every finished round of nine holes or more is kept here. Three rounds give a handicap index."
+	help.text = "Every finished round of nine holes or more is kept here. Three rounds give a handicap index. Make your golfer with New player or Golfer, then enter the same name when you set up a round."
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.add_theme_font_size_override("font_size", 15)
 	help.modulate = Color(1, 1, 1, 0.75)
 	box.add_child(help)
 	_empty = Label.new()
-	_empty.text = "No players yet. Play a round and it shows up here."
+	_empty.text = "No players yet. Make one with New player, or play a round and it shows up here."
 	box.add_child(_empty)
 
 	var scroll := ScrollContainer.new()
@@ -60,6 +63,9 @@ func _ready() -> void:
 	var buttons := HBoxContainer.new()
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_child(buttons)
+	var create := MenuStyle.button("New player")
+	create.pressed.connect(func() -> void: edit_golfer.emit(""))
+	buttons.add_child(create)
 	_back = MenuStyle.button("Back")
 	_back.pressed.connect(back_pressed.emit)
 	buttons.add_child(_back)
@@ -105,6 +111,10 @@ func _fill() -> void:
 		row.add_child(_label(index_text, 160))
 		row.add_child(_label("%d round%s" % [played.size(), "" if played.size() == 1 else "s"], 100))
 		row.add_child(_label(str(played.back().get("date", "")) if not played.is_empty() else "", 110))
+		var look := Button.new()
+		look.text = "Golfer"
+		look.pressed.connect(func() -> void: edit_golfer.emit(player))
+		row.add_child(look)
 		var delete := Button.new()
 		delete.text = "Sure? Delete" if _confirm == player else "Delete"
 		delete.pressed.connect(_on_delete.bind(player))

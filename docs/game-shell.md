@@ -201,6 +201,45 @@ their recent rounds with each round's stats, and stars the rounds the index
 counts. Delete asks once more, then removes
 the profile.
 
+### Player creator
+
+**New player** and each player's **Golfer** button on the Players page open
+the player creator (`ui/player_creator.gd`, `PlayerCreator`): a live 3D
+preview (`ui/golfer_preview.gd`; drag to turn, whole body, face close-up or
+a swing) and tabs for
+
+- **Body:** male to female, height (150 to 205 cm), build, muscle, age,
+  skin tone (eight presets or any colour) and eye colour;
+- **Face:** sixteen shape sliders (face width and length, cheeks,
+  cheekbones, jaw, chin, nose width, length and bridge, eye size and
+  spacing, brows, mouth, lips, ears);
+- **Hair:** seven styles or bald, any colour;
+- **Clothes:** polo and trousers, long sleeves and trousers, or polo and
+  shorts, with shirt, trousers, shoe and cap colours;
+- **Equipment:** driver head, shaft finish, grips and ball colour (looks
+  only; the clubs play as before).
+
+The look (`player_look.gd`, `PlayerLook`) is saved with the player's
+profile (`PlayerProfiles.set_look`, under `look` in `user://profiles.cfg`),
+so it travels with their rounds, handicap and stats, and a renamed player
+keeps it. A round finds each person's golfer by the name entered at setup.
+Every player gets their own golfer on the tee and their own ball colour;
+players without a look use the standard golfer. Without the original game
+files, computer golfers get a look of their own, the same every time
+(`PlayerLook.random` seeded by their name). With the game files, people who
+made a golfer play as it and everyone else uses the original golfer.
+
+How it is built: `FreeGolfer` takes its skeleton, clubs and animations from
+`free_golfer.glb`, and its body, outfits and hair from the look pack
+`assets/golfer/free_golfer_parts.olg` (`assets/golfer_parts.gd`,
+`GolferParts`), which `tools/golfer/build_free_golfer.py` writes with
+MakeHuman's own macro and face targets as blend shapes. For a look it bakes
+each visible part once on the CPU (about 10 ms; meshes are cached), moves
+the joints to the new shape, and scales the golfer about the ball for the
+height. The GPU then draws plain skinned meshes with no blend shapes, the
+same cost as the standard golfer, in both renderers. Colours multiply the
+pack's grey detail textures, so any colour costs nothing extra.
+
 ### Saved rounds
 
 The round in progress is saved before every shot and at the end of each hole
@@ -230,7 +269,8 @@ game/scripts/
     opponent_skill.gd           OpponentSkill: skill levels and swing mistakes (port of olcore/opponent)
   round_scoring.gd              RoundScoring: everyone's cards read in the chosen mode, gross or net
   handicap.gd                   Handicap: strokes per hole, net scores, the index (mirrors olcore/scoring)
-  player_profiles.gd            PlayerProfiles: each player's rounds and handicap index
+  player_profiles.gd            PlayerProfiles: each player's rounds, handicap index and golfer
+  player_look.gd                PlayerLook: a player's golfer from the player creator
   saved_round.gd                SavedRound: the round in progress, for Resume round
   physics/
     shot_model.gd               ShotModel: the physics interface the round uses
@@ -256,12 +296,14 @@ game/scripts/
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends
     golfer_assets.gd, golfer_rig.gd   interfaces for the golfer model and animation
     sound_bank.gd               SoundBank: interface for game audio
-    free_golfer.gd              FreeGolfer: the CC0 MakeHuman golfer (assets/golfer/free_golfer.glb)
+    free_golfer.gd              FreeGolfer: the CC0 MakeHuman golfer, dressed and shaped by a PlayerLook
+    golfer_parts.gd             GolferParts: its body, outfits and hair (assets/golfer/free_golfer_parts.olg)
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
     hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
+    player_creator.gd, golfer_preview.gd   PlayerCreator: the player creator and its 3D preview
     hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
 game/tests/run_tests.gd         Headless tests, including an auto-played full round
@@ -443,7 +485,8 @@ Nothing in the round needs to change.
   a catalog file name. It is not registered by default yet, because the
   placeholder course uses its own ids; the course decoder should register it
   together with real placements.
-- **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`) and
+- **Golfer:** subclass `GolferAssets` (`create_golfer() -> GolferRig`, and
+  optionally `create_golfer_for(look)` for a player's `PlayerLook`) and
   set `AssetProviders.golfer_assets`. `GolferRig.play()` receives
   `&"address"`, `&"backswing"`, `&"swing"`, `&"putt"` and `&"celebrate"`.
   `LinksGolferAssets` (`scripts/golfer/`) is used automatically when a game
@@ -453,9 +496,10 @@ Nothing in the round needs to change.
   MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, with a
   motion-captured swing and putt (CMU mocap, retargeted by
   `tools/golfer/mocap_swing.py`) and a hand-keyed celebration, baked into
-  `game/assets/golfer/free_golfer.glb` (licence in `LICENSE.md` next to it).
-  If that file is missing it falls back to `PlaceholderGolfer`, the figure
-  built from primitives.
+  `game/assets/golfer/free_golfer.glb`, and dressed from the look pack
+  `free_golfer_parts.olg` (see [Player creator](#player-creator); licence
+  in `LICENSE.md` next to them). If either file is missing it falls back to
+  `PlaceholderGolfer`, the figure built from primitives.
 - **Audio:** subclass `SoundBank` (`play(event)`, and optionally
   `play_detail(event, detail)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:

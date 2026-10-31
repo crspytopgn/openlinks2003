@@ -59,6 +59,7 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("player_looks", _test_player_looks)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
@@ -1765,6 +1766,92 @@ func _test_free_golfer() -> void:
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	golfer.free()
+
+
+## The player creator's looks: saved and read back, mapped to blend shapes,
+## kept with the player's profile, and dressing the free golfer.
+func _test_player_looks() -> void:
+	var look := PlayerLook.new()
+	look.sex = 1.0
+	look.height_cm = 168.0
+	look.weight = -0.5
+	look.age = 0.25
+	look.face["nose_width"] = 0.4
+	look.face["jaw"] = -0.3
+	look.hair = "ponytail"
+	look.outfit = "shorts"
+	look.cap = true
+	look.ball = Color(1.0, 0.55, 0.15)
+	var back := PlayerLook.from_dict(look.to_dict())
+	_check(back.key() == look.key(), "a look reads back as saved")
+	_check(back.wears_cap(), "a cap goes with a ponytail")
+	var w := look.shape_weights()
+	_check(w.get("female") == 1.0 and w.get("thin") == 0.5 and w.get("old") == 0.25, "body shape weights: %s" % w)
+	_check(w.get("nose_width_plus") == 0.4 and w.get("jaw_minus") == 0.3 and not w.has("jaw_plus"), "face shape weights: %s" % w)
+	var odd := PlayerLook.from_dict({"hair": "mohawk", "height_cm": 400, "skin": "not a colour", "weight": -9})
+	_check(odd.hair == "short" and odd.height_cm == PlayerLook.HEIGHT_MAX and odd.weight == -1.0, "bad values fall back")
+	_check(PlayerLook.random(42).key() == PlayerLook.random(42).key(), "a computer golfer's look is the same every time")
+	_check(PlayerLook.random(42).key() != PlayerLook.random(43).key(), "computer golfers look different")
+	var hat := PlayerLook.new()
+	hat.cap = true
+	hat.hair = "afro"
+	_check(not hat.wears_cap(), "no cap over an afro")
+
+	var profiles := PlayerProfiles.new()
+	_check(profiles.look_of("Zoe") == null, "no look before the creator")
+	profiles.set_look("Zoe", look)
+	_check(profiles.has_player("Zoe") and profiles.look_of("zoe ").key() == look.key(), "look kept with the profile")
+	_check(profiles.rename("Zoe", "Zoë") and profiles.look_of("Zoë").key() == look.key() and not profiles.has_player("Zoe"),
+		"renaming keeps the look")
+	profiles.set_look("Ann", PlayerLook.new())
+	_check(not profiles.rename("Zoë", "ann"), "can't rename onto another player")
+
+	var parts := GolferParts.shared()
+	_check(parts != null, "the look pack loads")
+	if parts == null:
+		return
+	for style: String in PlayerLook.HAIR_STYLES:
+		_check(style == "bald" or parts.has_part("Hair_" + style), "hair style %s in the pack" % style)
+	for o: String in PlayerLook.OUTFITS:
+		_check(parts.has_part("Top_" + o) and parts.has_part("Bottom_" + o), "outfit %s in the pack" % o)
+	for entry: Array in PlayerLook.FACE:
+		_check((parts.info.shapes as Dictionary).has(entry[0] + "_plus"), "face shape %s in the pack" % entry[0])
+	var plain := parts.bake("Body", {})
+	var shaped := parts.bake("Body", w)
+	_check(plain != null and shaped != null and plain != shaped, "body baked plain and shaped")
+	_check(parts.bake("Body", w) == shaped, "baked meshes are reused")
+	var a: PackedVector3Array = plain.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var b: PackedVector3Array = shaped.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var moved := 0
+	for i in a.size():
+		if a[i].distance_to(b[i]) > 0.001:
+			moved += 1
+	_check(a.size() == b.size() and moved > a.size() / 2, "the shape moves the body (%d of %d)" % [moved, a.size()])
+	_check(parts.standing_height(w) < parts.standing_height({}) - 0.05, "a woman's body is shorter before scaling")
+	var shown := FreeGolfer.parts_for(look, parts.info)
+	_check(shown.has("Top_shorts") and shown.has("Hair_ponytail") and shown.has("Cap") and not shown.has("Top_polo"),
+		"the look's parts: %s" % shown)
+	var legs := ""
+	for part_name in shown:
+		if part_name.begins_with("Body_") and not FreeGolfer.parts_for(PlayerLook.new(), parts.info).has(part_name):
+			legs = part_name
+	_check(not legs.is_empty(), "shorts show skin that trousers cover: %s" % parts.info.body_chunks)
+
+	var golfer := FreeGolfer.create(look)
+	_check(golfer != null, "the free golfer dresses for a look")
+	if golfer == null:
+		return
+	root.add_child(golfer)
+	var skeleton := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var head := skeleton.find_bone("head")
+	var head_y := skeleton.get_bone_global_rest(head).origin.y
+	_check(golfer.find_child("Hair_ponytail", true, false) != null, "the golfer has the look's hair")
+	var model := golfer.get_child(0) as Node3D
+	_check_near(model.scale.x * parts.standing_height(w), 1.68, 0.005, "scaled to the look's height")
+	_check_near(model.position.z, FreeGolfer.BALL.z * (1.0 - model.scale.x), 1e-5, "scaled about the ball")
+	golfer.apply_look(PlayerLook.new())
+	_check(skeleton.get_bone_global_rest(head).origin.y > head_y + 0.05, "the skeleton fits the new shape")
 	golfer.free()
 
 

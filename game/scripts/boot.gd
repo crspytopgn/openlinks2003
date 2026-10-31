@@ -21,6 +21,7 @@ var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
 var _settings: SettingsPanel
 var _players: PlayersPanel
+var _creator: PlayerCreator
 var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
@@ -72,7 +73,11 @@ func _build_ui() -> void:
 	center.add_child(_settings)
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
+	_players.edit_golfer.connect(_open_creator)
 	center.add_child(_players)
+	_creator = PlayerCreator.new()
+	_creator.closed.connect(_close_creator)
+	add_child(_creator)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -327,6 +332,16 @@ func _open_players() -> void:
 	SceneFade.pop_in(_players)
 
 
+func _open_creator(player_name: String) -> void:
+	_players.close()
+	_creator.open(player_name)
+	SceneFade.pop_in(_creator)
+
+
+func _close_creator(_player_name: String) -> void:
+	_open_players()
+
+
 func _close_players() -> void:
 	_players.close()
 	_main_box.visible = true
@@ -393,6 +408,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_close_settings()
 		elif _setup.visible:
 			_close_setup()
+		elif _creator.visible:
+			_creator.cancel()
 		elif _players.visible:
 			_close_players()
 
