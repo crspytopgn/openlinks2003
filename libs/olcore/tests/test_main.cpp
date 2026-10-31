@@ -1663,6 +1663,24 @@ void test_links_impact() {
   CHECK_NEAR(links_contact_time({0, 2, -3}, {0, 1.5, -3.5}, 0.7), 0.72827, 1e-5);
 }
 
+void test_links_green() {
+  // Medium and normal are the class defaults; each step of speed moves the
+  // rolling resistance one firmness along.
+  LinksSurface g = links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Normal);
+  CHECK_NEAR(g.roll_resistance, 0.10538, 1e-6);
+  CHECK_NEAR(g.spin_grip, 1.219, 1e-6);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Fast).roll_resistance, 0.09, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Medium, LinksGreenSpeed::Slow).roll_resistance, 0.12076, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Firm, LinksGreenSpeed::Fast).roll_resistance, 0.07462, 1e-7);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Soft, LinksGreenSpeed::Slow).roll_resistance, 0.13614, 1e-7);
+  LinksSurface firm = links_green(LinksGreenFirmness::Firm, LinksGreenSpeed::Slow);
+  CHECK_NEAR(firm.roll_resistance, 0.10538, 1e-6);
+  CHECK_NEAR(firm.restitution, 0.25, 1e-7);
+  CHECK_NEAR(firm.spin_grip, 1.3, 1e-6);
+  CHECK_NEAR(links_green(LinksGreenFirmness::Soft, LinksGreenSpeed::Normal).spin_grip, 0.9, 1e-6);
+  CHECK(firm.ground_class == kLinksGreen);
+}
+
 void test_links_roll() {
   LinksRandom rng;
   // A fast roll on a flat fairway.
@@ -2136,6 +2154,7 @@ int main() {
       {"links_random", test_links_random},
       {"links_impact", test_links_impact},
       {"links_roll", test_links_roll},
+      {"links_green", test_links_green},
       {"links_landing", test_links_landing},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},

@@ -134,9 +134,29 @@ swing meter:
 | Deep grass | 0.20 | 0.84 | 0.1 | 0.05 | 1.7 | 1.7 | 2 |
 | Cart path | 1 | 1 | 0.1 | 0 | 2 | 2 | 4 |
 
-Green hardness (soft, moderate, hard) and green speed (slow, normal, fast)
-are game options that may override the green's values; the game warns that
-a course's own settings "could produce unexpected results".
+### Green firmness and speed
+
+The game's green options replace every green record on the course. Firmness
+(soft, moderate, hard) picks one of three built-in green records; moderate
+is the default record above. Speed (slow, normal, fast) then sets the
+rolling resistance from those three records' own values: normal keeps the
+firmness's own, and each step faster or slower moves one record along, past
+the ends by the same step again:
+
+| Firmness | Restitution | Impact friction | Skid friction | Impact drag | Spin grip | Slow | Normal | Fast |
+|----------|-------------|-----------------|---------------|-------------|-----------|------|--------|------|
+| Soft | 0.21 | 0.09 | 0.315 | 0.549 | 0.9 | 0.1361 | 0.1208 | 0.1054 |
+| Moderate | 0.23 | 0.08 | 0.383 | 0.496 | 1.219 | 0.1208 | 0.1054 | 0.09 |
+| Hard | 0.25 | 0.10 | 0.2025 | 0.461 | 1.3 | 0.1054 | 0.09 | 0.0746 |
+
+(the last three columns are the rolling resistance). The other values match
+the default green. A "course settings" choice keeps the course's own records
+instead, which the game warns "could produce unexpected results". The code
+also has a second set of three records and three more speeds, with their own
+formulas, that the options screen does not offer; they are not ported.
+Ported as `links_green` (olcore) and `LinksGround.green_for`; the game shell
+has "Green firmness" and "Green speed" settings (medium and normal by
+default).
 
 ## Launch
 
