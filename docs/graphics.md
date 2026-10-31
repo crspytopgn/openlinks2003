@@ -135,6 +135,17 @@ at Medium and grass at Low.
   Compatibility shows the sky brighter, since it has no sky fill light.
   The water reflects at most 60% of the sky, so a glancing view still
   shows deep blue, not white.
+- **Billboards with Photoreal lighting** (`billboard_photo`, the shader in
+  `course_objects.gd`): the disc's plant sprites are toned like the photo
+  ground (more colour, less light, darker at the root where a clump
+  shades itself), less so far away, and every sprite, spectators too,
+  takes the cloud shadows passing over the ground. Not the baked ground
+  shade: that map is dark wherever plants stand, their own occlusion
+  included.
+- **Photoreal grade** (`PostProcess.PHOTO_NEUTRAL`, `PHOTO_CURVE`): the
+  Neutral grade under Photoreal lighting adds a gentle filmic S-curve on
+  luminance, slightly warm highlights and cool shadows, so the render
+  reads less flat and hazy. The other grades are unchanged.
 - **Ground**: disc textures borrow the free photo texture's normal map at a
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat

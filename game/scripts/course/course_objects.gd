@@ -41,13 +41,26 @@ const SHADER_CODE := """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
+#include "res://shaders/ground_shade.gdshaderinc"
+
 uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
+// Plants (1) get the Photoreal grade; spectators (0) keep their colours.
+uniform float grade = 0.0;
+// With Photoreal lighting: the 2003 sprites are pale and bright for a dim
+// CRT, so plants are toned like the photo ground (CrzTerrain.realistic),
+// darkened at the root where the clump shades itself, and every sprite
+// takes the cloud shadows passing over the ground under it.
+global uniform float billboard_photo;
+varying float height_frac;
+varying vec3 root_pos;
 // Trees and plants lean and flutter in the wind (0 sway: stand still, as in
 // Links 2003). The quad runs from y 0 at the base to 1 at the top.
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
 
 void vertex() {
+	height_frac = VERTEX.y;
+	root_pos = MODEL_MATRIX[3].xyz;
 	if (foliage_sway > 0.0) {
 		vec3 root = MODEL_MATRIX[3].xyz;
 		float phase = dot(root.xz, vec2(0.37, 0.23));
@@ -75,7 +88,20 @@ void vertex() {
 
 void fragment() {
 	vec4 c = texture(atlas, UV);
-	ALBEDO = c.rgb;
+	vec3 col = c.rgb;
+	if (billboard_photo > 0.0) {
+		const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+		float l = dot(col, LUMA);
+		vec3 toned = max(mix(vec3(l), col, 1.15), vec3(0.0)) * 0.9;
+		toned *= mix(0.75, 1.0, smoothstep(0.0, 0.35, height_frac));
+		// Less far away, where whole fields of sprites would merge into
+		// dark masses against the haze.
+		col = mix(col, toned, grade * (1.0 - 0.6 * smoothstep(40.0, 220.0, length(VERTEX))));
+		// Only the clouds: the baked map is dark wherever plants stand,
+		// their own occlusion included.
+		col *= cloud_light(root_pos.xz);
+	}
+	ALBEDO = col;
 	ALPHA = c.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
 }
@@ -508,6 +534,7 @@ func _load_plants(read: Callable, decoded: Dictionary) -> void:
 	var atlas := build_atlas(images)
 	s.rects = atlas.rects
 	s.material = _material(atlas.texture)
+	s.material.set_shader_parameter("grade", 1.0)
 	for t: Dictionary in types:
 		s.species.append(tree_species(str(t.name)))
 	_index(s)

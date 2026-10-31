@@ -1592,6 +1592,7 @@ func _apply_graphics() -> void:
 	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
+	RenderingServer.global_shader_parameter_set("billboard_photo", 1.0 if CrzTerrain.photo_ground else 0.0)
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)

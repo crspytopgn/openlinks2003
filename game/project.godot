@@ -61,6 +61,10 @@ tree_impostor_distance={
 "type": "float",
 "value": 1e+06
 }
+billboard_photo={
+"type": "float",
+"value": 0.0
+}
 
 [rendering]
 
