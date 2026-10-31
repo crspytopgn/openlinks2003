@@ -1414,6 +1414,7 @@ func _apply_graphics() -> void:
 	camera.attributes = _camera_attributes()
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
 	TreeFactory.set_level(graphics.trees)
+	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)

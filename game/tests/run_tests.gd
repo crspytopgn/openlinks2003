@@ -946,6 +946,12 @@ func _test_ground_shade() -> void:
 	var placed := GroundShade.placed_casters(hole)
 	_check(placed.size() % 6 == 0, "placed objects give whole casters")
 	GroundShade.bake(hole, null, sun)  # headless: nothing to draw, no error
+	# Photo ground: the pale 2003 colours become deeper, darker turf.
+	var pale := Color(0.62, 0.78, 0.55)
+	var turf := CrzTerrain.realistic(pale, Surface.Type.FAIRWAY)
+	_check(turf.v < pale.v and turf.s >= pale.s and absf(turf.h - pale.h) < 0.01, "photo ground keeps the hue, deeper and darker")
+	var rough := CrzTerrain.realistic(Color(0.78, 0.76, 0.66), Surface.Type.ROUGH)
+	_check(rough.s >= 0.3 and rough.v < 0.6, "pale rough becomes straw")
 
 
 func _test_grass() -> void:

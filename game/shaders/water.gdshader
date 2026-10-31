@@ -7,9 +7,9 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_disabled, specular_schlick_ggx;
 
-uniform vec3 deep_color : source_color = vec3(0.03, 0.15, 0.20);
+uniform vec3 deep_color : source_color = vec3(0.02, 0.11, 0.17);
 uniform vec3 shallow_color : source_color = vec3(0.10, 0.33, 0.33);
-uniform vec3 sky_color : source_color = vec3(0.60, 0.74, 0.88);
+uniform vec3 sky_color : source_color = vec3(0.36, 0.52, 0.68);
 uniform vec3 foam_color : source_color = vec3(0.85, 0.90, 0.88);
 uniform float ripple_strength = 0.6;
 uniform float ripple_speed = 1.0;
@@ -47,7 +47,9 @@ void fragment() {
 	float facing = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
 	float fresnel = 0.03 + 0.97 * pow(1.0 - facing, 5.0);
 	vec3 body = mix(deep_color, shallow_color, smoothstep(0.55, 1.0, r));
-	vec3 col = mix(body, sky_color, fresnel * 0.85);
+	// Reflection capped: even at a glancing view, real water shows the
+	// deep blue of the sky above more than the pale horizon.
+	vec3 col = mix(body, sky_color, fresnel * 0.6);
 
 	float foam = smoothstep(1.0 - edge_width * 2.0, 1.0 - edge_width * 0.5, r);
 	foam *= 0.6 + 0.4 * sin(p.x * 3.1 + p.y * 2.3 + TIME * 1.5);

@@ -29,9 +29,11 @@ shader_type spatial;
 render_mode unshaded, fog_disabled, cull_disabled, shadows_disabled, depth_draw_never, blend_mix;
 uniform sampler2D band : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform float fade_top = 0.0;  // fraction of the band height faded out at the top
+uniform vec3 haze_color : source_color = vec3(0.7, 0.78, 0.86);
+uniform float haze = 0.0;  // how far the band fades into the haze
 void fragment() {
 	vec4 c = texture(band, UV);
-	ALBEDO = c.rgb;
+	ALBEDO = mix(c.rgb, haze_color, haze);
 	ALPHA = c.a * (fade_top > 0.0 ? smoothstep(0.0, fade_top, UV.y) : 1.0);
 }
 """
@@ -57,12 +59,30 @@ static func create(horizon: Image, sky_name := "") -> CourseBackdrop:
 		b.has_sky = true
 		b.sky_top = _row_mean(sky, 0, 8)
 		b.sky_haze = _row_mean(sky, sky.get_height() - 8, 8)
-		b.add_child(_band(sky, SKY_RADIUS, 0.0, 0.25, -2))
+		var band := _band(sky, SKY_RADIUS, 0.0, 0.25, -2)
+		band.name = "SkyBand"
+		b.add_child(band)
 	if horizon != null:
 		b.has_horizon = true
 		b.ground = _row_mean(horizon, horizon.get_height() - 16, 16)
-		b.add_child(_band(horizon, HORIZON_RADIUS, HORIZON_ROW, 0.0, -1))
+		var band := _band(horizon, HORIZON_RADIUS, HORIZON_ROW, 0.0, -1)
+		band.name = "HorizonBand"
+		b.add_child(band)
 	return b
+
+
+## Photoreal: the course's horizon stays (its sea and far hills), softened
+## into the haze, in front of the photographed sky instead of the disc's.
+func set_photo(on: bool, haze_color: Color) -> void:
+	var sky := get_node_or_null("SkyBand") as MeshInstance3D
+	if sky != null:
+		sky.visible = not on
+	var horizon := get_node_or_null("HorizonBand") as MeshInstance3D
+	if horizon != null:
+		for i in horizon.mesh.get_surface_count():
+			var mat := horizon.mesh.surface_get_material(i) as ShaderMaterial
+			mat.set_shader_parameter("haze", 0.3 if on else 0.0)
+			mat.set_shader_parameter("haze_color", haze_color)
 
 
 ## A sky from PANSKY.LIB by name ("sky04"), or null.

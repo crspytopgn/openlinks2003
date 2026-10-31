@@ -10,6 +10,17 @@ const CELL := 8.0  ## metres per side of a lookup grid cell
 const TILE_METRES := 12.0 * 0.3048
 
 ## Ground class (see olcore::parse_ground_classes) to how the ball plays.
+## Ground classes that take a free photographed texture in place of the
+## disc's own when photo_ground is on (not paths, dirt or rocks).
+const PHOTO_CLASSES: Array[int] = [0, 1, 2, 3, 4, 8, 10]
+const GROUND_SHADER := preload("res://shaders/course_ground.gdshader")
+
+## Set from the graphics settings: the Photoreal lighting draws the ground
+## with the free photo textures (COURSE_GROUND shader), Classic with the
+## disc's own. Takes effect on the next hole.
+static var photo_ground := false
+static var _means := {}  ## Texture2D -> mean colour
+
 const CLASS_SURFACE := {
 	0: Surface.Type.ROUGH,
 	1: Surface.Type.GREEN,
@@ -45,6 +56,7 @@ var _cell_start := PackedInt32Array()
 var _cell_items := PackedInt32Array()
 var _last := -1
 var _mesh: ArrayMesh
+var _mesh_photo := false
 var _ground_colors := {}  ## material -> Color, see ground_color_at()
 
 
@@ -194,7 +206,8 @@ func normal_at(x: float, z: float) -> Vector3:
 
 
 func build_visual() -> Node3D:
-	if _mesh == null:
+	if _mesh == null or _mesh_photo != photo_ground:
+		_mesh_photo = photo_ground
 		_mesh = _build_mesh()
 	var node := MeshInstance3D.new()
 	node.mesh = _mesh
@@ -242,9 +255,13 @@ func _material(m: int) -> Material:
 	var surface: Surface.Type = CLASS_SURFACE.get(ground, Surface.Type.ROUGH)
 	if surface == Surface.Type.WATER:
 		return Materials.water_surface()
+	var info: Dictionary = materials[m] if m < materials.size() else {}
+	if photo_ground and ground in PHOTO_CLASSES:
+		var photo := _photo_material(surface, info)
+		if photo != null:
+			return photo
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 1.0
-	var info: Dictionary = materials[m] if m < materials.size() else {}
 	mat.albedo_color = info.get("colour", Color(0.3, 0.5, 0.2))
 	var tex: Texture2D = info.get("texture")
 	if tex != null:
@@ -270,3 +287,63 @@ func _material(m: int) -> Material:
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	mat.next_pass = Materials.ground_shade_pass()
 	return mat
+
+
+## The photo ground for a material: the free texture of its surface,
+## tinted to the mean colour of the course's own texture (or its class
+## colour), toned down to the brightness of real turf. Null without the
+## free textures.
+static func _photo_material(surface: Surface.Type, info: Dictionary) -> ShaderMaterial:
+	var slot := FreeAssets.slot_for(surface)
+	var photo := FreeAssets.ground(slot, "albedo")
+	if photo == null:
+		return null
+	var own: Texture2D = info.get("texture")
+	var target: Color = info.get("colour", Color(0.3, 0.5, 0.2))
+	if own != null and own != photo:
+		target = _mean(own)
+	target = realistic(target, surface)
+	var mean := _mean(photo)
+	var mat := ShaderMaterial.new()
+	mat.shader = GROUND_SHADER
+	mat.set_shader_parameter("albedo_tex", photo)
+	var normal := FreeAssets.ground(slot, "normal")
+	mat.set_shader_parameter("normal_tex", normal)
+	mat.set_shader_parameter("has_normal", normal != null)
+	mat.set_shader_parameter("photo_mean", mean)
+	mat.set_shader_parameter("far_color", target)
+	mat.set_shader_parameter("tile", CrzCourseLoader.FREE_TILE_METRES * (1.6 if slot == "rough" else 1.0))
+	match surface:
+		Surface.Type.GREEN:
+			mat.set_shader_parameter("stripes", 0.07)
+			mat.set_shader_parameter("stripe_width", 3.0)
+			mat.set_shader_parameter("roughness_value", 0.78)
+			mat.set_shader_parameter("variation", 0.05)
+		Surface.Type.FAIRWAY:
+			mat.set_shader_parameter("stripes", 0.09)
+			mat.set_shader_parameter("roughness_value", 0.82)
+			mat.set_shader_parameter("variation", 0.09)
+		Surface.Type.SAND:
+			mat.set_shader_parameter("variation", 0.06)
+			mat.set_shader_parameter("roughness_value", 0.95)
+	return mat
+
+
+## A course colour (sRGB) as real ground of that surface would be: the 2003
+## textures are bright and pale for a dim CRT and a flat light; turf in
+## sunlight is darker and deeper.
+static func realistic(c: Color, surface: Surface.Type) -> Color:
+	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.72)
+	if surface == Surface.Type.ROUGH or surface == Surface.Type.DEEP_ROUGH:
+		# Pale disc rough reads as bare ground; real rough and fescue are
+		# olive and straw, with more colour and less light.
+		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.62)
+	elif surface == Surface.Type.SAND:
+		out = Color.from_hsv(c.h, clampf(c.s * 0.9, 0.0, 0.5), minf(c.v * 0.92, 0.85))
+	return out
+
+
+static func _mean(tex: Texture2D) -> Color:
+	if not _means.has(tex):
+		_means[tex] = FreeAssets.mean_color(tex)
+	return _means[tex]
