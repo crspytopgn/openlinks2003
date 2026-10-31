@@ -62,16 +62,18 @@ product lead builds it.
 11. [x] **Hole positions**: Links 2003 courses keep 18 hole positions per
    hole but we always played the first. Round setup > Pins: usual or random
    (picked by the round seed, so a friend's round plays the same ones).
-12. [ ] **Click to aim**: click a spot on the hole map (or the course) to aim
-   there and get the club for that distance, as modern sims do. Owner: lead.
+12. [x] **Click to aim**: click a spot on the hole map (or the course) to aim
+   there and get the club for that distance, as modern sims do. Done:
+   right-click on the course. Still to do: clicking the hole map.
 13. [x] **Pick-up limit**: an option to pick up at double par or net double
    bogey, like real stableford and casual rounds, to keep rounds moving.
    Done: Settings > Pick up (double par or triple bogey).
 14. [ ] **Conditions**: firm or soft greens and fairways and the day's wind
    strength chosen in round setup, so the same course plays differently.
    Needs the original's conditions options read first. Owner: physics.
-15. [ ] **Captions**: on-screen text for the commentary and caddie lines
-   (part of accessibility). Owner: broadcast presentation.
+15. [x] **Captions**: on-screen text for the commentary and caddie lines
+   (part of accessibility). Done: Settings > Captions for the golfer's voice
+   and the crowd; commentary and caddie lines were already text.
 
 ## Phase 1: formats (see `docs/formats/`)
 
@@ -129,7 +131,7 @@ product lead builds it.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
-  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, a walk up to each ball, a crouch to read each putt, his head following the ball, feet planted on slopes, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
+  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, an iron with its own closer, more bent-over address for all but the woods, the club head meeting the ball at impact, a twirl of the club at the finish, a walk up to each ball, a crouch to read each putt, his head following the ball, feet planted on slopes, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
   - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round

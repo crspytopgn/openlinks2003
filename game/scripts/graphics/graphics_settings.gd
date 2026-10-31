@@ -118,6 +118,8 @@ var pickup := 0
 const PICKUP_NAMES := ["Off (at 10)", "At double par", "At triple bogey"]
 ## Take real swings from a launch monitor app over OpenConnect (desktop).
 var launch_monitor := false
+## Captions for the golfer's voice and the crowd (SoundCaptions). Off by default.
+var captions := false
 const GIMME_FEET := [0.0, 2.0, 3.0, 4.0]
 const GIMME_NAMES := ["Off", "Inside 2 ft", "Inside 3 ft", "Inside the leather (4 ft)"]
 
@@ -252,6 +254,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.true_size_ball = bool(cfg.get_value(GAME_SECTION, "true_size_ball", s.true_size_ball))
 	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	s.launch_monitor = bool(cfg.get_value(GAME_SECTION, "launch_monitor", s.launch_monitor))
+	s.captions = cfg.get_value(GAME_SECTION, "captions", s.captions) == true
 	s.pickup = clampi(int(cfg.get_value(GAME_SECTION, "pickup", s.pickup)), 0, PICKUP_NAMES.size() - 1)
 	s.mulligans = clampi(int(cfg.get_value(GAME_SECTION, "mulligans", s.mulligans)), 0, MULLIGAN_NAMES.size() - 1)
 	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
@@ -309,6 +312,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	cfg.set_value(GAME_SECTION, "mulligans", mulligans)
 	cfg.set_value(GAME_SECTION, "pickup", pickup)
+	cfg.set_value(GAME_SECTION, "captions", captions)
 	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))

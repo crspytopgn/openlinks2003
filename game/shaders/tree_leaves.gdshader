@@ -90,13 +90,18 @@ void fragment() {
 		// as a round, ragged spray of leaves, not a square.
 		float h3 = hash(cell * 1.7 + info.r * 5.3 + 0.37);
 		float rim = length((cell + 0.5) / cells - 0.5) * 2.0;
+		// Once a leaf is only a few pixels across, single leaves on their
+		// grid read as a dot matrix: grow them into each other (and drop
+		// fewer) so a crown further off reads as solid, ragged foliage.
+		float per_px = max(length(dFdx(UV)), length(dFdy(UV))) * cells;
+		float far = clamp(per_px * 7.0 - 0.6, 0.0, 1.0);
 		// Core cards (the crown's shaded middle) are packed full of leaves
 		// inside their round outline.
-		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * 0.95 + 0.06;
+		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * mix(0.95, 0.75, far) + 0.06 * (1.0 - far);
 		vec2 jitter = (vec2(h3, fract(h3 * 13.7)) - 0.5) * 0.16;
 		vec2 f = fract(g) - 0.5 - jitter;
 		float a = h * 6.2831;
-		float k = 1.08 + h2 * 0.3;
+		float k = (1.08 + h2 * 0.3) / mix(1.0, 1.7, far);
 		mat2 turn = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a))) * k;
 		vec2 luv = turn * f + 0.5;
 		bool inside = keep && all(greaterThanEqual(luv, vec2(0.0))) && all(lessThanEqual(luv, vec2(1.0)));
@@ -115,6 +120,8 @@ void fragment() {
 		vec2 texels = vec2(textureSize(leaf_opacity, 0));
 		float lod = log2(max(max(length(dx * texels), length(dy * texels)), 1.0));
 		o *= 1.0 + lod * 0.3;
+		// The shaded middle of the crown fills in solid with distance.
+		o = core ? max(o, far) : o;
 		if (has_texture) {
 			// The photo is of single leaves in flat light; in a crown they
 			// read darker and greener.
@@ -127,11 +134,11 @@ void fragment() {
 		}
 		// Each leaf faces its own way, so leaves next to each other catch
 		// the light differently; a few are yellower or bluer.
-		col *= mix(0.62, 1.22, h3);
+		col *= mix(0.78, 1.12, h3);
 		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
 	}
 	// Inner leaves sit in the crown's own shade.
-	col *= core ? (needles ? 1.0 : 0.5) : mix(0.45, 1.0, info.g * info.g);
+	col *= core ? (needles ? 1.0 : 0.5) : mix(0.58, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col;

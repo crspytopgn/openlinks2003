@@ -24,6 +24,7 @@ var _quality: OptionButton
 var _window: OptionButton
 var _ui_scale: OptionButton
 var _colour_safe: OptionButton
+var _captions: OptionButton
 var _vsync: OptionButton
 var _msaa: OptionButton
 var _scale: OptionButton
@@ -68,6 +69,10 @@ var _clouds: OptionButton
 var _time: OptionButton
 var _trees: OptionButton
 var _filling := false  ## true while open() sets the controls
+## The rows scroll when they are taller than the window (720p, a phone, or a
+## bigger Interface size), so Done is always on screen.
+var _scroll: ScrollContainer
+var _columns: HBoxContainer
 
 
 func _ready() -> void:
@@ -85,14 +90,19 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	box.add_child(title)
 
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(_scroll)
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 40)
-	box.add_child(columns)
+	_scroll.add_child(columns)
+	_columns = columns
 	var grid := _grid(columns)
 	_quality = _row(grid, "Quality", GraphicsSettings.QUALITY_NAMES)
 	_window = _row(grid, "Display", ["Windowed", "Fullscreen"])
 	_ui_scale = _row(grid, "Interface size", GraphicsSettings.UI_SCALE_NAMES)
 	_colour_safe = _row(grid, "Colours", ["Standard", "Colour-blind safe (blue and white for green and red)"])
+	_captions = _row(grid, "Captions", ["Off", "On (the golfer and the crowd)"])
 	_vsync = _row(grid, "V-sync", ["Off", "On"])
 	_msaa = _row(grid, "Anti-aliasing", ["Off (FXAA)", "MSAA 2x", "MSAA 4x", "MSAA 8x"])
 	var scales: Array = []
@@ -156,6 +166,7 @@ func open(s: GraphicsSettings) -> void:
 	_window.select(1 if s.fullscreen else 0)
 	_ui_scale.select(s.ui_scale)
 	_colour_safe.select(1 if s.colour_safe else 0)
+	_captions.select(1 if s.captions else 0)
 	_vsync.select(1 if s.vsync else 0)
 	_msaa.select(maxi(0, GraphicsSettings.MSAA_CHOICES.find(s.msaa)))
 	_scale.select(_closest(GraphicsSettings.RENDER_SCALES, s.render_scale))
@@ -192,10 +203,24 @@ func close() -> void:
 
 
 func _process(_delta: float) -> void:
+	if not visible or _scroll == null:
+		return
+	var chrome := get_combined_minimum_size().y - _scroll.custom_minimum_size.y
+	var h := scroll_height(_columns.get_combined_minimum_size().y, chrome, get_viewport_rect().size.y)
+	if absf(h - _scroll.custom_minimum_size.y) > 0.5:
+		_scroll.custom_minimum_size.y = h
 	# In a round the panel sits on the HUD's canvas, not in a container:
 	# keep it in the middle of the screen, as the pause menu does.
-	if visible and not get_parent() is Container:
+	if not get_parent() is Container:
+		reset_size()
 		position = ((get_viewport_rect().size - size) * 0.5).max(Vector2.ZERO)
+
+
+## Height of the scrolling rows: all of them when they fit in `screen_h`
+## beside the title and footer (`chrome`), else what's left, never under
+## a few rows.
+static func scroll_height(rows_h: float, chrome: float, screen_h: float) -> float:
+	return minf(rows_h, maxf(160.0, screen_h - chrome - 16.0))
 
 
 func _grid(parent: Control) -> GridContainer:
@@ -382,6 +407,7 @@ func _on_selected() -> void:
 	settings.fullscreen = _window.selected == 1
 	settings.ui_scale = _ui_scale.selected
 	settings.colour_safe = _colour_safe.selected == 1
+	settings.captions = _captions.selected == 1
 	settings.vsync = _vsync.selected == 1
 	settings.msaa = GraphicsSettings.MSAA_CHOICES[_msaa.selected]
 	settings.render_scale = GraphicsSettings.RENDER_SCALES[_scale.selected]
