@@ -16,6 +16,23 @@ const MODE_HELP := [
 ]
 
 
+## How much of each handicap counts in `mode`, in percent (the World Handicap
+## System's recommended allowances). Game-side only: not in scoring.cpp.
+static func allowance_percent(mode: Mode) -> int:
+	match mode:
+		Mode.MATCH, Mode.SKINS:
+			return 100
+		Mode.BEST_BALL:
+			return 90
+	return 95
+
+
+## True if `mode` plays off the lowest handicap: the best player gets no
+## strokes and the others get the difference.
+static func off_the_low(mode: Mode) -> bool:
+	return mode == Mode.MATCH or mode == Mode.SKINS or mode == Mode.BEST_BALL
+
+
 ## Players allowed in `mode`: [min, max].
 static func player_range(mode: Mode) -> Vector2i:
 	match mode:
