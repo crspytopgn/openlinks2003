@@ -13,6 +13,11 @@ const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
 ## Mowing stripe strength per surface (the terrain shader draws them along
 ## the hole, crisp, from UV: x across the hole, -y the strength).
 const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.5}
+## Splat map (see the terrain shader): the surfaces rasterised every
+## SPLAT_STEP metres, so their edges are drawn crisp rather than blended
+## across the GRID_STEP mesh. Code FIRST_CUT_CODE is the first cut.
+const SPLAT_STEP := 1.0
+const FIRST_CUT_CODE := 9
 
 ## Olive, yellow-green turf as real courses have in sun (brighter, bluer
 ## greens read as lime under the Photoreal light).
@@ -130,7 +135,9 @@ func route_distance(x: float, z: float) -> Vector2:
 func build_visual() -> Node3D:
 	var root := Node3D.new()
 	root.name = "Terrain"
-	root.add_child(_build_ground_mesh())
+	var ground := _build_ground_mesh()
+	ground.material_override = _splat_material()
+	root.add_child(ground)
 	for i in ponds.size():
 		var w := ponds[i]
 		var water := Materials.water_disc(w.z + 4.0)
@@ -238,14 +245,65 @@ func _build_ground_mesh() -> MeshInstance3D:
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_TEX_UV2] = weights
+	# The vertex colour again, which the splat map's colour replaces.
+	var palette := PackedFloat32Array()
+	palette.resize(nx * nz * 4)
+	for k in nx * nz:
+		palette[k * 4] = colors[k].r
+		palette[k * 4 + 1] = colors[k].g
+		palette[k * 4 + 2] = colors[k].b
+	arrays[Mesh.ARRAY_CUSTOM0] = palette
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {},
+		Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 	var inst := MeshInstance3D.new()
 	inst.name = "Ground"
 	inst.mesh = mesh
 	inst.material_override = Materials.terrain()
 	return inst
+
+
+## The terrain material with this hole's splat map.
+func _splat_material() -> ShaderMaterial:
+	var area := bounds.grow(MARGIN)
+	var w := maxi(1, ceili(area.size.x / SPLAT_STEP))
+	var h := maxi(1, ceili(area.size.y / SPLAT_STEP))
+	var data := PackedByteArray()
+	data.resize(w * h)
+	for j in h:
+		var z := area.position.y + (j + 0.5) * SPLAT_STEP
+		for i in w:
+			var x := area.position.x + (i + 0.5) * SPLAT_STEP
+			data[j * w + i] = _splat_code(x, z)
+	var img := Image.create_from_data(w, h, false, Image.FORMAT_R8, data)
+	var mat := Materials.terrain().duplicate() as ShaderMaterial
+	var cols := PackedVector3Array()
+	var wts := PackedVector2Array()
+	var mown := PackedFloat32Array()
+	for s in 10:
+		var c: Color = FIRST_CUT_COLOR if s == FIRST_CUT_CODE else _colors[s]
+		cols.append(Vector3(c.r, c.g, c.b))
+		wts.append(Materials.terrain_weights(Surface.Type.ROUGH if s == FIRST_CUT_CODE else s))
+		# The mesh's UV already carries the stripes along the hole.
+		mown.append(0.0)
+	mat.set_shader_parameter("surface_colors", cols)
+	mat.set_shader_parameter("surface_weights", wts)
+	mat.set_shader_parameter("surface_mown", mown)
+	mat.set_shader_parameter("splat_tex", ImageTexture.create_from_image(img))
+	mat.set_shader_parameter("splat_origin", area.position)
+	mat.set_shader_parameter("splat_size", Vector2(w, h) * SPLAT_STEP)
+	mat.set_shader_parameter("has_splat", true)
+	return mat
+
+
+func _splat_code(x: float, z: float) -> int:
+	var s := surface_at(x, z)
+	if s == Surface.Type.ROUGH:
+		var r := _route_distance(Vector2(x, z))
+		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+			return FIRST_CUT_CODE
+	return s
 
 
 func ground_color_at(x: float, z: float) -> Color:

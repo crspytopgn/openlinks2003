@@ -50,6 +50,7 @@ var backdrop: CourseBackdrop
 var _free_sky: Material  ## the photographed sky (FreeAssets), or null
 var _backdrop_sky: Material  ## the plain sky behind the course's backdrop
 var _photo := false
+var _gi := false  ## global illumination on (Ultra Photoreal on a real GPU)
 ## The sun and fill light apply() set, before the weather scales them.
 var _sun_energy := SUN_ENERGY
 var _sun_color := Color(1.0, 0.95, 0.86)
@@ -169,6 +170,18 @@ func apply(settings: GraphicsSettings) -> void:
 	environment.volumetric_fog_length = 160.0
 	environment.volumetric_fog_sky_affect = 0.0
 	environment.ssr_enabled = fwd and photo and q >= GraphicsSettings.Quality.HIGH
+	# Real-time global illumination at the top end (Ultra, Forward+, a real
+	# graphics card): sunlight bouncing off the turf into the shade, green
+	# light under the trees and the sky shut out beneath them, as UE5's
+	# Lumen does. Software renderers would crawl, so never there.
+	_gi = gi_available(settings)
+	environment.sdfgi_enabled = _gi
+	environment.sdfgi_use_occlusion = true
+	environment.sdfgi_cascades = 6
+	environment.sdfgi_min_cell_size = 0.4
+	environment.sdfgi_y_scale = Environment.SDFGI_Y_SCALE_50_PERCENT
+	environment.sdfgi_bounce_feedback = 0.5
+	environment.sdfgi_energy = 1.0
 	environment.ssr_max_steps = 48
 	environment.fog_aerial_perspective = 0.5 if photo else 0.3
 	_photo = photo
@@ -179,6 +192,13 @@ func apply(settings: GraphicsSettings) -> void:
 	_ambient_energy = environment.ambient_light_energy
 	_sun_angle = sun.light_angular_distance
 	_choose_sky()
+
+
+## Whether `settings` get global illumination on this machine.
+static func gi_available(settings: GraphicsSettings) -> bool:
+	return GraphicsSettings.is_forward_plus() and settings.lighting == GraphicsSettings.Lighting.PHOTOREAL \
+		and settings.quality >= GraphicsSettings.Quality.ULTRA \
+		and RenderingServer.get_video_adapter_type() != RenderingDevice.DEVICE_TYPE_CPU
 
 
 ## Shows the course's own horizon (null for none) in front of a cloud sky
@@ -296,6 +316,9 @@ func _apply_time() -> void:
 	# Compatibility has no sky light, so its flat fill is a little stronger,
 	# or shade goes near black.
 	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.25)
+	if _gi:
+		# The bounced light does much of the fill's work.
+		environment.ambient_light_energy *= 0.6
 	environment.ambient_light_color = _time.ambient
 	var fwd := GraphicsSettings.is_forward_plus()
 	environment.tonemap_exposure = (PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8) * float(_time.exposure)
