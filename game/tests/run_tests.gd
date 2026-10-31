@@ -88,6 +88,8 @@ func _process(_delta: float) -> bool:
 	_run("saved_round", _test_saved_round)
 	_run("players_panel", _test_players_panel)
 	SavedRound.clear()
+	_run("menu_resume", _test_menu_resume)
+	SavedRound.clear()
 	_run("broadcast_round", _test_broadcast_round)
 	_run("designer_scene", _test_designer_scene)
 	_run("designed_round", _test_designed_round)
@@ -1866,6 +1868,26 @@ func _test_pause_stops_play() -> void:
 	game._process(60.0)
 	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the turn doesn't pass while paused")
 	game.pause_menu.close()
+
+
+## The main menu resumes a saved round on a real course before the setup
+## page has ever been opened.
+func _test_menu_resume() -> void:
+	var boot: Control = (load("res://scripts/boot.gd") as GDScript).new()
+	var key := "Courses/TEST.crz"
+	boot._course_paths = PackedStringArray(["Courses/OTHER.crz", key])
+	var s := RoundSetup.new()
+	s.course_key = key
+	SavedRound.save(s, {"hole": 0})
+	_check(boot._resume_slot() == 2, "menu: the saved course's slot")
+	_check(boot._setup_paths.size() >= 2 and boot._setup_paths[1] == key, "menu: the setup list is filled for resuming")
+	s.course_key = "Courses/GONE.crz"
+	SavedRound.save(s, {"hole": 0})
+	_check(not boot._can_resume(), "menu: no resume when the course is gone")
+	s.course_key = ""
+	SavedRound.save(s, {"hole": 0})
+	_check(boot._resume_slot() == 0, "menu: the placeholder course resumes")
+	boot.free()
 
 
 ## The full and multiplayer rounds above went into the test profiles.
