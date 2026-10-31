@@ -1252,6 +1252,27 @@ func _test_course_marks() -> void:
 		marks.add_divot(t, course.holes[0].tee + Vector3(0, 0, 60 + i), Vector3(0, 0, 1), by_name["8i"], Surface.Type.FAIRWAY)
 	_check(marks.mark_count() == CourseMarks.MAX_MARKS, "marks are capped per hole")
 	marks.free()
+	# Footprints: find a bunker on the first hole and stand in it.
+	var sand := Vector3.INF
+	var h0 := course.holes[0]
+	for z in range(0, 400, 2):
+		for x in range(-60, 61, 2):
+			if t.surface_at(h0.tee.x + x, h0.tee.z + z) == Surface.Type.SAND \
+					and t.surface_at(h0.tee.x + x, h0.tee.z + z - 3) == Surface.Type.SAND:
+				sand = Vector3(h0.tee.x + x, 0.0, h0.tee.z + z)
+				break
+		if sand != Vector3.INF:
+			break
+	_check(sand != Vector3.INF, "the placeholder course has a bunker")
+	if sand != Vector3.INF:
+		var spots := CourseMarks.footprint_spots(t, sand, Vector3(0, 0, 1), Vector3(1, 0, 0))
+		_check(spots.size() >= 2, "footprints in the bunker (%d)" % spots.size())
+		var on_sand := true
+		for spot in spots:
+			var at: Vector3 = spot[0]
+			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
+		_check(on_sand, "footprints only on sand")
+		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
 
 
 func _test_sound_over_distance() -> void:

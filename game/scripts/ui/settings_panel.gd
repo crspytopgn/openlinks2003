@@ -34,6 +34,7 @@ var _disc_sounds: OptionButton  ## web only
 var _skill: OptionButton
 var _swing: OptionButton
 var _swing_help: OptionButton
+var _ball_size: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
 var _caddie: OptionButton
@@ -99,6 +100,7 @@ func _ready() -> void:
 		_disc_sounds = _row(grid, "Sounds", ["Light", "Full disc sounds (about 100 MB, next start)"])
 	_swing = _row(grid, "Swing", ["Three-click meter", "Mouse swing (PowerStroke)"])
 	_swing_help = _row(grid, "Swing help", ["Off", "On"])
+	_ball_size = _row(grid, "Ball size", ["Bigger far away (Links)", "True size"])
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
@@ -139,6 +141,7 @@ func open(s: GraphicsSettings) -> void:
 	_skill.select(s.skill)
 	_swing.select(s.swing_method)
 	_swing_help.select(1 if s.swing_help else 0)
+	_ball_size.select(1 if s.true_size_ball else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
 	_caddie.select(1 if s.caddie else 0)
@@ -349,6 +352,7 @@ func _on_selected() -> void:
 	settings.skill = _skill.selected
 	settings.swing_method = _swing.selected
 	settings.swing_help = _swing_help.selected == 1
+	settings.true_size_ball = _ball_size.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
 	settings.caddie = _caddie.selected == 1

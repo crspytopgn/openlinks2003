@@ -7,7 +7,7 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_disabled;
 
-uniform int kind = 0; // 0 divot, 1 pitch mark, 2 sand crater
+uniform int kind = 0; // 0 divot, 1 pitch mark, 2 sand crater, 3 footprint
 
 varying float seed;
 
@@ -46,6 +46,18 @@ void fragment() {
 		float lip = smoothstep(0.55, 0.75, r) * (1.0 - smoothstep(0.85, 1.0, r)) * smoothstep(-0.2, 0.6, p.y);
 		col = mix(vec3(0.11, 0.17, 0.06), vec3(0.34, 0.38, 0.17), lip);
 		a = max(dent * 0.6, lip * 0.7);
+	} else if (kind == 3) {
+		// A shoe print pressed into sand: the sole and the heel as two
+		// rounded pads, a darker hollow, spike dots, a thrown-up rim.
+		vec2 f = vec2(p.x / 0.85, (p.y - 0.28) / 0.7);
+		vec2 h = vec2(p.x / 0.7, (p.y + 0.62) / 0.36);
+		float sole = min(length(f), length(h));
+		float print_ = 1.0 - smoothstep(0.82, 1.0, sole + rag * 0.4);
+		float rim = smoothstep(0.85, 1.0, sole) * (1.0 - smoothstep(1.0, 1.25, sole));
+		float spikes = step(0.8, hash(floor(UV * vec2(5.0, 12.0)) + seed)) * print_;
+		col = mix(vec3(0.52, 0.44, 0.30), vec3(0.88, 0.81, 0.64), rim);
+		col *= 1.0 - 0.15 * spikes;
+		a = max(print_ * 0.65, rim * 0.5);
 	} else {
 		// A crater in the sand: a shaded bowl with a bright thrown-up rim.
 		float bowl = 1.0 - smoothstep(0.6 + rag, 0.8 + rag, r);

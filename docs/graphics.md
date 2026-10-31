@@ -202,7 +202,22 @@ at Medium and grass at Low.
   sweep it), approach shots landing hard on the green leave a pitch mark,
   and balls landing in sand leave a crater (a bunker shot leaves a long
   scoop). They last for the hole, at most 48 of them. Each is one small
-  lit quad, so they cost almost nothing. Looks only.
+  lit quad, so they cost almost nothing. Looks only. Golfers in a bunker
+  leave shoe prints: the stance, and the walk in from behind the ball up to
+  the edge of the sand.
+- **True to scale at the pin**: the hole is its real 4.25 in (108 mm)
+  across, painted (`shaders/cup.gdshader`) with the cut turf edge and the
+  white liner on the far wall, which always faces the camera as in a real
+  cup. The flagstick is 7 ft tall and 19 mm thick.
+- **Tee peg**: a teed-up ball sits on a white peg, higher for the driver
+  (2.5 cm of air under it) than for woods (1.2 cm) and irons (5 mm). The
+  peg stays in the ground after the shot.
+- **Ball contact shadow** (`shaders/ball_shadow.gdshader`): a soft dark
+  blob under the ball, since a golf ball is too small for the sun's shadow
+  maps. It follows the ball over the ground in flight and fades as it
+  climbs.
+- **Ball size** (Settings): drawn bigger with distance, as Links does, or
+  at its true size everywhere.
 
 ## Performance budget
 

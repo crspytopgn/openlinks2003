@@ -3,13 +3,13 @@ extends Node3D
 ## The marks a round leaves on the course, as on TV: iron divots ahead of
 ## where the ball sat, pitch marks where approach shots hit the green, and
 ## craters where balls land in sand (with a scoop where they're splashed
-## out). They stay for the hole and go with it. Looks only: they don't
+## out), and footprints where golfers walk into bunkers. They stay for the hole and go with it. Looks only: they don't
 ## touch the ball or the game's physics.
 ##
 ## Each mark is one small lit quad (shaders/course_mark.gdshader), so even a
 ## busy hole adds only a few dozen tiny draw calls.
 
-enum Kind { DIVOT, PITCH_MARK, SAND_CRATER }
+enum Kind { DIVOT, PITCH_MARK, SAND_CRATER, FOOTPRINT }
 
 const MAX_MARKS := 48  ## the oldest go first on a very long hole
 const LIFT := 0.012  ## metres above the ground, so the quad never sinks into it
@@ -98,6 +98,40 @@ func add_landing(terrain: CourseTerrain, at: Vector3, travel: Vector3, speed: fl
 		return
 	var d: float = mark[1]
 	_add(terrain, mark[0], at, travel, Vector2(d, d) if mark[0] != Kind.SAND_CRATER else Vector2(d * 1.3, d))
+
+
+## Footprints for a golfer in a bunker: the two feet of the stance beside
+## the ball, and the walk in from behind it, stride by stride, up to where
+## the sand ends. `left` is the golfer's side of the ball.
+func add_footprints(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3) -> void:
+	for spot in footprint_spots(terrain, ball, aim_dir, left):
+		var turn := deg_to_rad(_rng.randf_range(-12.0, 12.0))
+		_add(terrain, Kind.FOOTPRINT, spot[0], (spot[1] as Vector3).rotated(Vector3.UP, turn), FOOT_SIZE)
+
+
+const FOOT_SIZE := Vector2(0.30, 0.11)  ## a shoe, heel to toe and across
+const STRIDE := 0.38  ## metres between one print and the next
+const MAX_STEPS := 18
+
+
+## Where the prints go, as [position, direction the toe points], all on sand.
+static func footprint_spots(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3) -> Array:
+	var spots: Array = []
+	var aim := Vector3(aim_dir.x, 0.0, aim_dir.z).normalized()
+	var side := Vector3(left.x, 0.0, left.z).normalized()
+	var stance := ball + side * 0.6
+	# Standing square to the line, feet shoulder-width apart, toes to the ball.
+	for f: float in [-0.25, 0.25]:
+		var at := stance + aim * f
+		if terrain.surface_at(at.x, at.z) == Surface.Type.SAND:
+			spots.append([at, -side])
+	# The walk in, from behind the ball, alternating feet.
+	for i in range(1, MAX_STEPS + 1):
+		var at := stance - aim * (0.25 + i * STRIDE) + side * (0.25 + (0.09 if i % 2 == 0 else -0.09))
+		if terrain.surface_at(at.x, at.z) != Surface.Type.SAND:
+			break
+		spots.append([at, aim])
+	return spots
 
 
 func mark_count() -> int:

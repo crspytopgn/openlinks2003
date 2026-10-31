@@ -968,6 +968,9 @@ func _prepare_shot(snap_camera: bool) -> void:
 		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
+	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
+		_footprints_at = ball_at
+		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()))
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
@@ -1641,6 +1644,7 @@ func _build_world() -> void:
 
 	ball = _make_ball_mesh()
 	add_child(ball)
+	_build_ball_details()
 
 	trail = MeshInstance3D.new()
 	trail.mesh = _trail_mesh
@@ -1833,10 +1837,9 @@ func _add_flag() -> void:
 	var pin := hole.pin
 	var pole := MeshInstance3D.new()
 	var pole_mesh := CylinderMesh.new()
-	# A real stick is about an inch thick; a little thicker reads better
-	# from the tee without looking like a post up close.
-	pole_mesh.top_radius = 0.016
-	pole_mesh.bottom_radius = 0.016
+	# True to scale: tour flagsticks are about 3/4 in (19 mm) thick.
+	pole_mesh.top_radius = 0.0095
+	pole_mesh.bottom_radius = 0.0095
 	pole_mesh.height = FLAGSTICK_M
 	pole_mesh.radial_segments = 8
 	pole.mesh = pole_mesh
@@ -1862,16 +1865,17 @@ func _add_flag() -> void:
 	flag.name = "Flag"
 	hole_root.add_child(flag)
 
+	# The hole at its real size (4.25 in across), liner and all
+	# (shaders/cup.gdshader).
 	var cup := MeshInstance3D.new()
-	var cup_mesh := CylinderMesh.new()
-	cup_mesh.top_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.bottom_radius = BallPhysics.CUP_RADIUS * 1.6
-	cup_mesh.height = 0.02
+	var cup_mesh := PlaneMesh.new()
+	cup_mesh.size = Vector2.ONE * BallPhysics.CUP_RADIUS * 2.0
 	cup.mesh = cup_mesh
-	cup.position = pin + Vector3(0, 0.005, 0)
-	var black := StandardMaterial3D.new()
-	black.albedo_color = Color(0.03, 0.03, 0.03)
-	cup.material_override = black
+	cup.position = pin + Vector3(0, 0.004, 0)
+	var cup_mat := ShaderMaterial.new()
+	cup_mat.shader = load("res://shaders/cup.gdshader")
+	cup.material_override = cup_mat
+	cup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hole_root.add_child(cup)
 
 
@@ -1907,9 +1911,90 @@ func _update_ball_size() -> void:
 
 func _size_ball(m: MeshInstance3D, base: Vector3) -> void:
 	var d := camera.position.distance_to(base)
-	var r := maxf(BallPhysics.RADIUS, d * 0.0045)
+	var r := BallPhysics.RADIUS if graphics != null and graphics.true_size_ball \
+		else maxf(BallPhysics.RADIUS, d * 0.0045)
 	m.scale = Vector3.ONE * r
-	m.position = base + Vector3.UP * r
+	var gap := _tee_gap() if m == ball else 0.0
+	m.position = base + Vector3.UP * (r + gap)
+	if m == ball:
+		_update_ball_details(base, r, gap)
+
+
+## Driver tee height: about half the ball above the club's crown.
+const TEE_GAP_DRIVER := 0.025
+const TEE_GAP_WOOD := 0.012  ## fairway woods and hybrids, teed low
+const TEE_GAP_IRON := 0.005  ## irons, the ball just off the grass
+var _tee_peg: MeshInstance3D
+var _ball_shadow: MeshInstance3D
+var _footprints_at := Vector3.INF  ## the bunker lie that last got footprints
+
+
+## How far the ball sits above the ground on a tee peg while aiming from
+## the teeing ground; 0 anywhere else, and once the ball is struck.
+func _tee_gap() -> float:
+	if lie != Surface.Type.TEE or not (state == State.AIM or state == State.COMPUTER) \
+			or _ball_base.distance_to(ball_at) > 0.01 or clubs.is_empty():
+		return 0.0
+	var club := clubs[club_index]
+	if club.is_putter:
+		return 0.0
+	match SoundBank.club_kind(club):
+		&"driver":
+			return TEE_GAP_DRIVER
+		&"wood":
+			return TEE_GAP_WOOD
+	return TEE_GAP_IRON
+
+
+func _build_ball_details() -> void:
+	# A white wooden tee: a thin shank with a cup on top.
+	_tee_peg = MeshInstance3D.new()
+	var shank := CylinderMesh.new()
+	shank.top_radius = 0.0055
+	shank.bottom_radius = 0.0022
+	shank.height = 0.012
+	shank.radial_segments = 8
+	shank.rings = 1
+	_tee_peg.mesh = shank
+	var peg_mat := StandardMaterial3D.new()
+	peg_mat.albedo_color = Color(0.92, 0.9, 0.84)
+	peg_mat.roughness = 0.8
+	_tee_peg.material_override = peg_mat
+	_tee_peg.visible = false
+	add_child(_tee_peg)
+	_ball_shadow = MeshInstance3D.new()
+	var quad := PlaneMesh.new()
+	quad.size = Vector2.ONE
+	_ball_shadow.mesh = quad
+	var shadow_mat := ShaderMaterial.new()
+	shadow_mat.shader = load("res://shaders/ball_shadow.gdshader")
+	_ball_shadow.material_override = shadow_mat
+	_ball_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_ball_shadow)
+
+
+## The tee peg under a teed-up ball (it stays in the ground after the
+## shot, as they mostly do), and the soft shadow that sits the ball in the
+## grass and follows it along the ground in flight, fading as it climbs.
+func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
+	if _tee_peg == null or hole == null:
+		return
+	if gap > 0.0:
+		var ground := hole.terrain.height_at(base.x, base.z)
+		var shank := _tee_peg.mesh as CylinderMesh
+		shank.height = gap + 0.004  # its cup holds the ball; the rest is in the ground
+		_tee_peg.position = Vector3(base.x, ground + shank.height * 0.5, base.z)
+		_tee_peg.visible = ball.visible
+	elif state == State.AIM or state == State.COMPUTER:
+		_tee_peg.visible = false
+	var ground_y := hole.terrain.height_at(base.x, base.z)
+	var height := maxf(base.y - ground_y, 0.0)
+	var fade := 1.0 - clampf(height / 2.0, 0.0, 1.0)
+	_ball_shadow.visible = ball.visible and fade > 0.0
+	if _ball_shadow.visible:
+		_ball_shadow.position = Vector3(base.x, ground_y + 0.006, base.z)
+		_ball_shadow.scale = Vector3.ONE * r * 2.6 * (1.0 + height)
+		(_ball_shadow.material_override as ShaderMaterial).set_shader_parameter("strength", 0.6 * fade)
 
 
 func _place_golfer() -> void:
