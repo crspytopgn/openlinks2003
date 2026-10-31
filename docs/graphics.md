@@ -210,7 +210,7 @@ to the job summary, and fails CI when a build goes over
 `tools/size_budget.json`. When it was added (2026-10-31) the game data was
 33 MB, a third of it the HDR sky, and the Godot engine was the rest of each
 download (about 70 MB uncompressed on Linux). Two import changes took the
-data to 27.7 MB without changing the look:
+data from 33 to 27.7 MB without changing the look (30.5 MB once the photoscanned sand, paths and height maps of #79 landed):
 
 - the sky panorama has no mipmaps (it is only ever magnified), and
 - textures without their own `.import` settings (the golfer's, extracted
