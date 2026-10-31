@@ -49,7 +49,10 @@ at Medium and grass at Low.
   chunks a frame. Tufts take the colour of the ground under them
   (`CourseTerrain.ground_color_at`), bend with the wind and shrink away at
   the edge of the radius, so there's no visible line. Low, Medium and High
-  reach 22, 36 and 55 m. Visual only: the ball never sees it.
+  reach 22, 36 and 55 m. Visual only: the ball never sees it. The shader
+  must not use `specular_disabled`: in Compatibility (the web build) that
+  drops the sun from the blades and they go dark. Compatibility also has no
+  sky fill light, so `GrassField` lifts the blades' `brightness` there.
 - **Trees in the wind**: the course billboards sway with the hole's wind
   (`foliage_sway` and `wind_vector` global shader uniforms, set by
   `GolfRound`). Classic Links keeps them still, as in the original.

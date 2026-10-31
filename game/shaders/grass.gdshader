@@ -4,14 +4,16 @@
 // away towards the edge of the grass radius, so there's no visible line
 // where the 3D grass ends. Normals point straight up so the tufts take the
 // same light as the ground they stand on. Works in Forward+ and
-// Compatibility.
+// Compatibility. No specular_disabled: in Compatibility it drops the sun
+// from the blades and leaves them dark.
 shader_type spatial;
-render_mode cull_disabled, specular_disabled, world_vertex_coords;
+render_mode cull_disabled, world_vertex_coords;
 
 global uniform vec2 wind_vector; // air velocity over the course, m/s (x, z)
 uniform vec3 camera_pos;
 uniform float fade_start = 20.0;
 uniform float fade_end = 30.0;
+uniform float brightness = 1.0; // GrassField lifts it for Compatibility
 
 varying vec3 base_color;
 varying float height;
@@ -33,7 +35,7 @@ void vertex() {
 
 void fragment() {
 	// Darker in the tuft, sun-bleached at the tips.
-	ALBEDO = base_color * mix(0.55, 1.2, height) * vec3(0.97, 1.03, 0.9);
+	ALBEDO = base_color * mix(0.8, 1.25, height) * brightness * vec3(0.97, 1.03, 0.9);
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).
 	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
