@@ -172,9 +172,22 @@ go on the hardest holes first, by the course's stroke index (a nine keeps
 the order of the 18). Net scores then decide every mode, and the scorecard
 adds a net row under each player, whose label shows their playing handicap.
 
+Computer golfers keep no profile and play off a fixed index for their level
+(`RoundSetup.computer_index`): weekend golfer 24.0, club golfer 12.0,
+scratch golfer 0.0, tour pro +4.0. The setup page shows it in the player's
+index box, so net and Stableford games against them work.
+
+Each round also counts every player's fairways hit (tee shots on par 4s and
+5s that finish on the fairway), greens in regulation (on the green, or in
+the hole, with two strokes to spare for par) and putts (strokes played from
+the green). They go on the round's record and into career totals that keep
+counting after old rounds drop off the list.
+
 The main menu's **Players** page (`PlayersPanel`) lists every profile with
-its index, rounds and last date. Picking a player shows their recent rounds
-and stars the ones the index counts. Delete asks once more, then removes
+its index, rounds and last date. Picking a player shows their career line
+(scoring average per 18, fairways, greens in regulation, putts per 18) and
+their recent rounds with each round's stats, and stars the rounds the index
+counts. Delete asks once more, then removes
 the profile.
 
 ### Saved rounds

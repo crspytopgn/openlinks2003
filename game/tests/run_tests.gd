@@ -470,9 +470,24 @@ func _test_player_profiles() -> void:
 		_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31"), "a full nine counts")
 	_check(p.rounds("Ann").size() == 3 and p.rounds("Ann")[0].differential == 180, "rounds kept: %s" % [p.rounds("Ann")])
 	_check(p.has_record("Ann") and p.index_of("Ann") == 160, "index from three rounds: %d" % p.index_of("Ann"))
+	var c := p.career("Ann")
+	_check(c.rounds == 3 and c.holes == 27 and c.strokes == 135 and c.par == 108 and c.stat_holes == 0, "career totals: %s" % c)
+	var stats := {"holes": 9, "fairways": 4, "fairway_holes": 7, "gir": 3, "putts": 16}
+	_check(p.record_round("Ann", card, ranks, "Test", "2026-10-31", stats), "a round with stats")
+	_check(p.rounds("Ann").back().putts == 16 and p.rounds("Ann").back().gir == 3, "stats on the round")
+	c = p.career("Ann")
+	_check(c.rounds == 4 and c.stat_holes == 9 and c.fairways == 4 and c.fairway_holes == 7 and c.putts == 16, "career stats: %s" % c)
+	var text := PlayerProfiles.career_text(c)
+	_check(text == "Average 90.0 per 18   Fairways 57%   Greens 33%   Putts 32.0 per 18", "career text: %s" % text)
+	_check(PlayerProfiles.career_text(p.career("Nobody")).is_empty(), "no career yet")
+	# A profile saved before career stats starts from its rounds.
+	p._cfg.set_value(PlayerProfiles._section("Old"), "rounds", [{"holes": 18, "gross": 90, "par": 72, "differential": 180}])
+	_check(p.career("Old").rounds == 1 and p.career("Old").strokes == 90, "career from old rounds")
+	p.remove("Old")
 	p.save()
 	var again := PlayerProfiles.load_saved()
-	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 160, "profiles saved")
+	_check(again.names() == _strs(["Ann"]) and again.index_of("Ann") == 170, "profiles saved: %d" % again.index_of("Ann"))
+	_check(again.career("Ann").putts == 16, "career saved")
 	again.remove("Ann")
 	_check(not again.has_player("Ann"), "profile removed")
 	again.save()
@@ -517,6 +532,15 @@ func _test_handicap_scoring() -> void:
 	s.handicaps = false
 	r = RoundScoring.new(s, pars, numbers, si)
 	_check(r.playing == _ints([0, 0]) and r.label(0) == "Ann", "handicaps off")
+
+	# Computer golfers play off their level's index.
+	_check(RoundSetup.computer_index(OpponentSkill.Level.BEGINNER) == 240 and RoundSetup.computer_index(OpponentSkill.Level.TOUR) == -40, "computer indexes")
+	s.handicaps = true
+	s.mode = GameModes.Mode.STABLEFORD
+	s.computer = _ints([RoundSetup.HUMAN, OpponentSkill.Level.BEGINNER])
+	_check(s.index_of(1) == 240 and s.index_of(0) == 20, "the computer seat's index")
+	r = RoundScoring.new(s, pars, numbers, si)
+	_check(r.playing == _ints([1, 11]), "a weekend golfer gets strokes: %s" % [r.playing])
 
 
 func _ints(values: Array) -> Array[int]:
@@ -1501,6 +1525,10 @@ func _test_rounds_recorded() -> void:
 	_check(p.rounds("Ann").size() >= 1, "the skins round is on Ann's record")
 	for r: Dictionary in p.rounds("Player 1"):
 		_check(r.holes == 9 and r.par == 36 and r.adjusted <= r.gross, "round record: %s" % r)
+		# The placeholder nine has seven par 4s and 5s.
+		_check(r.fairway_holes == 7 and r.fairways <= 7 and r.gir <= 9 and r.putts >= 1 and r.putts <= r.gross, "round stats: %s" % r)
+	_check(not PlayerProfiles.career_text(p.career("Player 1")).is_empty(), "Player 1 has a career line")
+	print("  Player 1: %s" % PlayerProfiles.career_text(p.career("Player 1")))
 
 
 ## A round saved part way through carries on where it stopped.

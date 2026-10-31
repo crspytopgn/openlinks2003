@@ -1,8 +1,9 @@
 class_name PlayersPanel
 extends PanelContainer
 ## The "Players" page: every saved profile (PlayerProfiles) with its handicap
-## index and rounds. Picking a player lists their recent rounds; Delete asks
-## once more, then removes the profile.
+## index and rounds. Picking a player shows their career stats (scoring
+## average, fairways, greens in regulation, putts) and lists their recent
+## rounds; Delete asks once more, then removes the profile.
 
 signal back_pressed
 
@@ -121,16 +122,24 @@ func _fill_detail() -> void:
 		return
 	var played := _profiles.rounds(_picked)
 	_detail_title.text = "%s: recent rounds" % _picked if not played.is_empty() else "%s: no rounds yet" % _picked
+	var career := PlayerProfiles.career_text(_profiles.career(_picked))
+	if not career.is_empty():
+		var c := _label("Career (%d rounds): %s" % [_profiles.career(_picked).rounds, career], 0)
+		c.add_theme_color_override("font_color", MenuStyle.ACCENT)
+		_detail.add_child(c)
 	var used := _used_rounds(played)
 	for k in mini(played.size(), SHOWN_ROUNDS):
 		var i := played.size() - 1 - k
 		var r: Dictionary = played[i]
 		var gross := int(r.get("gross", 0))
 		var par := int(r.get("par", 0))
-		var line := "%s   %s   %d holes   %d (%s)   differential %s%s" % [
+		var line := "%s   %s   %d holes   %d (%s)   differential %s" % [
 			r.get("date", ""), r.get("course", ""), int(r.get("holes", 0)), gross,
-			Scorecard.format_to_par(gross - par), _signed(int(r.get("differential", 0))),
-			"   *" if used.has(i) else ""]
+			Scorecard.format_to_par(gross - par), _signed(int(r.get("differential", 0)))]
+		if r.has("putts"):
+			line += "   FW %d/%d   GIR %d   Putts %d" % [int(r.fairways), int(r.fairway_holes), int(r.gir), int(r.putts)]
+		if used.has(i):
+			line += "   *"
 		_detail.add_child(_label(line, 0))
 	if not used.is_empty():
 		var note := _label("* counts towards the index", 0)
@@ -187,4 +196,7 @@ func _label(text: String, width: float) -> Label:
 	l.add_theme_font_size_override("font_size", 16)
 	if width > 0.0:
 		l.custom_minimum_size = Vector2(width, 0)
+	else:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(660, 0)
 	return l

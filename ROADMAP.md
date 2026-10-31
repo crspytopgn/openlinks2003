@@ -94,6 +94,7 @@ feel) still need a working install.
 - [ ] Player profiles and saves (original format optional)
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))
+  - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
 - [ ] Settings, controller support, performance
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
   - [ ] Photoscanned 3D trees with impostors, baked shadows and AO per hole, texture compression tiers, a performance budget in CI

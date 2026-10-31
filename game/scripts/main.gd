@@ -61,6 +61,11 @@ class PlayerBall:
 	## best of their shots so far ({at, add, score, by}).
 	var round_turn := 0
 	var round_best := {}
+	## This hole's stats: tee shot on the fairway (-1 on a par 3), green in
+	## regulation, putts.
+	var fairway := -1
+	var gir := false
+	var putts := 0
 
 	func done() -> bool:
 		return holed or picked_up or inactive
@@ -94,6 +99,8 @@ var current := 0  ## whose ball is being played
 var shooter := 0  ## who is hitting it (a partner, in a shared-ball mode)
 ## The ball each player plays: their own, or their team's in a shared-ball mode.
 var ball_of: Array[int] = []
+## Each player's stats over the holes finished so far (PlayerProfiles.STATS).
+var round_stats: Array[Dictionary] = []
 var honour: Array[int] = []  ## tee-off order for this hole
 ## The current player's card.
 var card: Scorecard
@@ -242,6 +249,9 @@ func start_round() -> void:
 			add_child(ambience)
 	wind = Wind.new(graphics.wind, wind_seed)
 	hud.scorecard.visible = false
+	round_stats.clear()
+	for _i in scoring.player_count():
+		round_stats.append(PlayerProfiles.empty_stats())
 	var saved := resume
 	resume = {}
 	if saved.is_empty():
@@ -258,6 +268,11 @@ func _restore(saved: Dictionary) -> void:
 		var row: Array = Array(saved_cards[i])
 		for h in mini(row.size(), holes.size()):
 			scoring.cards[i].record(h, int(row[h]))
+	var saved_stats: Array = saved.get("stats", [])
+	for i in mini(saved_stats.size(), round_stats.size()):
+		var st: Dictionary = saved_stats[i]
+		for key: String in round_stats[i]:
+			round_stats[i][key] = int(st.get(key, 0))
 	var order: Array = Array(saved.get("honour", []))
 	var sorted := order.duplicate()
 	sorted.sort()
@@ -280,6 +295,9 @@ func _restore(saved: Dictionary) -> void:
 		players[i].shots = int(b.get("shots", 0))
 		players[i].round_turn = int(b.get("round_turn", 0))
 		players[i].round_best = b.get("round_best", {})
+		players[i].fairway = int(b.get("fairway", -1))
+		players[i].gir = b.get("gir", false) == true
+		players[i].putts = int(b.get("putts", 0))
 	current = clampi(int(saved.get("current", 0)), 0, players.size() - 1)
 	var next := _next_player()
 	if next < 0:
@@ -299,10 +317,12 @@ func _save_progress() -> void:
 	var balls: Array = []
 	for p in players:
 		balls.append({"at": p.at, "strokes": p.strokes, "holed": p.holed, "picked_up": p.picked_up,
-			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best})
+			"shots": p.shots, "round_turn": p.round_turn, "round_best": p.round_best,
+			"fairway": p.fairway, "gir": p.gir, "putts": p.putts})
 	SavedRound.save(round_setup, {
 		"hole": hole_index, "number": hole.number, "current": current,
 		"honour": PackedInt32Array(honour), "cards": saved_cards, "balls": balls,
+		"stats": round_stats,
 	})
 
 
@@ -360,6 +380,9 @@ func start_hole(index: int) -> void:
 		p.shots = 0
 		p.round_turn = 0
 		p.round_best = {}
+		p.fairway = -1
+		p.gir = false
+		p.putts = 0
 	_clear_trail()
 	hud.scorecard.visible = false
 	_begin_turn(_next_player(), true)
@@ -735,6 +758,7 @@ func _complete_flight() -> void:
 	_draw_trail(shot.points.size() - 1, shot.rest)
 	var strokes_before := strokes
 	strokes += 1
+	_count_stats(strokes_before)
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
@@ -785,6 +809,22 @@ func _complete_flight() -> void:
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
+
+
+## Fairways, greens in regulation and putts for the ball just played:
+## `strokes_before` is its score before this shot.
+func _count_stats(strokes_before: int) -> void:
+	var p := players[current]
+	if lie == Surface.Type.GREEN:
+		p.putts += 1
+	var holed := shot.outcome == ShotResult.Outcome.HOLED
+	var on_ground := holed or not (shot.outcome == ShotResult.Outcome.WATER or shot.outcome == ShotResult.Outcome.OUT_OF_BOUNDS)
+	var rest: int = hole.terrain.surface_at(shot.rest.x, shot.rest.z) if on_ground else Surface.Type.WATER
+	if strokes_before == 0 and hole.par >= 4:
+		p.fairway = 1 if holed or (on_ground and rest == Surface.Type.FAIRWAY) else 0
+	# On the green (or in the hole) with two putts left for par.
+	if strokes_before + 1 <= hole.par - 2 and (holed or (on_ground and rest == Surface.Type.GREEN)):
+		p.gir = true
 
 
 ## Scramble: keeps this shot if it is the team's best so far. Until everyone
@@ -863,7 +903,15 @@ func _hole_out(picked_up: bool) -> void:
 
 func _finish_hole() -> void:
 	for i in players.size():
-		scoring.cards[i].record(hole_index, players[ball_of[i]].strokes)
+		var p := players[ball_of[i]]
+		scoring.cards[i].record(hole_index, p.strokes)
+		var st := round_stats[i]
+		if p.fairway >= 0:
+			st.fairway_holes += 1
+			st.fairways += p.fairway
+		st.gir += 1 if p.gir else 0
+		st.putts += p.putts
+		st.holes += 1
 	state = State.HOLE_DONE
 	if players.size() == 1:
 		var p := players[0]
@@ -942,7 +990,7 @@ func _record_rounds() -> String:
 			continue
 		var player := scoring.names[i]
 		var before := profiles.index_of(player)
-		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date):
+		if not profiles.record_round(player, scoring.cards[i], scoring.ranks, course.course_name, date, round_stats[i]):
 			continue
 		var after := profiles.index_of(player)
 		if after == Handicap.NONE:

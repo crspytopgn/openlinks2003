@@ -60,8 +60,18 @@ func all_computer() -> bool:
 		if not is_computer(i):
 			return false
 	return true
+## Player `player`'s index; a computer golfer plays off its level's.
 func index_of(player: int) -> int:
+	if is_computer(player):
+		return computer_index(computer_level(player))
 	return indexes[player] if player < indexes.size() else Handicap.NONE
+
+
+## The handicap index (tenths) each computer level plays off: roughly what
+## its scores come to on a par-72 course. Game-side only.
+static func computer_index(level: int) -> int:
+	const INDEX := [240, 120, 0, -40]
+	return INDEX[clampi(level, 0, INDEX.size() - 1)]
 
 
 ## Why this setup can't be played, or "" if it can.
