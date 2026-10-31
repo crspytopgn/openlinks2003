@@ -190,6 +190,8 @@ var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
+const AIM_FLAT := 0.1  ## height of the aim ring over its width
+const AIM_LIFT := 0.03  ## metres the ring floats above the grass
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig
 var hole_root: Node3D
@@ -1736,8 +1738,8 @@ func _start_drive(next: int) -> bool:
 		golfer.visible = false
 	if caddie != null:
 		caddie.step_aside()
-	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
-	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
+	aim_marker.scale = _aim_marker_scale(2.5)
 	aim_marker.visible = true
 	ball.visible = true
 	hud.show_message("")
@@ -2270,7 +2272,8 @@ func _build_world() -> void:
 	aim_marker.mesh = ring
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.albedo_color = Color(1.0, 0.9, 0.2)
+	ring_mat.albedo_color = Color(1.0, 0.9, 0.2, 0.75)
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
 
@@ -2624,6 +2627,13 @@ func _place_golfer() -> void:
 	golfer.play(&"address")
 
 
+## The aim ring is a flat painted band, like a TV graphic laid on the
+## grass, not a 20 cm tyre: the torus is squashed to AIM_FLAT of its width,
+## so a putt's ring no longer stands over the cup like a yellow can.
+static func _aim_marker_scale(size: float) -> Vector3:
+	return Vector3(size, AIM_FLAT * size, size)
+
+
 func _update_aim_marker() -> void:
 	var club := clubs[club_index]
 	var dir := _aim_dir()
@@ -2636,9 +2646,9 @@ func _update_aim_marker() -> void:
 		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
-	p.y = hole.terrain.height_at(p.x, p.z) + 0.08
+	p.y = hole.terrain.height_at(p.x, p.z) + AIM_LIFT
 	aim_marker.position = p
-	aim_marker.scale = Vector3(size, 1.0, size)
+	aim_marker.scale = _aim_marker_scale(size)
 	aim_marker.visible = true
 	_update_breakline()
 
