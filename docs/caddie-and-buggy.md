@@ -38,5 +38,24 @@ Code: `game/scripts/caddie/` (`Caddie`, `CaddieAdvice`, `CaddieNote`,
 
 ## Golf buggy
 
-Still to come: drive a buggy between shots (faster on cart paths, kept off
-greens, tees, bunkers and water), with a key to skip straight to the ball.
+Settings > Golf buggy. When a person's next ball is more than 40 m from the
+buggy, they drive to it: Up/Down or W/S to drive and brake (and back up),
+Left/Right or A/D to steer. A yellow ring marks the ball and the controls
+line counts the yards. Stop within about 14 m (40 m if the ball is on the
+green) and play goes on. **Space or a click skips the drive** and leaves the
+buggy parked beside the ball, so a round with the buggy on is no slower
+than without it. Computer golfers never drive, and on a new hole the buggy
+waits beside the tee.
+
+Handling (`BuggyDrive`): a governed electric cart, about 16 mph on cart
+paths, 14 mph on grass, 9 mph in the rough and slower in deep rough, 5.5 mph
+in reverse. Steering is a kinematic bicycle model (1.65 m wheelbase, 32
+degrees of lock, less of it at speed), hills slow it going up and push it
+going down, and it stops at the edge of greens, bunkers and water, as real
+course rules ask. The model (`GolfBuggy`) is built in code: a glossy white
+two-seater with a canopy, tinted windscreen, bench seat, headlights and a
+bag on the back, one mesh for the body (six materials) and four wheels that
+turn and steer. It sits on the ground under its four wheels, pitching and
+rolling with the slopes, and a chase camera follows it.
+
+Code: `game/scripts/buggy/` (`BuggyDrive`, `GolfBuggy`).

@@ -76,6 +76,8 @@ var swing_help := false
 ## A caddie at the players' shots with a read scaled to the swing skill
 ## (Caddie, CaddieAdvice). Off by default, as in Links 2003.
 var caddie := false
+## Drive a golf buggy to the ball between shots (GolfBuggy). Off by default.
+var buggy := false
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -197,6 +199,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.swing_method = clampi(int(cfg.get_value(GAME_SECTION, "swing_method", s.swing_method)), 0, 1)
 	s.swing_help = bool(cfg.get_value(GAME_SECTION, "swing_help", s.swing_help))
 	s.caddie = bool(cfg.get_value(GAME_SECTION, "caddie", s.caddie))
+	s.buggy = bool(cfg.get_value(GAME_SECTION, "buggy", s.buggy))
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -240,6 +243,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "swing_method", swing_method)
 	cfg.set_value(GAME_SECTION, "swing_help", swing_help)
 	cfg.set_value(GAME_SECTION, "caddie", caddie)
+	cfg.set_value(GAME_SECTION, "buggy", buggy)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

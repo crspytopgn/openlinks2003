@@ -48,6 +48,7 @@ func _initialize() -> void:
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("caddie", _test_caddie)
+	_run("buggy_drive", _test_buggy_drive)
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
@@ -100,6 +101,7 @@ func _process(_delta: float) -> bool:
 	_run("broadcast_round", _test_broadcast_round)
 	_run("designer_scene", _test_designer_scene)
 	_run("designed_round", _test_designed_round)
+	_run("caddie_and_buggy_in_round", _test_caddie_and_buggy_in_round)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
@@ -190,6 +192,45 @@ func _test_designer_scene() -> void:
 	d._stop_flyover()
 	_check(not d._preview.current and d.camera.current, "and hands back to the designer camera")
 	d.queue_free()
+
+
+## The caddie reads the player's shots and the buggy drives to the ball
+## (skipped here) through a real round, then both go away when turned off.
+func _test_caddie_and_buggy_in_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.course_path = ""
+	game.graphics.caddie = true
+	game.graphics.buggy = true
+	game._apply_graphics()
+	game.start_round()
+	_check(game.caddie != null and game.buggy != null, "caddie and buggy are on")
+	var read := false
+	var drove := false
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		if game.state == GolfRound.State.AIM and game.caddie.advice != null and not read:
+			game.caddie.advice.finish()
+			read = game.caddie.advice.is_ready() and not game.caddie.advice.text.is_empty()
+			print("  caddie: " + game.caddie.advice.text)
+		if game.state == GolfRound.State.DRIVE and not drove:
+			drove = true
+			var from := game.buggy.drive.position
+			for i in 60:
+				game.buggy.step(1.0 / 30.0, 1.0, 0.0, game.hole.terrain)
+			_check(game.buggy.drive.position.distance_to(from) > 1.0 or game.buggy.drive.blocked, "the buggy drives")
+			game._process_drive(1.0 / 30.0)
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "the round finishes with the caddie and buggy")
+	_check(read, "the caddie read a shot")
+	_check(drove, "the buggy drove to a ball")
+	game.graphics.caddie = false
+	game.graphics.buggy = false
+	game._apply_graphics()
+	_check(game.caddie == null and game.buggy == null, "both off again")
 
 
 ## A whole round on the designer's starter course.
@@ -1002,6 +1043,40 @@ func _test_caddie() -> void:
 	gs.save(path)
 	_check(GraphicsSettings.load_saved(path).caddie, "caddie setting is saved")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _test_buggy_drive() -> void:
+	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
+	var d := BuggyDrive.new()
+	d.place(Vector3.ZERO, 0.0, fairway)
+	for i in 300:
+		d.step(1.0 / 30.0, 1.0, 0.0, fairway)
+	_check_near(d.speed, BuggyDrive.TOP_GRASS, 0.05, "top speed on grass")
+	_check(d.position.z > 40.0 and absf(d.position.x) < 1e-3, "drives straight down +z (%s)" % d.position)
+	for i in 30:
+		d.step(1.0 / 30.0, 1.0, 1.0, fairway)
+	_check(d.heading_deg > 10.0, "steering left turns towards +x (%.1f deg)" % d.heading_deg)
+	for i in 120:
+		d.step(1.0 / 30.0, -1.0, 0.0, fairway)
+	_check(d.speed < 0.0 and d.speed >= -BuggyDrive.TOP_REVERSE, "brakes, then backs up slowly")
+	for i in 120:
+		d.step(1.0 / 30.0, 0.0, 0.0, fairway)
+	_check(d.speed == 0.0, "coasts to a stop")
+	var green := FlatTerrain.new(Surface.Type.GREEN)
+	d.place(Vector3.ZERO, 0.0, green)
+	d.step(0.1, 1.0, 0.0, green)
+	_check(d.blocked and d.position == Vector3.ZERO, "stays off the green")
+	_check(BuggyDrive.keeps_off(Surface.Type.SAND) and BuggyDrive.keeps_off(Surface.Type.WATER), "and bunkers and water")
+	var spot := BuggyDrive.parking_spot(fairway, Vector3.ZERO, Vector3(0.0, 0.0, 100.0))
+	_check(spot.z < 0.0 and spot.length() > 5.0, "parks back from the ball, off the line (%s)" % spot)
+	var b := GolfBuggy.new()
+	_check(b.get_child_count() == 6, "body, four wheels and a bag")
+	b.park(Vector3(5.0, 0.0, 5.0), 90.0, fairway)
+	b.step(0.5, 1.0, 0.0, fairway)
+	_check(b.position.x > 5.0, "the model moves with the drive (%s)" % b.position)
+	var view: Array = b.chase(0.1, fairway)
+	_check((view[0] as Vector3).x < b.position.x, "the chase camera sits behind")
+	b.free()
 
 
 func _test_placeholder_course() -> void:

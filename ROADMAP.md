@@ -107,7 +107,7 @@ feel) still need a working install.
 
 - [ ] Optional extras, off by default so Classic Links plays as the original ([caddie-and-buggy.md](docs/caddie-and-buggy.md))
   - [x] Caddie (Settings > Caddie): yardage, plays-like, club, line and green reads planned through the real physics, saying less at the harder swing skill levels
-  - [ ] Drivable golf buggy between shots, with a skip
+  - [x] Drivable golf buggy between shots (Settings > Golf buggy), with a skip
   - [ ] Caddie animations (walking, handing over the club)
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
