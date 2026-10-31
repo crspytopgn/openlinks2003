@@ -71,8 +71,9 @@ product lead builds it.
 14. [ ] **Conditions**: firm or soft greens and fairways and the day's wind
    strength chosen in round setup, so the same course plays differently.
    Needs the original's conditions options read first. Owner: physics.
-15. [ ] **Captions**: on-screen text for the commentary and caddie lines
-   (part of accessibility). Owner: broadcast presentation.
+15. [x] **Captions**: on-screen text for the commentary and caddie lines
+   (part of accessibility). Done: Settings > Captions for the golfer's voice
+   and the crowd; commentary and caddie lines were already text.
 
 ## Phase 1: formats (see `docs/formats/`)
 

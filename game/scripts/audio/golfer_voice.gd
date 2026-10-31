@@ -14,6 +14,9 @@ extends Node
 const DEFAULT_BANK := "MALE1_1.SSF"
 const VOLUME_DB := -2.0
 
+## A line was spoken: the event's name ("Great Shot"), for captions.
+signal spoke(event_name: String)
+
 var _path := ""
 var _bank: SsfBank
 var _task := -1
@@ -199,4 +202,5 @@ func say(event_name: String) -> bool:
 		return false
 	_player.stream = stream
 	_player.play()
+	spoke.emit(event_name)
 	return true

@@ -1526,12 +1526,17 @@ func _test_graphics_settings() -> void:
 	s.gimme = 2
 	s.mulligans = 1
 	s.pickup = 2
+	s.captions = true
 	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
 	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
 	_check(loaded.pickup == 2 and GraphicsSettings.new().pickup == 0, "pick up saved, off by default")
+	_check(loaded.captions and not GraphicsSettings.new().captions, "captions saved, off by default")
+	_check(SoundCaptions.voice("Great Shot!") == "[Golfer: Great Shot]" and SoundCaptions.voice("Birdie", "Ann") == "[Ann: Birdie]"
+			and SoundCaptions.voice("") == "", "voice captions")
+	_check(SoundCaptions.crowd(&"crowd_roar") == "[The crowd roars]" and SoundCaptions.crowd(&"club") == "", "crowd captions")
 	_check(GolfRound.pickup_limit(0, 4) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(1, 3) == 6
 			and GolfRound.pickup_limit(1, 5) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(2, 4) == 7,
 			"pick-up scores: off, double par, triple bogey, never past the limit")

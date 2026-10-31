@@ -288,6 +288,7 @@ func _ready() -> void:
 	voice = GolferVoice.from_game_folder((assets as LinksGolferAssets).archive_path() if assets is LinksGolferAssets else "")
 	if voice != null:
 		add_child(voice)
+		voice.spoke.connect(_caption_voice)
 	var menu_sounds := MenuSounds.from_game_folder(false)
 	if menu_sounds != null:
 		add_child(menu_sounds)
@@ -1142,6 +1143,24 @@ func aim_at(spot: Vector3) -> void:
 	_update_green_aids()
 
 
+## Settings > Captions: the golfer's spoken line.
+func _caption_voice(event_name: String) -> void:
+	if graphics.captions:
+		hud.show_sound_caption(SoundCaptions.voice(event_name, "Golfer" if players.size() == 1 else scoring.names[shooter]))
+
+
+## Settings > Captions: the crowd after a broadcast shot.
+func _caption_crowd(crowd: int) -> void:
+	if not graphics.captions:
+		return
+	var sound: StringName = {Commentary.Crowd.POLITE: &"applause", Commentary.Crowd.CHEER: &"crowd_cheer",
+		Commentary.Crowd.ROAR: &"crowd_roar", Commentary.Crowd.GROAN: &"crowd_groan",
+		Commentary.Crowd.OOH: &"crowd_ooh"}.get(crowd, &"")
+	var text := SoundCaptions.crowd(sound)
+	if not text.is_empty():
+		hud.show_sound_caption(text)
+
+
 ## Whether the player may start a swing now.
 func _can_start_swing() -> bool:
 	return state == State.AIM and not _replaying and not camera.flying() and not hud.mouse_swing.is_swinging()
@@ -1985,6 +2004,7 @@ func _hole_out(picked_up: bool) -> void:
 	var title := "Picked up" if picked_up else Scorecard.score_name(strokes, hole.par)
 	if not picked_up and strokes < hole.par:
 		sounds.play(&"applause")
+		_caption_crowd(Commentary.Crowd.POLITE)
 		if golfer:
 			golfer.play(&"celebrate")
 	if _next_player() < 0:
@@ -3152,6 +3172,7 @@ func _report_shot() -> void:
 		to_pin = 0.0
 	hud.overlay.show_pip(false)
 	var line: Array = Commentary.pick(shot, surface, putting, to_pin, _shot_from_pin, _commentary_rng)
+	_caption_crowd(line[1])
 	match line[1]:
 		Commentary.Crowd.POLITE:
 			sounds.play(&"applause")

@@ -134,6 +134,13 @@ Settings > Colours swaps the swing meter's green and red (good and bad
 marks, the fill past the snap point) for blue and white, which stay apart
 for red-green colour blindness (`SwingMeter.colour_safe`).
 
+### Captions
+
+Settings > Captions shows what the golfer says (their voice bank's event
+name in brackets, such as "[Golfer: Great Shot]", not the words spoken) and
+the crowd's reactions ("[The crowd roars]") above the hints
+(`SoundCaptions`). The Broadcast commentary is already on-screen text.
+
 ### Hole positions
 
 Links 2003 courses keep 18 hole positions for each hole, in three groups of
