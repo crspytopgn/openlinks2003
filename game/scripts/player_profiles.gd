@@ -25,6 +25,9 @@ static func empty_stats() -> Dictionary:
 	var out := {}
 	for key: String in STATS:
 		out[key] = 0
+	# The round's longest drive (a driver from the tee that stays in play),
+	# for the personal records; not summed like STATS.
+	out["longest_drive_yd"] = 0
 	return out
 
 
@@ -124,7 +127,75 @@ func record_round(player_name: String, card: Scorecard, ranks: Array[int], cours
 	_cfg.set_value(s, "name", player_name.strip_edges())
 	_cfg.set_value(s, "rounds", played.slice(maxi(0, played.size() - KEEP_ROUNDS)))
 	_cfg.set_value(s, "career", c)
+	_cfg.set_value(s, "records", _with_round(records(player_name), card, course_name, date, stats))
 	return true
+
+
+## Personal records: {birdies, eagles, aces (holes in one), longest_drive_yd,
+## best: {"<course>|<holes>": {gross, to_par, date}}}.
+func records(player_name: String) -> Dictionary:
+	var out := {"birdies": 0, "eagles": 0, "aces": 0, "longest_drive_yd": 0, "best": {}}
+	var saved: Dictionary = _cfg.get_value(_section(player_name), "records", {})
+	for key: String in ["birdies", "eagles", "aces", "longest_drive_yd"]:
+		out[key] = int(saved.get(key, 0))
+	var best: Variant = saved.get("best", {})
+	if best is Dictionary:
+		out["best"] = (best as Dictionary).duplicate(true)
+	return out
+
+
+static func _with_round(r: Dictionary, card: Scorecard, course_name: String, date: String, stats: Dictionary) -> Dictionary:
+	for h in card.pars.size():
+		var n := card.strokes[h]
+		if n <= 0:
+			continue
+		var under := card.pars[h] - n
+		if n == 1:
+			r.aces += 1
+		if under == 1:
+			r.birdies += 1
+		elif under >= 2:
+			r.eagles += 1
+	r.longest_drive_yd = maxi(int(r.longest_drive_yd), int(stats.get("longest_drive_yd", 0)))
+	var key := "%s|%d" % [course_name, card.pars.size()]
+	var gross := card.total_strokes()
+	var best: Dictionary = r.best
+	if not best.has(key) or gross < int((best[key] as Dictionary).get("gross", 9999)):
+		best[key] = {"gross": gross, "to_par": card.to_par(), "date": date}
+	return r
+
+
+## "Best 74 (+2) at Kauri Cliffs   Longest drive 281 yd   12 birdies, 1
+## eagle", or "" with nothing yet. The best is the lowest score to par of the
+## full-length (18-hole, else 9-hole) rounds.
+static func records_text(r: Dictionary) -> String:
+	var parts: Array[String] = []
+	var best_key := ""
+	var best_par := 9999
+	var best_holes := 0
+	for key: String in (r.best as Dictionary):
+		var e: Dictionary = r.best[key]
+		var holes := int(key.get_slice("|", key.get_slice_count("|") - 1))
+		var tp := int(e.get("to_par", 0))
+		if holes > best_holes or (holes == best_holes and tp < best_par):
+			best_key = key
+			best_par = tp
+			best_holes = holes
+	if not best_key.is_empty():
+		var e: Dictionary = r.best[best_key]
+		var course := best_key.substr(0, best_key.rfind("|"))
+		parts.append("Best %d (%s) at %s" % [int(e.gross), Scorecard.format_to_par(int(e.to_par)), course])
+	if int(r.longest_drive_yd) > 0:
+		parts.append("Longest drive %d yd" % int(r.longest_drive_yd))
+	var counts: Array[String] = []
+	for pair: Array in [["birdie", r.birdies], ["eagle", r.eagles], ["hole in one", r.aces]]:
+		var n := int(pair[1])
+		if n > 0:
+			var word: String = pair[0]
+			counts.append("%d %s" % [n, word if n == 1 else ("holes in one" if word == "hole in one" else word + "s")])
+	if not counts.is_empty():
+		parts.append(", ".join(counts))
+	return "   ".join(parts)
 
 
 ## Career totals: {rounds, holes, strokes, par, stat_holes (holes with

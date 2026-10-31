@@ -265,6 +265,11 @@ their recent rounds with each round's stats, and stars the rounds the index
 counts. Delete asks once more, then removes
 the profile.
 
+Each profile also keeps personal records (`PlayerProfiles.records`): the
+best score per course and round length, the longest drive (a driver from
+the tee that stays in play), and counts of birdies, eagles and holes in
+one. The players page shows them under the career line.
+
 ### Saved rounds
 
 The round in progress is saved before every shot and at the end of each hole

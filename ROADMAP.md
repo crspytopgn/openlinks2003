@@ -50,8 +50,8 @@ product lead builds it.
    Owner: bug-hunt.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
    marker, UI scale, captions for voice and commentary. Owner: lead.
-10. [ ] **Personal records**: longest drive, best rounds per course, birdie
-   and eagle counts on the players page. Owner: lead.
+10. [x] **Personal records**: longest drive, best rounds per course, birdie,
+   eagle and hole-in-one counts on the players page. Owner: lead.
 
 ## Phase 1: formats (see `docs/formats/`)
 

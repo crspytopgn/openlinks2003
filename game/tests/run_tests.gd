@@ -672,6 +672,20 @@ func _test_player_profiles() -> void:
 	var text := PlayerProfiles.career_text(c)
 	_check(text == "Average 90.0 per 18   Fairways 57%   Greens 33%   Putts 32.0 per 18", "career text: %s" % text)
 	_check(PlayerProfiles.career_text(p.career("Nobody")).is_empty(), "no career yet")
+	# Personal records: a birdie and an eagle on a better round, and a drive.
+	var good := Scorecard.new(pars)
+	for h in 9:
+		good.record(h, pars[h])
+	good.record(0, 3)
+	good.record(3, 3)
+	var drive := {"holes": 9, "fairways": 4, "fairway_holes": 7, "gir": 3, "putts": 16, "longest_drive_yd": 281}
+	_check(p.record_round("Bea", good, ranks, "Test", "2026-11-01", drive), "a good round")
+	var rec := p.records("Bea")
+	_check(rec.birdies == 1 and rec.eagles == 1 and rec.aces == 0 and rec.longest_drive_yd == 281, "records: %s" % rec)
+	var rtext := PlayerProfiles.records_text(rec)
+	_check(rtext == "Best 33 (-3) at Test   Longest drive 281 yd   1 birdie, 1 eagle", "records text: %s" % rtext)
+	_check(PlayerProfiles.records_text(p.records("Nobody")).is_empty(), "no records yet")
+	p.remove("Bea")
 	# A profile saved before career stats starts from its rounds.
 	p._cfg.set_value(PlayerProfiles._section("Old"), "rounds", [{"holes": 18, "gross": 90, "par": 72, "differential": 180}])
 	_check(p.career("Old").rounds == 1 and p.career("Old").strokes == 90, "career from old rounds")

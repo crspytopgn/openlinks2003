@@ -1169,6 +1169,16 @@ func _shape_key(keycode: Key) -> void:
 		_update_hud()
 
 
+## A driver from the tee that stays in play counts for the longest drive.
+func _note_drive(strokes_before: int) -> void:
+	if strokes_before != 0 or clubs[club_index].short_name != "Dr" or shot.outcome != ShotResult.Outcome.REST:
+		return
+	if shooter >= round_stats.size():
+		return
+	var yd := roundi(shot.total_m * YARDS_PER_METRE)
+	round_stats[shooter]["longest_drive_yd"] = maxi(int(round_stats[shooter].get("longest_drive_yd", 0)), yd)
+
+
 # --- Gimmes -------------------------------------------------------------------
 
 ## Settings > Gimmes: the ball stopped on the green close enough to concede.
@@ -1406,6 +1416,7 @@ func _complete_flight() -> void:
 	var strokes_before := strokes
 	strokes += 1
 	_count_stats(strokes_before)
+	_note_drive(strokes_before)
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
