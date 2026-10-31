@@ -19,6 +19,7 @@ add_library(olcore STATIC
   src/lzw.cpp
   src/model.cpp
   src/obstacles.cpp
+  src/opponent.cpp
   src/panorama.cpp
   src/object_library.cpp
   src/scoring.cpp
