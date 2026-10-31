@@ -10,8 +10,12 @@ const SUBDIVISIONS := 6  ## curve points per control-point segment
 var surface: int = Surface.Type.FAIRWAY
 var points := PackedVector2Array()
 ## Drawn by the real-course importer where the map had no outline
-## (CourseGuesser), rather than mapped or drawn by hand.
+## (CourseGuesser), rather than mapped or drawn by hand. Editing it in the
+## designer clears this: it is then the designer's own.
 var guessed := false
+## With `guessed`: traced from the aerial photo (CourseDetector) rather
+## than drawn at a standard size.
+var found := false
 
 var _outline := PackedVector2Array()
 var _bounds := Rect2()
@@ -112,6 +116,8 @@ func to_dict() -> Dictionary:
 	var d := {"surface": Surface.name_of(surface), "points": flat}
 	if guessed:
 		d["guessed"] = true
+		if found:
+			d["found"] = true
 	return d
 
 
@@ -121,6 +127,7 @@ static func from_dict(d: Dictionary) -> CourseShape:
 	for i in range(0, flat.size() - 1, 2):
 		s.points.append(Vector2(float(flat[i]), float(flat[i + 1])))
 	s.guessed = bool(d.get("guessed", false))
+	s.found = s.guessed and bool(d.get("found", false))
 	return s
 
 

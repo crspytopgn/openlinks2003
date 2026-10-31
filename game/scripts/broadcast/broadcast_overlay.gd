@@ -244,7 +244,8 @@ func _draw_lower_third() -> void:
 	var a := _ease_in_out(_lower_t, LOWER_THIRD_S)
 	var w := 440.0
 	var x := lerpf(-w, 40.0, a)
-	var y := size.y - TICKER_H - 86.0
+	# Clear of the key hints that run just above the ticker.
+	var y := size.y - TICKER_H - 100.0
 	draw_rect(Rect2(x, y, w, 34), PANEL_DARK)
 	draw_rect(Rect2(x, y, 6, 52), ACCENT)
 	_text(Vector2(x + 18, y + 25), str(_lower.get("name", "")).to_upper(), 22, TEXT)
@@ -303,7 +304,7 @@ func _draw_caption() -> void:
 	var w := tw + 40.0
 	var h := caption_height(lines.size())
 	var fade := clampf(minf(_caption_t * 4.0, (_caption_len - _caption_t) * 2.0), 0.0, 1.0)
-	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 106.0 - h, w, h)
+	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 116.0 - h, w, h)
 	draw_rect(r, Color(PANEL_DARK, PANEL_DARK.a * fade))
 	if lines.size() == 1:
 		_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)

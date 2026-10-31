@@ -1871,6 +1871,111 @@ void test_links_objects() {
   CHECK_NEAR(b.velocity.y, -0.5 * 60 * std::cos(2 * turn), 1e-6);
 }
 
+// 3D objects for the tests: each quad is four corners, fanned from the
+// first; a face is met from the side its corners turn anticlockwise to.
+LinksObjects test_models(const std::vector<std::array<Vec3, 4>>& quads, bool holes = false) {
+  LinksObjects objects;
+  LinksMesh mesh;
+  for (const auto& q : quads) {
+    LinksMesh::Face f;
+    f.first = static_cast<std::uint16_t>(mesh.corners.size());
+    f.count = 4;
+    for (const Vec3& v : q) {
+      mesh.corners.push_back(static_cast<std::uint16_t>(mesh.positions.size()));
+      mesh.positions.push_back({float(v.x), float(v.y), float(v.z)});
+      mesh.uvs.push_back({0.5f, 0.5f});
+    }
+    mesh.faces.push_back(f);
+  }
+  mesh.holes.resize(1);
+  if (holes) {
+    mesh.holes[0].width = mesh.holes[0].height = 4;
+    mesh.holes[0].alpha.assign(16, 0);
+  }
+  objects.meshes.push_back(mesh);
+  LinksModel m;
+  for (const auto& v : mesh.positions) m.points.push_back({v[0], v[1], v[2]});
+  objects.add_model(m);
+  return objects;
+}
+
+// Runs a ball for up to `steps` frames; `each` sees it after every step.
+template <typename F>
+LinksBall run_with_objects(LinksBall b, const LinksObjects& objects, int steps, F each) {
+  TestGround ground(kLinksFairway);
+  LinksAero air = still_air();
+  LinksRandom rng;
+  for (int k = 0; k < steps && b.mode != LinksMode::Rest; ++k) {
+    links_step(b, ground, air, {}, rng, LinksConstants::kFrameDt, nullptr, &objects, {0, -1, 0});
+    each(b);
+  }
+  return b;
+}
+
+// Walls, decks and other 3D objects, as the game's routines treat them.
+void test_links_models() {
+  // A wall across the path at y = 20, facing the ball.
+  const std::array<Vec3, 4> wall{Vec3{-5, 20, 0}, Vec3{-5, 20, 10}, Vec3{5, 20, 10}, Vec3{5, 20, 0}};
+  LinksObjects objects = test_models({wall});
+  LinksBall hit_at;
+  bool hit = false;
+  run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), objects, 30, [&](const LinksBall& b) {
+    if (!hit && b.velocity.y < 0) {
+      hit = true;
+      hit_at = b;
+    }
+  });
+  // Off it with the velocity mirrored, keeping 70%, from where it met it.
+  CHECK(hit);
+  CHECK_NEAR(hit_at.velocity.y, -0.7 * 60, 1e-6);
+  CHECK_NEAR(hit_at.position.y, 20, 1e-9);
+  CHECK(hit_at.last_object < 0);
+  // From behind, or through a see-through texture's clear texels, it passes.
+  LinksObjects behind = test_models({{wall[3], wall[2], wall[1], wall[0]}});
+  LinksBall b = run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), behind, 30, [](const LinksBall&) {});
+  CHECK(b.position.y > 25);
+  LinksObjects clear = test_models({wall}, true);
+  b = run_with_objects(links_ball({0, 0, 3}, {0, 60, 0}, {}, LinksMode::Flight), clear, 30, [](const LinksBall&) {});
+  CHECK(b.position.y > 25);
+
+  // A deck 2 ft up from y = 10 to 30: the ball comes down on it too slowly
+  // to bounce, rolls along it, rolls off its end and lands on the ground.
+  const std::array<Vec3, 4> deck{Vec3{-5, 10, 2}, Vec3{-5, 30, 2}, Vec3{5, 30, 2}, Vec3{5, 10, 2}};
+  objects = test_models({deck});
+  bool rolled = false, off = false;
+  double deck_z = 0;
+  b = run_with_objects(links_ball({0, 15, 2.05}, {0, 30, 0}, {}, LinksMode::Flight), objects, 400, [&](const LinksBall& x) {
+    if (x.mode == LinksMode::OnObject && x.position.y > 20 && !rolled) {
+      rolled = true;
+      deck_z = x.position.z;
+    }
+    if (rolled && x.mode == LinksMode::Flight) off = true;
+  });
+  CHECK(rolled);
+  CHECK_NEAR(deck_z, 2.07, 1e-9);
+  CHECK(off);
+  CHECK(b.position.y > 30);
+  CHECK_NEAR(b.position.z, 0.07, 1e-6);
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK_NEAR(b.position.y, 36.943, 1e-3);  // game/tests/run_tests.gd checks the same
+
+  // A step up it cannot climb (a higher deck from y = 20) stops it there.
+  const std::array<Vec3, 4> low{Vec3{-5, 10, 2}, Vec3{-5, 20, 2}, Vec3{5, 20, 2}, Vec3{5, 10, 2}};
+  const std::array<Vec3, 4> high{Vec3{-5, 20, 3}, Vec3{-5, 30, 3}, Vec3{5, 30, 3}, Vec3{5, 20, 3}};
+  objects = test_models({low, high});
+  LinksBall start = links_ball({0, 15, 2.07}, {0, 10, 0}, {}, LinksMode::OnObject);
+  start.on_object = 0;
+  b = run_with_objects(start, objects, 400, [](const LinksBall&) {});
+  CHECK(b.mode == LinksMode::Rest);
+  CHECK(b.position.y > 19 && b.position.y < 20);
+  CHECK_NEAR(b.position.z, 2.07, 1e-9);
+
+  // The ground of an object.
+  LinksSurface s = links_object_surface();
+  CHECK(s.ground_class == 0);
+  CHECK_NEAR(s.roll_resistance, 0.2, 1e-12);
+}
+
 // The cup and flagstick. Every case was run through the game's own code (see
 // docs/formats/physics.md) and matches it step for step; game/tests/run_tests.gd
 // checks the GDScript port against the same numbers.
@@ -2622,6 +2727,7 @@ int main() {
       {"links_landing", test_links_landing},
       {"links_cup", test_links_cup},
       {"links_objects", test_links_objects},
+      {"links_models", test_links_models},
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},

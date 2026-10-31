@@ -422,9 +422,15 @@ func _test_course_objects() -> void:
 	check(not people.is_empty() and people.kind[0] == 1 and people.instance[0] == 3, "objects: TrnyPlant kind and instance")
 	check(not people.is_empty() and is_equal_approx(people.xyz[0], 65 * f), "objects: TrnyPlant position")
 
-	# place_point: scale, z offset, then a quarter turn about z.
-	var p := {"position": Vector3(100, 200, 5), "z_offset": 2.0, "scale": Vector3(2, 2, 2), "yaw": PI / 2, "pitch": 0.0}
-	check(CourseObjects.place_point(p, Vector3(1, 0, 0)).distance_to(Vector3(100, 202, 9)) < 1e-4, "objects: place_point")
+	# place_point: scale, z offset, then a quarter turn about +z the game's
+	# way (clockwise seen from above); about -z the other way, and the slope
+	# lifts z by pitch * x.
+	var p := {"position": Vector3(100, 200, 5), "z_offset": 2.0, "scale": Vector3(2, 2, 2), "yaw": PI / 2,
+			"pitch": 0.0, "axis": Vector3(0, 0, 1)}
+	check(CourseObjects.place_point(p, Vector3(1, 0, 0)).distance_to(Vector3(100, 198, 9)) < 1e-4, "objects: place_point")
+	p.axis = Vector3(0, 0, -1)
+	p.pitch = 0.5
+	check(CourseObjects.place_point(p, Vector3(1, 0, 0)).distance_to(Vector3(100, 202, 10)) < 1e-4, "objects: place_point slope")
 
 	# .maq: one 2x1 level, colour 1 is blue 10, green 20, red 30.
 	var maq := PackedByteArray()

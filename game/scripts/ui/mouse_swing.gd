@@ -46,8 +46,9 @@ func reset() -> void:
 
 
 ## The button went down: a swing with `club_number` (LinksMouse.PUTTER for
-## the putter) at `skill`, a chip if `chip`.
-func begin(club_number: int, skill: int, chip := false) -> void:
+## the putter) at `skill`, a chip if `chip`. `capture` hides and holds the
+## mouse pointer; a touch or thumbstick swing (AnalogSwing) leaves it alone.
+func begin(club_number: int, skill: int, chip := false, capture := true) -> void:
 	reset()
 	var shot := LinksMouse.Shot.FULL
 	if club_number >= LinksMouse.PUTTER:
@@ -61,7 +62,7 @@ func begin(club_number: int, skill: int, chip := false) -> void:
 	_started = false
 	_clock = 0.0
 	_last = LinksMouse.Phase.BACKSWING
-	if is_inside_tree() and not Engine.is_editor_hint():
+	if capture and is_inside_tree() and not Engine.is_editor_hint():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	queue_redraw()
 

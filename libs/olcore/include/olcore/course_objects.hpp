@@ -78,24 +78,41 @@ struct ModelPlacement {
   CourseVec3 position;
   CourseVec3 box_max, box_min;  // feet; a point for records that draw nothing
   float z_offset = 0;           // model units, added to z before scaling
-  float flag = 0;               // 0 for records that draw nothing, else 1 or -1
+  // The axis the model turns about by `yaw`: nearly (0, 0, 1) or (0, 0, -1)
+  // for most objects; zero for records that draw nothing.
+  std::array<float, 3> axis{0, 0, 0};
+  float flag = 0;  // axis[2]: 0 for records that draw nothing
   std::array<float, 3> scale{0, 0, 0};
-  float yaw = 0;    // radians about z
-  float pitch = 0;  // radians about the model's y axis
+  float yaw = 0;    // radians about `axis`
+  float pitch = 0;  // slope: z rises by pitch * x (fence rails following the ground)
   bool drawn() const { return flag != 0; }
 };
 
 std::vector<ModelPlacement> parse_model_placements(const std::vector<std::uint8_t>& data);
 
-// Model-space point (as stored) to course feet for one placement:
-// position + Rz(yaw) Ry(pitch) (scale * (v + (0, 0, z_offset))).
+// The game's transform for one placement, as rows (a point is a row vector):
+// course feet = (x, y, z) * rows + origin, where (x, y, z) is the model
+// point after adding z_offset to z, scaling and sloping (z += pitch * x).
+// The rows turn by yaw about the axis (made orthonormal). It reproduces the
+// stored bounding boxes to a fraction of a millimetre.
+struct ModelTransform {
+  std::array<std::array<double, 3>, 3> rows{};
+  CourseVec3 origin;
+};
+ModelTransform model_transform(const ModelPlacement& p);
+
+// Model-space point (as stored) to course feet for one placement.
 CourseVec3 place_point(const ModelPlacement& p, const std::array<float, 3>& v);
+CourseVec3 place_point(const ModelTransform& t, const ModelPlacement& p, const std::array<float, 3>& v);
 
 // `texture3dobj.t3l` entry: for each course model, the `.maq` entry holding
 // its textures and, per texture, the index of its largest level in that file.
 struct ModelTextureRefs {
   std::vector<std::string> maq;       // per texture (one file per model so far)
   std::vector<std::uint32_t> level;   // per texture
+  // Per texture: the level's flags mark it see-through (the sign bit), so a
+  // ball passes where its alpha is zero.
+  std::vector<bool> see_through;
 };
 
 std::vector<ModelTextureRefs> parse_object_textures(const std::vector<std::uint8_t>& data);

@@ -133,17 +133,31 @@ little-endian):
 | 0x20 | f32[3] | box_min | |
 | 0x2C | f32 | | Always 0.5 |
 | 0x30 | f32 | z_offset | Model units, added to the mesh's z before scaling |
-| 0x34 | f32[2] | | Zero |
-| 0x3C | f32 | flag | 1 or -1 for drawn objects; 0 for records whose box is a single point and whose other fields are zero (they look like the corner points of fence lines and draw nothing) |
+| 0x34 | f32[3] | axis | The axis the object is turned about by `yaw`; usually (0, 0, 1) or (0, 0, -1). All zero for records whose box is a single point and whose other fields are zero (they look like the corner points of fence lines and draw nothing) |
 | 0x40 | f32[3] | scale | Model units to feet, per axis (0.055 is common; fence rails use 0.128, 0.128, 0.06) |
 | 0x4C | f32 | yaw | Radians about z |
-| 0x50 | f32 | pitch | Radians about the model's y axis (fence rails following the ground) |
+| 0x50 | f32 | pitch | A slope, not an angle: z rises by `pitch` times x (fence rails following the ground) |
 | 0x54 | f32 | | Zero |
 
-A mesh point `v` lands at `position + Rz(yaw) Ry(pitch) (scale * (v + (0, 0,
-z_offset)))`. Transforming every vertex this way reproduces the stored
-bounding boxes to within about 0.7 ft, so the order of the turns may not be
-exactly the game's. What the sign of `flag` means is not known.
+The game places a mesh point `v` in this order (checked against its code):
+
+1. `z += z_offset`, then each axis is multiplied by `scale`.
+2. Shear: `z += pitch * x`.
+3. Turn by `yaw` about `axis`, with the usual axis-angle (Rodrigues)
+   matrix built from the axis as stored (not made unit length first), whose
+   three rows are then made orthonormal one after another (Gram-Schmidt).
+   With the point as a row vector, the result is `x * r0 + y * r1 + z * r2`,
+   so a positive yaw about +z turns +x towards -y.
+4. Add `position`.
+
+This reproduces the stored bounding boxes to 0.0002 ft on most courses
+(the worst seen is 0.04 ft). An axis of (0, 0, -1) simply turns the other
+way.
+
+The mesh's `MasterObj3D` kind (see above) is also read when the objects are
+loaded: kind 6 objects are dropped unless the course is played as a
+tournament, and kinds with bit 2 set are always tested against the whole
+step of the ball (see [physics.md](physics.md)).
 
 ## `texture3dobj.t3l`: which textures each mesh uses
 
@@ -156,7 +170,9 @@ exactly the game's. What the sign of `flag` means is not known.
 
 Texture list, per texture: `u32 n` (4), `u32 0`, then `n` level indices,
 largest first. Level record (64 bytes): `char name[32]`, `u32 width`,
-`u32 height`, `u32` flags, then run-time fields. Only the first level record
+`u32 height`, `u32` flags, then run-time fields. When the flags' top bit is
+set the texture has see-through parts, and the ball's collision test reads
+its alpha (see [physics.md](physics.md)). Only the first level record
 of a mesh has a real name: the `.maq` entry that holds all of that mesh's
 textures (`Gleneagles 3D001.maq`, `Tourney 3D012.maq`). The name fields of
 the other records hold leftover memory. A level index is the level's number
@@ -227,8 +243,10 @@ feet tall.
   get a solid trunk (radius 2% of the height, 0.1 to 0.45 m) up to 40% of
   the height and a canopy (radius 40% of the width) above 35%; conifers'
   canopies start at 20%. Bushes get a canopy, rocks a solid; grasses let
-  the ball through. 3D objects block with the bounding box of their mesh.
-  These proportions are guesses from the sprites, not from the game.
+  the ball through. These proportions are guesses from the sprites, not from
+  the game; the game's own billboard and 3D object tests (see
+  [physics.md](physics.md)) replace them when the course's objects are read
+  from the `.CRZ`.
 - `olcore::parse_crowd_placements` reads `TrnyPlant`. With `--crowds`,
   `olcourse export` writes `crowds.bin` (the `objects.bin` format) and a
   `crowds` list in `course.json`; the viewer draws them as billboards and T
@@ -240,8 +258,7 @@ feet tall.
   variation such as a turn, a mirror or a shade).
 - The rest of `MasterObj`: per-level polygon data (the same structure as the
   `MasterObj` entry of a library `.BTX`) and the remaining header tables.
-- The exact transform order for 3D placements, and the meaning of `flag`
-  and of the point-only `3DPlant` records.
+- The meaning of the point-only `3DPlant` records.
 - Which sprites each `TrnyPlant` kind uses, and how the game chooses a
   person and a view.
 - `ObjectCull.dat`.

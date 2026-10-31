@@ -186,6 +186,38 @@ at Medium and grass at Low.
   low strength, so a low sun picks out the grain, and mown surfaces get a
   faint sheen. Course water uses the animated water shader instead of a flat
   colour, with finer, wind-driven ripples.
+- **Gusts** (`WindGust`): the wind the eye sees surges and settles every
+  few seconds (55% to 145% of the hole's wind, swinging up to 8 degrees),
+  through the `wind_vector` shader global, so the flag, grass, trees and
+  water ripples move together. Visual only: the ball flies in the game's
+  own per-shot wind.
+- **Flag** (`shaders/flag.gdshader`): a 20 by 14 inch flag on a 7 ft
+  stick, as the Rules ask. It swings round the pole to fly downwind, lifts
+  from hanging limp to straight out at about 20 mph, ripples faster as the
+  wind gets up, and glows when the sun is behind it. Players can read the
+  wind from it, as real golfers do.
+- **Course marks** (`CourseMarks`, `shaders/course_mark.gdshader`): iron and
+  wedge shots off the fairway or rough take a divot just ahead of the ball
+  (longer for wedges, a nick off a tee, small for chips; woods and hybrids
+  sweep it), approach shots landing hard on the green leave a pitch mark,
+  and balls landing in sand leave a crater (a bunker shot leaves a long
+  scoop). They last for the hole, at most 48 of them. Each is one small
+  lit quad, so they cost almost nothing. Looks only. Golfers in a bunker
+  leave shoe prints: the stance, and the walk in from behind the ball up to
+  the edge of the sand.
+- **True to scale at the pin**: the hole is its real 4.25 in (108 mm)
+  across, painted (`shaders/cup.gdshader`) with the cut turf edge and the
+  white liner on the far wall, which always faces the camera as in a real
+  cup. The flagstick is 7 ft tall and 19 mm thick.
+- **Tee peg**: a teed-up ball sits on a white peg, higher for the driver
+  (2.5 cm of air under it) than for woods (1.2 cm) and irons (5 mm). The
+  peg stays in the ground after the shot.
+- **Ball contact shadow** (`shaders/ball_shadow.gdshader`): a soft dark
+  blob under the ball, since a golf ball is too small for the sun's shadow
+  maps. It follows the ball over the ground in flight and fades as it
+  climbs.
+- **Ball size** (Settings): drawn bigger with distance, as Links does, or
+  at its true size everywhere.
 
 ## Performance budget
 
@@ -201,6 +233,25 @@ on phones and in the browser. The placeholder course used about 580 draw
 calls, 0.7 million triangles, 1,100 objects and 125 MB from the tee in
 Compatibility when the budget was set. Raise a limit only with a reason
 written here.
+
+## Download size
+
+`tools/size_report.py` runs after the CI export. It writes each build's
+download size, its game data (the `.pck`) and the biggest files in the pack
+to the job summary, and fails CI when a build goes over
+`tools/size_budget.json`. When it was added (2026-10-31) the game data was
+33 MB, a third of it the HDR sky, and the Godot engine was the rest of each
+download (about 70 MB uncompressed on Linux). Two import changes took the
+data from 33 to 27.7 MB without changing the look (30.5 MB once the photoscanned sand, paths and height maps of #79 landed):
+
+- the sky panorama has no mipmaps (it is only ever magnified), and
+- textures without their own `.import` settings (the golfer's, extracted
+  from its `.glb`) default to lossy WebP at quality 0.85 through
+  `[importer_defaults]` in `project.godot`, instead of lossless.
+
+`.import` files are not committed, so import settings live in
+`tools/fetch_free_assets.py` (the free textures) and `project.godot` (the
+defaults).
 
 ## Still to do
 
