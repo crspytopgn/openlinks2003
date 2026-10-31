@@ -12,9 +12,9 @@ signal hole_action(action: String)  ## add, delete
 signal par_changed(par: int)
 signal name_changed(text: String)
 
-enum Tool { SELECT, SHAPE, RAISE, LOWER, SMOOTH, FLATTEN, TREES, TEE, PIN, AIM, OBJECTS }
+enum Tool { SELECT, SHAPE, RAISE, LOWER, SMOOTH, FLATTEN, TREES, TEE, PIN, AIM, OBJECTS, PATH }
 
-const TOOL_NAMES := ["Select", "Draw area", "Raise", "Lower", "Smooth", "Flatten", "Trees", "Tee", "Pin", "Aim point", "Objects"]
+const TOOL_NAMES := ["Select", "Draw area", "Raise", "Lower", "Smooth", "Flatten", "Trees", "Tee", "Pin", "Aim point", "Objects", "Path"]
 const TOOL_HELP := [
 	"Click an area to select it, then drag it or its points. Double-click its edge to add a point, right-click a point to remove it, Delete removes the area. Drag the current hole's tees, pin and aim points.",
 	"Click to place the outline's points. Click the first point, press Enter or right-click to finish; Esc cancels.",
@@ -27,6 +27,7 @@ const TOOL_HELP := [
 	"Click to put the current hole's pin. Put it on a green.",
 	"Click to add an aim point along the hole (where the computer aims and the hole is measured). Right-click one to remove it.",
 	"Click to place the chosen object; Shift+click removes the nearest one. With your game files loaded, every object in the game's library is here: trees, bushes, buildings, grandstands and more.",
+	"Click to lay a cart path's points; Enter, right-click or a double-click finishes. Tick Bridge to make it a bridge (over water or a gully). Shift+click removes the nearest path.",
 ]
 ## Surfaces offered for painting, in menu order.
 const PAINTABLE := [
@@ -49,6 +50,8 @@ var object_list: ItemList
 var object_turn: HSlider
 var object_random: CheckBox
 var object_scale: HSlider
+var path_width: HSlider
+var path_bridge: CheckBox
 var tool: int = Tool.SELECT
 
 var _tool_buttons: Array[Button] = []
@@ -121,6 +124,13 @@ func _ready() -> void:
 		tee_slot.add_item(n)
 	_option(box, "tee", "Tee", tee_slot)
 	_build_objects(box)
+	path_width = _slider(CoursePath.MIN_WIDTH, CoursePath.MAX_WIDTH, 2.5)
+	path_width.step = 0.5
+	_option(box, "path_width", "Width", path_width)
+	path_bridge = CheckBox.new()
+	path_bridge.text = "Bridge"
+	box.add_child(path_bridge)
+	_option_rows["bridge"] = path_bridge
 	help = Label.new()
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.custom_minimum_size = Vector2(260, 0)
@@ -186,6 +196,8 @@ func select_tool(t: int) -> void:
 	_option_rows["tee"].visible = t == Tool.TEE
 	for key in ["category", "objects", "turn", "random", "scale"]:
 		_option_rows[key].visible = t == Tool.OBJECTS
+	_option_rows["path_width"].visible = t == Tool.PATH
+	_option_rows["bridge"].visible = t == Tool.PATH
 	tool_changed.emit(t)
 
 

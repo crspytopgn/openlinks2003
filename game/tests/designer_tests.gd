@@ -19,6 +19,8 @@ func run_all() -> Array[String]:
 	_test_trees()
 	_test_loader()
 	_test_objects()
+	_test_paths()
+	_test_object_info()
 	_test_bad_files()
 	return failures
 
@@ -31,7 +33,7 @@ func check(cond: bool, what: String) -> void:
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/designer/course_designer.gd", "res://scripts/designer/designer_panel.gd",
 			"res://scripts/designer/designer_camera.gd", "res://scripts/designer/designer_files.gd",
-			"res://scripts/designer/designed_terrain.gd", "res://scripts/designer/designer_objects.gd", "res://scripts/course/designed_course_loader.gd"]:
+			"res://scripts/designer/designed_terrain.gd", "res://scripts/designer/designer_objects.gd", "res://scripts/designer/course_path.gd", "res://scripts/course/designed_course_loader.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
 
@@ -101,7 +103,7 @@ func _test_starter_surfaces() -> void:
 	check(t.surface_at(edge.x, edge.y - 0.6) == Surface.Type.FRINGE, "fringe round the green")
 	var visual := t.build_visual()
 	var n := t.chunk_count()
-	check(visual.get_child_count() == n.x * n.y + 2, "a mesh per chunk, the apron and the water")
+	check(visual.get_child_count() == n.x * n.y + 3, "a mesh per chunk, the apron, the paths and the water")
 	var water := visual.get_child(visual.get_child_count() - 1)
 	check(water.get_child_count() == 1, "one pond mesh")
 	visual.free()
@@ -222,3 +224,57 @@ func _test_objects() -> void:
 	field.finalize()
 	check(field.size() == 3, "a trunk and canopy for a tree, a post for an object the library doesn't know")
 	check(not field.segment_hit(Vector3(15, 1, 0), Vector3(25, 1, 0)).is_empty(), "the unknown object still stops the ball")
+
+
+func _test_paths() -> void:
+	var c := DesignedCourse.blank(Vector2(200, 200))
+	var cart := CoursePath.new(PackedVector2Array([Vector2(-50, -20), Vector2(0, 0), Vector2(50, 20)]), 3.0)
+	var span := CoursePath.new(PackedVector2Array([Vector2(-20, 60), Vector2(20, 60)]), 3.0, true)
+	c.paths.append(cart)
+	c.paths.append(span)
+	var t := DesignedTerrain.new(c)
+	check(t.surface_at(0, 0) == Surface.Type.FAIRWAY, "a cart path plays as fairway")
+	check(t.surface_at(0, 5) == Surface.Type.ROUGH, "rough beside the path")
+	check(t.free_drop_at(0, 0) and not t.free_drop_at(0, 5), "a free drop from the cart path")
+	var y := t.height_at(0, 60)
+	check(not t.obstacle_hit(Vector3(0, y + 3.0, 60), Vector3(0, y + 0.1, 60)).is_empty(), "a ball lands on the bridge deck")
+	check(t.obstacle_hit(Vector3(0, y + 3.0, 70), Vector3(0, y + 0.1, 70)).is_empty(), "and nowhere else")
+	var back := DesignedCourse.from_json(c.to_json())
+	check(back != null and back.paths.size() == 2, "paths are saved")
+	if back != null and back.paths.size() == 2:
+		check(back.paths[0].points == cart.points and is_equal_approx(back.paths[0].width, 3.0) and not back.paths[0].bridge, "a path's points and width")
+		check(back.paths[1].bridge, "a bridge stays a bridge")
+	check(CoursePath.new(PackedVector2Array([Vector2(1, 1)])).is_valid() == false, "a path needs two points")
+	var visual := t.build_paths()
+	check(visual.get_child_count() == 2, "a mesh per path")
+	visual.free()
+
+
+func _test_object_info() -> void:
+	# A course made with the player's game files, opened without them: the
+	# saved sizes keep its obstacles, and its trees get built-in stand-ins.
+	var c := DesignedCourse.blank(Vector2(200, 200))
+	c.objects.append(PlacedObject.new("Oak big.btx", Vector3(0, 0, 0), 0.0, 1.0))
+	c.objects.append(PlacedObject.new("Barn.mdl", Vector3(40, 0, 0), 90.0, 1.0))
+	c.object_info = {
+		"Oak big.btx": {"kind": "tree", "size": [12.0, 20.0, 12.0], "centre": [0.0, 10.0, 0.0]},
+		"Barn.mdl": {"kind": "model", "size": [10.0, 6.0, 20.0], "centre": [0.0, 3.0, 0.0]},
+		"Unused.btx": {"kind": "solid", "size": [1.0, 1.0, 1.0], "centre": [0.0, 0.5, 0.0]},
+	}
+	var d := c.to_dict()
+	check(not (d.object_info as Dictionary).has("Unused.btx"), "unused object sizes aren't saved")
+	var back := DesignedCourse.from_dict(d)
+	check(back != null and back.object_info.has("Barn.mdl") and back.object_info.has("Oak big.btx"), "object sizes are saved")
+	if back == null:
+		return
+	var tree := DesignerObjects.stand_in(back.objects[0], back.object_info)
+	check(tree != null and tree.id == "tree_broadleaf" and is_equal_approx(tree.scale, 2.0), "a missing tree gets a built-in one of its height")
+	check(DesignerObjects.stand_in(back.objects[1], back.object_info) == null, "a missing building isn't drawn")
+	var t := DesignedTerrain.new(back)
+	var y := t.height_at(40, 0)
+	# The barn is turned 90 degrees, so its 20 m length runs along x.
+	check(not t.obstacle_hit(Vector3(40 + 8, y + 3, -10), Vector3(40 + 8, y + 3, 10)).is_empty(), "the barn is as long as it was measured")
+	check(t.obstacle_hit(Vector3(40 + 12, y + 3, -10), Vector3(40 + 12, y + 3, 10)).is_empty(), "and no longer")
+	check(t.obstacle_hit(Vector3(40, y + 7, -10), Vector3(40, y + 7, 10)).is_empty(), "and no taller")
+	var ty := t.height_at(0, 0)
+	check(not t.obstacle_hit(Vector3(-10, ty + 12, 0), Vector3(10, ty + 12, 0)).is_empty(), "the tree's canopy is where it was measured")
