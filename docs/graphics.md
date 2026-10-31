@@ -31,6 +31,12 @@ at Medium and grass at Low.
   Mali, Immortalis and Xclipse phone GPUs, and desktop browsers on a real
   GPU. There it runs at High quality, with grass level 2 and 3D trees.
   Other phones get Performance, and software renderers never get the higher tier.
+- The terrain shader used by the default and designed courses reads the
+  grass and rough scans' height maps. Within about 35 m the texture shifts
+  with the view (one parallax step), and within about 110 m low parts
+  darken around each map's mean (sand has no height map, to stay within
+  WebGL 2's sixteen textures). The default course draws its surfaces from
+  a 1 m splat map with a first cut of rough, so edges are crisp.
 - Saved preset settings carry a `look_version`. When the presets change,
   they are redone once, and a capable device that an older version put on
   Performance moves up.

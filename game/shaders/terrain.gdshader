@@ -27,6 +27,16 @@ uniform sampler2D sand_normal : filter_linear_mipmap, repeat_enable;
 uniform vec3 grass_mean = vec3(0.5);
 uniform vec3 rough_mean = vec3(0.5);
 uniform vec3 sand_mean = vec3(0.5);
+// Height maps of the grass and rough scans (sand has none, to stay inside
+// WebGL 2's sixteen textures): near the camera the ground shifts with the
+// view (parallax) and its low parts darken, so turf has depth.
+uniform sampler2D grass_height : filter_linear_mipmap, repeat_enable;
+uniform sampler2D rough_height : filter_linear_mipmap, repeat_enable;
+uniform bool has_height = false;
+uniform float grass_height_mean = 0.5;
+uniform float rough_height_mean = 0.5;
+uniform float relief_metres = 0.03;
+uniform float cavity = 1.1;
 uniform float texture_metres = 2.5; // one tile of the near texture
 uniform float texture_strength = 0.85;
 // How much of the photo's own colour shows through (at the vertex colour's
@@ -49,9 +59,10 @@ uniform bool has_splat = false;
 uniform sampler2D splat_tex : filter_nearest, repeat_disable;
 uniform vec2 splat_origin = vec2(0.0); // world x, z of the raster's corner
 uniform vec2 splat_size = vec2(1.0); // metres it covers
-uniform vec3 surface_colors[9]; // sRGB, by Surface.Type
-uniform vec2 surface_weights[9]; // rough and sand weight, by Surface.Type
-uniform float surface_mown[9]; // 1 where the surface gets mowing stripes
+// By Surface.Type, plus 9 for the first cut of rough beside the fairway.
+uniform vec3 surface_colors[10]; // sRGB
+uniform vec2 surface_weights[10]; // rough and sand weight
+uniform float surface_mown[10]; // 1 where the surface gets mowing stripes
 uniform float splat_stripe_metres = 6.0;
 
 varying vec3 world_pos;
@@ -110,7 +121,7 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown) {
 	for (int k = 0; k < 4; k++) {
 		ivec2 o = ivec2(k & 1, k >> 1);
 		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
-		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 8);
+		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 9);
 		float a = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
 		col += surface_colors[s] * a;
 		w += surface_weights[s] * a;
@@ -169,6 +180,18 @@ void fragment() {
 		float w_sand = sand;
 		float w_rough = clamp(w_rough_in, 0.0, 1.0) * (1.0 - w_sand);
 		float w_grass = 1.0 - w_sand - w_rough;
+		float dist = length(VERTEX);
+		float shade_relief = 1.0;
+		if (has_height && dist < 110.0) {
+			vec3 view = normalize(CAMERA_POSITION_WORLD - world_pos);
+			float turf = w_grass + w_rough;
+			float h = w_grass * (texture(grass_height, uv).r - grass_height_mean) + w_rough * (texture(rough_height, uv).r - rough_height_mean);
+			float near_relief = 1.0 - smoothstep(10.0, 35.0, dist);
+			// One parallax step: blades and clumps stand up near the camera.
+			uv -= view.xz / max(view.y, 0.3) * (relief_metres / texture_metres) * h * near_relief;
+			h = w_grass * (texture(grass_height, uv).r - grass_height_mean) + w_rough * (texture(rough_height, uv).r - rough_height_mean);
+			shade_relief = mix(1.0, clamp(1.0 + h * 2.0 * cavity, 0.3, 1.4), turf * (1.0 - smoothstep(25.0, 110.0, dist)));
+		}
 		vec3 g = two_scale(grass_albedo, uv).rgb;
 		vec3 r = two_scale(rough_albedo, uv).rgb;
 		vec3 s = two_scale(sand_albedo, uv).rgb;
@@ -181,6 +204,7 @@ void fragment() {
 		// Far away the texture only adds noise and shows its repeat.
 		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX)));
 		col = mix(col * mix(vec3(1.0), detail, strength), photo_toned, photo_mix * strength);
+		col *= shade_relief;
 		vec3 n = w_grass * two_scale(grass_normal, uv).rgb + w_rough * two_scale(rough_normal, uv).rgb
 			+ w_sand * two_scale(sand_normal, uv).rgb;
 		n = n * 2.0 - 1.0;
