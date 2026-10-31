@@ -2,6 +2,7 @@
 // come from the game executable, so these use made-up tables; the expected
 // ciphertexts were produced by an independent implementation that matches
 // the game's own output on the real tables.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include "olcore/binary_reader.hpp"
 #include "olcore/bunky.hpp"
 #include "olcore/course.hpp"
+#include "olcore/course_areas.hpp"
 #include "olcore/course_objects.hpp"
 #include "olcore/crz.hpp"
 #include "olcore/shadow_file.hpp"
@@ -275,6 +277,99 @@ void test_ground_classes() {
   bool threw = false;
   try {
     parse_ground_classes(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+// A version 4 TerrainTypes entry with one rough record that plays as deep
+// grass, flagged as a hazard.
+void test_crz_terrain_types() {
+  Bytes b;
+  put_u32(b, 4);
+  put_u32(b, 1);
+  b.resize(8 + 243, 0xcd);
+  Bytes rec;
+  put_u32(rec, 7);
+  for (int i = 0; i < 20; ++i) put_f32(rec, 0.25f * i);
+  put_u32(rec, 3);           // rough
+  put_u32(rec, 14);          // category
+  put_u32(rec, 0xcdcdcd41);  // hazard; the upper bytes are never read
+  std::copy(rec.begin(), rec.end(), b.begin() + 8);
+  const char16_t name[] = u"Mud";
+  for (int i = 0; i < 4; ++i) {
+    b[8 + 0x67 + 2 * i] = std::uint8_t(name[i] & 0xff);
+    b[8 + 0x67 + 2 * i + 1] = std::uint8_t(name[i] >> 8);
+  }
+  auto types = parse_crz_terrain_types(b);
+  CHECK(types.size() == 1);
+  const CrzTerrainType& t = types[0];
+  CHECK(t.index == 7 && t.ground_class == 3 && t.category == 14);
+  CHECK(t.hazard() && !t.free_drop());
+  CHECK(t.value(0x14) == 0.25f * 4);
+  CHECK(t.value(0x38) == 0.25f * 13);
+  CHECK(t.name == "Mud");
+  b.pop_back();
+  bool threw = false;
+  try {
+    parse_crz_terrain_types(b);
+  } catch (const std::exception&) {
+    threw = true;
+  }
+  CHECK(threw);
+}
+
+void put_node(Bytes& b, double x, double y) {
+  for (int k = 0; k < 3; ++k) {
+    put_f32(b, float(x));
+    put_f32(b, float(y));
+    put_f32(b, 100.0f);
+  }
+}
+
+// HoleIDShapes with hole 2's outline (a 100 ft square, straight sides) and
+// OBIDShapes with an area out of bounds for holes 2 and 3.
+Bytes id_shapes(bool ob) {
+  Bytes b;
+  put_u32(b, 1);
+  put_u32(b, 1);
+  for (int i = 0; i < 3; ++i) put_f32(b, 0);
+  put_u32(b, 42);
+  put_u32(b, 4);
+  b.push_back(1);
+  double lo = ob ? 40 : 0, hi = ob ? 60 : 100;
+  for (double v : {lo, lo, 0.0, hi, hi, 0.0}) put_f32(b, float(v));
+  put_u32(b, ob ? 0x6u : (2u << 27) | 0x100000u);
+  put_node(b, lo, lo);
+  put_node(b, hi, lo);
+  put_node(b, hi, hi);
+  put_node(b, lo, hi);
+  return b;
+}
+
+void test_hole_bounds() {
+  auto holes = parse_id_shapes(id_shapes(false));
+  auto ob = parse_id_shapes(id_shapes(true));
+  CHECK(holes.size() == 1 && holes[0].id == 42 && holes[0].closed && holes[0].hole() == 2);
+  CHECK(ob[0].for_hole(2) && ob[0].for_hole(3) && !ob[0].for_hole(1));
+  Outline o = shape_outline(holes[0]);
+  // Starts at the last node; each of the four segments is cut in eight.
+  CHECK(o.size() == 4 * 8 + 1);
+  CHECK(o.front()[0] == 0 && o.front()[1] == 100);
+  CHECK(o[4][0] == 0 && o[4][1] == 50);
+  CHECK(outline_contains(o, 10, 10) && !outline_contains(o, -1, 10) && !outline_contains(o, 50, 101));
+  HoleBounds hb(holes, ob);
+  CHECK(hb.in_bounds(2, 10, 10));
+  CHECK(!hb.in_bounds(2, 150, 10));
+  CHECK(!hb.in_bounds(2, 50, 50));  // in the out-of-bounds area
+  CHECK(hb.in_bounds(1, 150, 10));  // hole 1 has no outline and no area
+  CHECK(!hb.in_bounds(3, 50, 50));
+  Bytes bad = id_shapes(false);
+  bad[0] = 2;
+  bool threw = false;
+  try {
+    parse_id_shapes(bad);
   } catch (const std::exception&) {
     threw = true;
   }
@@ -781,6 +876,8 @@ int main() {
       {"reads_locked_archive", test_reads_locked_archive},
       {"plain_header_with_locked_directory", test_reads_plain_header_with_locked_directory},
       {"ground_classes", test_ground_classes},
+      {"crz_terrain_types", test_crz_terrain_types},
+      {"hole_bounds", test_hole_bounds},
       {"course_text", test_course_text},
       {"terrain", test_terrain},
       {"terrain_wide_indices", test_terrain_wide_indices},

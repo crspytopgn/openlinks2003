@@ -429,8 +429,10 @@ Nothing in the round needs to change.
   `LINKSM_1.EXE` through `GameFolder`, keeps it in `user://crz_keys.cfg`,
   and caches decoded terrain in `user://course_cache/`. Its `CrzTerrain`
   takes heights from the course mesh and surfaces from the ground classes in
-  `TerrainTypes`; anywhere off the mesh is out of bounds. Hazard and OB
-  outlines (`Shapes`) and objects are not wired in yet.
+  `TerrainTypes`, with each record's own bounce and roll values and its
+  hazard and free-drop flags (`CourseAreas`). A ball that stops outside the
+  hole's outline (`HoleIDShapes`) or in an out-of-bounds area (`OBIDShapes`)
+  is out of bounds, and anywhere off the mesh is out of bounds at once.
 - **Objects:** subclass `ObjectLibrary` (`instantiate(id) -> Node3D`) and
   set `AssetProviders.object_library`. `PlacedObject.id` is whatever key the
   library understands. `DecodedObjectLibrary.open(game_folder)` (in
@@ -514,7 +516,7 @@ When the game folder has the executable, `LinksShotModel` replaces
 flight (`LinksAero`, `olcore/links_flight.hpp`) and bounce and roll
 (`LinksGround`, `olcore/links_ground.hpp`); see
 [formats/physics.md](formats/physics.md). The launch stays as above, and
-trees, the cup, water and out of bounds use our own handling.
+trees and the cup use our own handling.
 
 Apart from that model, none of these constants come from Links 2003. Tuning them against the
 original game is the "(needs data)" item in the roadmap. `run_tests.gd` checks

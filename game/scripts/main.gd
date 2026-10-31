@@ -375,6 +375,8 @@ func start_hole(index: int) -> void:
 	_drop_reason = -1
 	drop_marker.visible = false
 	hole = holes[index]
+	# Courses that limit each hole to its own ground judge out of bounds by it.
+	hole.terrain.hole_number = hole.number
 	if hole_root:
 		hole_root.queue_free()
 	hole_root = Node3D.new()

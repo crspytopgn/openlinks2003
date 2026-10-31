@@ -42,6 +42,8 @@ func _initialize() -> void:
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
 	_run("drop_rules_match_olcore", _test_drop_rules_match_olcore)
+	_run("drop_rules_hazards_and_bounds", _test_drop_rules_hazards_and_bounds)
+	_run("rest_out_of_bounds", _test_rest_out_of_bounds)
 	_run("opponent_skill_matches_olcore", _test_opponent_skill_matches_olcore)
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("handicap_scoring", _test_handicap_scoring)
@@ -677,6 +679,47 @@ class RulesTerrain extends CourseTerrain:
 
 	func free_drop_at(x: float, _z: float) -> bool:
 		return x > -12 and x < -10
+
+
+## RulesTerrain with a course hazard round (-5, 70) and the hole's bounds at
+## x = 20, as in test_drop_rules_hazards_and_bounds (libs/olcore).
+class BoundedRulesTerrain extends RulesTerrain:
+	func hazard_at(x: float, z: float) -> bool:
+		return Vector2(x + 5, z - 70).length() < 3
+
+	func in_bounds(x: float, _z: float) -> bool:
+		return x < 20
+
+
+func _test_drop_rules_hazards_and_bounds() -> void:
+	var t := BoundedRulesTerrain.new()
+	var pin := Vector3(0, 2, 100)
+	var side := DropRules.zone(DropRules.Option.LATERAL, Vector3(-5, 0, 75), Vector3.ZERO, pin, false, t)
+	_check(DropRules.check(side, Vector3(-5, 0, 71), pin, t) == DropRules.Check.HAZARD, "no drop in a course hazard")
+	_check(DropRules.check(side, Vector3(25, 0, 80), pin, t) == DropRules.Check.OUT_OF_BOUNDS, "no drop outside the hole")
+	var free := DropRules.zone(DropRules.Option.FREE_DROP, Vector3(-11, 0, 70), Vector3.ZERO, pin, false, t)
+	_check(free.found, "free relief beside the hazard")
+	_check_spot(free.spot, -12.0840, 69.3776, "free relief beside the hazard")
+
+
+## A hole whose ground ends at z = limit: judged where the ball stops.
+class BoundedTerrain extends FlatTerrain:
+	var limit := 0.0
+
+	func in_bounds(_x: float, z: float) -> bool:
+		return z < limit
+
+
+func _test_rest_out_of_bounds() -> void:
+	var start := Swing.launch_from_swing(_club("7i"), 1.0, 0.0, 0.0, Surface.Type.FAIRWAY)
+	var t := BoundedTerrain.new(Surface.Type.FAIRWAY)
+	t.limit = 1e9
+	var free := BallPhysics.simulate_shot(start, t)
+	_check(free.outcome == ShotResult.Outcome.REST, "rests in bounds")
+	t.limit = free.rest.z - 1.0
+	_check(BallPhysics.simulate_shot(start, t).outcome == ShotResult.Outcome.OUT_OF_BOUNDS, "rests out of bounds")
+	t.limit = free.rest.z + 1.0
+	_check(BallPhysics.simulate_shot(start, t).outcome == ShotResult.Outcome.REST, "rests just in bounds")
 
 
 func _check_spot(actual: Vector3, x: float, z: float, what: String) -> void:

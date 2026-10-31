@@ -5,6 +5,8 @@
 
 namespace olcore {
 
+struct LinksSurface;
+
 // Ground types a ball can come to rest on. The order is shared with the
 // GDScript port (game/scripts/physics/surface.gd); keep them in step.
 enum class Surface {
@@ -45,6 +47,15 @@ class Terrain {
   virtual Vec3 normal(double x, double z) const;
   // Ground the rules give free relief from (cart paths). None by default.
   virtual bool free_drop(double, double) const { return false; }
+  // Ground the rules treat as a hazard (no drops there) besides water.
+  virtual bool hazard(double, double) const { return false; }
+  // Whether a ball at rest here is in bounds for the hole being played. A
+  // course can limit each hole to an outline; Surface::OutOfBounds is ground
+  // that is off the course altogether.
+  virtual bool in_bounds(double, double) const { return true; }
+  // The course's own bounce and roll values here, or null to use the class
+  // defaults for surface().
+  virtual const LinksSurface* links_surface_at(double, double) const { return nullptr; }
   // The first obstacle (tree, wall) the ball meets moving from -> to. The
   // default looks in `obstacles`, if set.
   virtual bool obstacle_hit(Vec3 from, Vec3 to, ObstacleHit& hit) const {

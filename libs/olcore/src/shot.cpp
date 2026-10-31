@@ -165,6 +165,9 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
   r.path.push_back({0, s.position});
 
   auto finish = [&](ShotOutcome o, Vec3 pos) {
+    // A course can limit each hole to an outline; it is judged where the ball
+    // stops.
+    if (o == ShotOutcome::Rest && !terrain.in_bounds(pos.x, pos.z)) o = ShotOutcome::OutOfBounds;
     r.outcome = o;
     r.rest = pos;
     r.time_s = t;

@@ -88,6 +88,12 @@ static func _general_area(s: int) -> bool:
 	return s != Surface.Type.WATER and s != Surface.Type.OUT_OF_BOUNDS and s != Surface.Type.GREEN
 
 
+## Ground a ball may be dropped on at all: not water, a hazard, the green or
+## out of bounds.
+static func _droppable(t: CourseTerrain, x: float, z: float) -> bool:
+	return _general_area(t.surface_at(x, z)) and not t.hazard_at(x, z) and t.in_bounds(x, z)
+
+
 ## Where a ball that finished in water last crossed into it: the path is
 ## walked back from the end to the last step from dry ground into water, and
 ## that step is bisected. The first sample if it never leaves the water.
@@ -124,7 +130,7 @@ static func nearest_relief(ball: Vector3, pin: Vector3, t: CourseTerrain) -> Var
 			var d := _ring_direction(base, j)
 			var x := ball.x + d.x * i * STEP
 			var z := ball.z + d.z * i * STEP
-			if not _general_area(t.surface_at(x, z)) or t.free_drop_at(x, z):
+			if not _droppable(t, x, z) or t.free_drop_at(x, z):
 				continue
 			if Vector2(x - pin.x, z - pin.z).length() < limit:
 				continue
@@ -194,9 +200,9 @@ static func check(z: Zone, spot: Vector3, pin: Vector3, t: CourseTerrain) -> int
 	if z.option == Option.STROKE_AND_DISTANCE:
 		return Check.OK if _flat_distance(spot, z.spot) < 0.01 else Check.OUTSIDE_ZONE
 	var s := t.surface_at(spot.x, spot.z)
-	if s == Surface.Type.OUT_OF_BOUNDS:
+	if s == Surface.Type.OUT_OF_BOUNDS or not t.in_bounds(spot.x, spot.z):
 		return Check.OUT_OF_BOUNDS
-	if s == Surface.Type.WATER:
+	if s == Surface.Type.WATER or t.hazard_at(spot.x, spot.z):
 		return Check.HAZARD
 	if s == Surface.Type.GREEN:
 		return Check.GREEN

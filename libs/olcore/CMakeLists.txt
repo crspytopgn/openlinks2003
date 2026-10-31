@@ -5,6 +5,7 @@ add_library(olcore STATIC
   src/btcv.cpp
   src/bunky.cpp
   src/course.cpp
+  src/course_areas.cpp
   src/course_objects.cpp
   src/crz.cpp
   src/carrera_store.cpp

@@ -19,6 +19,7 @@ func run_all() -> Array[String]:
 	_test_mappings()
 	_test_shadow_file()
 	_test_holes_and_ground()
+	_test_terrain_types_and_bounds()
 	_test_community_courses()
 	return failures
 
@@ -30,7 +31,7 @@ func check(cond: bool, what: String) -> void:
 
 func _test_scripts_compile() -> void:
 	for path in ["res://scripts/course/crz_course_loader.gd", "res://scripts/course/crz_terrain.gd",
-			"res://scripts/course/terrain_mappings.gd", "res://scripts/course/shadow_file.gd",
+			"res://scripts/course/terrain_mappings.gd", "res://scripts/course/shadow_file.gd", "res://scripts/course/course_areas.gd",
 			"res://scripts/course_viewer.gd", "res://scripts/course/community_courses.gd", "res://scripts/boot.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
@@ -445,6 +446,90 @@ func _test_holes_and_ground() -> void:
 	text.append_array("CourseName = Test Links\r\nHoleName1 = Café\r\n".to_utf16_buffer())
 	var kv := CrzCourseLoader.parse_course_text(text)
 	check(kv.get("CourseName") == "Test Links" and kv.get("HoleName1") == "Café", "course text")
+
+
+## The same records and outlines as test_crz_terrain_types and
+## test_hole_bounds in libs/olcore/tests/test_course.cpp.
+func _test_terrain_types_and_bounds() -> void:
+	var rec := PackedByteArray()
+	put_u32(rec, 7)
+	for i in 20:
+		put_f32(rec, 0.25 * i)
+	put_u32(rec, 3)
+	put_u32(rec, 14)
+	put_u32(rec, 0xcdcdcd41)
+	var b := PackedByteArray()
+	b.resize(8 + 243)
+	b.fill(0xcd)
+	b.encode_u32(0, 4)
+	b.encode_u32(4, 1)
+	for i in rec.size():
+		b[8 + i] = rec[i]
+	# The name sits at 0x67, in the bytes after the flags.
+	var label := "Mud".to_utf16_buffer()
+	label.append_array(PackedByteArray([0, 0]))
+	for i in label.size():
+		b[8 + 0x67 + i] = label[i]
+	var types := CourseAreas.parse_terrain_types(b)
+	check(types.size() == 1, "one terrain type")
+	if types.size() == 1:
+		var t := types[0]
+		check(t.index == 7 and t.ground_class == 3 and t.category == 14, "terrain type fields")
+		check(CourseAreas.is_hazard(t) and not CourseAreas.is_free_drop(t), "terrain type flags")
+		check(is_equal_approx(CourseAreas.value(t, 0x14), 1.0) and is_equal_approx(CourseAreas.value(t, 0x38), 3.25), "terrain type values")
+		check(t.name == "Mud", "terrain type name")
+		var p := CourseAreas.links_surface(t)
+		check(p.ground_class == 3 and is_equal_approx(p.restitution, 1.0) and is_equal_approx(p.lie_spin, 0.0), "surface from the record")
+	b.resize(b.size() - 1)
+	check(CourseAreas.parse_terrain_types(b).is_empty(), "short terrain types")
+
+	var holes := CourseAreas.parse_id_shapes(_id_shapes(false))
+	var ob := CourseAreas.parse_id_shapes(_id_shapes(true))
+	check(holes.size() == 1 and holes[0].id == 42 and holes[0].closed and CourseAreas.shape_hole(holes[0]) == 2, "hole outline")
+	var o := CourseAreas.shape_outline(holes[0])
+	check(o.size() == 4 * 8 + 1, "outline points")
+	check(o.size() > 4 and o[0] == Vector2(0, 100) and o[4] == Vector2(0, 50), "outline starts at the last node")
+	check(CourseAreas.outline_contains(o, 10, 10) and not CourseAreas.outline_contains(o, -1, 10) and not CourseAreas.outline_contains(o, 50, 101), "outline contains")
+	var hb := CourseAreas.HoleBounds.new(holes, ob)
+	check(hb.in_bounds(2, 10, 10), "in bounds on the hole")
+	check(not hb.in_bounds(2, 150, 10), "out of bounds off the hole")
+	check(not hb.in_bounds(2, 50, 50), "out of bounds in the area")
+	check(hb.in_bounds(1, 150, 10), "a hole without an outline")
+	check(not hb.in_bounds(3, 50, 50), "the area for hole 3")
+	var bad := _id_shapes(false)
+	bad[0] = 2
+	check(CourseAreas.parse_id_shapes(bad).is_empty(), "shape count must match")
+
+	# The banded lookup agrees with the plain crossing test.
+	var area := CourseAreas.HoleBounds.Area.new(holes[0], 1)
+	var same := true
+	for i in 200:
+		var x := -5.0 + 110.0 * fmod(i * 0.618034, 1.0)
+		var y := -5.0 + 110.0 * fmod(i * 0.414214, 1.0)
+		same = same and area.contains(x, y) == CourseAreas.outline_contains(o, x, y)
+	check(same, "banded outline lookup")
+
+
+func _id_shapes(ob: bool) -> PackedByteArray:
+	var b := PackedByteArray()
+	put_u32(b, 1)
+	put_u32(b, 1)
+	for i in 3:
+		put_f32(b, 0.0)
+	put_u32(b, 42)
+	put_u32(b, 4)
+	b.append(1)
+	var lo := 40.0 if ob else 0.0
+	var hi := 60.0 if ob else 100.0
+	for v in [lo, lo, 0.0, hi, hi, 0.0]:
+		put_f32(b, v)
+	put_u32(b, 0x6 if ob else (2 << 27) | 0x100000)
+	for p in [Vector2(lo, lo), Vector2(hi, lo), Vector2(hi, hi), Vector2(lo, hi)]:
+		for k in 3:
+			put_f32(b, p.x)
+			put_f32(b, p.y)
+			put_f32(b, 100.0)
+	return b
 
 
 func _test_community_courses() -> void:
