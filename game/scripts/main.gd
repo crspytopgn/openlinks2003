@@ -16,6 +16,7 @@ enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, D
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
 const MAX_STROKES := 10  ## pick up after this many on a hole
+const FEET_IN_SAND := 0.03  ## metres a golfer works his feet into a bunker
 const CHIP_RANGE_M := 30.48  ## the game picks a Chip within 100 ft of the hole
 const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
@@ -2296,7 +2297,9 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
-	golfer.set_ground(hole.terrain.height_at)
+	# Players wriggle their feet into the sand to take a bunker stance.
+	var in_sand := hole.terrain.surface_at(ball_at.x, ball_at.z) == Surface.Type.SAND
+	golfer.set_ground(hole.terrain.height_at, FEET_IN_SAND if in_sand else 0.0)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
