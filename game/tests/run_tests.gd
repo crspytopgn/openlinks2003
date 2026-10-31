@@ -3108,6 +3108,10 @@ func _test_menu_resume() -> void:
 	s.course_key = key
 	SavedRound.save(s, {"hole": 0})
 	_check(boot._resume_slot() == 2, "menu: the saved course's slot")
+	var boot_script := load("res://scripts/boot.gd") as GDScript
+	_check(boot_script.primary_button(["Play with placeholders", "Career", "Players"]) == 0, "menu: Enter plays, not Players")
+	_check(boot_script.primary_button(["Load disc images...", "Players", "Play a round"]) == 2, "menu: focus skips Players")
+	_check(boot_script.primary_button(["Players", "Settings"]) == -1, "menu: no play button, no focus")
 	_check(boot._setup_paths.size() >= 2 and boot._setup_paths[1] == key, "menu: the setup list is filled for resuming")
 	s.course_key = "Courses/GONE.crz"
 	SavedRound.save(s, {"hole": 0})

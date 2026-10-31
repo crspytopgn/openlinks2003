@@ -139,16 +139,29 @@ func _set_buttons(items: Array) -> void:
 	for child in _buttons.get_children():
 		child.queue_free()
 	_play = null
-	for item: Array in items:
+	var labels: Array = items.map(func(item: Array) -> String: return item[0])
+	var primary := primary_button(labels)
+	for i in items.size():
+		var item: Array = items[i]
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(0, 40)
 		b.pressed.connect(item[1])
 		_buttons.add_child(b)
-		if item[0].begins_with("Play"):
+		if i == primary:
 			_play = b
 	if _play:
 		_play.grab_focus.call_deferred()
+
+
+## The button that gets keyboard focus: the first "Play ..." one, so Enter
+## starts a round ("Players" must not match).
+static func primary_button(labels: Array) -> int:
+	for i in labels.size():
+		var label: String = labels[i]
+		if label == "Play" or label.begins_with("Play "):
+			return i
+	return -1
 
 
 # --- Browser ----------------------------------------------------------------
