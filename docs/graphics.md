@@ -164,7 +164,10 @@ at Medium and grass at Low.
   darker wet margin, and a thin, broken line of froth lapping the bank,
   all along a ragged, noisy line rather than the triangles' edges. Round
   ponds (placeholder course) do the same from their radius and fade into
-  the bank along it. The finest ripples are drifting noise instead of
+  the bank along it. Designer and real-course ponds are the outline plus
+  a grid of points every 4 m inside it (Delaunay, kept where a triangle's
+  middle is inside), each carrying its distance from the bank over 10 m
+  (`DesignedTerrain.water_surface_mesh`). The finest ripples are drifting noise instead of
   more sine waves (whose crossings showed a regular diamond pattern), and
   gusts roughen patches of the surface and leave others glassy.
 - **Texture mappings and blended edges** (`TerrainMappings`,
