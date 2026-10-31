@@ -110,7 +110,7 @@ static func make_figure() -> Node3D:
 	(model as FreeGolfer).walk_in = false
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh := node as MeshInstance3D
-		if mesh.name.begins_with("Driver") or mesh.name.begins_with("Putter"):
+		if mesh.name.begins_with("Driver") or mesh.name.begins_with("Putter") or mesh.name.begins_with("Iron"):
 			mesh.visible = false
 	var player := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if player != null and player.has_animation(&"idle"):

@@ -22,6 +22,14 @@ the browser and on desktop today.
 | U | Mulligan, right after a shot (Settings > Mulligans) |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
+### Click to aim
+
+Right-click on the course while aiming to aim at that spot (`ClickAim`: a
+ray from the camera to the ground). Away from the green the round also takes
+the shortest club whose full swing reaches it, as in modern sims; chips and
+putts only turn the aim. A click on the sky does nothing. Left-click stays
+the swing.
+
 ### Touch screens and game pads
 
 On a phone or tablet (the web build) buttons on the left aim (held), change
@@ -125,6 +133,13 @@ and TVs, smaller for a big monitor up close.
 Settings > Colours swaps the swing meter's green and red (good and bad
 marks, the fill past the snap point) for blue and white, which stay apart
 for red-green colour blindness (`SwingMeter.colour_safe`).
+
+### Captions
+
+Settings > Captions shows what the golfer says (their voice bank's event
+name in brackets, such as "[Golfer: Great Shot]", not the words spoken) and
+the crowd's reactions ("[The crowd roars]") above the hints
+(`SoundCaptions`). The Broadcast commentary is already on-screen text.
 
 ### Hole positions
 
@@ -750,7 +765,8 @@ Nothing in the round needs to change.
   MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, moving
   with motion capture (CMU mocap, retargeted by
   `tools/golfer/mocap_swing.py`): address with a look at the target, swing,
-  putt, a walk up to each new ball, a crouch behind the ball to read each
+  putt (irons get their own address and swing, closer to the ball and more
+  bent over, from `tools/golfer/iron.py`), a walk up to each new ball, a crouch behind the ball to read each
   putt, `celebrate` and `upset` reactions, and an `idle` stand (used by the
   caddie), baked into `game/assets/golfer/free_golfer.glb`, and dressed from
   the look pack `free_golfer_parts.olg` (see

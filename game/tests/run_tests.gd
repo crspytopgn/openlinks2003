@@ -107,6 +107,7 @@ func _process(_delta: float) -> bool:
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
 	_run("mulligans", _test_mulligans)
+	_run("click_aim", _test_click_aim)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -1528,6 +1529,8 @@ func _test_hd_pack() -> void:
 
 
 func _test_graphics_settings() -> void:
+	_check(SettingsPanel.scroll_height(1100.0, 120.0, 720.0) == 584.0, "settings: the rows scroll in a 720p window")
+	_check(SettingsPanel.scroll_height(400.0, 120.0, 720.0) == 400.0, "settings: no scrolling when they fit")
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")
@@ -1547,12 +1550,17 @@ func _test_graphics_settings() -> void:
 	s.gimme = 2
 	s.mulligans = 1
 	s.pickup = 2
+	s.captions = true
 	s.launch_monitor = true
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.ui_scale == 3 and GraphicsSettings.new().ui_scale == 1, "interface size saved, normal by default")
 	_check(loaded.gimme == 2 and loaded.mulligans == 1 and loaded.launch_monitor, "house rules and launch monitor saved")
 	_check(loaded.pickup == 2 and GraphicsSettings.new().pickup == 0, "pick up saved, off by default")
+	_check(loaded.captions and not GraphicsSettings.new().captions, "captions saved, off by default")
+	_check(SoundCaptions.voice("Great Shot!") == "[Golfer: Great Shot]" and SoundCaptions.voice("Birdie", "Ann") == "[Ann: Birdie]"
+			and SoundCaptions.voice("") == "", "voice captions")
+	_check(SoundCaptions.crowd(&"crowd_roar") == "[The crowd roars]" and SoundCaptions.crowd(&"club") == "", "crowd captions")
 	_check(GolfRound.pickup_limit(0, 4) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(1, 3) == 6
 			and GolfRound.pickup_limit(1, 5) == GolfRound.MAX_STROKES and GolfRound.pickup_limit(2, 4) == 7,
 			"pick-up scores: off, double par, triple bogey, never past the limit")
@@ -1770,6 +1778,18 @@ func _test_course_marks() -> void:
 			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
 		_check(on_sand, "footprints only on sand")
 		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+	# The TV tracer stops at the first landing, not after the bounces.
+	var sr := ShotResult.new()
+	sr.points = PackedVector3Array([Vector3(0, 0, 0), Vector3(0, 20, 50), Vector3(0, 0.1, 99), Vector3(0, 2, 105), Vector3(0, 0, 110)])
+	sr.first_landing = Vector3(0, 0, 100)
+	sr.carry_m = 100.0
+	_check(GolfRound.tracer_end(sr) == 2, "the tracer ends at the first landing")
+	sr.carry_m = 0.0
+	_check(GolfRound.tracer_end(sr) == 4, "a putt's trace runs to the end")
+	# The green-side inset tilts up at most 12 degrees after a high ball.
+	var pt := GolfRound.pip_target(Vector3(0, 2, 0), Vector3(0, 40, 100))
+	_check_near(rad_to_deg(atan2(pt.y - 2.0, 100.0)), GolfRound.PIP_MAX_TILT, 1e-3, "the inset camera stays on the green")
+	_check_near(GolfRound.pip_target(Vector3(0, 2, 0), Vector3(0, 1, 30)).y, 1.0, 1e-6, "the inset follows a low ball")
 	# Tee markers stand square to the line of the hole, 5.5 m apart.
 	var tm := GolfRound.tee_marker_spots(Vector3.ZERO, Vector3(100, 0, 0))
 	_check_near(tm[0].distance_to(tm[1]), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers 5.5 m apart")
@@ -2853,7 +2873,7 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
@@ -3160,6 +3180,33 @@ func _test_launch_monitor_input() -> void:
 
 ## Mulligans: the shot is taken again from the same spot, the card doesn't
 ## count it, and the round still replays to the same card.
+func _test_click_aim() -> void:
+	var flat := FlatTerrain.new(Surface.Type.FAIRWAY, 2.0)
+	var hit: Variant = ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, -1, 1))
+	_check(hit is Vector3 and (hit as Vector3).distance_to(Vector3(0, 2, 10)) < 0.05, "the click lands on the ground: %s" % [hit])
+	_check(ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, 0.2, 1)) == null, "a click on the sky aims nowhere")
+	_check(ClickAim.ray_ground(flat, Vector3(0, 1, 0), Vector3(0, -1, 1)) == null, "a camera under the ground aims nowhere")
+	var reaches: Array[float] = [230.0, 200.0, 150.0, 100.0, -1.0]
+	_check(ClickAim.club_for(reaches, 140.0) == 2 and ClickAim.club_for(reaches, 300.0) == 0
+			and ClickAim.club_for(reaches, 10.0) == 3, "the shortest club that gets there, never the putter")
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	_check(game.state == GolfRound.State.AIM, "aiming on the first tee")
+	var spot: Vector3 = game.ball_at + Vector3(-60, 0, 120)
+	game.aim_at(spot)
+	_check(absf(game.aim_deg - rad_to_deg(atan2(-60.0, 120.0))) < 0.01, "aimed at the clicked spot (%.1f)" % game.aim_deg)
+	var reach: float = game._club_reach()
+	var club: Club = game.clubs[game.club_index]
+	_check(reach >= 134.0 and not club.is_putter, "a club that reaches it: %s, %.0f m" % [club.full_name, reach])
+	if game.club_index + 1 < game.clubs.size() and not game.clubs[game.club_index + 1].is_putter:
+		game.club_index += 1
+		_check(game._club_reach() < 134.0, "and the shortest one")
+	GolfRound.setup = null
+
+
 func _test_pick_up() -> void:
 	var game := _game
 	if not game.is_node_ready():

@@ -6,6 +6,9 @@ extends Control
 
 var info: Label
 var message: Label
+## Settings > Captions: what the golfer and the crowd say, in brackets.
+var sound_caption: Label
+var _sound_caption_time := 0.0
 var hint: Label
 var meter: SwingMeter
 var mouse_swing: MouseSwingControl
@@ -41,6 +44,11 @@ func _ready() -> void:
 	_place(message, Control.PRESET_CENTER_TOP, Rect2(-400, 70, 800, 90))
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(message)
+
+	sound_caption = _label(20)
+	sound_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(sound_caption, Control.PRESET_CENTER_BOTTOM, Rect2(-300, -150, 600, 30))
+	add_child(sound_caption)
 
 	hint = _label(16)
 	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -34, 900, 26))
@@ -179,6 +187,10 @@ func _process(delta: float) -> void:
 		_message_time -= delta
 		if _message_time <= 0.0:
 			message.text = ""
+	if _sound_caption_time > 0.0:
+		_sound_caption_time -= delta
+		if _sound_caption_time <= 0.0:
+			sound_caption.text = ""
 	# Keep the card centred as its contents change size.
 	if scorecard.visible:
 		scorecard.position = (size - scorecard.size) * 0.5
@@ -193,6 +205,12 @@ func show_message(text: String, seconds := 0.0) -> void:
 		return
 	message.text = text
 	_message_time = seconds
+
+
+## Shows a caption for a sound, such as "[Golfer: Great Shot]".
+func show_sound_caption(text: String, seconds := 2.5) -> void:
+	sound_caption.text = text
+	_sound_caption_time = seconds
 
 
 ## Anchors `c` to a corner or edge, then offsets it by `r` from that anchor.
