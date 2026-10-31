@@ -25,9 +25,9 @@ var skill := 3
 ## swings past the human miss model: only the lie applies, and the accuracy
 ## turns the face (how ComputerGolfer tries out likely misses).
 var computer := false
-## Set for a computer golfer's real full swing: Links 2003's own computer
-## miss generator (LinksLaunch.computer_miss) with these ratings replaces the
-## accuracy.
+## Set for a computer golfer's real swing or putt: Links 2003's own computer
+## miss generators (LinksLaunch.computer_miss and computer_putt_miss) with
+## these ratings replace the accuracy.
 var computer_ratings: LinksLaunch.GolferRatings = null
 ## From the ball to the hole, metres, for computer_ratings.
 var to_hole_m := 0.0
@@ -91,7 +91,14 @@ func _putt(power: float, accuracy: float, aim_deg: float, lie: int, from: Vector
 	s.aim = deg_to_rad(aim_deg)
 	s.power = PUTT_POWER_AT_FULL * clampf(power, 0.0, 1.0)
 	var acc := clampf(accuracy, -1.0, 1.0)
-	if computer:
+	if computer and computer_ratings != null:
+		var cw := LinksLaunch.ComputerSwing.new()
+		cw.power = s.power
+		LinksLaunch.computer_putt_miss(cw, computer_ratings, LinksGround.ground_class_for(lie),
+				to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
+		s.power = cw.power
+		s.path_error = deg_to_rad(cw.path_deg)
+	elif computer:
 		s.face_error = deg_to_rad(COMPUTER_PUTT_FACE_ERROR_DEG) * acc
 	else:
 		var w := LinksLaunch.SwingInput.new()

@@ -381,8 +381,7 @@ own files, gives every shot type the level's single rating from
 power at 100 percent.
 
 Not ported: chips (the shot type that uses the chip rating is not mapped
-yet), putts (a computer golfer's putt still uses our own face error) and
-one other shot type, which go to a separate routine; and a
+yet) and one other shot type, which go to a separate routine; and a
 routine that, from the second shot of a hole, scales both misses (from a
 quarter up to eighteen times) and can change the club by how the golfer is
 scoring on the hole against a target. Without it both scales are 1, as on a
@@ -426,6 +425,41 @@ Ported as `links_putt`, `links_putt_slope` and the putter branch of
 simulation on the ground; `LinksLaunch.putt` and `LinksShotModel` in the
 game shell. Checked against the game's own routines: the launch on 25
 random putts and the miss on every skill with several snaps.
+
+### Computer golfers' putts
+
+Putts go to a routine of their own, using two more ratings from the
+golfer's definition: one for long putts and one for short ones. With D the
+straight distance to the hole in feet and `ft = int(D)`:
+
+- Under 2 ft (3.5 ft for a steady golfer) the putt is left alone.
+- The rating is the short-putt one up to 3 ft. Between 3 and 15 ft it moves
+  towards the long-putt one by a twelfth of the gap per foot past 3. From
+  15 ft on it is the long-putt one for a steady golfer; otherwise it is the
+  short one less 2 points per foot past 15, but never below the long one
+  less 30 (and simply 10 when the long rating is 30 or under). The game
+  does this sum in signed bytes, so it wraps on very long putts.
+- At 6 ft and under the line miss is halved. A rating of 100 never misses
+  past 6 ft and counts as 98 inside it.
+- With n = 100 - rating, two pairs of draws below n give
+  `line = (r%n + r%n) / 3 x 0.5` and `length = (r%n + r%n) / 3`.
+- By distance: at 2 ft a rating over 60 leaves the putt alone, and
+  otherwise line / 3 and length / 4; 3 to 6 ft, line x 0.4 and length x
+  2/7; 7 ft and more, length x 0.5.
+- From the fairway (fringe) both grow by 1.5 and from rough by 2.
+- The line, divided by 30, turns the path (radians) either way. For a putt
+  that only costs pace through `cos(face - path)`; the computer's line is
+  only as good as its read.
+- The length is divided by `max((100 - ft) / 3, 10)` (10 from 100 ft) and
+  goes on the putt power: long three times in four, short otherwise. A
+  short putt that would reach zero backs off by 0.75 a step.
+
+A routine that scales a computer's misses by how it stands on the hole (see
+above) also feeds this one; without it both scales are 1. Ported as
+`links_computer_putt_miss` (olcore) and `LinksLaunch.computer_putt_miss`.
+It agrees with the game's code in an emulator on 360 random cases, and the
+C++ port with a reference on 50,000. The game shell gives both putt ratings
+the golfer's level rating.
 
 ### Not ported
 

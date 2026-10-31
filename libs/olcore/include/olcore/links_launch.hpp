@@ -160,6 +160,8 @@ struct LinksGolferRatings {
   int chips = 85;        // chips
   int max_power = 100;
   bool steady = false;
+  int long_putts = 85;   // putts from 15 ft and more
+  int short_putts = 85;  // putts up to 3 ft (blended in between)
 };
 
 // A computer golfer's planned swing; links_computer_miss adds its mistakes.
@@ -179,6 +181,18 @@ struct LinksComputerSwing {
 // from the ball.
 void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int club, bool teed_up, bool chip,
                          int ground_class, double feet_to_hole, LinksRand& rng);
+
+// A computer golfer's putt (the game's own routine). Putts closer than 2 ft
+// (3.5 ft for a steady golfer) and perfect putts are always good. Otherwise
+// two draws from the putt rating (long and short putts blended between 3
+// and 15 ft, and falling off with distance past 15 ft unless steady) turn
+// the path a little either way, which for a putt only costs pace, and leave
+// the putt short, or three times in four long, by a fraction of a power
+// unit that shrinks for longer putts and grows from the fringe (x1.5) and
+// rough (x2). `feet_to_hole` is the straight-line distance; `w.power` is the
+// putt power (links_putt) and `w.path_deg` its path.
+void links_computer_putt_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int ground_class,
+                              double feet_to_hole, LinksRand& rng);
 
 // The putter's own launch. `power` is the putt's strength: the ball leaves
 // at power x 2.3436 ft/s along the face (the face error and the face and

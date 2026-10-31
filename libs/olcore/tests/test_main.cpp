@@ -2070,6 +2070,48 @@ void test_links_swing() {
   }
 }
 
+void test_links_computer_putt() {
+  // Against the game's own routine: long and short putt ratings, steady,
+  // feet to the hole, lie, seed, power, then the power and path (radians).
+  struct Case {
+    int long_putts, short_putts;
+    bool steady;
+    double feet;
+    int lie;
+    unsigned seed;
+    double power, want_power, want_path;
+  };
+  const Case cases[] = {
+      {80, 90, false, 20.0, kLinksGreen, 12345u, 8.0, 7.75, 0.266666681},
+      {95, 95, false, 40.0, kLinksFairway, 777u, 15.0, 15.0375004, 0.0},
+      {60, 85, false, 5.0, kLinksGreen, 99u, 3.0, 3.03686643, -0.0166666675},
+      {40, 70, true, 10.0, kLinksRough, 2003u, 6.0, 5.66666651, 0.76666671},
+      {85, 100, false, 4.5, kLinksGreen, 42u, 2.5, 2.5, 0.0},
+      {70, 60, false, 2.6, kLinksGreen, 5u, 1.5, 1.5625, -0.0250000022},
+  };
+  for (const Case& c : cases) {
+    LinksGolferRatings g;
+    g.long_putts = c.long_putts;
+    g.short_putts = c.short_putts;
+    g.steady = c.steady;
+    LinksComputerSwing w;
+    w.power = c.power;
+    w.path_deg = 0;
+    LinksRand rng(c.seed);
+    links_computer_putt_miss(w, g, c.lie, c.feet, rng);
+    CHECK_NEAR(w.power, c.want_power, 1e-5);
+    CHECK_NEAR(w.path_deg * 3.14159265358979323846 / 180, c.want_path, 1e-6);
+    CHECK_NEAR(w.face_deg, 0, 1e-12);
+  }
+  // Inside 2 ft nothing changes and nothing is drawn.
+  LinksComputerSwing w;
+  w.power = 1;
+  LinksRand rng(9);
+  links_computer_putt_miss(w, LinksGolferRatings{}, kLinksGreen, 1.5, rng);
+  CHECK(rng.state() == 9u);
+  CHECK_NEAR(w.power, 1, 1e-12);
+}
+
 void test_links_putt() {
   // The putt's miss, checked against the game's own routine (rand seeded 777):
   // only the face turns, by a draw scaled by the skill.
@@ -2222,6 +2264,7 @@ int main() {
       {"links_swing", test_links_swing},
       {"links_computer_miss", test_links_computer_miss},
       {"links_putt", test_links_putt},
+      {"links_computer_putt", test_links_computer_putt},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

@@ -398,6 +398,93 @@ void links_computer_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int
   w.power = power;
 }
 
+void links_computer_putt_miss(LinksComputerSwing& w, const LinksGolferRatings& g, int ground_class,
+                              double feet_to_hole, LinksRand& rng) {
+  auto f32 = [](double x) { return static_cast<double>(static_cast<float>(x)); };
+  // The ratings are signed bytes in the game, and so is the sum below.
+  auto s8 = [](int x) { return static_cast<int>(static_cast<std::int8_t>(static_cast<std::uint8_t>(x & 0xff))); };
+  const double d = f32(feet_to_hole);
+  if (!(d > (g.steady ? 3.5 : 2.0))) return;
+  const int feet = static_cast<int>(d);
+  const int spread = d < 100 ? std::max((100 - feet) / 3, 10) : 10;
+  const int long_r = s8(g.long_putts);
+  int r = s8(g.short_putts);
+  if (r != long_r && feet > 3) {
+    if (feet >= 15) {
+      if (g.steady) {
+        r = long_r;
+      } else if (long_r > 30) {
+        r = std::max(s8(s8(s8(15 - feet) * 2) + long_r), long_r - 30);
+      } else {
+        r = 10;
+      }
+    } else {
+      r = s8(r - static_cast<int>((r - long_r) * f32(1 / 12.0) * (feet - 3)));
+    }
+  }
+  // Close in, the length always counts and the line half as much.
+  double length_k = 1, line_k = 1;
+  if (d <= 6) line_k = 0.5;
+  if (r == 100) {
+    if (line_k == 1) return;
+    r = 98;
+  }
+  const int n = 100 - r;
+  int a = rng.next() % n;
+  a = (a + rng.next() % n) / 3;
+  int b = rng.next() % n;
+  b = (b + rng.next() % n) / 3;
+  double length = b * length_k;
+  double line = f32(a * line_k * 0.5);
+  if (feet > 2 && feet < 7) {
+    line = f32(line * f32(0.4));
+    length = f32(length * f32(2 / 7.0));
+  } else if (feet <= 2) {
+    if (r > 60) {
+      line = 0;
+      length = 0;
+    } else {
+      line = f32(line * f32(1 / 3.0));
+      length = f32(length * 0.25);
+    }
+  } else {
+    length = f32(length * 0.5);
+  }
+  if (ground_class == kLinksRough) {
+    line *= 2;
+    length = f32(length * 2);
+  } else if (ground_class == kLinksFairway) {
+    line *= 1.5;
+    length = f32(length * 1.5);
+  }
+  line = f32(f32(1 / 30.0) * line);
+  length = f32(length / spread);
+  double path = f32(w.path_deg * kDeg);
+  path = rng.next() % 100 < 50 ? f32(path + line) : f32(path - line);
+  w.path_deg = path / kDeg;
+  double power = w.power;
+  if (rng.next() % 100 >= 25 && length_k == 1) {
+    power = f32(power + length);
+    if (power <= 0) {
+      do {
+        length *= 0.75;
+        power -= length;
+      } while (power <= 0);
+      power = f32(power);
+    }
+  } else {
+    power = f32(power - length);
+    if (power <= 0) {
+      do {
+        length *= 0.75;
+        power += length;
+      } while (power <= 0);
+      power = f32(power);
+    }
+  }
+  w.power = power;
+}
+
 LinksLaunch links_putt(const LinksStrike& s) {
   double a = s.face_error + (s.setup.face - 30 + s.setup.stance - 30) * kDeg;
   double b = s.path_error + (s.setup.stance - 30) * kDeg;

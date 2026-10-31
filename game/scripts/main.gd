@@ -505,11 +505,11 @@ func play_shot(power: float, accuracy: float) -> void:
 		var links := shot_model as LinksShotModel
 		links.skill = graphics.skill
 		links.computer = round_setup != null and round_setup.is_computer(shooter)
-		# A computer's full swing makes Links 2003's own computer misses.
+		# A computer's swing or putt makes Links 2003's own computer misses.
 		links.computer_ratings = null
-		if links.computer and not club.is_putter and opponents[shooter] != null:
+		if links.computer and opponents[shooter] != null:
 			links.computer_ratings = LinksLaunch.GolferRatings.even(opponents[shooter].skill.links_rating)
-			links.to_hole_m = _shot_from_pin
+			links.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
@@ -1255,7 +1255,7 @@ func _show_computer_plan() -> void:
 func _computer_swing() -> void:
 	var cpu := opponents[shooter]
 	var made := cpu.swing()
-	if shot_model is LinksShotModel and not cpu.is_putt():
+	if shot_model is LinksShotModel:
 		# The Links physics adds the game's own computer misses (play_shot).
 		made = PackedFloat64Array([cpu.power, 0.0, cpu.aim_deg])
 	aim_deg = made[2]

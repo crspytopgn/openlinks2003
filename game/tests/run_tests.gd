@@ -1160,6 +1160,26 @@ func _test_links_swing_matches_olcore() -> void:
 		var got := [w.power, w.face_deg, w.path_deg]
 		for i in got.size():
 			_check_near(got[i], c[10 + i], 1e-4, "computer miss case %d value %d" % [cpu.find(c), i])
+	# Computer putts, as test_links_computer_putt: long, short, steady, feet,
+	# lie, seed, power, then power and path (radians).
+	var cputts := [
+		[80, 90, false, 20.0, LinksGround.GREEN, 12345, 8.0, 7.75, 0.266666681],
+		[95, 95, false, 40.0, LinksGround.FAIRWAY, 777, 15.0, 15.0375004, 0.0],
+		[60, 85, false, 5.0, LinksGround.GREEN, 99, 3.0, 3.03686643, -0.0166666675],
+		[40, 70, true, 10.0, LinksGround.ROUGH, 2003, 6.0, 5.66666651, 0.76666671],
+		[85, 100, false, 4.5, LinksGround.GREEN, 42, 2.5, 2.5, 0.0],
+		[70, 60, false, 2.6, LinksGround.GREEN, 5, 1.5, 1.5625, -0.0250000022],
+	]
+	for c in cputts:
+		var cg := LinksLaunch.GolferRatings.new()
+		cg.long_putts = c[0]
+		cg.short_putts = c[1]
+		cg.steady = c[2]
+		var cw := LinksLaunch.ComputerSwing.new()
+		cw.power = c[6]
+		LinksLaunch.computer_putt_miss(cw, cg, c[4], c[3], LinksLaunch.Rand.new(c[5]))
+		_check_near(cw.power, c[7], 1e-4, "computer putt %d power" % cputts.find(c))
+		_check_near(deg_to_rad(cw.path_deg), c[8], 1e-5, "computer putt %d path" % cputts.find(c))
 	# Putts, as test_links_putt: skill, contact, then the face error.
 	var putts := [[0, 1, 0.0], [1, 1, -0.0111701], [2, 1, -0.017637], [2, -2, 0.0440925],
 			[2, 3, -0.070548], [3, 1, -0.0251327], [3, -2, 0.0502655], [3, 3, -0.0753982]]
