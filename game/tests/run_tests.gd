@@ -3040,13 +3040,20 @@ func _test_tee_view() -> void:
 	var reach := game._flat_distance(game.ball_at, game._aim_target())
 	var far := game.ball_at + game._aim_dir() * reach
 	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
-	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
 	var cam: RoundCamera = game.camera
+	# Links always shows the golfer and ball at address: the camera stays
+	# close, and the real camera (not just its planned pose) has them in view.
+	var rise := cam._aim_pos.y - game.ball_at.y
+	var back := Vector2(cam._aim_pos.x - game.ball_at.x, cam._aim_pos.z - game.ball_at.z).length()
+	_check(rise < 8.0 and back < 10.0, "tee view: the camera stays near the golfer (%.1f m up, %.1f m back)" % [rise, back])
 	var forward := (cam._aim_look - cam._aim_pos).normalized()
-	var half := deg_to_rad(cam.fov) * 0.5
-	var to_feet := (game.ball_at - cam._aim_pos).normalized()
-	_check(forward.angle_to(to_feet) < half, "tee view: the golfer and ball stay in frame")
-	_check(forward.angle_to((target - cam._aim_pos).normalized()) < half, "tee view: and so does the target")
+	var half := deg_to_rad(minf(cam.fov, RoundCamera.AIM_FRAME_FOV)) * 0.5
+	_check(forward.angle_to((game.ball_at - cam._aim_pos).normalized()) < half * 0.9, "tee view: the ball is in frame")
+	_check(forward.angle_to((game.golfer.global_position + Vector3.UP * 1.6 - cam._aim_pos).normalized()) < half, "tee view: the golfer's head is in frame")
+	_check(cam.global_position.distance_to(cam._aim_pos) < 0.01, "tee view: the camera is at its aim pose (%s, not %s)" % [cam._aim_pos, cam.global_position])
+	_check(cam.is_position_in_frustum(game.ball_at + Vector3.UP * 0.1), "tee view: the ball is inside the camera's frustum")
+	var seen := RoundCamera.sight_clear(game.hole.terrain, cam._aim_pos, target)
+	print("  tee view: %.1f m up, %.1f m back, target %.0f m %s" % [rise, back, reach, "in sight" if seen else "behind the rise"])
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
