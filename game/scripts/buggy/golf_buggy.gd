@@ -14,10 +14,10 @@ const MODEL_PATH := "res://assets/buggy/golf_cart.glb"
 const WHEELS := ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]
 ## Real dimensions (a Club Car Precedent; see tools/buggy/build_golf_cart.py).
 const WHEEL_RADIUS := 0.2286  ## 18 in tyres
-const TRACK_FRONT := 0.44  ## half the front track
-const TRACK_REAR := 0.49
-const TRACK := 0.465  ## half the track, on average, where the cart sits on the ground
-const AXLE := 0.83  ## half the 1.66 m wheelbase
+const TRACK_FRONT := 0.445  ## half the 0.89 m front track
+const TRACK_REAR := 0.49  ## half the 0.98 m rear track
+const TRACK := 0.4675  ## half the track, on average, where the cart sits on the ground
+const AXLE := 0.8175  ## half the 1.635 m wheelbase
 const CHASE_BACK := 7.5
 const CHASE_UP := 3.0
 const CHASE_LOOK_AHEAD := 8.0

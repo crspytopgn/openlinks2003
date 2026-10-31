@@ -1427,8 +1427,8 @@ func _test_buggy_drive() -> void:
 	b.free()
 
 
-## Everything at its real size: the cart against a Club Car Precedent's
-## published dimensions, the golfer and caddie against an average man, the
+## Everything at its real size: the cart against the published dimensions
+## of a current two-seat fleet cart, the golfer and caddie against an average man, the
 ## bag, the ball and the hole against the Rules of Golf.
 func _test_real_scale() -> void:
 	var cart := (load(GolfBuggy.MODEL_PATH) as PackedScene).instantiate() as Node3D
@@ -1437,9 +1437,9 @@ func _test_real_scale() -> void:
 	var wheel := cart.find_child("Wheel_RR", true, false) as MeshInstance3D
 	var outer := wheel.position.x + wheel.get_aabb().end.x
 	print("  cart: %.2f m long, %.2f m wide, %.2f m high, wheels %.3f m radius" % [box.size.z, maxf(box.size.x, 2.0 * outer), box.end.y, wheel.get_aabb().end.y])
-	_check_near(box.size.z, 2.39, 0.03, "cart length (Precedent 2.39 m)")
-	_check_near(maxf(box.size.x, 2.0 * outer), 1.19, 0.03, "cart width (1.19 m)")
-	_check_near(box.end.y, 1.76, 0.03, "cart height to the canopy (1.76 m)")
+	_check_near(box.size.z, 2.38, 0.02, "cart length (2.38 m)")
+	_check_near(maxf(box.size.x, 2.0 * outer), 1.20, 0.02, "cart width (1.20 m)")
+	_check_near(box.end.y, 1.765, 0.02, "cart height to the sun top (1.765 m)")
 	_check_near(wheel.get_aabb().end.y, 0.2286, 0.003, "18 in tyres")
 	_check_near(absf((cart.find_child("Wheel_FR", true, false) as Node3D).position.z - wheel.position.z), BuggyDrive.WHEELBASE, 0.01, "wheelbase matches the physics")
 	cart.free()

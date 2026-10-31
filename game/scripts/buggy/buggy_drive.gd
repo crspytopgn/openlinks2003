@@ -3,10 +3,12 @@ extends RefCounted
 ## How the golf buggy drives (GolfBuggy): a planar rigid-body model of a
 ## two-seat electric cart, stepped at 120 Hz.
 ##
-## - Mass 500 kg with the golfer aboard, yaw inertia 300 kg m^2, the centre
-##   of gravity behind the middle (the batteries) and 0.55 m up.
-## - A 48 V motor driving the rear axle: 1500 N at the wheels from a stand,
-##   then limited by 3.7 kW of power, and a speed governor at about 15.5 mph
+## - The published figures of a current two-seat electric fleet cart:
+##   448 kg kerb weight (530 kg with the golfer), 1.635 m wheelbase, a
+##   3.3 kW 48 V AC motor and 24 km/h top speed. Yaw inertia 300 kg m^2, the
+##   centre of gravity behind the middle (the batteries) and 0.55 m up.
+## - The motor drives the rear axle: 1500 N at the wheels from a stand,
+##   then limited by its power, and a speed governor at 15 mph
 ##   (5.5 mph in reverse) that also holds it back downhill by regenerating.
 ##   An accelerator and brake pedal that take a moment to press, and the
 ##   automatic park brake carts have when the pedals are let go.
@@ -22,20 +24,20 @@ extends RefCounted
 ## headless.
 
 const GRAVITY := 9.81
-const MASS := 500.0
+const MASS := 530.0  ## 448 kg kerb weight and the golfer
 const YAW_INERTIA := 300.0
-const WHEELBASE := 1.66
-const CG_TO_FRONT := 0.9  ## centre of gravity to the front axle
+const WHEELBASE := 1.635
+const CG_TO_FRONT := 0.885  ## centre of gravity to the front axle
 const CG_TO_REAR := WHEELBASE - CG_TO_FRONT
 const CG_HEIGHT := 0.55
-const TRACK := 0.93  ## between the left and right tyres, on average
+const TRACK := 0.935  ## between the left and right tyres, on average
 const MAX_STEER_DEG := 32.0
 const STEER_ASSIST := 0.55  ## the share of the lock left at top speed (keyboard driving)
 const STEER_RATE := 2.0  ## lock to centre, per second
 const PEDAL_RATE := 4.0
 const STALL_FORCE := 1500.0  ## N at the wheels
-const MOTOR_POWER := 3700.0  ## W
-const GOVERNED := 6.9  ## m/s, about 15.5 mph
+const MOTOR_POWER := 3300.0  ## W, the rated output
+const GOVERNED := 6.67  ## m/s, 24 km/h (15 mph)
 const GOVERNED_REVERSE := 2.5
 const GOVERNOR_BAND := 0.5  ## the motor fades out over the last 0.5 m/s
 const REGEN_FORCE := 1600.0  ## most the governor holds back downhill

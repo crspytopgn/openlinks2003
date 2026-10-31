@@ -3,14 +3,19 @@
 
     python3 tools/buggy/build_golf_cart.py [out.glb]
 
-A two-seat electric golf cart, modelled to the published dimensions of a
-common fleet cart (Club Car Precedent: 2.39 m long, 1.19 m wide, 1.76 m
-to the top of the canopy, 1.66 m wheelbase, 0.88 m front and 0.98 m rear
-track, 18x8.5-8 tyres, seat about 0.8 m up)
-and shaped with smooth lofted panels, lathed tyres with tread blocks and
-alloy rims, padded seats, a canopy on four struts, a tinted windscreen,
-lights and the running gear underneath. Our own work, released as CC0
-like the rest of the free assets.
+A modern two-seat electric fleet golf cart, to the published dimensions of
+a current model (2.38 m long, 1.20 m wide, 1.765 m to the sun top, 1.635 m
+wheelbase, 0.89 m front and 0.98 m rear track, 295 mm floorboard, 105 mm
+ground clearance, 18x8.5-8 tyres on 8 in rims) and its general shape: a
+high rounded cowl with the headlights in pockets at its corners, a bench
+seat in beige vinyl with tubular hip restraints, a beige sun top on square
+rear posts and round front struts, a folding windscreen, black sills and
+bumpers, and a bag well behind the seat. No maker's names or badges. Our
+own work, released as CC0 like the rest of the free assets.
+
+The moulded panels are signed distance shapes meshed with marching cubes
+(sdf.py; needs scikit-image and fast-simplification from pip), with
+ambient occlusion baked into the vertex colours.
 
 Godot axes: +y up, front towards -z, the driver on the left (-x). Nodes:
 Body (everything that rides on the springs) and four wheels, Wheel_FL,
@@ -26,20 +31,21 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "golfer"))
+sys.path.insert(0, os.path.dirname(__file__))
 from gltf import FLOAT, UINT, USHORT, Gltf  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "game", "assets", "buggy", "golf_cart.glb")
 
 # Real dimensions (metres). The tests check the built model against these.
-LENGTH = 2.39
-WIDTH = 1.19
-HEIGHT = 1.76
+LENGTH = 2.38
+WIDTH = 1.20
+HEIGHT = 1.765
 WHEEL_R = 0.2286  # 18 in tyre
 TYRE_W = 0.216  # 8.5 in
-TRACK_F = 0.44  # half the front track, to the tyre centre
+TRACK_F = 0.445  # half the front track, to the tyre centre
 TRACK_R = 0.49
-AXLE_F = -0.83
-AXLE_R = 0.83  # 1.66 m wheelbase
+AXLE_F = -0.8175
+AXLE_R = 0.8175  # 1.635 m wheelbase
 ROOF_Y = 1.70  # the canopy's middle; its crown reaches HEIGHT
 
 
@@ -214,183 +220,222 @@ def rot_y(deg):
 
 
 # --- The cart --------------------------------------------------------------------
+#
+# Panels are signed distance shapes (sdf.py), drawn the way a modeller works
+# from blueprints: an outline from the side, one from above and sometimes one
+# from the front, intersected with rounded edges, then wheel arches, light
+# pockets and seams cut out. Positions are metres from the middle of the
+# wheelbase at ground level.
 
-def tub_outline(y0, y1, wl, wu, ys, n=64):
-    """A body cross-section: narrow below the fenders, wider above, round top."""
-    half = [(0.0, y0), (wl - 0.05, y0), (wl, y0 + 0.05), (wl, ys - 0.04), (wu - 0.03, ys),
-            (wu, ys + 0.04), (wu, y1 - 0.08), (wu - 0.1, y1), (0.0, y1)]
-    full = half + [(-x, y) for x, y in reversed(half[1:-1])]
-    return resample(chaikin(full, 4), n)
-
-
-def ease(t):
-    return math.sqrt(max(0.0, 1.0 - (1.0 - t) ** 2))
+from sdf import (cyl_x, cyl_y, mesh as sdf_mesh, mirrored_x, poly2d, rbox, rotated_x, side_plan,  # noqa: E402
+                 smooth_cut, smooth_union, sphere, union, warped, ambient_occlusion)
 
 
-def body(paint, black):
-    # Front cowl, nose to dash, rounded at the nose and rising to the dash.
-    zs = np.concatenate([np.linspace(-1.14, -1.02, 7), np.linspace(-0.99, -0.5, 10)])
-    secs = []
-    for z in zs:
-        t = (z + 1.14) / 0.64
-        top = 0.64 + 0.26 * min(1.0, t * 1.15) ** 1.4
-        s = ease(min(1.0, (z + 1.14) / 0.12 + 0.12))
-        out = tub_outline(0.32, top, 0.31, 0.595, 0.5)
-        cy = 0.5 * (0.32 + top)
-        secs.append([(x * (0.55 + 0.45 * s), cy + (y - cy) * (0.45 + 0.55 * s)) for x, y in out])
-    loft(paint, secs, zs, cap_ends=(False, True))
-    # Rear tub under the seat, back to the rear bumper.
-    zs = np.concatenate([np.linspace(-0.12, 1.0, 12), np.linspace(1.03, 1.13, 6)])
-    secs = []
-    for z in zs:
-        s = ease(min(1.0, (1.13 - z) / 0.1 + 0.12))
-        out = tub_outline(0.32, 0.68, 0.36, 0.595, 0.5)
-        cy = 0.5
-        secs.append([(x * (0.6 + 0.4 * s), cy + (y - cy) * (0.5 + 0.5 * s)) for x, y in out])
-    loft(paint, secs, zs, cap_ends=(True, False))
-    # Floor and footwell, rubber mat on top.
-    superquadric(black, (0, 0.33, -0.33), (0.5, 0.035, 0.24), (0.2, 0.2))
-    # Dash with a glove shelf and cup holders, in black plastic.
-    superquadric(black, (0, 0.9, -0.52), (0.52, 0.05, 0.075), (0.35, 0.3))
-    for x in (0.12, 0.24):
-        lathe_x_y(black, (x, 0.95, -0.52), [(0.035, 0.0), (0.035, -0.04), (0.0, -0.04)])
-    # Bumpers.
-    superquadric(black, (0, 0.38, -1.135), (0.59, 0.07, 0.06), (0.3, 0.25))
-    superquadric(black, (0, 0.38, 1.135), (0.59, 0.07, 0.06), (0.3, 0.25))
-    # Rocker steps along the sides.
-    for side in (-1, 1):
-        superquadric(black, (side * 0.47, 0.34, -0.3), (0.07, 0.03, 0.26), (0.3, 0.3))
-    # Seat-back frame and the bag well behind it.
-    superquadric(black, (0, 0.86, 0.66), (0.54, 0.2, 0.04), (0.3, 0.3), basis=rot_x(-10))
-    superquadric(black, (0, 0.7, 0.98), (0.5, 0.025, 0.14), (0.2, 0.2))
+def mirror_plan(half):
+    """A plan outline from its right half (x >= 0), listed front to back."""
+    return [(x, z) for x, z in half] + [(-x, z) for x, z in reversed(half)]
 
 
-def lathe_x_y(part, centre, profile, segs=16):
-    """A small round dish (cup holder, lamp bezel) opening upwards."""
-    th = np.linspace(0, 2 * math.pi, segs, endpoint=False)
-    P = np.array([[(centre[0] + r * math.cos(t), centre[1] + h, centre[2] + r * math.sin(t)) for t in th]
-                  for r, h in profile])
-    pts, idx = grid(P, wrap_cols=True)
-    part.add(pts, idx)
+def smooth(poly, n=2):
+    return chaikin(poly, n)
 
 
-def seats(vinyl, trim):
-    # Bench cushion, piped at the edge.
-    superquadric(vinyl, (0, 0.75, 0.24), (0.52, 0.07, 0.26), (0.28, 0.22),
-                 warp=lambda q: q + np.array([0, -0.025 * (q[0] / 0.52) ** 2 * (q[1] > 0), 0]))
-    superquadric(trim, (0, 0.69, 0.24), (0.54, 0.02, 0.28), (0.2, 0.2))
-    # Two backrest pads.
-    for x in (-0.26, 0.26):
-        superquadric(vinyl, (x, 1.06, 0.58), (0.23, 0.2, 0.06), (0.3, 0.3), basis=rot_x(-12))
-    # Hip restraints.
-    for side in (-1, 1):
-        tube(trim, [(side * 0.53, 0.7, 0.48), (side * 0.57, 0.9, 0.42), (side * 0.57, 0.92, 0.12),
-                    (side * 0.55, 0.72, 0.04)], 0.016)
+def arches(k=0.025):
+    return [cyl_x(WHEEL_R, AXLE_F, ARCH_R, 0.30, 0.9, mirror=True),
+            cyl_x(WHEEL_R, AXLE_R, ARCH_R, 0.30, 0.9, mirror=True)]
 
 
-def canopy(roof, frame, glass):
-    # Roof: a rounded slab with a crown and a lip.
-    superquadric(roof, (0, ROOF_Y, 0.1), (0.6, 0.03, 0.93), (0.18, 0.12), rows=16, cols=48,
-                 warp=lambda q: q + np.array([0, (HEIGHT - ROOF_Y - 0.03) * (1 - (q[0] / 0.6) ** 2) * (1 - (q[2] / 0.93) ** 2), 0]))
-    # Struts: the front pair bends back above the windscreen.
-    for side in (-1, 1):
-        x = side * 0.53
-        tube(frame, [(x, 0.86, -0.62), (x, 1.4, -0.6), (x * 1.02, 1.63, -0.5), (x * 1.02, ROOF_Y - 0.02, -0.42)], 0.022)
-        tube(frame, [(x, 0.66, 0.78), (x, 1.3, 0.8), (x * 1.02, ROOF_Y - 0.02, 0.84)], 0.022)
-    # Rear handle bar.
-    tube(frame, [(-0.5, 1.2, 0.81), (0.5, 1.2, 0.81)], 0.016)
-    # Windscreen, curved and leaning back, with a folding seam.
-    cols, rows = 24, 10
-    P = np.zeros((rows, cols, 3))
-    for r in range(rows):
-        v = r / (rows - 1)
-        y = 0.94 + v * 0.66
-        for c in range(cols):
-            u = -1 + 2 * c / (cols - 1)
-            P[r, c] = (u * 0.51, y, -0.6 + 0.05 * u * u + 0.07 * v)
-    pts, idx = grid(P)
-    glass.add(pts, idx)
-    tube(frame, [(-0.51, 1.3, -0.565), (0.51, 1.3, -0.565)], 0.008, segs=8)
+def paint_shape():
+    # The rear body: rear fenders, the seat base and the bag deck, seen from
+    # the side (z, y) and from above (x, z).
+    rear_side = smooth([(0.02, 0.24), (0.02, 0.60), (0.12, 0.645), (0.58, 0.69), (0.97, 0.70),
+                        (1.13, 0.68), (1.22, 0.62), (1.28, 0.50), (1.295, 0.36), (1.28, 0.24)])
+    rear_plan = smooth(mirror_plan([(0.572, 0.02), (0.575, 0.40), (0.598, 0.56), (0.60, 1.10),
+                                    (0.57, 1.25), (0.44, 1.30)]))
+    rear = side_plan(rear_side, rear_plan, 0.07)
+    # The front cowl: high and rounded, its back face leaning towards the
+    # seat, the nose rolling under to the bumper.
+    cowl_side = smooth([(-0.60, 0.24), (-0.557, 0.42), (-0.523, 0.60), (-0.505, 0.72), (-0.60, 0.765),
+                        (-0.78, 0.82), (-0.905, 0.775), (-0.98, 0.665), (-1.012, 0.525), (-1.0, 0.40),
+                        (-0.95, 0.33), (-0.80, 0.24)])
+    cowl_plan = smooth(mirror_plan([(0.30, -1.035), (0.47, -1.0), (0.56, -0.93), (0.585, -0.80),
+                                    (0.58, -0.49)]))
+    cowl = side_plan(cowl_side, cowl_plan, 0.11)
+    body = union(rear, cowl)
+    for a in arches():
+        body = smooth_cut(0.025, body, a)
+    # Pockets for the headlights at the front corners, sweeping back along
+    # the sides, and for the charging socket.
+    pocket = mirrored_x(rotated_x(rbox((0.44, 0.665, -0.925), (0.12, 0.048, 0.085), 0.035), (0.44, 0.665, -0.925), 8))
+    body = smooth_cut(0.012, body, pocket)
+    # The crease along the rear body, under the seat.
+    crease = mirrored_x(rbox((0.60, 0.55, 0.26), (0.03, 0.006, 0.26), 0.005))
+    body = smooth_cut(0.006, body, crease)
+    return body
 
 
-def steering(trim, chrome):
-    col_a = np.array([-0.27, 0.86, -0.52])
-    col_b = np.array([-0.27, 1.07, -0.33])
-    tube(trim, [col_a, col_b], 0.025)
-    # Wheel rim: a torus tilted towards the driver, with three spokes.
-    tilt = rot_x(-50)
-    centre = col_b + np.array([0, 0.02, 0.02])
-    ring = []
-    for k in range(40):
-        a = 2 * math.pi * k / 40
-        ring.append(centre + tilt @ np.array([0.17 * math.cos(a), 0, 0.17 * math.sin(a)]))
-    ring.append(ring[0])
-    tube(trim, ring, 0.016, segs=10, closed_ends=False)
-    for a in (math.pi * 0.5, math.pi * 1.17, math.pi * 1.83):
-        tube(trim, [centre, centre + tilt @ np.array([0.16 * math.cos(a), 0, 0.16 * math.sin(a)])], 0.011, segs=8)
-    superquadric(chrome, centre, (0.035, 0.012, 0.035), (0.5, 0.5), basis=tilt, rows=6, cols=12)
+def black_shape():
+    parts = []
+    # Rocker sills along the sides and the floorboard, 295 mm up.
+    parts.append(mirrored_x(rbox((0.545, 0.25, -0.02), (0.045, 0.06, 0.56), 0.02)))
+    parts.append(rbox((0.0, 0.282, -0.27), (0.54, 0.014, 0.29), 0.008))
+    # Kick panel under the dash, leaning back like the cowl's back face.
+    parts.append(rotated_x(rbox((0.0, 0.52, -0.545), (0.555, 0.215, 0.025), 0.02), (0.0, 0.52, -0.545), 12))
+    # Dash pod with two trays and cup holders, and the centre console.
+    dash = rbox((0.0, 0.80, -0.585), (0.575, 0.07, 0.13), 0.045)
+    for x in (-0.3, 0.3):
+        dash = smooth_cut(0.01, dash, rbox((x, 0.89, -0.60), (0.17, 0.05, 0.075), 0.02))
+    for x in (-0.06, 0.06):
+        dash = smooth_cut(0.006, dash, cyl_y(x, -0.52, 0.035, 0.80, 0.95))
+    parts.append(dash)
+    parts.append(rotated_x(rbox((0.0, 0.55, -0.50), (0.17, 0.2, 0.05), 0.03), (0.0, 0.55, -0.50), 12))
+    # Headlight housings in the pockets, front bumper and chin, rear bumper.
+    parts.append(mirrored_x(rotated_x(rbox((0.43, 0.665, -0.91), (0.105, 0.04, 0.07), 0.03), (0.43, 0.665, -0.91), 8)))
+    parts.append(rbox((0.0, 0.335, -0.995), (0.40, 0.05, 0.04), 0.025))
+    parts.append(rbox((0.0, 0.28, -0.94), (0.46, 0.04, 0.07), 0.02))
+    parts.append(rbox((0.0, 0.33, 1.305), (0.52, 0.06, 0.04), 0.025))
+    # Seat back shell, the bag well behind it and the bag rack arms.
+    parts.append(rotated_x(rbox((0.0, 0.99, 0.665), (0.535, 0.18, 0.03), 0.02), (0.0, 0.99, 0.665), -18))
+    well = rbox((0.0, 0.79, 0.90), (0.46, 0.09, 0.12), 0.03)
+    well = smooth_cut(0.01, well, rbox((0.0, 0.86, 0.90), (0.435, 0.1, 0.095), 0.02))
+    parts.append(well)
+    parts.append(rbox((0.0, 1.06, 0.79), (0.56, 0.018, 0.022), 0.012))
+    # Square rear posts from the body to the roof.
+    parts.append(mirrored_x(rbox((0.50, 1.19, 0.745), (0.024, 0.50, 0.034), 0.01)))
+    # Charging socket cover on the side of the seat base.
+    parts.append(mirrored_x(cyl_x(0.52, 0.16, 0.035, 0.565, 0.585)))
+    # Grab handle on the dash, passenger side.
+    return union(*parts)
 
 
-def lights(chrome, lamp, tail):
-    for side in (-1, 1):
-        c = np.array([side * 0.34, 0.6, -1.125])
-        # Bezel ring and a domed lens, facing forward.
-        ring = [c + np.array([0.07 * math.cos(a), 0.07 * math.sin(a), 0]) for a in np.linspace(0, 2 * math.pi, 25)]
-        tube(chrome, ring, 0.012, segs=8, closed_ends=False)
-        superquadric(lamp, c + np.array([0, 0, -0.005]), (0.062, 0.062, 0.02), (1.0, 1.0), rows=8, cols=20)
-        superquadric(tail, (side * 0.44, 0.56, 1.125), (0.06, 0.035, 0.012), (0.4, 0.4), rows=6, cols=16)
+def vinyl_shape():
+    cushion = rbox((0.0, 0.745, 0.30), (0.53, 0.075, 0.26), 0.065)
+    cushion = smooth_cut(0.008, cushion, rbox((0.0, 0.83, 0.30), (0.004, 0.03, 0.3), 0.003))
+    back_c = (0.0, 1.0, 0.615)
+    back = rotated_x(rbox(back_c, (0.52, 0.175, 0.06), 0.06), back_c, -18)
+    back = smooth_cut(0.08, back, sphere((0.0, 1.26, 0.70), 0.12))
+    back = smooth_cut(0.006, back, rotated_x(rbox((0.0, 1.0, 0.56), (0.004, 0.2, 0.02), 0.003), back_c, -18))
+    return smooth_union(0.01, cushion, back)
+
+
+ROOF_TOP = 1.765  # overall height with the sun top
+
+
+def roof_shape():
+    crown = 0.012
+
+    def dy(x, z):
+        return crown * (1.0 - (x / 0.6) ** 2) * (1.0 - ((z - 0.122) / 0.85) ** 2)
+    shell = rbox((0.0, ROOF_TOP - 0.03 - crown, 0.122), (0.60, 0.03, 0.846), 0.025)
+    shell = smooth_cut(0.01, shell, rbox((0.0, ROOF_TOP - 0.07 - crown, 0.122), (0.565, 0.03, 0.81), 0.01))
+    return warped(shell, dy)
+
+
+def tubes(black, chrome, glass, lamp, amber, tail):
+    for s in (-1, 1):
+        # Front struts, round, from the cowl up to the roof.
+        tube(black, [(s * 0.545, 0.76, -0.60), (s * 0.535, 0.90, -0.548), (s * 0.525, ROOF_TOP - 0.05, -0.37)], 0.017)
+        # Windscreen side rails, a little further forward.
+        tube(black, [(s * 0.555, 0.74, -0.70), (s * 0.545, ROOF_TOP - 0.05, -0.50)], 0.011, segs=8)
+        # Hip restraints round the ends of the seat.
+        tube(black, [(s * 0.565, 0.70, 0.66), (s * 0.575, 0.95, 0.60), (s * 0.58, 0.955, 0.16),
+                     (s * 0.575, 0.90, 0.07), (s * 0.565, 0.70, 0.05)], 0.018)
+        # Headlight lens and an amber marker along the side of the pocket.
+        superquadric(lamp, (s * 0.43, 0.665, -0.985), (0.042, 0.042, 0.02), (1.0, 1.0), rows=8, cols=20)
+        ring = [np.array((s * 0.43, 0.665, -0.99)) + np.array([0.05 * math.cos(a), 0.05 * math.sin(a), 0])
+                for a in np.linspace(0, 2 * math.pi, 25)]
+        tube(chrome, ring, 0.006, segs=6, closed_ends=False)
+        superquadric(amber, (s * 0.555, 0.655, -0.88), (0.012, 0.012, 0.06), (0.4, 0.4), rows=6, cols=12)
+        superquadric(tail, (s * 0.44, 0.56, 1.296), (0.05, 0.03, 0.01), (0.4, 0.4), rows=6, cols=12)
+    # Windscreen: two panes on a fold, with the hinge bar between.
+    def rail(t, s):
+        a = np.array((s * 0.55, 0.74, -0.70))
+        b = np.array((s * 0.545, ROOF_TOP - 0.05, -0.50))
+        return a + (b - a) * t
+    for t0, t1 in ((0.2, 0.52), (0.53, 0.86)):
+        rows, cols = 4, 12
+        P = np.zeros((rows, cols, 3))
+        for r in range(rows):
+            t = t0 + (t1 - t0) * r / (rows - 1)
+            a, b = rail(t, -1), rail(t, 1)
+            for c in range(cols):
+                P[r, c] = a + (b - a) * c / (cols - 1) + np.array([0, 0, 0.006])
+        pts, idx = grid(P)
+        glass.add(pts, idx)
+    tube(black, [rail(0.525, -1), rail(0.525, 1)], 0.008, segs=8)
+    tube(black, [rail(0.87, -1), rail(0.87, 1)], 0.009, segs=8)
+    # Mirror under the front of the roof, on a bar between the struts.
+    tube(black, [(-0.53, ROOF_TOP - 0.09, -0.42), (0.53, ROOF_TOP - 0.09, -0.42)], 0.012, segs=8)
+    superquadric(black, (0.0, ROOF_TOP - 0.15, -0.43), (0.11, 0.035, 0.012), (0.3, 0.3), rows=6, cols=16)
+    # Badge on the nose: a plain metal disc.
+    superquadric(chrome, (0.0, 0.70, -1.0), (0.035, 0.035, 0.008), (1.0, 1.0), rows=8, cols=20,
+                 basis=rot_x(-35))
+
+
+def steering(black, chrome):
+    a = np.array([-0.27, 0.80, -0.36])
+    b = np.array([-0.27, 1.07, -0.04])
+    tube(black, [a, b], 0.022)
+    axis = (b - a) / np.linalg.norm(b - a)
+    # The wheel's plane is square to the column.
+    u = np.array([1.0, 0.0, 0.0])
+    v = np.cross(axis, u)
+    centre = b + axis * 0.02
+    ring = [centre + 0.185 * (math.cos(t) * u + math.sin(t) * v) for t in np.linspace(0, 2 * math.pi, 49)]
+    tube(black, ring, 0.02, segs=12, closed_ends=False)
+    for t in (math.pi * 0.0, math.pi * 1.0, math.pi * 1.5):
+        tube(black, [centre, centre + 0.175 * (math.cos(t) * u + math.sin(t) * v)], 0.014, segs=8)
+    superquadric(black, centre + axis * 0.01, (0.06, 0.06, 0.03), (0.5, 0.5), rows=8, cols=16,
+                 basis=np.stack([u, v, axis], axis=1))
 
 
 def running_gear(black, metal):
     for x in (-0.3, 0.3):
-        superquadric(black, (x, 0.27, 0.0), (0.035, 0.045, 1.05), (0.2, 0.2), rows=6, cols=12)
-    # Rear axle with the motor and differential; front beam.
+        superquadric(black, (x, 0.2, 0.05), (0.035, 0.045, 1.0), (0.2, 0.2), rows=6, cols=12)
+    # Rear axle with the motor and differential; front struts and wishbones.
     tube(metal, [(-TRACK_R + 0.06, WHEEL_R, AXLE_R), (TRACK_R - 0.06, WHEEL_R, AXLE_R)], 0.035)
-    superquadric(metal, (0.0, 0.25, AXLE_R), (0.12, 0.12, 0.12), (0.8, 0.8), rows=10, cols=20)
-    tube(metal, [(0.0, 0.27, AXLE_R - 0.1), (0.0, 0.27, AXLE_R - 0.35)], 0.09, segs=16)
-    tube(black, [(-TRACK_F + 0.06, WHEEL_R, AXLE_F), (TRACK_F - 0.06, WHEEL_R, AXLE_F)], 0.03)
-    # Leaf springs at the back.
-    for x in (-0.3, 0.3):
-        tube(black, [(x, 0.3, AXLE_R - 0.38), (x, 0.24, AXLE_R), (x, 0.3, AXLE_R + 0.32)], 0.018, segs=8)
+    superquadric(metal, (0.0, 0.24, AXLE_R), (0.12, 0.12, 0.12), (0.8, 0.8), rows=10, cols=20)
+    tube(metal, [(0.0, 0.25, AXLE_R - 0.1), (0.0, 0.25, AXLE_R - 0.36)], 0.09, segs=16)
+    for s in (-1, 1):
+        tube(metal, [(s * (TRACK_F - 0.07), WHEEL_R + 0.02, AXLE_F), (s * 0.36, 0.56, AXLE_F + 0.03)], 0.025, segs=10)
+        tube(black, [(s * (TRACK_F - 0.07), WHEEL_R - 0.03, AXLE_F), (s * 0.12, 0.2, AXLE_F)], 0.015, segs=8)
 
 
 def wheel():
-    tyre, rim, cap_ = Part(), Part(), Part()
-    # Tyre section: (axial, radius), from the inner bead round to the outer.
+    tyre, rim, nuts = Part(), Part(), Part()
+    bead = 0.1016  # 8 in rim
     sec = []
-    for k in range(25):
-        a = -math.pi / 2 + math.pi * k / 24
-        w = TYRE_W / 2 * math.copysign(abs(math.sin(a)) ** 0.6, math.sin(a))
-        r = 0.11 + (WHEEL_R - 0.11) * abs(math.cos(a)) ** 0.35
+    for k in range(29):
+        a = -math.pi / 2 + math.pi * k / 28
+        w = TYRE_W / 2 * math.copysign(abs(math.sin(a)) ** 0.45, math.sin(a))
+        r = bead + 0.005 + (WHEEL_R - bead - 0.005) * abs(math.cos(a)) ** 0.28
         sec.append((w, r))
 
     def tread(w, r, t):
-        if r < WHEEL_R - 0.012:
+        if r < WHEEL_R - 0.03:
             return 0.0
-        block = (t * 30 / (2 * math.pi) + (0.5 if w > 0 else 0.0)) % 1.0
-        groove = abs(w) < 0.012
-        return -0.0 if (block < 0.62 and not groove) else -0.007
+        # Two rows of chunky blocks, staggered, with a zigzag centre groove.
+        n = 26
+        f = (t * n / (2 * math.pi) + (0.5 if w > 0 else 0.0)) % 1.0
+        centre = abs(w) < 0.01 + 0.006 * abs(f - 0.5)
+        shoulder = abs(w) > TYRE_W / 2 - 0.02 and (t * n * 2 / (2 * math.pi)) % 1.0 > 0.55
+        return -0.008 if (f > 0.7 or centre or shoulder) else 0.0
 
-    lathe_x(tyre, sec, 120, (0, 0, 0), modulate=tread)
-    # Alloy rim: barrel, dished face with eight spokes, a centre cap and nuts.
-    face = [(0.08, 0.112), (0.085, 0.104), (0.087, 0.088), (0.078, 0.048), (0.082, 0.032), (0.09, 0.022), (0.095, 0.0)]
-
-    th = np.linspace(0, 2 * math.pi, 64, endpoint=False)
-    P = np.zeros((len(face), len(th), 3))
-    for r_, (w, rad) in enumerate(face):
-        for c, t in enumerate(th):
-            s = (t * 8 / (2 * math.pi)) % 1.0
-            dip = -0.018 if (0.035 < rad < 0.095 and s > 0.6) else 0.0
-            P[r_, c] = (w + dip, rad * math.cos(t), rad * math.sin(t))
-    pts, idx = grid(P, wrap_cols=True)
-    rim.add(pts, idx)
-    lathe_x(rim, [(-0.08, 0.112), (0.08, 0.112)], 64, (0, 0, 0), flip=True)
-    superquadric(cap_, (0.094, 0, 0), (0.01, 0.024, 0.024), (0.6, 0.8), rows=6, cols=16)
+    lathe_x(tyre, sec, 156, (0, 0, 0), modulate=tread)
+    # Steel rim: barrel, a dished centre with four nuts and a cap.
+    # A flange at the bead, then the face dished in a little to the hub.
+    face = [(0.095, bead + 0.008), (0.1, bead - 0.002), (0.098, 0.09), (0.088, 0.08), (0.082, 0.062),
+            (0.082, 0.032), (0.09, 0.022), (0.09, 0.0)]
+    lathe_x(rim, face, 48, (0, 0, 0), flip=True)
+    superquadric(rim, (0.09, 0, 0), (0.012, 0.03, 0.03), (0.6, 0.8), rows=6, cols=16)
     for k in range(4):
         a = 2 * math.pi * k / 4 + math.pi / 4
-        tube(cap_, [(0.08, 0.038 * math.cos(a), 0.038 * math.sin(a)), (0.094, 0.038 * math.cos(a), 0.038 * math.sin(a))],
-             0.008, segs=6)
-    return tyre, rim, cap_
+        superquadric(nuts, (0.086, 0.047 * math.cos(a), 0.047 * math.sin(a)), (0.008, 0.009, 0.009), (0.3, 0.8),
+                     rows=4, cols=6)
+    return tyre, rim, nuts
+
+
+ARCH_R = 0.30
 
 
 def build(path):
@@ -403,7 +448,7 @@ def build(path):
         d = g.doc["materials"][m]
         if clearcoat:
             d.setdefault("extensions", {})["KHR_materials_clearcoat"] = {"clearcoatFactor": clearcoat,
-                                                                        "clearcoatRoughnessFactor": 0.05}
+                                                                        "clearcoatRoughnessFactor": 0.08}
         if emissive:
             d["emissiveFactor"] = list(emissive)
         if blend:
@@ -411,46 +456,68 @@ def build(path):
         return m
 
     mats = {
-        "paint": mat("Paint", (0.9, 0.9, 0.88, 1), 0.3, clearcoat=1.0),
-        "roof": mat("Roof", (0.92, 0.92, 0.9, 1), 0.45),
-        "black": mat("BlackPlastic", (0.035, 0.035, 0.04, 1), 0.6),
-        "frame": mat("Frame", (0.05, 0.05, 0.055, 1), 0.4, metal=0.6),
-        "vinyl": mat("Vinyl", (0.36, 0.26, 0.18, 1), 0.5),
-        "trim": mat("Trim", (0.06, 0.06, 0.065, 1), 0.45),
-        "chrome": mat("Chrome", (0.95, 0.95, 0.95, 1), 0.12, metal=1.0),
-        "metal": mat("Metal", (0.3, 0.3, 0.32, 1), 0.55, metal=0.8),
-        "glass": mat("Glass", (0.6, 0.68, 0.72, 0.25), 0.04, double=True, blend=True),
-        "lamp": mat("Lamp", (1, 1, 0.95, 1), 0.05, emissive=(0.8, 0.78, 0.7)),
-        "tail": mat("TailLight", (0.6, 0.03, 0.03, 1), 0.1, emissive=(0.35, 0.0, 0.0)),
-        "rubber": mat("Tyre", (0.03, 0.03, 0.03, 1), 0.92),
-        "alloy": mat("Alloy", (0.72, 0.73, 0.75, 1), 0.3, metal=1.0),
+        # A slate blue-grey metallic, the beige of the seats and sun top,
+        # and textured black plastics.
+        "paint": mat("Paint", (0.15, 0.19, 0.24, 1), 0.3, metal=0.3, clearcoat=1.0),
+        "roof": mat("SunTop", (0.4, 0.36, 0.29, 1), 0.75),
+        "black": mat("BlackPlastic", (0.03, 0.03, 0.033, 1), 0.65),
+        "vinyl": mat("Vinyl", (0.48, 0.42, 0.33, 1), 0.6),
+        "chrome": mat("Chrome", (0.9, 0.9, 0.9, 1), 0.15, metal=1.0),
+        "metal": mat("Metal", (0.12, 0.12, 0.13, 1), 0.6, metal=0.5),
+        "glass": mat("Glass", (0.75, 0.8, 0.82, 0.18), 0.04, double=True, blend=True),
+        "lamp": mat("Lamp", (0.95, 0.95, 0.92, 1), 0.05, emissive=(0.5, 0.5, 0.46)),
+        "tail": mat("TailLight", (0.55, 0.03, 0.02, 1), 0.15, emissive=(0.3, 0.0, 0.0)),
+        "amber": mat("Amber", (0.9, 0.45, 0.05, 1), 0.2, emissive=(0.25, 0.1, 0.0)),
+        "rubber": mat("Tyre", (0.035, 0.035, 0.035, 1), 0.9),
+        "rim": mat("SteelRim", (0.025, 0.025, 0.028, 1), 0.4, metal=0.4, double=True),
+        "nuts": mat("WheelNuts", (0.6, 0.6, 0.62, 1), 0.3, metal=1.0),
     }
-    parts = {k: Part() for k in ["paint", "roof", "black", "frame", "vinyl", "trim", "chrome", "metal", "glass", "lamp", "tail"]}
-    body(parts["paint"], parts["black"])
-    seats(parts["vinyl"], parts["trim"])
-    canopy(parts["roof"], parts["frame"], parts["glass"])
-    steering(parts["trim"], parts["chrome"])
-    lights(parts["chrome"], parts["lamp"], parts["tail"])
+    shapes = {"paint": paint_shape(), "black": black_shape(), "vinyl": vinyl_shape(), "roof": roof_shape()}
+    boxes = {"paint": ((-0.63, 0.2, -1.06), (0.63, 0.86, 1.33), 0.006, 30000),
+             "black": ((-0.63, 0.2, -1.06), (0.63, 1.72, 1.37), 0.006, 22000),
+             "vinyl": ((-0.58, 0.64, 0.0), (0.58, 1.22, 0.75), 0.006, 9000),
+             "roof": ((-0.63, 1.6, -0.76), (0.63, 1.78, 1.0), 0.008, 5000)}
+    parts = {k: Part() for k in ["paint", "black", "vinyl", "roof", "chrome", "metal", "glass", "lamp", "amber", "tail"]}
+    for key, (lo, hi, step, faces) in boxes.items():
+        p, n, i = sdf_mesh(shapes[key], lo, hi, step, faces)
+        parts[key].add(p, i, n)
+    tubes(parts["black"], parts["chrome"], parts["glass"], parts["lamp"], parts["amber"], parts["tail"])
+    steering(parts["black"], parts["chrome"])
     running_gear(parts["black"], parts["metal"])
 
-    def mesh(name, items):
+    solid = union(*shapes.values())
+    wheels = [cyl_x(WHEEL_R, z, WHEEL_R, x - TYRE_W / 2, x + TYRE_W / 2)
+              for x in (-TRACK_F, TRACK_F) for z in (AXLE_F,)] + \
+             [cyl_x(WHEEL_R, AXLE_R, WHEEL_R, x - TYRE_W / 2, x + TYRE_W / 2) for x in (-TRACK_R, TRACK_R)]
+
+    def scene(x, y, z):
+        d = np.minimum(solid(x, y, z), y)  # the ground too
+        for w in wheels:
+            d = np.minimum(d, w(x, y, z))
+        return d
+
+    def mesh(name, items, ao):
         prims = []
         tris = 0
         for key, part in items:
             if part.count == 0:
                 continue
             p, n, i = part.arrays()
+            attrs = {"POSITION": g.accessor(p, FLOAT, 34962, minmax=True), "NORMAL": g.accessor(n, FLOAT, 34962)}
+            if ao and key != "glass" and not os.environ.get("NOAO"):
+                a = ambient_occlusion(scene, p.astype(np.float64), n.astype(np.float64))
+                col = np.stack([a, a, a, np.ones_like(a)], axis=1).astype(np.float32)
+                attrs["COLOR_0"] = g.accessor(col, FLOAT, 34962)
             itype = USHORT if len(p) < 65536 else UINT
-            prims.append({"attributes": {"POSITION": g.accessor(p, FLOAT, 34962, minmax=True),
-                                         "NORMAL": g.accessor(n, FLOAT, 34962)},
-                          "indices": g.accessor(i.reshape(-1), itype, 34963), "material": mats[key]})
+            prims.append({"attributes": attrs, "indices": g.accessor(i.reshape(-1), itype, 34963),
+                          "material": mats[key]})
             tris += len(i)
         g.doc["meshes"].append({"name": name, "primitives": prims})
         return len(g.doc["meshes"]) - 1, tris
 
-    body_mesh, body_tris = mesh("Body", list(parts.items()))
-    tyre, rim, cap_ = wheel()
-    wheel_mesh, wheel_tris = mesh("Wheel", [("rubber", tyre), ("alloy", rim), ("chrome", cap_)])
+    body_mesh, body_tris = mesh("Body", list(parts.items()), True)
+    tyre, rim, nuts = wheel()
+    wheel_mesh, wheel_tris = mesh("Wheel", [("rubber", tyre), ("rim", rim), ("nuts", nuts)], False)
     root_children = [g.node(name="Body", mesh=body_mesh)]
     half_turn = [0, 1, 0, 0]  # quaternion: 180 degrees about y
     for name, x, z in [("Wheel_FL", -TRACK_F, AXLE_F), ("Wheel_FR", TRACK_F, AXLE_F),

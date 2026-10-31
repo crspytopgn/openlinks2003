@@ -48,12 +48,13 @@ than without it. Computer golfers never drive, and on a new hole the buggy
 waits beside the tee.
 
 Handling (`BuggyDrive`) is a planar rigid-body vehicle model stepped at
-120 Hz, with real electric-cart numbers:
+120 Hz, with the published figures of a current two-seat electric fleet
+cart (448 kg kerb weight, 1.635 m wheelbase, 3.3 kW 48 V AC motor, 24 km/h):
 
-- 500 kg with the golfer aboard, 300 kg m^2 of yaw inertia, the centre of
-  gravity behind the middle (the batteries) and 0.55 m up, 1.66 m wheelbase.
-- A rear-drive 48 V motor: 1500 N at the wheels from a stand, then 3.7 kW,
-  and a governor at about 15.5 mph (5.5 mph in reverse) that also
+- 530 kg with the golfer aboard, 300 kg m^2 of yaw inertia, the centre of
+  gravity behind the middle (the batteries) and 0.55 m up.
+- Rear drive: 1500 N at the wheels from a stand, then the motor's 3.3 kW,
+  and a governor at 15 mph (5.5 mph in reverse) that also
   regenerates to hold the speed downhill. Pedals take a moment to press,
   and the automatic park brake holds it, even on a hill, once the pedals
   are up and it has stopped.
@@ -77,15 +78,20 @@ It stops at the edge of greens, bunkers and water, as real course rules
 ask.
 
 The cart is our own model (CC0), built by `tools/buggy/build_golf_cart.py`
-into `game/assets/buggy/golf_cart.glb` (about 36k triangles for the body
-and 7k per wheel, 0.8 MB). It is true to size, using the published
-dimensions of a common two-seat electric cart: 2.39 m long, 1.19 m wide,
-1.76 m tall, a 1.66 m wheelbase, 0.88 m front and 0.98 m rear track, and
-18x8.5-8 tyres on 8 inch alloy rims. The golfer is about 1.77 m tall and the
-ball and hole are the Rules of Golf sizes; `_test_real_scale` checks all of
-these. The body is lofted from smooth curves, with a clearcoat paint, a
-curved windscreen, bench seats, a roof on struts, lights, bumpers and
-treaded tyres. If the file is missing, a simple box cart built in code
+into `game/assets/buggy/golf_cart.glb`. It follows the published
+dimensions and the general shape of a current two-seat fleet cart, without
+any maker's names or badges: 2.38 m long, 1.20 m wide, 1.765 m to the sun
+top, a 1.635 m wheelbase, 0.89 m front and 0.98 m rear track, a 295 mm
+floorboard and 18x8.5-8 tyres on 8 inch steel rims. The golfer is about
+1.77 m tall and the ball and hole are the Rules of Golf sizes;
+`_test_real_scale` checks all of these. The moulded body panels, seat and
+sun top are signed distance shapes drawn from side, plan and front outlines
+with rounded edges and cut wheel arches, meshed by marching cubes and
+simplified (`tools/buggy/sdf.py`), with ambient occlusion baked into the
+vertex colours so it looks solid without any extra cost at run time. The
+paint is a slate blue-grey metallic, with beige seats and sun top, black
+sills, bumpers and dash, a folding windscreen, round front struts and
+square rear posts. If the file is missing, a simple box cart built in code
 stands in. The body squats, dives and leans on its springs (a damped spring
 per axis, about 1.3 Hz). It sits on the ground under its four wheels,
 pitching and rolling with the slopes, and a chase camera follows it.
