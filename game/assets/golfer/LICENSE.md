@@ -27,7 +27,8 @@ The animations are motion capture, retargeted onto the golfer by
 the target and the retiming are this project's), from these takes of the
 CMU Graphics Lab Motion Capture Database in Bruce Hahne's BVH conversion:
 64_01 (address and swing), 64_13 (putting address and putt), 69_01 (walk),
-79_69 (celebrate) and 79_74 (upset). CMU's terms: "This
+79_69 (celebrate), 79_74 (upset), 77_02 (the caddie standing at ease)
+and 77_08 (crouching to read a putt). CMU's terms: "This
 data is free for use in research and commercial projects worldwide."
 
 The data used in this project was obtained from mocap.cs.cmu.edu. The

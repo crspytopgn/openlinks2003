@@ -66,7 +66,7 @@ feel) still need a working install.
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round
   - [x] Mesh, textures and skinning (`olcore::read_meshes`, `skin_positions`); the round shows the textured golfer with the driver or putter
-  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, a walk up to each ball, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
+  - [x] Without the game files: a realistic CC0 golfer built from MakeHuman assets, moving with motion capture (CMU mocap, [mocap_swing.py](tools/golfer/mocap_swing.py)): address sway with a look at the target, swing, putt, a walk up to each ball, a crouch to read each putt, his head following the ball, feet planted on slopes, and reactions to holing out and penalties ([tools/golfer](tools/golfer/build_free_golfer.py), [licence](game/assets/golfer/LICENSE.md))
   - [x] Club and shot clips: the driver, iron and putter models; the `[Driver]`, `[Iron]`, `[Chip]` and `[Putter]` clips by club and distance, half swings for weak swings, long, medium and short putts; the low-detail model (`golfer_detail=low`, the browser default); shirt and pants choices (`shirts=`, `pants=`). The scripts have no lie-specific clips (sand, rough) to use.
 - [ ] Audio: effects, ambient, commentary **(unblocked: plain WAVs, `SOUNDS.LS`, `.SSF` sound scripts, `.TIP` hole previews)**
   - [x] `.SSF` banks and MS ADPCM voices ([ssf.md](docs/formats/ssf.md), `olcore::SsfFile`, `olcore::decode_pcm16`); swing, landing, cup and splash sounds play in the round
@@ -109,7 +109,7 @@ feel) still need a working install.
 - [ ] Optional extras, off by default so Classic Links plays as the original ([caddie-and-buggy.md](docs/caddie-and-buggy.md))
   - [x] Caddie (Settings > Caddie): yardage, plays-like, club, line and green reads planned through the real physics, saying less at the harder swing skill levels
   - [x] Drivable golf buggy between shots (Settings > Golf buggy), with a skip
-  - [ ] Caddie animations (walking, handing over the club)
+  - [ ] Caddie animations (walking, handing over the club); standing at ease with mocap is done
 - [ ] Hot-seat multiplayer, then online
   - [x] Hot seat: up to four players in one round, honour and furthest-away order
   - [x] Hand-over screen between people at one keyboard, skipped for computer golfers
