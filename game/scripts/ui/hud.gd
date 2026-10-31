@@ -1,6 +1,8 @@
 class_name Hud
 extends Control
 ## On-screen text: hole and shot info, messages, controls, and the meter.
+## In the Broadcast presentation the TV graphics (BroadcastOverlay) take the
+## place of the info text and bars, and messages become captions.
 
 var info: Label
 var message: Label
@@ -11,6 +13,8 @@ var scorecard: ScorecardPanel
 ## With the player's own interface art: one chrome bar per line of `info`.
 var art: HudArt
 var _bars: Array[InfoBar] = []
+var overlay: BroadcastOverlay
+var broadcast := false
 
 var _message_time := 0.0
 
@@ -41,6 +45,11 @@ func _ready() -> void:
 	_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))
 	add_child(meter)
 
+	overlay = BroadcastOverlay.new()
+	overlay.visible = false
+	add_child(overlay)
+	move_child(overlay, 0)
+
 	scorecard = ScorecardPanel.new()
 	scorecard.visible = false
 	add_child(scorecard)
@@ -58,8 +67,24 @@ func use_art(hud_art: HudArt) -> void:
 	meter.queue_redraw()
 
 
+## Switches between the Classic interface and the broadcast graphics.
+func set_broadcast(on: bool) -> void:
+	broadcast = on
+	overlay.visible = on
+	info.visible = not on and art == null
+	for bar in _bars:
+		bar.visible = false
+	if on:
+		message.text = ""
+	else:
+		overlay.caption("")
+	# The wind sits below the LIVE bug, and the hints above the ticker.
+	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 50 if on else 12, 90, 112))
+	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+
+
 func _process(delta: float) -> void:
-	if art != null:
+	if art != null and not broadcast:
 		_update_bars()
 	if _message_time > 0.0:
 		_message_time -= delta
@@ -72,6 +97,11 @@ func _process(delta: float) -> void:
 
 ## Shows a message; seconds <= 0 keeps it until the next one.
 func show_message(text: String, seconds := 0.0) -> void:
+	if broadcast:
+		overlay.caption(text.replace("\n", "    "), seconds)
+		message.text = ""
+		_message_time = 0.0
+		return
 	message.text = text
 	_message_time = seconds
 

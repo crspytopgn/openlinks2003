@@ -1,10 +1,13 @@
 class_name GraphicsSettings
 extends RefCounted
 ## Display and quality settings, saved to user://settings.cfg under
-## [graphics], plus the wind strength under [game]. Other sections of that
-## file (such as the game folder) are left alone.
+## [graphics], plus the wind strength and the presentation under [game].
+## Other sections of that file (such as the game folder) are left alone.
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
+## Classic frames and dresses the round like Links 2003; Broadcast like a TV
+## golf broadcast (ShotDirector cameras, tracer, replays, BroadcastOverlay).
+enum Presentation { CLASSIC, BROADCAST }
 
 const PATH := "user://settings.cfg"
 const SECTION := "graphics"
@@ -12,6 +15,7 @@ const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
 const MSAA_CHOICES := [0, 2, 4, 8]
 const RENDER_SCALES := [0.5, 0.75, 1.0, 1.25, 1.5]
+const PRESENTATION_NAMES := ["Classic Links", "Broadcast"]
 
 var quality: int = Quality.HIGH
 var fullscreen := false
@@ -20,6 +24,7 @@ var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
 var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
 var wind: int = Wind.Level.MODERATE
+var presentation: int = Presentation.BROADCAST
 
 
 func _init() -> void:
@@ -44,6 +49,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.render_scale = clampf(float(cfg.get_value(SECTION, "render_scale", s.render_scale)), 0.25, 2.0)
 	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
+	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.BROADCAST)
 	return s
 
 
@@ -57,6 +63,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "render_scale", render_scale)
 	cfg.set_value(SECTION, "fov", fov)
 	cfg.set_value(GAME_SECTION, "wind", wind)
+	cfg.set_value(GAME_SECTION, "presentation", presentation)
 	var err := cfg.save(path)
 	if err != OK:
 		push_warning("Could not save graphics settings to %s (error %d)" % [path, err])
@@ -64,6 +71,10 @@ func save(path := PATH) -> void:
 
 ## True on the Forward+ renderer (desktop), which supports SSAO and the other
 ## screen-space effects. The web build uses Compatibility.
+func broadcast() -> bool:
+	return presentation == Presentation.BROADCAST
+
+
 static func is_forward_plus() -> bool:
 	return RenderingServer.get_current_rendering_method() == "forward_plus"
 

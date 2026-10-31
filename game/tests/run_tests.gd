@@ -39,6 +39,7 @@ func _initialize() -> void:
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
+	_run("broadcast_pieces", _test_broadcast_pieces)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
 	_run("free_assets", _test_free_assets)
@@ -64,6 +65,7 @@ func _process(_delta: float) -> bool:
 	_run("full_round", _test_full_round)
 	_run("multiplayer_rounds", _test_multiplayer_rounds)
 	_run("rounds_recorded", _test_rounds_recorded)
+	_run("broadcast_round", _test_broadcast_round)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PlayerProfiles.path))
 	if _failures > 0:
 		print("%d check(s) failed" % _failures)
@@ -582,6 +584,7 @@ func _test_graphics_settings() -> void:
 	s.render_scale = 0.75
 	s.fov = 70.0
 	s.wind = Wind.Level.STRONG
+	s.presentation = GraphicsSettings.Presentation.CLASSIC
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -589,6 +592,8 @@ func _test_graphics_settings() -> void:
 	_check_near(loaded.render_scale, 0.75, 1e-6, "render scale saved")
 	_check_near(loaded.fov, 70.0, 1e-6, "fov saved")
 	_check(loaded.wind == Wind.Level.STRONG, "wind saved")
+	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
+	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
 	_check(cfg.get_value("game", "folder", "") == "/somewhere", "other sections kept")
@@ -956,3 +961,105 @@ func _test_golfer_file_readers() -> void:
 	var parsed := LinksGolfer.parse_script("[Driver]\nAddress=DriverAddress ; comment\n[file_locations]\ngolfer.skl=a_bound.skl")
 	_check(parsed.get("Driver", {}).get("Address", "") == "DriverAddress", "script value")
 	_check(parsed.get("file_locations", {}).get("golfer.skl", "") == "a_bound.skl", "script file location")
+
+
+## The broadcast cameras, green grid, hole map and commentary on their own.
+func _test_broadcast_pieces() -> void:
+	# A straight 200 m drive down +z on flat ground, landing 40 m from the pin.
+	var shot := ShotResult.new()
+	for i in 121:
+		var t := i * 0.05
+		var u := t / 6.0
+		shot.add_sample(t, Vector3(0.0, 30.0 * 4.0 * u * (1.0 - u), 200.0 * u))
+	shot.first_landing = Vector3(0, 0, 200)
+	shot.rest = Vector3(0, 0, 215)
+	shot.carry_m = 200.0
+	shot.total_m = 215.0
+	shot.time_s = 6.0
+	shot.bounces = 2
+	var terrain := FlatTerrain.new()
+	var behind := Vector3(0, 1.75, -4.2)
+	var pin := Vector3(0, 0, 240)
+	var d := ShotDirector.plan(shot, pin, terrain, behind, false, 0)
+	_check(d.cut_cams.size() == 3, "drive gets three cameras (got %d)" % d.cut_cams.size())
+	_check(d.cut_cams[0] == ShotDirector.Cam.BEHIND, "starts behind the ball")
+	_check(d.cut_cams[1] == ShotDirector.Cam.CHASE, "variant 0 chases the ball")
+	_check(d.cut_cams[2] == ShotDirector.Cam.PIN, "landing near the pin cuts to the pin camera")
+	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
+	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
+	var late: Array = d.step(5.5, shot.position_at(5.5), behind, 0.016)
+	_check(late[2], "the pin camera starts with a cut")
+	_check((late[0] as Vector3).z > 240.0, "pin camera stands beyond the pin")
+	var side := ShotDirector.plan(shot, Vector3(0, 0, 400), terrain, behind, false, 2)
+	_check(side.cut_cams[1] == ShotDirector.Cam.SIDE, "variant 2 cuts side-on")
+	_check(side.cut_cams[2] == ShotDirector.Cam.LANDING, "far from the pin: landing camera")
+	var putt := ShotDirector.plan(shot, pin, terrain, behind, true, 0)
+	_check(putt.cut_cams.size() == 1 and putt.cut_cams[0] == ShotDirector.Cam.PUTT, "putts track the ball")
+
+	_check_near(GreenGrid.slope_percent(Vector3.UP), 0.0, 1e-6, "flat green has no slope")
+	_check_near(GreenGrid.slope_percent(Vector3(0.03, 1.0, 0.04).normalized()), 5.0, 1e-3, "slope in percent")
+	var grid := GreenGrid.new()
+	grid.build(terrain, Vector3(0, 0, 0), Vector3(0, 0, 8))
+	_check(grid.mesh.get_surface_count() == 1, "green grid builds")
+	grid.free()
+
+	var course := PlaceholderCourseLoader.new().load_course("")
+	var map := HoleMap.make(course.holes[0])
+	_check(map.get_width() == HoleMap.WIDTH and map.get_height() == HoleMap.HEIGHT, "hole map size")
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	var holed := ShotResult.new()
+	holed.outcome = ShotResult.Outcome.HOLED
+	var line: Array = Commentary.pick(holed, Surface.Type.GREEN, false, 0.0, 140.0, rng)
+	_check(line[1] == Commentary.Crowd.ROAR and Commentary.HOLED_LONG.has(line[0]), "holed approach roars")
+	var wet := ShotResult.new()
+	wet.outcome = ShotResult.Outcome.WATER
+	_check(Commentary.pick(wet, Surface.Type.WATER, false, 50.0, 150.0, rng)[1] == Commentary.Crowd.GROAN, "water groans")
+
+
+## A round in each presentation, with a replay, a flyover and the green grid.
+func _test_broadcast_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
+	game._apply_graphics()
+	game.start_round()
+	_check(game.camera.flying(), "broadcast holes open with a flyover")
+	for i in 60:
+		game._process(0.2)
+	_check(not game.camera.flying(), "the flyover ends by itself")
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.FLIGHT, "shot in flight")
+	_check(game.camera.director != null, "broadcast cameras direct the shot")
+	for i in 3:
+		game._process(0.5)
+	game.auto_play_step()
+	_check(game.state == GolfRound.State.SHOT_RESULT, "shot result")
+	_check(game.start_replay(), "replay starts")
+	var frames := 0
+	while game._replaying and frames < 400:
+		game._process(0.1)
+		frames += 1
+	_check(not game._replaying, "replay ends")
+	_check(game.state == GolfRound.State.SHOT_RESULT, "replay leaves the result up")
+	var steps := 0
+	while not (game.state == GolfRound.State.AIM and game.clubs[game.club_index].is_putter) and steps < 40 \
+			and game.state != GolfRound.State.ROUND_DONE:
+		game.auto_play_step()
+		steps += 1
+	if game.state == GolfRound.State.AIM and game.lie == Surface.Type.GREEN:
+		_check(game.green_grid.visible, "green grid on the green")
+	game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
+	game._apply_graphics()
+	_check(not game.hud.overlay.visible and not game.green_grid.visible, "classic hides the broadcast pieces")
+	game.start_round()
+	_check(not game.camera.flying(), "classic has no flyover")
+	steps = 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 600:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "classic round finishes")
+	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
+	game._apply_graphics()
