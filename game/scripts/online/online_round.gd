@@ -104,7 +104,7 @@ static func setup_message(setup: RoundSetup, round_seed: int, wind_level: int, p
 	return {
 		"type": "setup", "seed": round_seed, "wind_level": wind_level, "owners": p_owners,
 		"course_file": setup.course_path.get_file(), "course_name": setup.course_name, "course_hash": course_hash,
-		"mode": setup.mode, "holes": setup.holes, "tees": setup.tees, "names": setup.names,
+		"mode": setup.mode, "holes": setup.holes, "tees": setup.tees, "pins": setup.pins, "names": setup.names,
 		"teams": setup.teams, "computer": setup.computer, "handicaps": setup.handicaps, "indexes": setup.indexes,
 	}
 
@@ -119,6 +119,7 @@ static func setup_from(msg: Dictionary) -> RoundSetup:
 	s.mode = int(msg.get("mode", 0)) as GameModes.Mode
 	s.holes = int(msg.get("holes", 0)) as RoundSetup.Holes
 	s.tees = int(msg.get("tees", 0)) as RoundSetup.Tees
+	s.pins = int(msg.get("pins", 0))  # the hole positions follow from the seed
 	s.names.clear()
 	for n: Variant in msg.get("names", []):
 		s.names.append(str(n))

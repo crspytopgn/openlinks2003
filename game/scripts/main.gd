@@ -1372,7 +1372,7 @@ var _mulligans_taken: Array = []
 
 
 func _can_mulligan() -> bool:
-	if graphics.mulligans == 0 or _undo.is_empty() or round_setup.practice or round_setup.challenge != null:
+	if graphics.mulligans == 0 or _undo.is_empty() or round_setup.practice or not _house_rules():
 		return false
 	if GameModes.shared_ball(round_setup.mode) or opponents[shooter] != null or shot == null:
 		return false
@@ -1428,9 +1428,16 @@ static func pickup_limit(setting: int, par: int) -> int:
 ## This hole's pick-up score. A friend's round keeps the usual limit so the
 ## result codes compare.
 func _pickup_at() -> int:
-	if round_setup.challenge != null:
+	if not _house_rules():
 		return MAX_STROKES
 	return pickup_limit(graphics.pickup, hole.par)
+
+
+## Whether this game's own Settings (mulligans, gimmes, pick up) apply. Not
+## in a friend's round, so result codes compare, nor online, where each game
+## must end every hole on the same shot as the others.
+func _house_rules() -> bool:
+	return round_setup.challenge == null and online == null
 
 
 # --- Gimmes -------------------------------------------------------------------
@@ -1440,7 +1447,7 @@ func _pickup_at() -> int:
 ## (whose best ball is picked after everyone has played).
 func _gimme_now() -> bool:
 	var feet: float = GraphicsSettings.GIMME_FEET[graphics.gimme]
-	if feet <= 0.0 or shot.outcome != ShotResult.Outcome.REST or round_setup.challenge != null:
+	if feet <= 0.0 or shot.outcome != ShotResult.Outcome.REST or not _house_rules():
 		return false
 	if round_setup.mode == GameModes.Mode.SCRAMBLE:
 		return false
