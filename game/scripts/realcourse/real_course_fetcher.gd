@@ -171,6 +171,8 @@ func _build(place: Dictionary) -> DesignedCourse:
 			if photo == null:
 				cover = land.ground_image(builder.frame, builder.area)
 
+	builder.photo = photo
+	builder.lidar_heights = lidar != null
 	progress.emit("Building %s..." % builder.course_name)
 	await get_tree().process_frame
 	await get_tree().process_frame

@@ -13,6 +13,10 @@ extends RefCounted
 ## - greenside bunkers either side of the green, and on par 4s and 5s a
 ##   fairway bunker at the driving distance.
 ##
+## Before guessing a green or bunkers it looks for the real ones
+## (CourseDetector): in the aerial photo if there is one, and bunkers as
+## hollows in lidar heights. Found shapes have the meta "detected".
+##
 ## Shapes it adds are marked `guessed`, so the designer can tell them from
 ## mapped ones. Holes already mapped in full are left as they are.
 
@@ -26,7 +30,7 @@ const DRIVE := 230.0  ## fairway bunker distance from the back tee
 
 
 ## Adds the missing shapes to `c` and returns them.
-static func fill(c: DesignedCourse, seed_value := 1) -> Array[CourseShape]:
+static func fill(c: DesignedCourse, seed_value := 1, photo: Image = null, lidar := false) -> Array[CourseShape]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var added: Array[CourseShape] = []
@@ -48,6 +52,11 @@ static func fill(c: DesignedCourse, seed_value := 1) -> Array[CourseShape]:
 		# Green.
 		var radius := 0.0
 		var green := _find(c, Surface.Type.GREEN, h.pin, 20.0)
+		if green == null:
+			var ring := CourseDetector.find_green(photo, c.area, h.pin)
+			if ring.size() >= 3:
+				green = CourseShape.new(Surface.Type.GREEN, ring)
+				_add(c, added, green, true)
 		if green == null:
 			var a_m2: float = GREEN_AREA[par] * rng.randf_range(0.85, 1.15)
 			var along := sqrt(a_m2 * GREEN_LONG / PI)
@@ -77,6 +86,23 @@ static func fill(c: DesignedCourse, seed_value := 1) -> Array[CourseShape]:
 		# Bunkers only on holes with none mapped: a mapper who drew one
 		# bunker of a hole drew them all.
 		var mapped_sand := _sand_along(c, line)
+		# Real bunkers by the green and at the driving distance.
+		if not mapped_sand:
+			var found: Array[PackedVector2Array] = []
+			var spots := [[h.pin, radius + 22.0]]
+			if par >= 4 and length > DRIVE + 90.0:
+				spots.append([_point_at(line, DRIVE), 45.0])
+			for spot: Array in spots:
+				var rings := CourseDetector.find_sand(photo, c.area, spot[0], spot[1])
+				if rings.is_empty() and lidar:
+					rings = CourseDetector.find_hollows(c, spot[0], spot[1])
+				for ring in rings:
+					var mid := _ring_centre(ring)
+					if (green == null or not Geometry2D.is_point_in_polygon(mid, green.outline())) and not _on_path(c, mid):
+						found.append(ring)
+			for ring in found:
+				_add(c, added, CourseShape.new(Surface.Type.SAND, ring), true)
+			mapped_sand = not found.is_empty()
 		# Greenside bunkers: one either side, sometimes one behind.
 		if not mapped_sand:
 			var sides := [-1.0, 1.0]
@@ -101,8 +127,10 @@ static func fill(c: DesignedCourse, seed_value := 1) -> Array[CourseShape]:
 	return added
 
 
-static func _add(c: DesignedCourse, added: Array[CourseShape], s: CourseShape) -> void:
+static func _add(c: DesignedCourse, added: Array[CourseShape], s: CourseShape, detected := false) -> void:
 	s.guessed = true
+	if detected:
+		s.set_meta("detected", true)
 	c.shapes.append(s)
 	added.append(s)
 
@@ -183,6 +211,23 @@ static func _fairway(line: PackedVector2Array, start: float, stop: float, width:
 	right.reverse()
 	left.append_array(right)
 	return CourseShape.new(Surface.Type.FAIRWAY, left)
+
+
+## Whether a point is on (or just beside) one of the course's paths.
+static func _on_path(c: DesignedCourse, p: Vector2) -> bool:
+	for path in c.paths:
+		var pts := path.points
+		for k in range(1, pts.size()):
+			if p.distance_to(Geometry2D.get_closest_point_to_segment(p, pts[k - 1], pts[k])) < path.width * 0.5 + 3.0:
+				return true
+	return false
+
+
+static func _ring_centre(ring: PackedVector2Array) -> Vector2:
+	var sum := Vector2.ZERO
+	for p in ring:
+		sum += p
+	return sum / maxf(ring.size(), 1.0)
 
 
 static func _length(line: PackedVector2Array) -> float:
