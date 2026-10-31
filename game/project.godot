@@ -65,6 +65,10 @@ billboard_photo={
 "type": "float",
 "value": 0.0
 }
+sky_tint={
+"type": "vec3",
+"value": Vector3(1, 1, 1)
+}
 
 [rendering]
 

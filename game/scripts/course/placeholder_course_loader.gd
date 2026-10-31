@@ -102,4 +102,28 @@ func _place_trees(t: PlaceholderTerrain, rng: RandomNumberGenerator) -> Array[Pl
 			continue
 		var id := "tree_pine" if rng.randf() < 0.55 else "tree_broadleaf"
 		out.append(PlacedObject.new(id, Vector3(x, t.height_at(x, z), z), rng.randf_range(0.0, 360.0), rng.randf_range(0.8, 1.3)))
+	_place_bushes(t, out, rng.seed)
 	return out
+
+
+## Shrubs along the edge of the trees, in front of them as on a real
+## course. Their own random numbers, so the trees stay where they were.
+func _place_bushes(t: PlaceholderTerrain, out: Array[PlacedObject], seed_value: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value ^ 0x5b5b
+	var g := t.green_center()
+	var trees := out.size()
+	var tries := 0
+	while out.size() < trees + 40 and tries < 600:
+		tries += 1
+		var x := rng.randf_range(t.bounds.position.x, t.bounds.end.x)
+		var z := rng.randf_range(t.bounds.position.y, t.bounds.end.y)
+		var surface := t.surface_at(x, z)
+		if surface != Surface.Type.DEEP_ROUGH and surface != Surface.Type.ROUGH:
+			continue
+		var off := t.route_distance(x, z).x - t.fairway_width * 0.5
+		if off < 9.0 or off > 30.0:
+			continue
+		if Vector2(x, z).distance_to(g) < t.green_radius + 10.0 or Vector2(x, z).distance_to(t.tee) < 12.0:
+			continue
+		out.append(PlacedObject.new("bush", Vector3(x, t.height_at(x, z), z), rng.randf_range(0.0, 360.0), rng.randf_range(0.6, 1.1)))

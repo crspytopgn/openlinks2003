@@ -519,7 +519,7 @@ func _test_course_objects() -> void:
 	# With 3D trees on, the two trees taller than 3 m become 3D trees (full
 	# and impostor) and the small plant stays a billboard.
 	check(CourseObjects.tree_species("Tall Trees212") == TreeFactory.Species.BROADLEAF and CourseObjects.tree_species("Evergreens004") == TreeFactory.Species.PINE, "objects: tree species")
-	check(CourseObjects.tree_species("Palm Trees010") == -1 and CourseObjects.tree_species("Bushes001") == -1, "objects: palms and bushes keep their billboards")
+	check(CourseObjects.tree_species("Palm Trees010") == -1 and CourseObjects.tree_species("Bushes001") == TreeFactory.Species.BUSH and CourseObjects.tree_species("Hedge02") == -1, "objects: palms and hedges keep their billboards, bushes turn 3D")
 	TreeFactory.level = 2
 	root = objects.build_visual(hole)
 	var billboards := 0

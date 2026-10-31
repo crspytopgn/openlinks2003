@@ -296,8 +296,11 @@ func _build_mesh() -> ArrayMesh:
 	keys.sort()
 	var mesh := ArrayMesh.new()
 	var mapped := not mappings.is_empty() and triangle_mapping.size() == triangles.size() / 3
+	var shore := _shore_levels()
 	for m in keys:
 		var blended := _blend_of(int(m)) != null
+		var water := _is_water(int(m))
+		var open := PackedColorArray()
 		var remap := {}
 		var verts := PackedVector3Array()
 		var norms := PackedVector3Array()
@@ -327,6 +330,8 @@ func _build_mesh() -> ArrayMesh:
 					if blended:
 						mask.append(clampf(s[k].x, 0.0, 1.0))
 						mask.append(s[k].y)
+					if water:
+						open.append(Color(shore.get(v, 1.0), 0.0, 0.0))
 				indices.append(remap[key])
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
@@ -334,6 +339,8 @@ func _build_mesh() -> ArrayMesh:
 		arrays[Mesh.ARRAY_NORMAL] = norms
 		arrays[Mesh.ARRAY_TEX_UV] = uv1
 		arrays[Mesh.ARRAY_TEX_UV2] = uv2
+		if water:
+			arrays[Mesh.ARRAY_COLOR] = open
 		var flags := 0
 		if blended:
 			arrays[Mesh.ARRAY_CUSTOM0] = mask
@@ -342,6 +349,42 @@ func _build_mesh() -> ArrayMesh:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, _material(int(m), mapped))
 	return mesh
+
+
+func _is_water(m: int) -> bool:
+	var ground := ground_classes[m] if m < ground_classes.size() else 3
+	return CLASS_SURFACE.get(ground, Surface.Type.ROUGH) == Surface.Type.WATER
+
+
+## How far each water vertex is from the bank, for the water shader's
+## shallows and shoreline (COLOR.r): 0 on the bank (a vertex that dry
+## ground also uses), 0.5 one triangle out, and missing (1, open water)
+## beyond.
+func _shore_levels() -> Dictionary:
+	var out := {}
+	var wet := {}
+	for t in triangles.size() / 3:
+		if not _is_water(triangle_material[t]):
+			continue
+		wet[t] = true
+	if wet.is_empty():
+		return out
+	for t in triangles.size() / 3:
+		if wet.has(t):
+			continue
+		for k in 3:
+			out[triangles[3 * t + k]] = 0.0
+	for t: int in wet:
+		var bank := false
+		for k in 3:
+			if out.get(triangles[3 * t + k], 1.0) == 0.0:
+				bank = true
+		if bank:
+			for k in 3:
+				var v := triangles[3 * t + k]
+				if not out.has(v):
+					out[v] = 0.5
+	return out
 
 
 ## The mappings triangle t uses: [mask strip, first layer, second layer],

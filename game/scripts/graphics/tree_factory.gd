@@ -13,7 +13,7 @@ extends RefCounted
 ## headless runs, which render nothing, the full trees are drawn at every
 ## distance. Visual only: the ball's obstacles come from the course data.
 
-enum Species { BROADLEAF, PINE }
+enum Species { BROADLEAF, PINE, BUSH }
 
 const VARIANTS := [
 	[Species.BROADLEAF, 11],
@@ -21,6 +21,8 @@ const VARIANTS := [
 	[Species.BROADLEAF, 37],
 	[Species.PINE, 5],
 	[Species.PINE, 19],
+	[Species.BUSH, 3],
+	[Species.BUSH, 29],
 ]
 const FRAMES := 8
 const FRAME_PIXELS := 256
@@ -246,6 +248,8 @@ static func build_mesh(species: Species, seed_value: int) -> ArrayMesh:
 	leaves.begin(Mesh.PRIMITIVE_TRIANGLES)
 	if species == Species.PINE:
 		_grow_pine(rng, bark, leaves)
+	elif species == Species.BUSH:
+		_grow_bush(rng, bark, leaves)
 	else:
 		_grow_broadleaf(rng, bark, leaves)
 	var m := ArrayMesh.new()
@@ -266,7 +270,7 @@ static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leave
 	_tube(bark, fork, top, radius, radius * 0.25, 6)
 	var centre := Vector3(lean.x * 0.7, height * 0.62, lean.z * 0.7)
 	var reach := Vector2(height * rng.randf_range(0.33, 0.42), height * 0.32)  # crown radii: across, up
-	var count := rng.randi_range(7, 9)
+	var count := rng.randi_range(8, 10)
 	var tips: Array[Vector3] = []
 	for i in count:
 		var along := rng.randf_range(0.0, 1.0)
@@ -277,26 +281,64 @@ static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leave
 		var length := reach.x * rng.randf_range(0.75, 1.0) * (1.1 - along * 0.4)
 		var end := start + dir * length
 		_tube(bark, start, end, radius * 0.45 * (1.0 - along * 0.4), 0.03, 5)
-		for j in 3:
-			var at := start.lerp(end, rng.randf_range(0.4, 0.85))
+		for j in 4:
+			var at := start.lerp(end, rng.randf_range(0.3, 0.85))
 			var side := (dir + Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(0.0, 0.6), rng.randf_range(-0.8, 0.8))).normalized()
 			var twig := at + side * length * rng.randf_range(0.3, 0.5)
 			_tube(bark, at, twig, 0.05, 0.015, 4)
 			tips.append(twig)
 		tips.append(end)
 	tips.append(top)
-	# Leaf cards in clumps around the branch tips, filling the crown.
+	# Sprays of small leaf cards round the branch tips, filling the crown
+	# with clumps that leave gaps of sky between them.
 	for tip in tips:
-		for k in 12:
-			var p := tip + Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.7, 0.9), rng.randf_range(-1, 1)) * 1.4
-			var size := rng.randf_range(1.5, 2.2)
-			_leaf_card(leaves, rng, p, centre, reach, size, size, Vector3.ZERO)
+		_clump(leaves, rng, tip, 1.5, 16, 0.7, 1.0, centre, reach)
 	# A few inner cards so the crown isn't hollow when seen through, and a
 	# solid shaded core behind them.
-	for k in 18:
-		var p := centre + Vector3(rng.randf_range(-1, 1) * reach.x, rng.randf_range(-0.6, 0.8) * reach.y, rng.randf_range(-1, 1) * reach.x) * 0.6
-		_leaf_card(leaves, rng, p, centre, reach, 1.8, 1.8, Vector3.ZERO)
+	for k in 26:
+		var p := centre + _in_ball(rng) * Vector3(reach.x, reach.y, reach.x) * 0.65
+		_leaf_card(leaves, rng, p, centre, reach, 1.0, 1.0, Vector3.ZERO)
 	_core(leaves, rng, centre, Vector3(reach.x, reach.y, reach.x) * 0.62)
+
+
+## A shrub: a few thin stems from the ground and a low, wide crown of
+## small leaf sprays, close to the ground all round.
+static func _grow_bush(rng: RandomNumberGenerator, bark: SurfaceTool, leaves: SurfaceTool) -> void:
+	var height := rng.randf_range(1.7, 2.4)
+	var reach := Vector2(height * rng.randf_range(0.6, 0.75), height * 0.5)
+	var centre := Vector3(0, height * 0.52, 0)
+	var tips: Array[Vector3] = []
+	var stems := rng.randi_range(5, 7)
+	for i in stems:
+		var yaw := (float(i) + rng.randf_range(-0.3, 0.3)) / stems * TAU
+		var out := Vector3(cos(yaw), 0, sin(yaw))
+		var end := out * reach.x * rng.randf_range(0.5, 0.8) + Vector3(0, height * rng.randf_range(0.65, 0.9), 0)
+		_tube(bark, out * 0.08, end, 0.035, 0.01, 4)
+		tips.append(end)
+		tips.append(out * reach.x * 0.75 + Vector3(0, height * 0.3, 0))
+	tips.append(Vector3(0, height * 0.9, 0))
+	for tip in tips:
+		_clump(leaves, rng, tip, 0.6, 14, 0.32, 0.45, centre, reach)
+	for k in 14:
+		var p := centre + _in_ball(rng) * Vector3(reach.x, reach.y, reach.x) * 0.7
+		_leaf_card(leaves, rng, p, centre, reach, 0.4, 0.4, Vector3.ZERO)
+	_core(leaves, rng, centre, Vector3(reach.x, reach.y, reach.x) * 0.7)
+
+
+## `count` leaf cards of half size `small` to `large` scattered through a
+## ball of radius `radius` round `at`.
+static func _clump(leaves: SurfaceTool, rng: RandomNumberGenerator, at: Vector3, radius: float, count: int,
+		small: float, large: float, centre: Vector3, reach: Vector2) -> void:
+	for k in count:
+		var p := at + _in_ball(rng) * radius * Vector3(1.0, 0.75, 1.0)
+		var size := rng.randf_range(small, large)
+		_leaf_card(leaves, rng, p, centre, reach, size, size, Vector3.ZERO)
+
+
+## A random point in the unit ball, denser towards the middle.
+static func _in_ball(rng: RandomNumberGenerator) -> Vector3:
+	var d := Vector3(rng.randfn(), rng.randfn(), rng.randfn()).normalized()
+	return d * pow(rng.randf(), 0.6)
 
 
 static func _grow_pine(rng: RandomNumberGenerator, bark: SurfaceTool, leaves: SurfaceTool) -> void:
@@ -435,6 +477,8 @@ static func material(which: String) -> ShaderMaterial:
 	else:
 		mat.shader = LEAF_SHADER
 		mat.set_shader_parameter("needles", kind == "needles")
+		# Compatibility has no fill light from the sky.
+		mat.set_shader_parameter("fill", 0.12 if GraphicsSettings.is_forward_plus() else 0.3)
 		var leaf := FreeAssets.tree_texture("leaf_albedo.png")
 		var opacity := FreeAssets.tree_texture("leaf_opacity.png")
 		if leaf != null and opacity != null and kind == "leaves":
