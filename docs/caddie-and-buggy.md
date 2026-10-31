@@ -51,7 +51,7 @@ Handling (`BuggyDrive`) is a planar rigid-body vehicle model stepped at
 120 Hz, with real electric-cart numbers:
 
 - 500 kg with the golfer aboard, 300 kg m^2 of yaw inertia, the centre of
-  gravity behind the middle (the batteries) and 0.55 m up, 1.65 m wheelbase.
+  gravity behind the middle (the batteries) and 0.55 m up, 1.66 m wheelbase.
 - A rear-drive 48 V motor: 1500 N at the wheels from a stand, then 3.7 kW,
   and a governor at about 15.5 mph (5.5 mph in reverse) that also
   regenerates to hold the speed downhill. Pedals take a moment to press,
@@ -74,11 +74,20 @@ held at the governor coming down, half a g of cornering grip, and a stop
 from full speed in about 1.4 s.
 
 It stops at the edge of greens, bunkers and water, as real course rules
-ask. The model (`GolfBuggy`) is built in code: a glossy white
-two-seater with a canopy, tinted windscreen, bench seat, headlights and a
-bag on the back, one mesh for the body (six materials) and four wheels that
-turn and steer. The body squats, dives and leans on its springs (a damped
-spring per axis, about 1.3 Hz). It sits on the ground under its four wheels, pitching and
-rolling with the slopes, and a chase camera follows it.
+ask.
+
+The cart is our own model (CC0), built by `tools/buggy/build_golf_cart.py`
+into `game/assets/buggy/golf_cart.glb` (about 36k triangles for the body
+and 7k per wheel, 0.8 MB). It is true to size, using the published
+dimensions of a common two-seat electric cart: 2.39 m long, 1.19 m wide,
+1.76 m tall, a 1.66 m wheelbase, 0.88 m front and 0.98 m rear track, and
+18x8.5-8 tyres on 8 inch alloy rims. The golfer is about 1.77 m tall and the
+ball and hole are the Rules of Golf sizes; `_test_real_scale` checks all of
+these. The body is lofted from smooth curves, with a clearcoat paint, a
+curved windscreen, bench seats, a roof on struts, lights, bumpers and
+treaded tyres. If the file is missing, a simple box cart built in code
+stands in. The body squats, dives and leans on its springs (a damped spring
+per axis, about 1.3 Hz). It sits on the ground under its four wheels,
+pitching and rolling with the slopes, and a chase camera follows it.
 
 Code: `game/scripts/buggy/` (`BuggyDrive`, `GolfBuggy`).
