@@ -1339,6 +1339,15 @@ func _test_graphics_settings() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	for g in GraphicsSettings.Grade.values():
 		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
+	_check(GraphicsSettings.TIME_NAMES.size() == GraphicsSettings.TimeOfDay.size(), "a name per time of day")
+	var noon := Scenery.time_light(GraphicsSettings.TimeOfDay.MIDDAY, 0.0)
+	var dawn := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 0.0)
+	var half := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 0.5)
+	var dusk := Scenery.time_light(GraphicsSettings.TimeOfDay.ROUND, 1.0)
+	_check(noon.elevation > dawn.elevation and dawn.elevation > dusk.elevation, "the sun is highest at midday, lowest at golden hour")
+	_check(half.elevation < noon.elevation and half.elevation > Scenery.TIMES["afternoon"].elevation, "through the round blends the light (%.1f)" % half.elevation)
+	_check((dusk.sun as Color).b < (noon.sun as Color).b, "golden hour sun is warm")
+	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == 38.0, "afternoon keeps the old sun")
 
 
 func _test_trees() -> void:
@@ -1351,7 +1360,9 @@ func _test_trees() -> void:
 			tris += (m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
 		_check(tris > 200 and tris < 6000, "tree %d stays light (%d triangles)" % [v, tris])
 		var box := m.get_aabb()
-		_check(box.end.y > 8.0 and box.end.y < 19.0 and box.position.y > -0.5, "tree %d is tree-sized (%.1f m)" % [v, box.end.y])
+		var low := 1.2 if spec[0] == TreeFactory.Species.BUSH else 8.0
+		var high := 3.5 if spec[0] == TreeFactory.Species.BUSH else 19.0
+		_check(box.end.y > low and box.end.y < high and box.position.y > -0.5, "tree %d is its species' size (%.1f m)" % [v, box.end.y])
 		var again := TreeFactory.build_mesh(spec[0], spec[1])
 		_check(again.surface_get_array_len(1) == m.surface_get_array_len(1), "tree %d grows the same each time" % v)
 		_check(TreeFactory.frame_size(v) >= box.end.y, "tree %d fits its impostor frame" % v)

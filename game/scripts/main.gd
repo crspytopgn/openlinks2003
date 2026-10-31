@@ -485,6 +485,8 @@ func start_hole(index: int) -> void:
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
+		# The sun moves on through the round with that time of day.
+		scenery.set_round_progress(float(index) / maxf(holes.size() - 1, 1))
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	golfer = AssetProviders.golfer_assets.create_golfer()
 	hole_root.add_child(golfer)

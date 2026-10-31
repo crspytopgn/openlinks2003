@@ -6,6 +6,7 @@ extends ObjectLibrary
 var _trunk_mesh: CylinderMesh
 var _pine_mesh: CylinderMesh
 var _broadleaf_mesh: SphereMesh
+var _bush_mesh: SphereMesh
 
 
 func _init() -> void:
@@ -35,6 +36,12 @@ func _init() -> void:
 	_broadleaf_mesh.radial_segments = 12
 	_broadleaf_mesh.rings = 6
 	_broadleaf_mesh.material = leaves
+	_bush_mesh = SphereMesh.new()
+	_bush_mesh.radius = 1.2
+	_bush_mesh.height = 1.6
+	_bush_mesh.radial_segments = 10
+	_bush_mesh.rings = 5
+	_bush_mesh.material = leaves
 
 
 func instantiate(id: String) -> Node3D:
@@ -44,6 +51,17 @@ func instantiate(id: String) -> Node3D:
 				return TreeFactory.instance(TreeFactory.Species.PINE)
 			"tree_broadleaf":
 				return TreeFactory.instance(TreeFactory.Species.BROADLEAF)
+			"bush":
+				return TreeFactory.instance(TreeFactory.Species.BUSH)
+	if id == "bush":
+		var bush := MeshInstance3D.new()
+		bush.name = id
+		bush.mesh = _bush_mesh
+		bush.position.y = 0.7
+		var holder := Node3D.new()
+		holder.name = id
+		holder.add_child(bush)
+		return holder
 	var root := Node3D.new()
 	root.name = id
 	var trunk := MeshInstance3D.new()

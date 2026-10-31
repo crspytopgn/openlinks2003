@@ -19,7 +19,7 @@ const HEIGHTS := {
 	Surface.Type.ROUGH: Vector2(0.07, 0.15),
 	Surface.Type.DEEP_ROUGH: Vector2(0.16, 0.3),
 }
-const BLADES := 6
+const BLADES := 8
 
 var terrain: CourseTerrain
 var level := 0
@@ -166,22 +166,26 @@ static func _shared_mesh() -> ArrayMesh:
 	return _tuft
 
 
-## One tuft in a unit box: BLADES thin, leaning blades of two triangles each,
-## UV.y running from 0 at the root to 1 at the tip.
+## One tuft in a unit box: BLADES thin, leaning blades of three triangles
+## each, UV.y running from 0 at the root to 1 at the tip. COLOR per blade:
+## r its shade, g how dry it is (straw), so a tuft isn't one flat colour.
 static func tuft_mesh() -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2003
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	for b in BLADES:
 		var a := rng.randf() * TAU
 		var root := Vector3(cos(a), 0.0, sin(a)) * rng.randf() * 0.3
 		var face := rng.randf() * TAU
-		var side := Vector3(cos(face), 0.0, sin(face)) * 0.035
-		var lean := Vector3(cos(a), 0.0, sin(a)) * rng.randf_range(0.1, 0.35)
-		var tall := rng.randf_range(0.6, 1.0)
+		var side := Vector3(cos(face), 0.0, sin(face)) * rng.randf_range(0.022, 0.032)
+		var lean := Vector3(cos(a), 0.0, sin(a)) * rng.randf_range(0.1, 0.45)
+		var tall := rng.randf_range(0.45, 1.0)
+		var dry := 1.0 if rng.randf() < 0.18 else rng.randf() * 0.3
+		var blade := Color(rng.randf(), dry, 0.0)
 		var base := verts.size()
 		verts.append_array(PackedVector3Array([root - side, root + side,
 			root + lean * 0.5 + side * 0.6 + Vector3(0, tall * 0.55, 0),
@@ -190,12 +194,14 @@ static func tuft_mesh() -> ArrayMesh:
 			Vector2(0, 0.55 * tall), Vector2(0.5, tall)]))
 		for k in 5:
 			normals.append(Vector3.UP)
+			colors.append(blade)
 		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3, base + 3, base + 2, base + 4]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
