@@ -1855,12 +1855,12 @@ func _status(aiming: bool) -> Dictionary:
 ## player, otherwise the round so far.
 func _ticker_text() -> String:
 	var parts: Array[String] = []
-	if scoring.player_count() > 1:
+	if round_setup.mode == GameModes.Mode.MATCH:
+		# standings() is the final result ("Ann wins"); mid-match say who leads.
+		parts.append(scoring.status_text().to_upper())
+	elif scoring.player_count() > 1:
 		parts.append("LEADERBOARD")
-		var pos := 1
-		for row: Array in scoring.standings():
-			parts.append("%d. %s  %s" % [pos, str(row[0]).to_upper(), row[1]])
-			pos += 1
+		parts.append_array(leaderboard_lines(scoring.standings()))
 	else:
 		parts.append(course.course_name.to_upper())
 		parts.append(GameModes.MODE_NAMES[round_setup.mode].to_upper())
@@ -1870,6 +1870,19 @@ func _ticker_text() -> String:
 			parts.append("ROUND %d (%s) THRU %d" % [card.total_strokes(), Scorecard.format_to_par(card.to_par()), thru])
 		parts.append("WIND %s" % wind.describe(aim_deg).to_upper())
 	return "      \u00b7      ".join(parts)
+
+
+## "1. ANN  72 (E)" per standings row; level scores share a place ("T2.").
+static func leaderboard_lines(rows: Array) -> Array[String]:
+	var out: Array[String] = []
+	for i in rows.size():
+		var pos := i
+		while pos > 0 and str(rows[pos - 1][1]) == str(rows[i][1]):
+			pos -= 1
+		var tied := (i > 0 and str(rows[i - 1][1]) == str(rows[i][1])) \
+			or (i + 1 < rows.size() and str(rows[i + 1][1]) == str(rows[i][1]))
+		out.append("%s%d. %s  %s" % ["T" if tied else "", pos + 1, str(rows[i][0]).to_upper(), rows[i][1]])
+	return out
 
 
 ## The shot card, a caption and the crowd after a shot (strokes already
