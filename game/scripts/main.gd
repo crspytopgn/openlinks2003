@@ -190,8 +190,14 @@ var camera: RoundCamera
 var ball: MeshInstance3D
 var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
+const AIM_FLAT := 0.1  ## height of the aim ring over its width
+const AIM_LIFT := 0.03  ## metres the ring floats above the grass
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
-var golfer: GolferRig
+var golfer: GolferRig  ## the golfer playing now: one of _golfers
+## Each player's golfer this hole; players who look the same share one.
+var _golfers: Array[GolferRig] = []
+## Each player's look (PlayerLook), or null to use the game's own golfer.
+var _looks: Array = []
 var hole_root: Node3D
 var marks: CourseMarks  ## divots, pitch marks and sand craters on this hole
 var graphics: GraphicsSettings
@@ -357,6 +363,7 @@ func start_round() -> void:
 			honour.append(i)
 	for i in scoring.player_count():
 		players[ball_of[i]].members.append(i)
+	_choose_looks()
 	current = 0
 	shooter = 0
 	_last_human = -1
@@ -542,8 +549,7 @@ func start_hole(index: int) -> void:
 		# The sun moves on through the round with that time of day.
 		scenery.set_round_progress(float(index) / maxf(holes.size() - 1, 1))
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
-	golfer = AssetProviders.golfer_assets.create_golfer()
-	hole_root.add_child(golfer)
+	_make_golfers()
 	camera.terrain = hole.terrain
 	if grass.terrain != hole.terrain:
 		grass.setup(hole.terrain, graphics.grass)
@@ -568,6 +574,7 @@ func start_hole(index: int) -> void:
 		p.fairway = -1
 		p.gir = false
 		p.putts = 0
+		_tint_ball(p.marker, i)
 	_clear_trail()
 	hud.scorecard.visible = false
 	if buggy != null:
@@ -614,6 +621,8 @@ func _next_player() -> int:
 func _begin_turn(index: int, snap_camera: bool) -> void:
 	current = index
 	shooter = _shooter_of(index)
+	_use_golfer(shooter)
+	_tint_ball(ball, index)
 	var p := players[index]
 	ball_at = p.at
 	strokes = p.strokes
@@ -1804,8 +1813,8 @@ func _start_drive(next: int) -> bool:
 		golfer.visible = false
 	if caddie != null:
 		caddie.step_aside()
-	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + 0.08, to.z)
-	aim_marker.scale = Vector3(2.5, 1.0, 2.5)
+	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
+	aim_marker.scale = _aim_marker_scale(2.5)
 	aim_marker.visible = true
 	ball.visible = true
 	hud.show_message("")
@@ -2338,7 +2347,8 @@ func _build_world() -> void:
 	aim_marker.mesh = ring
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.albedo_color = Color(1.0, 0.9, 0.2)
+	ring_mat.albedo_color = Color(1.0, 0.9, 0.2, 0.75)
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	aim_marker.material_override = ring_mat
 	add_child(aim_marker)
 
@@ -2677,6 +2687,63 @@ func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
 		(_ball_shadow.material_override as ShaderMaterial).set_shader_parameter("strength", 0.6 * fade)
 
 
+## Each player's look: the golfer they made in the player creator, or the
+## standard golfer. Computer golfers get a look of their own (from their
+## name) unless the game's own golfers are loaded.
+func _choose_looks() -> void:
+	_looks.clear()
+	var profiles := PlayerProfiles.load_saved()
+	var free := AssetProviders.golfer_assets is PlaceholderGolferAssets
+	for i in scoring.player_count():
+		var player_name: String = round_setup.names[i] if i < round_setup.names.size() else ""
+		var look := profiles.look_of(player_name) if not player_name.is_empty() else null
+		if look == null and free:
+			look = PlayerLook.random(player_name.hash()) if round_setup.is_computer(i) else PlayerLook.new()
+		_looks.append(look)
+
+
+## This hole's golfers, one per look, hidden until their turn.
+func _make_golfers() -> void:
+	_golfers.clear()
+	golfer = null
+	var made := {}
+	for i in scoring.player_count():
+		var look: PlayerLook = _looks[i] if i < _looks.size() else null
+		var key := look.key() if look != null else ""
+		if not made.has(key):
+			var g: GolferRig = null
+			if look != null:
+				g = FreeGolfer.create(look)
+			if g == null:
+				g = AssetProviders.golfer_assets.create_golfer_for(look)
+			g.visible = false
+			hole_root.add_child(g)
+			made[key] = g
+		_golfers.append(made[key])
+	if not _golfers.is_empty():
+		golfer = _golfers[0]
+
+
+## Makes player `i`'s golfer the one on the tee.
+func _use_golfer(i: int) -> void:
+	if _golfers.is_empty():
+		return
+	var g := _golfers[clampi(i, 0, _golfers.size() - 1)]
+	if g != golfer and golfer != null:
+		golfer.visible = false
+	golfer = g
+
+
+## Colours a ball as player `i` chose (white unless they picked another).
+func _tint_ball(m: MeshInstance3D, i: int) -> void:
+	if m == null:
+		return
+	var look: PlayerLook = _looks[i] if i < _looks.size() else null
+	var mat := m.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = look.ball if look != null else Color.WHITE
+
+
 func _place_golfer() -> void:
 	if golfer == null:
 		return
@@ -2692,6 +2759,13 @@ func _place_golfer() -> void:
 	golfer.play(&"address")
 
 
+## The aim ring is a flat painted band, like a TV graphic laid on the
+## grass, not a 20 cm tyre: the torus is squashed to AIM_FLAT of its width,
+## so a putt's ring no longer stands over the cup like a yellow can.
+static func _aim_marker_scale(size: float) -> Vector3:
+	return Vector3(size, AIM_FLAT * size, size)
+
+
 func _update_aim_marker() -> void:
 	var club := clubs[club_index]
 	var dir := _aim_dir()
@@ -2704,9 +2778,9 @@ func _update_aim_marker() -> void:
 		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
-	p.y = hole.terrain.height_at(p.x, p.z) + 0.08
+	p.y = hole.terrain.height_at(p.x, p.z) + AIM_LIFT
 	aim_marker.position = p
-	aim_marker.scale = Vector3(size, 1.0, size)
+	aim_marker.scale = _aim_marker_scale(size)
 	aim_marker.visible = true
 	_update_breakline()
 

@@ -75,6 +75,8 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("player_looks", _test_player_looks)
+	_run("face_from_photo", _test_face_from_photo)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
 	_run("course_reader", _test_course_reader)
@@ -1439,7 +1441,7 @@ func _test_real_scale() -> void:
 	_check_near(wheel.get_aabb().end.y, 0.2286, 0.003, "18 in tyres")
 	_check_near(absf((cart.find_child("Wheel_FR", true, false) as Node3D).position.z - wheel.position.z), BuggyDrive.WHEELBASE, 0.01, "wheelbase matches the physics")
 	cart.free()
-	var golfer := (load(FreeGolfer.SCENE_PATH) as PackedScene).instantiate() as Node3D
+	var golfer := FreeGolfer.create()
 	var top := -INF
 	var bottom := INF
 	for n in golfer.find_children("*", "MeshInstance3D", true, false):
@@ -2716,6 +2718,165 @@ func _test_free_golfer() -> void:
 	golfer.free()
 
 
+## The player creator's looks: saved and read back, mapped to blend shapes,
+## kept with the player's profile, and dressing the free golfer.
+## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
+## fit finds known sliders again from the golfer's own landmarks; colours are
+## read from the right patches.
+func _test_face_from_photo() -> void:
+	var parts := GolferParts.shared()
+	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")
+	if parts == null or not parts.info.has("face_fit"):
+		return
+	var face_fit: Dictionary = parts.info.face_fit
+	_check(face_fit.points == PlayerFaceFit.POINTS, "face points match the pack's")
+	_check(PlayerFaceFit.MEDIAPIPE.size() == PlayerFaceFit.POINTS.size() and PlayerFaceFit.POINT_LABELS.size() == PlayerFaceFit.POINTS.size(), "every point has a MediaPipe index and a label")
+	var n := PlayerFaceFit.FEATURE_NAMES.size()
+	_check(PlayerFaceFit.OFFSET.size() == n and PlayerFaceFit.GAIN.size() == n and PlayerFaceFit.WEIGHT.size() == n, "calibration for every measurement")
+	var base := PlayerFaceFit.model_points(face_fit, PlayerLook.new().shape_weights())
+	var f0 := PlayerFaceFit.features(base)
+	_check(f0.size() == n, "measurements")
+	# The same face scaled, moved and tilted measures the same.
+	var moved := PackedVector2Array()
+	for p in base:
+		moved.append(p.rotated(0.2) * 37.0 + Vector2(120, -40))
+	var f1 := PlayerFaceFit.features(moved)
+	var worst := 0.0
+	for i in n:
+		worst = maxf(worst, absf(f1[i] - f0[i]))
+	_check(worst < 1e-4, "measurements don't depend on size or tilt (%.6f)" % worst)
+	# Image pixels (y down) flip to the face frame.
+	_check(PlayerFaceFit.from_image(PackedVector2Array([Vector2(3, 4)]))[0] == Vector2(3, -4), "pixels to the face frame")
+	var marks := PackedVector2Array()
+	for i in 478:
+		marks.append(Vector2(i, 0))
+	var picked := PlayerFaceFit.from_mediapipe(marks)
+	_check(picked.size() == PlayerFaceFit.POINTS.size() and picked[0] == Vector2(33, 0) and picked[4] == Vector2((105 + 52) / 2.0, 0), "MediaPipe indices picked and averaged")
+	_check(PlayerFaceFit.from_mediapipe(PackedVector2Array([Vector2.ZERO])).is_empty(), "too few MediaPipe landmarks is no face")
+	# A known face, measured straight from the golfer (no photo error), fits
+	# back close to its sliders; its body is kept.
+	var truth := PlayerLook.new()
+	truth.sex = 1.0
+	var want := {"face_width": 0.5, "face_full": -0.4, "nose_width": 0.6, "nose_length": -0.5, "eye_size": 0.3, "eye_spacing": -0.6, "brows": 0.7, "mouth_width": -0.5}
+	for key: String in want:
+		truth.face[key] = want[key]
+	var exact := {"offset": [], "gain": [], "weight": [], "regularise": 1e-6}
+	for i in n:
+		exact.offset.append(0.0)
+		exact.gain.append(1.0)
+		exact.weight.append(1.0)
+	var start := PlayerLook.new()
+	start.sex = 1.0
+	start.face["chin"] = 0.4
+	var got := PlayerFaceFit.fit(face_fit, start, PlayerFaceFit.model_points(face_fit, truth.shape_weights()), exact)
+	var err := 0.0
+	for key: String in want:
+		err = maxf(err, absf(float(got.get(key, 9.0)) - float(want[key])))
+	_check(err < 0.1, "fit finds a known face again (worst slider off by %.2f)" % err)
+	_check(not got.has("chin") and start.face_value("chin") == 0.4, "sliders a photo can't show are left alone")
+	_check(PlayerFaceFit.fit(face_fit, start, PackedVector2Array()).is_empty(), "no points, no fit")
+	# Colours: a photo with skin-coloured cheeks and forehead and dark hair above.
+	var img := Image.create(200, 200, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.1, 0.08, 0.06))
+	img.fill_rect(Rect2i(40, 60, 120, 140), Color(0.8, 0.6, 0.5))
+	var pts := PackedVector2Array([
+		Vector2(70, 110), Vector2(90, 110), Vector2(110, 110), Vector2(130, 110),
+		Vector2(80, 98), Vector2(120, 98),
+		Vector2(100, 135), Vector2(90, 138), Vector2(110, 138),
+		Vector2(85, 155), Vector2(115, 155), Vector2(100, 150), Vector2(100, 160),
+		Vector2(100, 185), Vector2(60, 155), Vector2(140, 155), Vector2(50, 125), Vector2(150, 125),
+		Vector2(65, 170), Vector2(135, 170),
+	])
+	var skin := PlayerFaceFit.skin_colour(img, pts)
+	_check(skin.is_equal_approx(Color(0.8, 0.6, 0.5)) or skin.r > 0.78, "skin colour from the cheeks and forehead")
+	var hair := PlayerFaceFit.hair_colour(img, pts)
+	_check(hair.r < 0.15, "hair colour from above the forehead")
+
+
+func _test_player_looks() -> void:
+	var look := PlayerLook.new()
+	look.sex = 1.0
+	look.height_cm = 168.0
+	look.weight = -0.5
+	look.age = 0.25
+	look.face["nose_width"] = 0.4
+	look.face["jaw"] = -0.3
+	look.hair = "ponytail"
+	look.outfit = "shorts"
+	look.cap = true
+	look.ball = Color(1.0, 0.55, 0.15)
+	var back := PlayerLook.from_dict(look.to_dict())
+	_check(back.key() == look.key(), "a look reads back as saved")
+	_check(back.wears_cap(), "a cap goes with a ponytail")
+	var w := look.shape_weights()
+	_check(w.get("female") == 1.0 and w.get("thin") == 0.5 and w.get("old") == 0.25, "body shape weights: %s" % w)
+	_check(w.get("nose_width_plus") == 0.4 and w.get("jaw_minus") == 0.3 and not w.has("jaw_plus"), "face shape weights: %s" % w)
+	var odd := PlayerLook.from_dict({"hair": "mohawk", "height_cm": 400, "skin": "not a colour", "weight": -9})
+	_check(odd.hair == "short" and odd.height_cm == PlayerLook.HEIGHT_MAX and odd.weight == -1.0, "bad values fall back")
+	_check(PlayerLook.random(42).key() == PlayerLook.random(42).key(), "a computer golfer's look is the same every time")
+	_check(PlayerLook.random(42).key() != PlayerLook.random(43).key(), "computer golfers look different")
+	var hat := PlayerLook.new()
+	hat.cap = true
+	hat.hair = "afro"
+	_check(not hat.wears_cap(), "no cap over an afro")
+
+	var profiles := PlayerProfiles.new()
+	_check(profiles.look_of("Zoe") == null, "no look before the creator")
+	profiles.set_look("Zoe", look)
+	_check(profiles.has_player("Zoe") and profiles.look_of("zoe ").key() == look.key(), "look kept with the profile")
+	_check(profiles.rename("Zoe", "Zoë") and profiles.look_of("Zoë").key() == look.key() and not profiles.has_player("Zoe"),
+		"renaming keeps the look")
+	profiles.set_look("Ann", PlayerLook.new())
+	_check(not profiles.rename("Zoë", "ann"), "can't rename onto another player")
+
+	var parts := GolferParts.shared()
+	_check(parts != null, "the look pack loads")
+	if parts == null:
+		return
+	for style: String in PlayerLook.HAIR_STYLES:
+		_check(style == "bald" or parts.has_part("Hair_" + style), "hair style %s in the pack" % style)
+	for o: String in PlayerLook.OUTFITS:
+		_check(parts.has_part("Top_" + o) and parts.has_part("Bottom_" + o), "outfit %s in the pack" % o)
+	for entry: Array in PlayerLook.FACE:
+		_check((parts.info.shapes as Dictionary).has(entry[0] + "_plus"), "face shape %s in the pack" % entry[0])
+	var plain := parts.bake("Body", {})
+	var shaped := parts.bake("Body", w)
+	_check(plain != null and shaped != null and plain != shaped, "body baked plain and shaped")
+	_check(parts.bake("Body", w) == shaped, "baked meshes are reused")
+	var a: PackedVector3Array = plain.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var b: PackedVector3Array = shaped.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var moved := 0
+	for i in a.size():
+		if a[i].distance_to(b[i]) > 0.001:
+			moved += 1
+	_check(a.size() == b.size() and moved > a.size() / 2, "the shape moves the body (%d of %d)" % [moved, a.size()])
+	_check(parts.standing_height(w) < parts.standing_height({}) - 0.05, "a woman's body is shorter before scaling")
+	var shown := FreeGolfer.parts_for(look, parts.info)
+	_check(shown.has("Top_shorts") and shown.has("Hair_ponytail") and shown.has("Cap") and not shown.has("Top_polo"),
+		"the look's parts: %s" % shown)
+	var legs := ""
+	for part_name in shown:
+		if part_name.begins_with("Body_") and not FreeGolfer.parts_for(PlayerLook.new(), parts.info).has(part_name):
+			legs = part_name
+	_check(not legs.is_empty(), "shorts show skin that trousers cover: %s" % parts.info.body_chunks)
+
+	var golfer := FreeGolfer.create(look)
+	_check(golfer != null, "the free golfer dresses for a look")
+	if golfer == null:
+		return
+	root.add_child(golfer)
+	var skeleton := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var head := skeleton.find_bone("head")
+	var head_y := skeleton.get_bone_global_rest(head).origin.y
+	_check(golfer.find_child("Hair_ponytail", true, false) != null, "the golfer has the look's hair")
+	var model := golfer.get_child(0) as Node3D
+	_check_near(model.scale.x * parts.standing_height(w), 1.68, 0.005, "scaled to the look's height")
+	_check_near(model.position.z, FreeGolfer.BALL.z * (1.0 - model.scale.x), 1e-5, "scaled about the ball")
+	golfer.apply_look(PlayerLook.new())
+	_check(skeleton.get_bone_global_rest(head).origin.y > head_y + 0.05, "the skeleton fits the new shape")
+	golfer.free()
+
+
 ## Hot-seat rounds through the real round: skins over the front nine for three
 ## players, and a match that can end early.
 ## The practice range: the ball comes back to the tee, nothing is scored,
@@ -3101,13 +3262,20 @@ func _test_tee_view() -> void:
 	var reach := game._flat_distance(game.ball_at, game._aim_target())
 	var far := game.ball_at + game._aim_dir() * reach
 	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
-	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
 	var cam: RoundCamera = game.camera
+	# Links always shows the golfer and ball at address: the camera stays
+	# close, and the real camera (not just its planned pose) has them in view.
+	var rise := cam._aim_pos.y - game.ball_at.y
+	var back := Vector2(cam._aim_pos.x - game.ball_at.x, cam._aim_pos.z - game.ball_at.z).length()
+	_check(rise < 8.0 and back < 10.0, "tee view: the camera stays near the golfer (%.1f m up, %.1f m back)" % [rise, back])
 	var forward := (cam._aim_look - cam._aim_pos).normalized()
-	var half := deg_to_rad(cam.fov) * 0.5
-	var to_feet := (game.ball_at - cam._aim_pos).normalized()
-	_check(forward.angle_to(to_feet) < half, "tee view: the golfer and ball stay in frame")
-	_check(forward.angle_to((target - cam._aim_pos).normalized()) < half, "tee view: and so does the target")
+	var half := deg_to_rad(minf(cam.fov, RoundCamera.AIM_FRAME_FOV)) * 0.5
+	_check(forward.angle_to((game.ball_at - cam._aim_pos).normalized()) < half * 0.9, "tee view: the ball is in frame")
+	_check(forward.angle_to((game.golfer.global_position + Vector3.UP * 1.6 - cam._aim_pos).normalized()) < half, "tee view: the golfer's head is in frame")
+	_check(cam.global_position.distance_to(cam._aim_pos) < 0.01, "tee view: the camera is at its aim pose (%s, not %s)" % [cam._aim_pos, cam.global_position])
+	_check(cam.is_position_in_frustum(game.ball_at + Vector3.UP * 0.1), "tee view: the ball is inside the camera's frustum")
+	var seen := RoundCamera.sight_clear(game.hole.terrain, cam._aim_pos, target)
+	print("  tee view: %.1f m up, %.1f m back, target %.0f m %s" % [rise, back, reach, "in sight" if seen else "behind the rise"])
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
