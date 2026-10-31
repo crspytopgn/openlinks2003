@@ -1,16 +1,23 @@
 class_name GolfBuggy
 extends Node3D
 ## The optional golf buggy (Settings > Golf buggy, off by default): a
-## two-seat electric cart, modelled in code (no files) in glossy white with
-## a canopy, tinted windscreen and a bag on the back. It sits on the ground
+## two-seat electric cart in glossy white with a canopy, tinted windscreen
+## and a bag on the back. The detailed model is golf_cart.glb, our own
+## (CC0), built by tools/buggy/build_golf_cart.py; without it a simple one
+## is built from boxes here. It sits on the ground
 ## on all four wheels, pitching and rolling with the slopes; the body leans
 ## on its springs as it brakes, accelerates and corners (a damped spring
 ## per axis, about 1.3 Hz); the wheels turn and steer. BuggyDrive does the
 ## driving; the round moves the camera.
 
-const WHEEL_RADIUS := 0.23
-const TRACK := 0.56  ## half the distance between the left and right wheels
-const AXLE := 0.82  ## half the wheelbase
+const MODEL_PATH := "res://assets/buggy/golf_cart.glb"
+const WHEELS := ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]
+## Real dimensions (a Club Car Precedent; see tools/buggy/build_golf_cart.py).
+const WHEEL_RADIUS := 0.2286  ## 18 in tyres
+const TRACK_FRONT := 0.44  ## half the front track
+const TRACK_REAR := 0.49
+const TRACK := 0.465  ## half the track, on average, where the cart sits on the ground
+const AXLE := 0.83  ## half the 1.66 m wheelbase
 const CHASE_BACK := 7.5
 const CHASE_UP := 3.0
 const CHASE_LOOK_AHEAD := 8.0
@@ -24,7 +31,8 @@ static var _body_mesh: ArrayMesh
 static var _wheel_mesh: ArrayMesh
 
 var drive := BuggyDrive.new()
-var _wheels: Array[MeshInstance3D] = []
+var _wheels: Array[Node3D] = []
+var _wheel_base: Array[Basis] = []  ## each wheel's own turn (the left ones face out)
 var _chassis := Node3D.new()  ## the body and bag, on the springs
 var _pitch := 0.0
 var _pitch_rate := 0.0
@@ -38,20 +46,22 @@ var _chase_look := Vector3.ZERO
 func _init() -> void:
 	name = "GolfBuggy"
 	add_child(_chassis)
-	var body := MeshInstance3D.new()
-	body.mesh = body_mesh()
-	body.position.y = -BODY_PIVOT
 	_chassis.position.y = BODY_PIVOT
-	_chassis.add_child(body)
-	# Front is -z, as for any node that looks_at().
-	for corner: Vector2 in [Vector2(-TRACK, -AXLE), Vector2(TRACK, -AXLE), Vector2(-TRACK, AXLE), Vector2(TRACK, AXLE)]:
-		var w := MeshInstance3D.new()
-		w.mesh = wheel_mesh()
-		w.position = Vector3(corner.x, WHEEL_RADIUS, corner.y)
-		add_child(w)
-		_wheels.append(w)
+	if not _use_model():
+		var body := MeshInstance3D.new()
+		body.mesh = body_mesh()
+		body.position.y = -BODY_PIVOT
+		_chassis.add_child(body)
+		# Front is -z, as for any node that looks_at().
+		for corner: Vector2 in [Vector2(-TRACK_FRONT, -AXLE), Vector2(TRACK_FRONT, -AXLE), Vector2(-TRACK_REAR, AXLE), Vector2(TRACK_REAR, AXLE)]:
+			var w := MeshInstance3D.new()
+			w.mesh = wheel_mesh()
+			w.position = Vector3(corner.x, WHEEL_RADIUS, corner.y)
+			add_child(w)
+			_wheels.append(w)
+			_wheel_base.append(Basis.IDENTITY)
 	var bag := GolfBag.new()
-	bag.position = Vector3(0.0, 0.62 - BODY_PIVOT, 1.12)
+	bag.position = Vector3(0.0, 0.72 - BODY_PIVOT, 1.0)
 	bag.rotation = Vector3(deg_to_rad(-12.0), PI, 0.0)
 	_chassis.add_child(bag)
 
@@ -111,7 +121,43 @@ func fit(terrain: CourseTerrain) -> void:
 	var steer_angle := deg_to_rad(BuggyDrive.MAX_STEER_DEG) * drive.steer
 	for i in _wheels.size():
 		var yaw := steer_angle if i < 2 else 0.0
-		_wheels[i].basis = Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -_spin)
+		var spin := -_spin if _wheel_base[i].x.x > 0.0 else _spin  # the turned-round wheels spin the other way in their own frame
+		_wheels[i].basis = Basis(Vector3.UP, yaw) * _wheel_base[i] * Basis(Vector3.RIGHT, spin)
+
+
+## Builds from the detailed model: its body on the springs, its wheels on
+## the ground. False without the file (or with a broken one).
+func _use_model() -> bool:
+	if not ResourceLoader.exists(MODEL_PATH):
+		return false
+	var scene := load(MODEL_PATH) as PackedScene
+	if scene == null:
+		return false
+	var model := scene.instantiate() as Node3D
+	var body := model.find_child("Body", true, false) as Node3D
+	var wheels: Array[Node3D] = []
+	for wheel_name: String in WHEELS:
+		var w := model.find_child(wheel_name, true, false) as Node3D
+		if w != null:
+			wheels.append(w)
+	if body == null or wheels.size() != 4:
+		model.free()
+		return false
+	body.get_parent().remove_child(body)
+	body.position.y = -BODY_PIVOT
+	_chassis.add_child(body)
+	for w in wheels:
+		var t := w.transform
+		w.get_parent().remove_child(w)
+		add_child(w)
+		w.transform = t
+		_wheels.append(w)
+		_wheel_base.append(t.basis)
+	model.free()
+	for node in body.find_children("*", "MeshInstance3D", true, false) + [body]:
+		if node is GeometryInstance3D:
+			(node as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	return true
 
 
 ## Follows the cart from behind and above; returns [position, look at].

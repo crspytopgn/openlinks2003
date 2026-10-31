@@ -49,6 +49,7 @@ func _initialize() -> void:
 	_run("computer_golfer_plans", _test_computer_golfer_plans)
 	_run("caddie", _test_caddie)
 	_run("buggy_drive", _test_buggy_drive)
+	_run("real_scale", _test_real_scale)
 	_run("handicap_scoring", _test_handicap_scoring)
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
@@ -1117,6 +1118,40 @@ func _test_buggy_drive() -> void:
 	var view: Array = b.chase(0.1, fairway)
 	_check((view[0] as Vector3).x < b.position.x, "the chase camera sits behind")
 	b.free()
+
+
+## Everything at its real size: the cart against a Club Car Precedent's
+## published dimensions, the golfer and caddie against an average man, the
+## bag, the ball and the hole against the Rules of Golf.
+func _test_real_scale() -> void:
+	var cart := (load(GolfBuggy.MODEL_PATH) as PackedScene).instantiate() as Node3D
+	var body := cart.find_child("Body", true, false) as MeshInstance3D
+	var box := body.get_aabb()
+	var wheel := cart.find_child("Wheel_RR", true, false) as MeshInstance3D
+	var outer := wheel.position.x + wheel.get_aabb().end.x
+	print("  cart: %.2f m long, %.2f m wide, %.2f m high, wheels %.3f m radius" % [box.size.z, maxf(box.size.x, 2.0 * outer), box.end.y, wheel.get_aabb().end.y])
+	_check_near(box.size.z, 2.39, 0.03, "cart length (Precedent 2.39 m)")
+	_check_near(maxf(box.size.x, 2.0 * outer), 1.19, 0.03, "cart width (1.19 m)")
+	_check_near(box.end.y, 1.76, 0.03, "cart height to the canopy (1.76 m)")
+	_check_near(wheel.get_aabb().end.y, 0.2286, 0.003, "18 in tyres")
+	_check_near(absf((cart.find_child("Wheel_FR", true, false) as Node3D).position.z - wheel.position.z), BuggyDrive.WHEELBASE, 0.01, "wheelbase matches the physics")
+	cart.free()
+	var golfer := (load(FreeGolfer.SCENE_PATH) as PackedScene).instantiate() as Node3D
+	var top := -INF
+	var bottom := INF
+	for n in golfer.find_children("*", "MeshInstance3D", true, false):
+		var m := n as MeshInstance3D
+		if m.name.begins_with("Driver") or m.name.begins_with("Putter"):
+			continue
+		top = maxf(top, m.get_aabb().end.y)
+		bottom = minf(bottom, m.get_aabb().position.y)
+	print("  golfer and caddie: %.2f m tall" % (top - bottom))
+	_check(top - bottom > 1.7 and top - bottom < 1.85, "golfer about 1.75 m tall (%.2f)" % (top - bottom))
+	golfer.free()
+	var bag := GolfBag.shared_mesh().get_aabb()
+	_check(bag.size.y > 0.95 and bag.size.y < 1.15, "stand bag with clubs about a metre high (%.2f)" % bag.size.y)
+	_check_near(BallPhysics.RADIUS * 2.0, 0.04267, 0.0001, "ball 42.67 mm across")
+	_check_near(BallPhysics.CUP_RADIUS * 2.0, 0.108, 0.001, "hole 108 mm across")
 
 
 func _test_placeholder_course() -> void:

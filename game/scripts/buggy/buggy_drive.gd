@@ -24,11 +24,11 @@ extends RefCounted
 const GRAVITY := 9.81
 const MASS := 500.0
 const YAW_INERTIA := 300.0
-const WHEELBASE := 1.65
+const WHEELBASE := 1.66
 const CG_TO_FRONT := 0.9  ## centre of gravity to the front axle
 const CG_TO_REAR := WHEELBASE - CG_TO_FRONT
 const CG_HEIGHT := 0.55
-const TRACK := 1.0  ## between the left and right tyres
+const TRACK := 0.93  ## between the left and right tyres, on average
 const MAX_STEER_DEG := 32.0
 const STEER_ASSIST := 0.55  ## the share of the lock left at top speed (keyboard driving)
 const STEER_RATE := 2.0  ## lock to centre, per second
