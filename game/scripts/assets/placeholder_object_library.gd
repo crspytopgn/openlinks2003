@@ -1,6 +1,7 @@
 class_name PlaceholderObjectLibrary
 extends ObjectLibrary
-## Simple primitive trees standing in for the original object library.
+## Simple primitive trees standing in for the original object library, or
+## photo-textured 3D trees (TreeFactory) when the graphics settings ask.
 
 var _trunk_mesh: CylinderMesh
 var _pine_mesh: CylinderMesh
@@ -37,6 +38,12 @@ func _init() -> void:
 
 
 func instantiate(id: String) -> Node3D:
+	if TreeFactory.enabled():
+		match id:
+			"tree_pine":
+				return TreeFactory.instance(TreeFactory.Species.PINE)
+			"tree_broadleaf":
+				return TreeFactory.instance(TreeFactory.Species.BROADLEAF)
 	var root := Node3D.new()
 	root.name = id
 	var trunk := MeshInstance3D.new()

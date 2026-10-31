@@ -44,6 +44,7 @@ func _initialize() -> void:
 	_run("placeholder_course", _test_placeholder_course)
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
+	_run("trees", _test_trees)
 	_run("broadcast_pieces", _test_broadcast_pieces)
 	_run("hd_pack", _test_hd_pack)
 	_run("object_library_chain", _test_object_library_chain)
@@ -745,15 +746,18 @@ func _test_graphics_settings() -> void:
 	_check(s.lighting == GraphicsSettings.Lighting.PHOTOREAL and s.grass > 0 and s.foliage_wind, "photoreal look")
 	s.apply_look(GraphicsSettings.Look.CLASSIC)
 	_check(s.lighting == GraphicsSettings.Lighting.CLASSIC and s.grass == 0 and s.sharpen == 0 and not s.dof, "classic look is plain")
+	_check(s.trees == 0, "classic look keeps the course's own trees")
 	s.apply_look(GraphicsSettings.Look.PERFORMANCE)
 	_check(s.quality == GraphicsSettings.Quality.LOW and s.render_scale < 1.0 and s.target_fps() > 0, "performance look")
 	s.apply_look(GraphicsSettings.Look.CINEMATIC)
 	s.grain = 1
+	s.trees = 1
 	s.look = GraphicsSettings.Look.CUSTOM
 	s.save(path)
 	loaded = GraphicsSettings.load_saved(path)
 	_check(loaded.look == GraphicsSettings.Look.CUSTOM and loaded.grain == 1 and loaded.grade == GraphicsSettings.Grade.FILM, "custom look saved")
 	_check(loaded.dof and loaded.ssao and loaded.bloom == 3, "effects saved")
+	_check(loaded.trees == 1, "tree setting saved")
 	cfg = ConfigFile.new()
 	cfg.set_value("graphics", "quality", 1)
 	cfg.save(path)
@@ -769,6 +773,35 @@ func _test_graphics_settings() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	for g in GraphicsSettings.Grade.values():
 		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
+
+
+func _test_trees() -> void:
+	for v in TreeFactory.VARIANTS.size():
+		var spec: Array = TreeFactory.VARIANTS[v]
+		var m := TreeFactory.build_mesh(spec[0], spec[1])
+		_check(m.get_surface_count() == 2, "tree %d has bark and leaves" % v)
+		var tris := 0
+		for i in m.get_surface_count():
+			tris += (m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+		_check(tris > 200 and tris < 6000, "tree %d stays light (%d triangles)" % [v, tris])
+		var box := m.get_aabb()
+		_check(box.end.y > 8.0 and box.end.y < 19.0 and box.position.y > -0.5, "tree %d is tree-sized (%.1f m)" % [v, box.end.y])
+		var again := TreeFactory.build_mesh(spec[0], spec[1])
+		_check(again.surface_get_array_len(1) == m.surface_get_array_len(1), "tree %d grows the same each time" % v)
+		_check(TreeFactory.frame_size(v) >= box.end.y, "tree %d fits its impostor frame" % v)
+	var lib := PlaceholderObjectLibrary.new()
+	TreeFactory.level = 0
+	var classic := lib.instantiate("tree_pine")
+	_check(classic != null and not classic.has_meta("tree_variant"), "classic trees when 3D trees are off")
+	TreeFactory.level = 2
+	var tree := lib.instantiate("tree_broadleaf")
+	_check(tree != null and tree.has_meta("tree_variant") and tree.get_node_or_null("Full") != null, "3D tree when on")
+	_check(lib.instantiate("rock") == null, "other ids still unknown")
+	TreeFactory.level = 0
+	classic.free()
+	tree.free()
+	for which in ["bark", "leaves", "needles", "bake_leaves"]:
+		_check(TreeFactory.material(which).shader != null, "%s shader loads" % which)
 
 
 func _test_grass() -> void:

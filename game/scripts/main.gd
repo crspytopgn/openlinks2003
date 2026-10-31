@@ -955,6 +955,7 @@ func _apply_graphics() -> void:
 	camera.fov = graphics.fov
 	camera.attributes = _camera_attributes()
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
+	TreeFactory.level = graphics.trees
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)
 	broadcast = graphics.broadcast()

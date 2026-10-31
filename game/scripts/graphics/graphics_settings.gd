@@ -30,6 +30,9 @@ const LIGHTING_NAMES := ["Classic Links", "Photoreal"]
 const UPSCALER_NAMES := ["Off", "FSR 1", "FSR 2"]
 const GRADE_NAMES := ["Neutral", "Vivid", "Warm afternoon", "Cool morning", "Film"]
 const LEVEL_NAMES := ["Off", "Low", "Medium", "High"]
+## Trees: the course's own (classic) or 3D, by how far out they stay 3D
+## before turning into impostors (TreeFactory.IMPOSTOR_DISTANCE).
+const TREE_NAMES := ["Classic", "3D near", "3D", "3D far"]
 const DYNAMIC_NAMES := ["Off", "Keep 30 fps", "Keep 60 fps"]
 const DYNAMIC_FPS := [0, 30, 60]
 ## Strength of each level (Off, Low, Medium, High) of the post effects.
@@ -65,6 +68,8 @@ var dof := false
 ## 3D grass in the rough, 0 (off) to 3 (dense and far).
 var grass := 0
 var foliage_wind := false
+## 0 classic trees, 1 to 3 photo-textured 3D trees (see TREE_NAMES).
+var trees := 0
 
 
 func _init() -> void:
@@ -109,6 +114,7 @@ func apply_look(which: int) -> void:
 			_set_look(Quality.HIGH, Lighting.CLASSIC, Upscaler.OFF, 2, 1.0, [0, 0, 0, 0], Grade.NEUTRAL, false, false, 0)
 			foliage_wind = false
 			dynamic_res = 0
+			trees = 0
 			return
 		Look.PERFORMANCE:
 			# A lower 3D resolution, upscaled with FSR 1 where it's
@@ -118,9 +124,11 @@ func apply_look(which: int) -> void:
 			return
 	foliage_wind = true
 	dynamic_res = 2
+	trees = 1 if which == Look.PERFORMANCE else (3 if quality >= Quality.ULTRA else 2)
 	if OS.has_feature("web"):
 		quality = mini(quality, Quality.MEDIUM)
 		grass = mini(grass, 1)
+		trees = mini(trees, 1)
 		msaa = maxi(msaa, 2) if which != Look.PERFORMANCE else 0
 
 
@@ -174,6 +182,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.dof = bool(cfg.get_value(SECTION, "dof", s.dof))
 	s.grass = clampi(int(cfg.get_value(SECTION, "grass", s.grass)), 0, 3)
 	s.foliage_wind = bool(cfg.get_value(SECTION, "foliage_wind", s.foliage_wind))
+	s.trees = clampi(int(cfg.get_value(SECTION, "trees", s.trees)), 0, TREE_NAMES.size() - 1)
 	return s
 
 
@@ -188,7 +197,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(SECTION, "fov", fov)
 	cfg.set_value(GAME_SECTION, "wind", wind)
 	cfg.set_value(GAME_SECTION, "presentation", presentation)
-	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind"]:
+	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)
 	if err != OK:

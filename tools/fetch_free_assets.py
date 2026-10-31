@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Downloads the free (CC0) textures and sky that the public build uses in
-place of the original game's art, from Poly Haven (https://polyhaven.com).
+place of the original game's art, from Poly Haven (https://polyhaven.com),
+and the leaf texture of the 3D trees from ambientCG (https://ambientcg.com).
 
     python3 tools/fetch_free_assets.py [--out game/free_assets] [--strict]
 
@@ -17,13 +18,20 @@ outage leaves the build working, just untextured.
 """
 
 import argparse
+import io
 import json
 import os
 import sys
 import time
 import urllib.request
+import zipfile
 
 API = "https://api.polyhaven.com"
+AMBIENTCG = "https://ambientcg.com"
+# ambientCG leaf sets (photographed leaves with an opacity map), in order of
+# preference: 3 x 2 leaves each. {out name: map suffix in the zip}.
+LEAF_SETS = ["LeafSet009", "LeafSet010"]
+LEAF_MAPS = {"leaf_albedo.png": "_Color.png", "leaf_opacity.png": "_Opacity.png"}
 USER_AGENT = "OpenLinks2003-asset-fetch (https://github.com/crspytopgn/openlinks2003)"
 
 
@@ -37,6 +45,7 @@ SLOTS = {
     "grass": ("textures", ["leafy_grass", "sparse_grass", "aerial_grass_rock"], ["grass"], texture_maps("1k")),
     "rough": ("textures", ["forrest_ground_01", "forest_ground_04", "brown_mud_leaves_01"], ["forest ground", "grass"], texture_maps("1k")),
     "sand": ("textures", ["coast_sand_01", "coast_sand_02", "aerial_beach_01"], ["sand"], texture_maps("1k")),
+    "bark": ("textures", ["bark_brown_02", "bark_brown_01", "pine_bark"], ["bark"], texture_maps("1k")),
     "sky": ("hdris", ["kloofendal_48d_partly_cloudy_puresky", "kloofendal_43d_clear_puresky"], ["pure sky", "clear"], {"panorama.hdr": ("hdri", "2k", "hdr")}),
 }
 
@@ -108,6 +117,29 @@ def fetch_slot(out_dir, slot, spec):
     return f"- **{slot}**: [{info.get('name', asset_id)}](https://polyhaven.com/a/{asset_id}) by {authors or 'Poly Haven'}, CC0"
 
 
+def fetch_leaves(out_dir):
+    for asset_id in LEAF_SETS:
+        try:
+            paths = {name: os.path.join(out_dir, name) for name in LEAF_MAPS}
+            if not all(os.path.exists(p) for p in paths.values()):
+                print(f"  leaves: {asset_id} 1K-PNG")
+                data = get(f"{AMBIENTCG}/get?file={asset_id}_1K-PNG.zip")
+                with zipfile.ZipFile(io.BytesIO(data)) as z:
+                    for name, suffix in LEAF_MAPS.items():
+                        member = next(m for m in z.namelist() if m.endswith(suffix))
+                        with open(paths[name], "wb") as f:
+                            f.write(z.read(member))
+            # Lossless: lossy compression invents light colours under the
+            # transparent pixels, which then show as bright leaf edges.
+            for p in paths.values():
+                with open(p + ".import", "w") as f:
+                    f.write(TEXTURE_IMPORT.format(mode=0))
+            return f"- **leaves**: [{asset_id}]({AMBIENTCG}/view?id={asset_id}) by ambientCG, CC0"
+        except Exception as e:  # noqa: BLE001 - try the next set
+            print(f"  leaves: {asset_id} failed: {e}")
+    raise RuntimeError("no leaf set could be fetched")
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -123,10 +155,15 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"WARNING: couldn't fetch {slot}: {e}")
             failed.append(slot)
+    try:
+        credits.append(fetch_leaves(args.out))
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: couldn't fetch leaves: {e}")
+        failed.append("leaves")
     with open(os.path.join(args.out, "CREDITS.md"), "w") as f:
-        f.write("# Free assets\n\nDownloaded by tools/fetch_free_assets.py from Poly Haven (CC0).\n\n")
+        f.write("# Free assets\n\nDownloaded by tools/fetch_free_assets.py from Poly Haven and ambientCG (CC0).\n\n")
         f.write("\n".join(credits) + "\n")
-    print(f"fetched {len(credits)} of {len(SLOTS)} slots")
+    print(f"fetched {len(credits)} of {len(SLOTS) + 1} slots")
     if failed and args.strict:
         sys.exit(1)
 
