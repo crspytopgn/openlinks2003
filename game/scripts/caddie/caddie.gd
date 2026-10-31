@@ -94,29 +94,32 @@ func _stand(hole: HoleData, ball: Vector3, dir: Vector3, putting: bool) -> void:
 	visible = true
 
 
-## The free golfer's model standing at ease, arms down, in white overalls;
+## The free golfer (FreeGolfer, a look of their own) standing at ease in white overalls, breathing and
+## shifting his weight (the mocap `idle` clip, from a random point so two
+## figures never move together); arms posed down if the clip is missing.
 ## null without the model.
 static func make_figure() -> Node3D:
-	if not ResourceLoader.exists(FreeGolfer.SCENE_PATH):
-		return null
-	var scene := load(FreeGolfer.SCENE_PATH) as PackedScene
-	if scene == null:
-		return null
-	var model := scene.instantiate() as Node3D
+	var look := PlayerLook.random(hash("caddie"))
+	look.outfit = "sleeves"
+	look.top = OVERALLS
+	look.bottom = OVERALLS
+	look.cap_colour = OVERALLS
+	var model: Node3D = FreeGolfer.create(look)
 	if model == null:
 		return null
+	(model as FreeGolfer).walk_in = false
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh := node as MeshInstance3D
 		if mesh.name.begins_with("Driver") or mesh.name.begins_with("Putter"):
 			mesh.visible = false
-		elif mesh.name.begins_with("Clothes"):
-			var mat := mesh.get_active_material(0)
-			if mat is BaseMaterial3D:
-				var suit := (mat as BaseMaterial3D).duplicate() as BaseMaterial3D
-				suit.albedo_texture = null
-				suit.albedo_color = OVERALLS
-				mesh.set_surface_override_material(0, suit)
 	var player := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if player != null and player.has_animation(&"idle"):
+		player.get_animation(&"idle").loop_mode = Animation.LOOP_LINEAR
+		# Started once the figure is in the scene.
+		player.ready.connect(func() -> void:
+			player.play(&"idle")
+			player.seek(randf() * player.current_animation_length, true), CONNECT_ONE_SHOT)
+		return model
 	if player != null:
 		player.stop()
 		player.active = false

@@ -38,6 +38,10 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
+const HINT_AIM_TOUCH := "Swipe down, then flick up briskly and straight: swing    Tap: meter    Buttons: menu, club, aim"
+const HINT_TOUCH_SWING := "Keep your finger down: drag it back, then flick it up briskly and straight"
+const HINT_AIM_PAD := "    Pad: right stick swing, A meter, D-pad club, LB fine aim"
+const HINT_STICK_SWING := "Right stick: pull it back, then push it forward briskly and straight    B: call it off"
 const HINT_COMPUTER := "%s is playing    Space or click: hurry up    Tab: scorecard"
 const HINT_DRIVE := "Up/Down or W/S: drive    Left/Right or A/D: steer    Space or click: skip to the ball    %d yd to go"
 const DRIVE_MIN_M := 40.0  ## closer than this, the player walks
@@ -140,6 +144,19 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## What is driving the mouse swing: the mouse, a finger or a thumbstick.
+enum SwingInput { MOUSE, TOUCH, STICK }
+var _swing_input := SwingInput.MOUSE
+## A touch or stick swing's movement turned into the mouse's (AnalogSwing).
+var _analog: AnalogSwing.Tracker = null
+## The finger that touched down while aiming (-1 none) and where.
+var _touch_index := -1
+var _touch_from := Vector2.ZERO
+## The right stick as the last motion events left it, and its pad.
+var _stick_raw := Vector2.ZERO
+var _stick_device := -1
+## A new stick swing waits for the stick to come back to rest first.
+var _stick_armed := true
 ## The game's swing-help count per player (the mouse swing's help option).
 var _swing_help: Array[LinksMouse.Help] = []
 ## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
@@ -246,6 +263,8 @@ func _ready() -> void:
 	hud.mouse_swing.backswing_started.connect(_on_backswing_started)
 	hud.mouse_swing.stroke_finished.connect(_on_mouse_stroke)
 	hud.mouse_swing.stroke_cancelled.connect(_on_mouse_stroke_cancelled)
+	hud.touch_pad.club_pressed.connect(_change_club)
+	hud.touch_pad.menu_pressed.connect(_escape)
 	start_round()
 
 
@@ -607,6 +626,7 @@ func play_shot(power: float, accuracy: float) -> void:
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
+		golfer.watch(ball, 0.7 if club.is_putter else 0.3)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
@@ -750,18 +770,18 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton:
+		var jb := event as InputEventJoypadButton
+		if jb.pressed and jb.button_index == JOY_BUTTON_START:
+			_escape()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo:
 			match key.keycode:
 				KEY_ESCAPE:
-					if settings_panel.visible:
-						settings_panel.close()
-						pause_menu.open()
-					elif pause_menu.visible:
-						pause_menu.close()
-					else:
-						open_pause_menu()
+					_escape()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -831,6 +851,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					if state == State.AIM and opponents[shooter] == null and hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 						_start_drop(DropRules.Reason.FREE_RELIEF)
 					return
+	if _touch_swing_input(event) or _stick_swing_input(event) or _pad_button(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _mouse_swing_input(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -880,12 +903,26 @@ func _on_swing_pressed() -> void:
 			start_round()
 
 
+## Esc (Start on a pad, the menu button on a touch screen): back out of the
+## settings, close the pause menu, or open it.
+func _escape() -> void:
+	if settings_panel.visible:
+		settings_panel.close()
+		pause_menu.open()
+	elif pause_menu.visible:
+		pause_menu.close()
+	else:
+		open_pause_menu()
+
+
 ## Esc: the pause menu. A mouse swing in progress is called off, since the
 ## menu takes the button's release.
 func open_pause_menu() -> void:
 	if hud.mouse_swing.is_swinging():
 		hud.mouse_swing.reset()
 		_on_mouse_stroke_cancelled()
+	_touch_index = -1
+	hud.touch_pad.release_all()
 	pause_menu.open()
 
 
@@ -893,27 +930,155 @@ func open_pause_menu() -> void:
 ## it (with the mouse swing chosen); Space still uses the meter.
 func _mouse_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
+	if event is InputEventMouse and (event as InputEventMouse).device == InputEvent.DEVICE_ID_EMULATION:
+		# The mouse events a touch screen makes up: the finger has its own
+		# swing (and a tap its own meter), so while aiming or swinging only
+		# the touch counts.
+		return state == State.AIM or ms.is_swinging() or _touch_index >= 0
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var mb := event as InputEventMouseButton
 		if ms.is_swinging():
-			if not mb.pressed:
+			if not mb.pressed and _swing_input == SwingInput.MOUSE:
 				ms.release()
 			return true
-		if mb.pressed and state == State.AIM and graphics.swing_method == 1 and not _replaying and not camera.flying():
-			hud.scorecard.visible = false
-			state = State.SWING
-			hud.hint.text = HINT_MOUSE_SWING
-			hud.meter.reset()
-			var club := clubs[club_index]
-			var number := LinksMouse.PUTTER
-			if not club.is_putter:
-				number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
-			ms.begin(number, graphics.skill, _chip and not club.is_putter)
+		if mb.pressed and graphics.swing_method == 1 and _can_start_swing():
+			_begin_mouse_swing(SwingInput.MOUSE)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
-		ms.motion((event as InputEventMouseMotion).screen_relative)
+		if _swing_input == SwingInput.MOUSE:
+			ms.motion((event as InputEventMouseMotion).screen_relative)
 		return true
 	return false
+
+
+## Whether the player may start a swing now.
+func _can_start_swing() -> bool:
+	return state == State.AIM and not _replaying and not camera.flying() and not hud.mouse_swing.is_swinging()
+
+
+## Starts Links 2003's mouse swing, driven by the mouse, a finger or a stick.
+func _begin_mouse_swing(source: SwingInput) -> void:
+	hud.scorecard.visible = false
+	state = State.SWING
+	hud.meter.reset()
+	var club := clubs[club_index]
+	var number := LinksMouse.PUTTER
+	if not club.is_putter:
+		number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
+	var chip := _chip and not club.is_putter
+	_swing_input = source
+	hud.mouse_swing.begin(number, graphics.skill, chip, source == SwingInput.MOUSE)
+	var shot := LinksMouse.Shot.FULL
+	if club.is_putter:
+		shot = LinksMouse.Shot.PUTT
+	elif chip:
+		shot = LinksMouse.Shot.CHIP
+	_analog = AnalogSwing.Tracker.new(AnalogSwing.reach_px(shot, number))
+	match source:
+		SwingInput.TOUCH:
+			hud.hint.text = HINT_TOUCH_SWING
+		SwingInput.STICK:
+			hud.hint.text = HINT_STICK_SWING
+		_:
+			hud.hint.text = HINT_MOUSE_SWING
+
+
+## A finger on a touch screen: touching down while aiming and dragging it
+## back starts the mouse swing (AnalogSwing turns the drag into the mouse's
+## movement); a tap without dragging starts the PowerStroke meter, whose
+## later clicks are taps as before.
+func _touch_swing_input(event: InputEvent) -> bool:
+	var ms := hud.mouse_swing
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			if _touch_index < 0 and state == State.AIM and not ms.is_swinging() and not hud.touch_pad.covers(t.position):
+				_touch_index = t.index
+				_touch_from = t.position
+				return true
+			return false
+		if t.index != _touch_index:
+			return false
+		_touch_index = -1
+		if ms.is_swinging() and _swing_input == SwingInput.TOUCH:
+			ms.release()  # before the downswing this calls the swing off
+		elif state == State.AIM and _tap(t.position):
+			_on_swing_pressed()
+		return true
+	if event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if d.index != _touch_index:
+			return false
+		var at := AnalogSwing.touch(_touch_from, d.position, get_viewport().get_visible_rect().size.y)
+		if not ms.is_swinging():
+			if at.y <= AnalogSwing.START or not _can_start_swing():
+				return true
+			_begin_mouse_swing(SwingInput.TOUCH)
+		if _swing_input == SwingInput.TOUCH:
+			ms.motion(_analog.feed(at))
+		return true
+	return false
+
+
+## Whether a finger lifted at `at` barely moved since it touched down.
+func _tap(at: Vector2) -> bool:
+	return AnalogSwing.touch(_touch_from, at, get_viewport().get_visible_rect().size.y).length() < AnalogSwing.START
+
+
+## The right stick on a game pad: pulling it back while aiming starts the
+## mouse swing and pushing it forward swings the club down (AnalogSwing).
+## B calls it off before the downswing.
+func _stick_swing_input(event: InputEvent) -> bool:
+	var ms := hud.mouse_swing
+	if event is InputEventJoypadButton:
+		var jb := event as InputEventJoypadButton
+		if jb.pressed and jb.button_index == JOY_BUTTON_B and ms.is_swinging() and _swing_input == SwingInput.STICK:
+			ms.release()
+			return true
+		return false
+	if not (event is InputEventJoypadMotion):
+		return false
+	var m := event as InputEventJoypadMotion
+	if m.axis != JOY_AXIS_RIGHT_X and m.axis != JOY_AXIS_RIGHT_Y:
+		return false
+	if m.device != _stick_device:
+		_stick_device = m.device
+		_stick_raw = Vector2.ZERO
+	if m.axis == JOY_AXIS_RIGHT_X:
+		_stick_raw.x = m.axis_value
+	else:
+		_stick_raw.y = m.axis_value
+	var at := AnalogSwing.stick(_stick_raw)
+	if not ms.is_swinging():
+		if at.y <= 0.0:
+			_stick_armed = true
+		if not _stick_armed or at.y <= AnalogSwing.START or not _can_start_swing():
+			return true
+		_stick_armed = false
+		_begin_mouse_swing(SwingInput.STICK)
+	if _swing_input == SwingInput.STICK:
+		ms.motion(_analog.feed(at))
+	return true
+
+
+## A game pad's other buttons while playing: the D-pad changes club (left
+## and right aim, as the arrow keys) and Back shows the scorecard.
+func _pad_button(event: InputEvent) -> bool:
+	if not (event is InputEventJoypadButton) or not (event as InputEventJoypadButton).pressed:
+		return false
+	match (event as InputEventJoypadButton).button_index:
+		JOY_BUTTON_DPAD_UP:
+			_change_club(-1)
+		JOY_BUTTON_DPAD_DOWN:
+			_change_club(1)
+		JOY_BUTTON_BACK:
+			if hud.scorecard.visible:
+				hud.scorecard.visible = false
+			else:
+				hud.scorecard.show_round(scoring, _round_name())
+		_:
+			return false
+	return true
 
 
 ## The club met the ball: Links 2003's mouse maths make the swing (the
@@ -1031,8 +1196,13 @@ func _set_caddie(on: bool) -> void:
 
 ## The aiming keys, with the swing the settings chose.
 func _aim_hint() -> String:
+	if hud.touch_pad.visible:
+		return HINT_AIM_TOUCH
 	var swing := HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER
-	return HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+	var text := HINT_AIM % [swing, HINT_OBJECTS if _objects_viewable() else ""]
+	if not Input.get_connected_joypads().is_empty():
+		text += HINT_AIM_PAD
+	return text
 
 
 static func _objects_viewable() -> bool:
@@ -1048,13 +1218,20 @@ func _process_aim(delta: float) -> void:
 	if turn == 0.0:
 		return
 	var rate := PUTT_AIM_RATE_DEG if clubs[club_index].is_putter else AIM_RATE_DEG
-	if Input.is_key_pressed(KEY_SHIFT):
+	if Input.is_key_pressed(KEY_SHIFT) or _pad_held(JOY_BUTTON_LEFT_SHOULDER):
 		rate *= 0.2
 	aim_deg = wrapf(aim_deg + turn * rate * delta, -180.0, 180.0)
 	_place_golfer()
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(false)
+
+
+static func _pad_held(button: JoyButton) -> bool:
+	for pad in Input.get_connected_joypads():
+		if Input.is_joy_button_pressed(pad, button):
+			return true
+	return false
 
 
 func _process_flight(delta: float) -> void:
@@ -2183,6 +2360,7 @@ func _place_golfer() -> void:
 	golfer.basis = Basis.looking_at(-left, Vector3.UP)
 	golfer.position = ball_at + left * 0.75
 	golfer.visible = true
+	golfer.set_ground(hole.terrain.height_at)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
 
@@ -2403,6 +2581,7 @@ func start_replay() -> bool:
 	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
+		golfer.watch(ball, 0.7 if putting else 0.3)
 	sounds.play_detail(&"hit", _strike_sound)
 	return true
 

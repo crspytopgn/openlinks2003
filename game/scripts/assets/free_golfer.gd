@@ -6,7 +6,9 @@ extends GolferRig
 ## are in the glTF written by tools/golfer/build_free_golfer.py, moving with
 ## motion capture retargeted by tools/golfer/mocap_swing.py: the address
 ## (with a look at the target), swing, putt, walk and reactions. At each new
-## ball the golfer walks up to it before settling over it. The body, clothes
+## ball the golfer walks up to it before settling over it; on the green they
+## first crouch behind the ball to read the putt. GolferFeet plants the feet
+## on slopes and GolferLook turns the head to follow the ball. The body, clothes
 ## and hair come from the look pack (GolferParts), baked into plain meshes
 ## for the look.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if either file is
@@ -22,6 +24,9 @@ const WALK_SPEED := 0.89
 const WALK_SETTLE := 0.35
 ## A move of more than this between addresses is a new ball.
 const NEW_BALL := 0.5
+## Where a putt is read from: behind the ball, on the line to the hole
+## (the target is -x), in the rig's frame.
+const READ_SPOT := Vector3(1.6, 0.0, -0.75)
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
@@ -43,6 +48,8 @@ var _putting := false
 var _rest := Vector3.ZERO
 var _walk: Tween
 var _last_spot := Vector3.INF
+var _look: GolferLook
+var _feet: GolferFeet
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -64,6 +71,10 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 	golfer._model = model
 	golfer._player = player
 	golfer._skeleton = skeletons[0]
+	golfer._feet = GolferFeet.new()
+	golfer._skeleton.add_child(golfer._feet)
+	golfer._look = GolferLook.new()
+	golfer._skeleton.add_child(golfer._look)
 	for i in golfer._skeleton.get_bone_count():
 		golfer._base_rests.append(golfer._skeleton.get_bone_rest(i))
 	for anim_name in LOOPING:
@@ -214,6 +225,8 @@ func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
 ## celebration, until a full swing.
 func play(animation: StringName) -> void:
 	_stop_walk()
+	if _look:
+		_look.track(null, 0.0)
 	match animation:
 		&"putt":
 			_putting = true
@@ -234,15 +247,40 @@ func play(animation: StringName) -> void:
 		_player.play(clip, BLEND_TIME)
 
 
-## Walks forward to the address spot, then settles into the clip.
+func watch(target: Node3D, delay: float = 0.3) -> void:
+	if _look:
+		_look.track(target, delay)
+
+
+func set_ground(height: Callable) -> void:
+	if _feet:
+		_feet.ground = height
+
+
+## Walks forward to the address spot, then settles into the clip. Before a
+## putt the golfer reads it first, crouched behind the ball looking down the
+## line.
 func _walk_in(clip: StringName) -> void:
-	_model.position = _rest + Vector3(0, 0, WALK_FROM)
-	_player.play(&"walk", BLEND_TIME)
 	_walk = create_tween()
-	_walk.tween_property(_model, "position", _rest, WALK_FROM / WALK_SPEED)
+	var from := Vector3(0, 0, WALK_FROM)
+	if clip == &"address_putt" and _player.has_animation(&"read"):
+		_model.position = _rest + READ_SPOT
+		_model.rotation.y = PI / 2.0  # facing the hole (-x)
+		_player.play(&"read", BLEND_TIME)
+		_walk.tween_interval(_player.get_animation(&"read").length - WALK_SETTLE)
+		from = READ_SPOT
+		var heading := -from.normalized()
+		var yaw := atan2(-heading.x, -heading.z)
+		_walk.tween_callback(func() -> void: _player.play(&"walk", WALK_SETTLE))
+		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
+	else:
+		_model.position = _rest + from
+		_player.play(&"walk", BLEND_TIME)
+	_walk.tween_property(_model, "position", _rest, from.length() / WALK_SPEED)
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(clip):
 			_player.play(clip, WALK_SETTLE))
+	_walk.tween_property(_model, "rotation:y", 0.0, WALK_SETTLE)
 
 
 func _stop_walk() -> void:
@@ -251,6 +289,7 @@ func _stop_walk() -> void:
 	_walk = null
 	if _model:
 		_model.position = _rest
+		_model.rotation.y = 0.0
 
 
 func _show_putter(on: bool) -> void:

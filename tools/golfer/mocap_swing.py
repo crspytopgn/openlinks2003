@@ -484,6 +484,10 @@ STAND_CLIPS = {
     "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25),
     "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
     "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
+    # Standing at ease: weight shifts and breathing (the caddie).
+    "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5),
+    # Crouching behind the ball to read a putt, putter in hand.
+    "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
 }
 CARRY_HEAD_HEIGHT = 0.12  # the club head's height when carried, metres
 

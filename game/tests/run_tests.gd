@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
+	_run("analog_swing", _test_analog_swing)
 	_run("scorecard", _test_scorecard)
 	_run("game_modes_match_olcore", _test_game_modes)
 	_run("handicaps_match_olcore", _test_handicaps)
@@ -98,6 +99,7 @@ func _process(_delta: float) -> bool:
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
 	_run("pause_stops_play", _test_pause_stops_play)
+	_run("touch_and_stick_swings", _test_touch_and_stick_swings)
 	_run("tee_view", _test_tee_view)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
@@ -2379,7 +2381,7 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
@@ -3211,6 +3213,182 @@ func _test_broadcast_round() -> void:
 	game.graphics.presentation = GraphicsSettings.Presentation.BROADCAST
 	game._apply_graphics()
 	_check(not game.hud.tour.visible and not game.putt_read.visible, "broadcast hides the tour graphics")
+
+
+## A stick (or finger) swing through AnalogSwing into Links 2003's mouse
+## swing: pulled `back` of the way over 40 frames, held 10 (with a little
+## jitter if asked), then pushed all the way forward over `flick` frames.
+func _analog_club(shot: int, club: int, back: float, flick: int, jitter := false) -> LinksMouse.MouseClub:
+	var mc := LinksMouse.MouseClub.new(3, shot, club, LinksMouse.meter_for(1920))
+	var rng := LinksLaunch.Rand.new(7)
+	var tracker := AnalogSwing.Tracker.new(AnalogSwing.reach_px(shot, club))
+	var pending := 0.0
+	for f in 300:
+		if mc.done():
+			break
+		var s := 0.0
+		if f < 40:
+			s = back * (f + 1) / 40.0
+		elif f < 50:
+			s = back - (0.02 if jitter and f % 2 == 0 else 0.0)
+		else:
+			var u := minf(1.0, (f - 49) / float(flick))
+			s = back - (back + 1.0) * u * u * (3.0 - 2.0 * u)
+		pending += tracker.feed(Vector2(0.0, s)).y
+		var dy := int(pending)
+		pending -= dy
+		mc.step(0, dy, rng)
+		if f == 49 and jitter:
+			_check(mc.phase == LinksMouse.Phase.BACKSWING, "stick jitter at the top doesn't start the downswing")
+	return mc
+
+
+func _analog_power(mc: LinksMouse.MouseClub) -> float:
+	if mc.phase != LinksMouse.Phase.IMPACT:
+		return -1.0
+	return LinksMouse.swing(mc.stroke, LinksLaunch.Rand.new(3)).power
+
+
+func _test_analog_swing() -> void:
+	_check(AnalogSwing.dead_zone(0.1) == 0.0 and AnalogSwing.dead_zone(1.0) == 1.0, "stick dead zone")
+	_check_near(AnalogSwing.dead_zone(-0.56), -0.5, 1e-6, "stick dead zone rescales")
+	_check(AnalogSwing.touch(Vector2(0, 100), Vector2(0, 500), 1000.0) == Vector2(0, 1), "a finger 40% of the screen back is a full deflection")
+	var t := AnalogSwing.Tracker.new(100.0)
+	_check(t.feed(Vector2(0, 0.5)) == Vector2(0, 50), "tracker moves the mouse back")
+	_check(t.feed(Vector2(0.1, 0.48)).is_equal_approx(Vector2(10, 0)), "tracker waits at the top")
+	var down := t.feed(Vector2(0.1, 0.4))
+	_check(t.coming_down() and down.y < 0.0, "tracker comes down")
+	_check_near(AnalogSwing.reach_px(LinksMouse.Shot.PUTT, LinksMouse.PUTTER), 1000.0 / 0.75, 1e-6, "putt reach")
+	# A full swing: all the way back gives about the mouse's usual backswing,
+	# and a brisk flick hits the driver near its best; a slow push less.
+	var full := _analog_club(LinksMouse.Shot.FULL, 0, 1.0, 10, true)
+	_check(full.phase == LinksMouse.Phase.IMPACT, "stick driver strikes")
+	_check(full.stroke.backswing > 0.75 and full.stroke.backswing < 0.95, "stick driver backswing %f" % full.stroke.backswing)
+	var flick := _analog_power(full)
+	_check(flick > 75.0, "stick driver flick power %f" % flick)
+	var slow := _analog_power(_analog_club(LinksMouse.Shot.FULL, 0, 1.0, 40))
+	_check(slow > 0.0 and slow < flick, "a slow push hits softer: %f" % slow)
+	var half := _analog_club(LinksMouse.Shot.FULL, 0, 0.5, 10)
+	_check(half.phase == LinksMouse.Phase.IMPACT and half.stroke.backswing > 0.35 and half.stroke.backswing < 0.6,
+			"half the stick is about half a backswing")
+	# Putts follow the stick: all the way back fills the meter, half is half.
+	var putt := _analog_club(LinksMouse.Shot.PUTT, LinksMouse.PUTTER, 1.0, 10)
+	var short := _analog_club(LinksMouse.Shot.PUTT, LinksMouse.PUTTER, 0.5, 10)
+	_check(putt.phase == LinksMouse.Phase.IMPACT and putt.stroke.backswing > 0.95, "stick putt fills the meter")
+	_check(short.phase == LinksMouse.Phase.IMPACT and short.stroke.backswing > 0.3 and short.stroke.backswing < 0.6,
+			"half a stick putt")
+	_check(_analog_power(short) < _analog_power(putt), "a shorter putt stroke is softer")
+	var chip := _analog_club(LinksMouse.Shot.CHIP, 16, 1.0, 10)
+	_check(chip.phase == LinksMouse.Phase.IMPACT and chip.stroke.backswing > 0.7, "stick chip")
+
+
+func _touch(game: GolfRound, pressed: bool, at: Vector2) -> void:
+	var e := InputEventScreenTouch.new()
+	e.index = 0
+	e.pressed = pressed
+	e.position = at
+	game._unhandled_input(e)
+
+
+func _drag(game: GolfRound, at: Vector2) -> void:
+	var e := InputEventScreenDrag.new()
+	e.index = 0
+	e.position = at
+	game._unhandled_input(e)
+	game.hud.mouse_swing.advance(1.0 / 60.0)
+
+
+func _stick(game: GolfRound, y: float) -> void:
+	var e := InputEventJoypadMotion.new()
+	e.device = 0
+	e.axis = JOY_AXIS_RIGHT_Y
+	e.axis_value = y
+	game._unhandled_input(e)
+	game.hud.mouse_swing.advance(1.0 / 60.0)
+
+
+func _ready_to_aim(game: GolfRound) -> void:
+	GolfRound.setup = null
+	game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
+	game._apply_graphics()
+	game.start_round()
+	if game.camera.flying():
+		game.camera.end_flyover()
+	if game.hud.hand_over.visible:
+		game.hud.hand_over.close()
+
+
+func _test_touch_and_stick_swings() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var presentation := game.graphics.presentation
+	_ready_to_aim(game)
+	_check(game.state == GolfRound.State.AIM, "touch: aiming")
+	var h := game.get_viewport().get_visible_rect().size.y
+	var from := Vector2(640, h * 0.3)
+	# The mouse events a touch screen makes up don't start the mouse swing.
+	var fake := InputEventMouseButton.new()
+	fake.device = InputEvent.DEVICE_ID_EMULATION
+	fake.button_index = MOUSE_BUTTON_LEFT
+	fake.pressed = true
+	game._unhandled_input(fake)
+	_check(game.state == GolfRound.State.AIM and not game.hud.mouse_swing.is_swinging(), "touch: made-up mouse ignored")
+	# A tap starts the PowerStroke meter.
+	_touch(game, true, from)
+	_touch(game, false, from)
+	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "touch: a tap starts the meter")
+	# A swipe: drag back 40% of the screen, then flick up.
+	_ready_to_aim(game)
+	_touch(game, true, from)
+	for f in 40:
+		_drag(game, from + Vector2(0, h * 0.4 * (f + 1) / 40.0))
+	_check(game.state == GolfRound.State.SWING and game.hud.mouse_swing.is_swinging(), "touch: swiping back swings")
+	_check(game.hud.mouse_swing.club.backswing_percent() > 60.0, "touch: backswing %f" % game.hud.mouse_swing.club.backswing_percent())
+	for f in 30:
+		if game.state != GolfRound.State.SWING:
+			break
+		_drag(game, from + Vector2(0, h * 0.4 - h * 0.8 * minf(1.0, (f + 1) / 8.0)))
+	_check(game.state == GolfRound.State.FLIGHT, "touch: the flick hits the ball")
+	_touch(game, false, from)
+	# A swipe called off: lifting the finger before the downswing.
+	_ready_to_aim(game)
+	_touch(game, true, from)
+	for f in 10:
+		_drag(game, from + Vector2(0, h * 0.02 * (f + 1)))
+	_touch(game, false, from + Vector2(0, h * 0.2))
+	_check(game.state == GolfRound.State.AIM and not game.hud.mouse_swing.is_swinging(), "touch: lifting early calls it off")
+	# The right stick: back over 40 frames, then a flick forward.
+	_ready_to_aim(game)
+	_stick(game, 0.0)
+	for f in 40:
+		_stick(game, (f + 1) / 40.0)
+	_check(game.state == GolfRound.State.SWING and game._swing_input == GolfRound.SwingInput.STICK, "stick: pulling back swings")
+	for f in 30:
+		if game.state != GolfRound.State.SWING:
+			break
+		_stick(game, 1.0 - 2.0 * minf(1.0, (f + 1) / 6.0))
+	_check(game.state == GolfRound.State.FLIGHT, "stick: the flick hits the ball")
+	_stick(game, 0.0)
+	# B calls a stick swing off, and the stick must rest before the next.
+	_ready_to_aim(game)
+	for f in 20:
+		_stick(game, (f + 1) / 40.0)
+	var b := InputEventJoypadButton.new()
+	b.button_index = JOY_BUTTON_B
+	b.pressed = true
+	game._unhandled_input(b)
+	_check(game.state == GolfRound.State.AIM, "stick: B calls it off")
+	_stick(game, 0.6)
+	_check(game.state == GolfRound.State.AIM, "stick: waits for the stick to rest")
+	_stick(game, 0.0)
+	_stick(game, 0.5)
+	_check(game.state == GolfRound.State.SWING, "stick: swings again from rest")
+	game.hud.mouse_swing.reset()
+	game._on_mouse_stroke_cancelled()
+	_stick(game, 0.0)
+	game.graphics.presentation = presentation
+	game._apply_graphics()
 
 
 ## A 15% slope rising towards +z, for the buggy tests.

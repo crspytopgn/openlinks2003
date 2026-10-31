@@ -19,6 +19,35 @@ the browser and on desktop today.
 | F11 | Toggle fullscreen |
 | C | Open the course viewer (courses made by `olcourse export`) |
 
+### Touch screens and game pads
+
+On a phone or tablet (the web build) buttons on the left aim (held), change
+club and open the menu. A swipe anywhere else is the mouse swing: put a
+finger down, drag it back down the screen (40% of the screen's height is a
+full deflection), then flick it up, briskly and straight. Lifting the finger
+before the downswing calls the swing off. A tap starts the swing meter, and
+later taps click it.
+
+On a game pad the left stick or D-pad left and right aim (LB for fine aim),
+D-pad up and down change club, A is the swing meter (and continues), Back
+shows the scorecard and Start opens the menu. The right stick is the mouse
+swing: pull it back, then push it forward. B calls it off before the
+downswing; the next swing waits for the stick to come back to rest.
+
+Both feed Links 2003's own mouse swing (`LinksMouse`) through `AnalogSwing`
+(`ui/analog_swing.gd`), which reads the stick or finger as a position and
+hands the swing the mouse movement it would have made, so the club's
+momentum, the power from speed through the ball and the hook, slice and
+miss rules are the original's. A full deflection is 650 mouse pixels for a
+full swing (about 85% on the meter, where the mouse also slows into the top)
+and 1000 / the club's response for chips and putts, which follow the mouse
+directly, so all the way back fills the meter and half way is half. A brisk
+flick (about 0.1 to 0.2 s) hits a driver near the club's best; a slower push
+hits softer. These sizes are our own choice, tuned with scripted swings
+against `libs/olcore/src/links_mouse.cpp`. Sideways movement scales the same
+way: at the hardest skill a stick kept within about a third of the way off
+straight stays inside the hook and slice line.
+
 The swing meter is the classic three-click Links arc. Click once to start the
 backswing; the marker climbs the left side of the arc towards 100% at the
 top. Click again to set power; the marker runs back down. Click a third time
@@ -344,6 +373,7 @@ game/scripts/
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
+    mouse_swing.gd, analog_swing.gd, touch_pad.gd   the mouse swing, and touch and stick input for it
     hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
     player_creator.gd, golfer_preview.gd   PlayerCreator: the player creator and its 3D preview
@@ -540,11 +570,16 @@ Nothing in the round needs to change.
   MakeHuman's CC0 assets by `tools/golfer/build_free_golfer.py`, moving
   with motion capture (CMU mocap, retargeted by
   `tools/golfer/mocap_swing.py`): address with a look at the target, swing,
-  putt, a walk up to each new ball, and `celebrate` and `upset` reactions,
-  baked into `game/assets/golfer/free_golfer.glb`, and dressed from the
-  look pack `free_golfer_parts.olg` (see [Player creator](#player-creator);
-  licence in `LICENSE.md` next to them). If either file is missing it falls
-  back to `PlaceholderGolfer`, the figure built from primitives.
+  putt, a walk up to each new ball, a crouch behind the ball to read each
+  putt, `celebrate` and `upset` reactions, and an `idle` stand (used by the
+  caddie), baked into `game/assets/golfer/free_golfer.glb`, and dressed from
+  the look pack `free_golfer_parts.olg` (see
+  [Player creator](#player-creator); licence in `LICENSE.md` next to them).
+  Two `SkeletonModifier3D`s run on top of the clips: `GolferLook` turns the
+  head to follow the ball in flight (`GolferRig.watch`) and `GolferFeet`
+  plants the feet on slopes (`GolferRig.set_ground`). If either file is
+  missing it falls back to `PlaceholderGolfer`, the figure built from
+  primitives.
 - **Audio:** subclass `SoundBank` (`play(event)`, and optionally
   `play_detail(event, detail)`) and set
   `AssetProviders.sound_bank_factory` to a callable that builds it. Events:
