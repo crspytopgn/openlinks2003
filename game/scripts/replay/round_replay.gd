@@ -175,6 +175,8 @@ static func _check_cards(record: RoundRecord, errors: Array[String]) -> void:
 				continue
 			var want := 0
 			for s in record.shots_on(ball, hole):
+				if s.mulligan:
+					continue
 				want += 1
 				if s.outcome == ShotResult.Outcome.WATER or s.outcome == ShotResult.Outcome.OUT_OF_BOUNDS:
 					want += 1

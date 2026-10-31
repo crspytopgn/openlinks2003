@@ -72,6 +72,15 @@ along the face and adds 160 rpm of sidespin per degree of face to path, and
 1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
 3 steps) are ours: the game's setup screen limits are not read yet.
 
+### Mulligans
+
+Settings > Mulligans (off by default): one per player per nine holes, or
+one per hole. Right after a shot, while its result shows, U takes it again
+from the same spot as if it never happened: the strokes, penalties and that
+hole's stats go back. The shot stays in the round's record marked
+`"mulligan": true`, and the replay checker leaves it off the card. Not on a
+holed shot, in a friend's round, the shared-ball team modes or practice.
+
 ### Launch monitors
 
 Settings > Launch monitor (desktop builds; a browser can't listen on a

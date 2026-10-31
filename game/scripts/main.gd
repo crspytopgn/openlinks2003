@@ -349,6 +349,8 @@ func start_round() -> void:
 	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
 	round_stats.clear()
+	_undo = {}
+	_mulligans_taken.clear()
 	for _i in scoring.player_count():
 		round_stats.append(PlayerProfiles.empty_stats())
 	_setup_practice()
@@ -458,6 +460,7 @@ func _round_name() -> String:
 func start_hole(index: int) -> void:
 	hole_index = index
 	shot_log.clear()
+	_undo = {}
 	_drop_pending = false
 	_drop_reason = -1
 	drop_marker.visible = false
@@ -638,6 +641,10 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
+	var p := players[current]
+	_undo = {"strokes": strokes, "putts": p.putts, "fairway": p.fairway, "gir": p.gir, "shots": p.shots - 1,
+		"lie": lie, "from": ball_at, "drive": int(round_stats[shooter].get("longest_drive_yd", 0)) if shooter < round_stats.size() else 0,
+		"record": record.shots.size()}
 	var rec := ShotRecord.new()
 	rec.index = record.shots.size()
 	rec.player = shooter
@@ -842,6 +849,10 @@ func _unhandled_input(event: InputEvent) -> void:
 						hud.scorecard.visible = false
 					else:
 						hud.scorecard.show_round(scoring, _round_name())
+					return
+				KEY_U:
+					if state == State.SHOT_RESULT and _can_mulligan():
+						_take_mulligan()
 					return
 				KEY_N, KEY_B:
 					if round_setup.practice and state == State.AIM and holes.size() > 1:
@@ -1239,6 +1250,57 @@ func _on_monitor_shot(launch: OpenConnect.Launch) -> void:
 	play_shot(power, 0.0, launch)
 
 
+# --- Mulligans ----------------------------------------------------------------
+# Settings > Mulligans: right after a shot, U takes it again as if it never
+# happened. The shot stays in the record, marked, and off the card.
+
+## The state before the last shot, for a mulligan.
+var _undo := {}
+## Each player's mulligans so far: the hole index of each.
+var _mulligans_taken: Array = []
+
+
+func _can_mulligan() -> bool:
+	if graphics.mulligans == 0 or _undo.is_empty() or round_setup.practice or round_setup.challenge != null:
+		return false
+	if GameModes.shared_ball(round_setup.mode) or opponents[shooter] != null or shot == null:
+		return false
+	if players[current].done() or state == State.HOLE_DONE:
+		return false
+	if shot.outcome == ShotResult.Outcome.HOLED or int(_undo.record) != record.shots.size() - 1:
+		return false
+	while _mulligans_taken.size() <= shooter:
+		_mulligans_taken.append([])
+	for h: int in _mulligans_taken[shooter]:
+		if graphics.mulligans == 2 and h == hole_index:
+			return false
+		if graphics.mulligans == 1 and h / 9 == hole_index / 9:
+			return false
+	return true
+
+
+func _take_mulligan() -> void:
+	(_mulligans_taken[shooter] as Array).append(hole_index)
+	var rec: ShotRecord = record.shots[int(_undo.record)]
+	rec.mulligan = true
+	var p := players[current]
+	strokes = int(_undo.strokes)
+	p.putts = int(_undo.putts)
+	p.fairway = int(_undo.fairway)
+	p.gir = bool(_undo.gir)
+	p.shots = int(_undo.shots)
+	if shooter < round_stats.size():
+		round_stats[shooter]["longest_drive_yd"] = int(_undo.drive)
+	_drop_pending = false
+	ball_at = _undo.from
+	_undo = {}
+	_clear_trail()
+	ball.visible = true
+	_place_ball(ball_at)
+	hud.show_message("%sMulligan: take it again." % ["" if players.size() == 1 else scoring.names[shooter] + ": "], 2.0)
+	_prepare_shot(false)
+
+
 # --- Gimmes -------------------------------------------------------------------
 
 ## Settings > Gimmes: the ball stopped on the green close enough to concede.
@@ -1537,6 +1599,9 @@ func _complete_flight() -> void:
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
+	if _can_mulligan():
+		hud.hint.text = HINT_WAIT + "    U: mulligan"
+		result_timer = RESULT_PAUSE * 2.0
 
 
 ## Fairways, greens in regulation and putts for the ball just played:

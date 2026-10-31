@@ -34,8 +34,8 @@ product lead builds it.
    auto club also picks a 3 hybrid on a 389-yard par 4. Fixed in #101.
 4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
    rounds (off in Classic Links). Gimmes done (Settings > Gimmes,
-   [game-shell.md](docs/game-shell.md#gimmes)); mulligans and a choice of
-   pick-up limit to come. Owner: lead.
+   [game-shell.md](docs/game-shell.md#gimmes)) and mulligans (Settings >
+   Mulligans, U after a shot); a choice of pick-up limit to come. Owner: lead.
 5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).

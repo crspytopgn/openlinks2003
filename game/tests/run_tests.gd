@@ -98,6 +98,7 @@ func _process(_delta: float) -> bool:
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
+	_run("mulligans", _test_mulligans)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2612,6 +2613,40 @@ func _test_launch_monitor_input() -> void:
 	_check(rec.monitor.size() == 5 and ShotRecord.from_dict(rec.to_dict()).monitor == rec.monitor, "recorded as measured")
 	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
 	_check(ok.ok and ok.checked == 1, "the monitor's shot replays: %s" % [ok.errors])
+	GolfRound.setup = null
+
+
+## Mulligans: the shot is taken again from the same spot, the card doesn't
+## count it, and the round still replays to the same card.
+func _test_mulligans() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	game.graphics.mulligans = 2
+	GolfRound.setup = RoundSetup.new()
+	game.start_round()
+	var taken := 0
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		if game.state == GolfRound.State.SHOT_RESULT and game._can_mulligan() and game.hole_index % 2 == 0:
+			var from: Vector3 = game._undo.from
+			var before: int = game._undo.strokes
+			game._take_mulligan()
+			taken += 1
+			_check(game.state == GolfRound.State.AIM and game.ball_at == from and game.strokes == before, "mulligan %d back where it was" % taken)
+			_check(not game._can_mulligan(), "one per hole")
+		game.auto_play_step()
+		steps += 1
+	game.graphics.mulligans = 0
+	_check(game.state == GolfRound.State.ROUND_DONE, "round with mulligans finishes")
+	_check(taken >= 3, "mulligans taken (%d)" % taken)
+	var marked := 0
+	for r in game.record.shots:
+		marked += 1 if r.mulligan else 0
+	_check(marked == taken, "mulligans marked in the record")
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok and ok.cards_checked, "a round with mulligans replays: %s" % [ok.errors])
+	print("  mulligans: %d, card %s" % [taken, str(game.card.strokes)])
 	GolfRound.setup = null
 
 
