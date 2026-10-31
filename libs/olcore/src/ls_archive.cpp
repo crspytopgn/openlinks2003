@@ -63,11 +63,13 @@ LsArchive::LsArchive(std::vector<std::uint8_t> data) : data_(std::move(data)) {
       return static_cast<std::uint32_t>(hp[off]) | (static_cast<std::uint32_t>(hp[off + 1]) << 8) |
              (static_cast<std::uint32_t>(hp[off + 2]) << 16) | (static_cast<std::uint32_t>(hp[off + 3]) << 24);
     };
-    std::size_t entry_header_size = static_cast<std::size_t>(hp[6] | (hp[7] << 8));
     e.compressed = hp[kCompressedOffset] == 1;
     e.original_size = u32_at(kOriginalSizeOffset);
     e.stored_size = u32_at(kStoredSizeOffset);
-    e.data_offset = e.header_offset + entry_header_size;
+    // The data always follows the 0x37-byte block header. Untagged entries
+    // (fonts and .SHR sprites in GRAPHICS.LS, most of SOUNDS.LS) carry zeros
+    // or leftover bytes in the header's size field, so it can't be trusted.
+    e.data_offset = e.header_offset + kBlockHeaderSize;
     if (e.data_offset + e.stored_size > data_.size()) {
       throw ReadError("entry " + e.name + " data lies outside the archive");
     }

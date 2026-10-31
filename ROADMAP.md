@@ -56,7 +56,8 @@ feel) still need a working install.
   - [ ] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks); `.SHA` shadow maps
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
-  - [ ] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, club icons, wind and lie windows, the game's own fonts (`.D3F`)
+  - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))
+  - [ ] Exact screen placement, the red and `HV`/`EZ` gizmo variants, shot-shape symbols (`SISYMB*`), club icons in the club list **(needs a screenshot of the running game)**
 - [ ] Golfer models and animation **(unblocked: `POLYANI/*.L3` with `.CLP` clips; probably the hardest format)**
   - [x] Archive contents, animation state script, object store container ([golfer-script.md](docs/formats/golfer-script.md), [carrera-store.md](docs/formats/carrera-store.md))
   - [x] Clip samples and skeleton (`olcore::read_anim_clips`, `read_skeleton`); the real golfer swings as a stick figure in the round

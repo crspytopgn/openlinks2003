@@ -16,6 +16,8 @@ func run_all() -> Array[String]:
 	_test_course_models()
 	_test_course_objects()
 	_test_panorama()
+	_test_d3f()
+	_test_hud_art()
 	_test_backdrop()
 	_test_env_sound()
 	_test_ambience_loop()
@@ -32,6 +34,7 @@ func _test_scripts_compile() -> void:
 			"res://scripts/course_viewer.gd", "res://scripts/course/course_models.gd",
 			"res://scripts/course/crz_course_loader.gd", "res://scripts/main.gd",
 			"res://scripts/round_camera.gd", "res://scripts/ui/hud_art.gd", "res://scripts/ui/info_bar.gd",
+			"res://scripts/ui/shot_panel.gd", "res://scripts/ui/shot_windows.gd", "res://scripts/data/d3f_font.gd",
 			"res://scripts/audio/course_ambience.gd", "res://scripts/graphics/course_backdrop.gd"]:
 		var script: GDScript = load(path)
 		check(script != null and script.can_instantiate(), "%s compiles" % path)
@@ -482,6 +485,123 @@ func _test_panorama() -> void:
 		check(img.get_pixel(4, 258).a < 0.01, "panorama empty tile")
 	d.append(0)
 	check(LinksPanorama.decode(d) == null, "panorama with trailing bytes")
+
+
+## LZW codes for `data` as plain literals, with a clear code often enough
+## that the codes stay 9 bits wide.
+func lzw_literals(data: PackedByteArray) -> PackedByteArray:
+	var codes := PackedInt32Array([256])
+	var since_clear := 0
+	for b in data:
+		if since_clear == 250:
+			codes.append(256)
+			since_clear = 0
+		codes.append(b)
+		since_clear += 1
+	codes.append(257)
+	var out := PackedByteArray()
+	var acc := 0
+	var bits := 0
+	for c in codes:
+		acc |= c << bits
+		bits += 9
+		while bits >= 8:
+			out.append(acc & 0xff)
+			acc >>= 8
+			bits -= 8
+	if bits > 0:
+		out.append(acc & 0xff)
+	return out
+
+
+## Mirrors d3f_font() and test_d3f in libs/olcore/tests/test_main.cpp.
+func d3f_font(colour: bool) -> PackedByteArray:
+	var f := PackedByteArray()
+	f.resize(0x55 + 6 * 256)
+	f[0] = 0x44
+	f[1] = 0x33
+	f[2] = 0x46
+	f[3] = 0xd4 if colour else 0xb4
+	var face := "Arial".to_ascii_buffer()
+	for i in face.size():
+		f[4 + i] = face[i]
+	f.encode_s32(0x44, -11)
+	f[0x48] = 1
+	f.encode_s32(0x49, 700)
+	f.encode_s32(0x4d, 1)
+	f.encode_s32(0x51, 10)
+	var h := 0x48  # "H"
+	f[0x55 + 256 + h] = 2
+	f[0x55 + 512 + h] = 3
+	f[0x55 + 768 + h] = 4
+	f[0x55 + 1024 + h] = 0xff  # left -1
+	f[0x55 + 1280 + h] = 2
+	var bpp := 4 if colour else 1
+	var px := PackedByteArray()
+	px.resize(16 * 16 * bpp)
+	for y in range(3, 10):
+		for x in range(2, 6):
+			var p := (y * 16 + x) * bpp
+			if colour:
+				px[p] = 10
+				px[p + 1] = 20
+				px[p + 2] = 30
+				px[p + 3] = 200
+			else:
+				px[p] = 255
+	var packed := lzw_literals(px.slice(0, px.size() - 40))
+	put_u32(f, f.size() + 4)
+	put_u32(f, -16 & 0xffffffff)
+	put_u32(f, packed.size())
+	f.append_array(packed)
+	return f
+
+
+func _test_d3f() -> void:
+	var b := d3f_font(false)
+	check(D3fFont.is_d3f(b), "d3f magic")
+	var f := D3fFont.read(b)
+	check(f != null, "d3f reads")
+	if f == null:
+		return
+	check(f.face == "Arial" and f.pixel_height == 11 and f.italic and f.weight == 700 and f.line_height == 10, "d3f header")
+	check(not f.colour and f.pages.size() == 1 and f.pages[0].get_width() == 16, "d3f page")
+	check(f.glyphs[0x48] == PackedInt32Array([0, 2, 3, 4, -1, 2]), "d3f glyph")
+	check(f.glyphs[0x41][3] == 0, "d3f missing glyph")
+	check(f.pages[0].get_pixel(2, 3).a8 == 255 and f.pages[0].get_pixel(2, 3).r8 == 255, "d3f coverage pixel")
+	check(f.pages[0].get_pixel(2, 2).a8 == 0, "d3f empty pixel")
+	check(f.ascent() == 7, "d3f ascent")
+	var font := f.to_font()
+	check(font.fixed_size == 11, "d3f font size")
+	# Advance per H: left -1 + width 4 + right 2.
+	check(is_equal_approx(font.get_string_size("HH", HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x, 10.0), "d3f advance")
+	check(D3fFont.char_of(0x80) == 0x20ac and D3fFont.char_of(0xe9) == 0xe9, "d3f code page")
+
+	var c := D3fFont.read(d3f_font(true))
+	check(c != null and c.colour, "d3f colour")
+	if c != null:
+		var p := c.pages[0].get_pixel(3, 4)
+		check(p.r8 == 30 and p.g8 == 20 and p.b8 == 10 and p.a8 == 200, "d3f BGRA to RGBA")
+	var bad := b.duplicate()
+	bad.encode_s32(0x55 + 6 * 256, 999999)
+	check(D3fFont.read(bad) == null, "d3f bad page offset")
+	check(not D3fFont.is_d3f(b.slice(0, 40)), "d3f too short")
+
+
+func _test_hud_art() -> void:
+	check(HudArt.club_kind("Driver", false) == 0 and HudArt.club_kind("3 Wood", false) == 0, "club kind wood")
+	check(HudArt.club_kind("7 Iron", false) == 1 and HudArt.club_kind("Sand Wedge", false) == 1, "club kind iron")
+	check(HudArt.club_kind("Putter", true) == 2, "club kind putter")
+	check(HudArt.elevation_index(0.0) == 6, "elevation level")
+	check(HudArt.elevation_index(100.0) == 0 and HudArt.elevation_index(-100.0) == 12, "elevation ends")
+	check(HudArt.elevation_index(3.05) == 4, "elevation 10 ft up")
+	# The panels draw with no textures at all.
+	var art := HudArt.new()
+	var panel := ShotPanel.new(art)
+	var windows := ShotWindows.new(art)
+	check(panel.size.y > 100.0 and windows.size.x > 100.0, "classic panels size")
+	panel.free()
+	windows.free()
 
 
 func _test_backdrop() -> void:

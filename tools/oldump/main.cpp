@@ -22,6 +22,7 @@
 
 #include "olcore/binary_reader.hpp"
 #include "olcore/carrera_store.hpp"
+#include "olcore/d3f.hpp"
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/ls_archive.hpp"
@@ -268,6 +269,26 @@ int cmd_pano(const char* path, const char* tga) {
   return 0;
 }
 
+int cmd_font(const char* path, const char* tga) {
+  auto r = olcore::BinaryReader::from_file(path);
+  const auto f = olcore::read_d3f(r.data());
+  int glyphs = 0;
+  for (const auto& g : f.glyphs) glyphs += g.width > 0;
+  std::printf("%s: %s %dpx%s%s, line %d, ascent %d, %d glyphs on %zu %s page(s) of %d\n", path, f.face.c_str(),
+              f.pixel_height, f.weight >= 700 ? " bold" : "", f.italic ? " italic" : "", f.line_height, f.ascent(),
+              glyphs, f.pages.size(), f.colour ? "colour" : "coverage", f.pages.empty() ? 0 : f.pages[0].width);
+  if (tga) {
+    for (std::size_t i = 0; i < f.pages.size(); ++i) {
+      const std::string out = std::string(tga) + "." + std::to_string(i) + ".tga";
+      const auto bytes = olcore::encode_tga(f.pages[i]);
+      std::ofstream(out, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()),
+                                                 static_cast<std::streamsize>(bytes.size()));
+      std::printf("wrote %s\n", out.c_str());
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -279,11 +300,13 @@ int main(int argc, char** argv) {
                  "       oldump store <file.skl|file.clp>\n"
                  "       oldump anim <file.skl|file.clp> [--skeleton file.skl]\n"
                  "       oldump mesh <file.skl> [--obj out.obj] [--clip file.clp] [--frame N]\n"
-                 "       oldump pano <Panorama|PanNN.btc|skyNN.btc> [--tga out.tga]\n");
+                 "       oldump pano <Panorama|PanNN.btc|skyNN.btc> [--tga out.tga]\n"
+                 "       oldump font <font.d3f> [--tga PREFIX]\n");
     return 2;
   }
   if (argc >= 3 && (!std::strcmp(argv[1], "ls") || !std::strcmp(argv[1], "ssf") || !std::strcmp(argv[1], "store") ||
-                    !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh") || !std::strcmp(argv[1], "pano"))) {
+                    !std::strcmp(argv[1], "anim") || !std::strcmp(argv[1], "mesh") || !std::strcmp(argv[1], "pano") ||
+                    !std::strcmp(argv[1], "font"))) {
     try {
       if (!std::strcmp(argv[1], "ls")) return cmd_ls(argv[2], extract_dir(argc, argv));
       if (!std::strcmp(argv[1], "ssf")) return cmd_ssf(argv[2], extract_dir(argc, argv));
@@ -293,6 +316,13 @@ int main(int argc, char** argv) {
           if (!std::strcmp(argv[i], "--skeleton")) skeleton = argv[i + 1];
         }
         return cmd_anim(argv[2], skeleton);
+      }
+      if (!std::strcmp(argv[1], "font")) {
+        const char* tga = nullptr;
+        for (int i = 3; i + 1 < argc; ++i) {
+          if (!std::strcmp(argv[i], "--tga")) tga = argv[i + 1];
+        }
+        return cmd_font(argv[2], tga);
       }
       if (!std::strcmp(argv[1], "pano")) {
         const char* tga = nullptr;

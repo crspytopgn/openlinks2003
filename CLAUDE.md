@@ -30,7 +30,7 @@ and don't start a "(needs data)" item on guesses.
   `ShotModel`), registered with `AssetProviders`.
 - `game/scripts/audio/ssf_bank.gd` (`ssf.cpp`, `wav.cpp`) and
   `game/scripts/data/` (`ls_archive.cpp`, `lzw.cpp`, `carrera_store.cpp`,
-  `golfer_anim.cpp`, `golfer_mesh.cpp`) are GDScript ports; change both sides
+  `golfer_anim.cpp`, `golfer_mesh.cpp`, `d3f.cpp`) are GDScript ports; change both sides
   together. So are the parsers in `game/scripts/course/course_objects.gd`
   (`course_objects.cpp`).
 

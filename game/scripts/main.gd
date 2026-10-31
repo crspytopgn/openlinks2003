@@ -1483,7 +1483,13 @@ func _update_hud() -> void:
 	if not status.is_empty():
 		text += "\n" + status
 	hud.info.text = text
-	hud.wind.show_wind(wind, aim_deg)
+	hud.show_wind(wind, aim_deg)
+	# The aim marker sits on the ground where the shot is aimed.
+	var rise := aim_marker.position.y - 0.08 - ball_at.y if aim_marker.visible else 0.0
+	var reach_text := "%d yd" % roundi(_club_reach() * YARDS_PER_METRE)
+	if club.is_putter:
+		reach_text = pin_text
+	hud.show_shot(club, reach_text, rise, Surface.name_of(lie), 1.0 if club.is_putter else Surface.lie_power(lie))
 	if broadcast:
 		hud.overlay.set_status(_status(state == State.AIM or state == State.SWING))
 

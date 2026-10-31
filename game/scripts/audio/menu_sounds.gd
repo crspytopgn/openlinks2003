@@ -94,8 +94,9 @@ func _hook(n: Node) -> void:
 		(n as BaseButton).pressed.connect(click)
 
 
-## SOUNDS.LS is an older archive whose entries still start with their 0x37
-## byte block header, so the WAV starts at its RIFF tag.
+## The WAV starts at its RIFF tag. Readers before the untagged-entry fix
+## returned SOUNDS.LS entries with their 0x37-byte block header in front, so
+## that offset is still accepted.
 static func _stream(entry: PackedByteArray) -> AudioStreamWAV:
 	for at in [0, LsArchiveFile.BLOCK_HEADER_SIZE]:
 		if entry.size() > at + 12 and entry.slice(at, at + 4).get_string_from_ascii() == "RIFF":
