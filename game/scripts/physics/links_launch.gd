@@ -132,24 +132,212 @@ func launch(s: Strike) -> Array[Vector3]:
 ## the standard splash, positive is heavier, negative cleaner, and below -5
 ## thin, which also takes loft off.
 static func apply_lie(s: Strike, lie: LinksGround.Params, sand_contact := 0) -> void:
-	var spin_k := 1.0
-	var speed_k := 1.0
+	var k := Vector2.ONE
 	if lie.ground_class == LinksGround.SAND:
 		s.face_error = 0.0
-		var c := sand_contact
-		if c >= 0:
-			speed_k = 0.3 + (15 - c) / 150.0
-			spin_k = 0.25 + (15 - c) / 12.0
-		else:
-			var clean := float(-c)
-			spin_k = 1.5 - 0.1 * clean
-			if c >= -5:
-				speed_k = 0.4 + 0.1 * clean
-			else:
-				speed_k = 0.9 - 0.065 * (clean - 5.0)
-				s.loft_scale = 1.0 - 0.09 * (clean - 5.0)
-	s.spin_scale = spin_k * lie.lie_spin
-	s.speed_scale = speed_k * lie.lie_power
+		k = _sand(s, sand_contact)
+	s.spin_scale = k.y * lie.lie_spin
+	s.speed_scale = k.x * lie.lie_power
+
+
+## The C runtime's rand(), which the game's swing code draws from. Mirrors
+## olcore::LinksRand.
+class Rand:
+	var state := 1
+
+	func _init(p_seed := 1) -> void:
+		state = p_seed & 0xffffffff
+
+	## 0..32767.
+	func next() -> int:
+		state = (state * 214013 + 2531011) & 0xffffffff
+		return (state >> 16) & 0x7fff
+
+
+enum Method { POWERSTROKE, MOUSE }
+
+const SKILL_COUNT := 4
+
+## One human swing, as it reaches the shot. Mirrors olcore::LinksSwing.
+class SwingInput:
+	var method := Method.POWERSTROKE
+	var skill := 3  ## 0 (easiest) to 3
+	var contact := 0  ## the meter's accuracy in whole steps (meter_contact)
+	var full_power := 100.0  ## power above this is an overswing
+	## The mouse swing's own face and path (degrees, positive closes the face
+	## or swings left) and loft multiplier.
+	var mouse_face_deg := 0.0
+	var mouse_path_deg := 0.0
+	var mouse_loft := 1.0
+	var left_handed := false
+	## A ball on the tee peg strikes cleanly whatever the meter says; a
+	## PowerStroke swing only wobbles its power and aim a little.
+	var teed_up := false
+
+
+## Spin lost and ball speed lost per step of a miss from a lie, and how far
+## the lie magnifies a miss (TerrainTypes LieAngularSnap, LiePowerSnap and
+## Snap). Mirrors olcore::links_lie_snap.
+static func lie_snap(ground_class: int) -> Vector3:
+	match ground_class:
+		LinksGround.ROUGH:
+			return Vector3(0.1, 0.03, 1.5)
+		LinksGround.SAND:
+			return Vector3(0.2, 0.2, 2.0)
+		LinksGround.PATH:
+			return Vector3(0.1, 0.0, 4.0)
+		LinksGround.DIRT, LinksGround.ROCKS:
+			return Vector3(0.1, 0.0, 3.0)
+		LinksGround.BUSHES:
+			return Vector3(0.1, 0.0, 1.5)
+		LinksGround.DEEP_GRASS:
+			return Vector3(0.1, 0.05, 2.0)
+	return Vector3(0.1, 0.0, 1.0)
+
+
+## The PowerStroke meter's accuracy in whole steps for a snap `miss` meter
+## units past the perfect zone (positive is late; clamped at 25). Mirrors
+## olcore::links_meter_contact; `meter_width` is 150, 192 or 238.
+static func meter_contact(miss: float, skill: int, meter_width := 192) -> int:
+	var x := int(clampf(miss, -25.0, 25.0))
+	var level := clampi(skill, 0, SKILL_COUNT - 1)
+	var scale: float = [2.0, 1.5, 1.5, 1.4][level]
+	var steps: int = [225, 180, 180, 165][level]
+	var window := int(meter_width * scale)
+	var t := int(float(x * steps) / window)
+	@warning_ignore("integer_division")
+	return int(0.2 * t) / 2
+
+
+## What the swing and the lie do to a human player's strike, in place of
+## apply_lie. Mirrors olcore::links_apply_swing; see docs/formats/physics.md.
+static func apply_swing(s: Strike, w: SwingInput, lie: LinksGround.Params, rng: Rand) -> void:
+	var ls := lie_snap(lie.ground_class)
+	var sand := lie.ground_class == LinksGround.SAND
+	var skill := clampi(w.skill, 0, SKILL_COUNT - 1)
+	s.loft_scale = 1.0
+	s.spin_scale = lie.lie_spin
+	s.speed_scale = lie.lie_power
+
+	if w.method == Method.POWERSTROKE:
+		if skill > 0:
+			# The miss, magnified by an overswing, the skill and the lie, then
+			# scattered by up to a third either way.
+			var miss := w.contact
+			var over := (s.power - w.full_power) * 0.5
+			if s.power > w.full_power and over > 1.0:
+				miss = int(over * miss)
+			miss *= 6 if skill == 3 else (5 if skill == 2 else 2)
+			miss = int(miss * ls.z)
+			if miss != 0:
+				var sum := rng.next() % 101 + rng.next() % 101 + rng.next() % 101
+				miss = int((sum * 0.001 + 0.35) * miss)
+			miss = clampi(miss, -60, 60)
+			# Aim and path turned apart: a late miss pushes and slices.
+			var turn := ((rng.next() % 25) + 75.0) * 0.01 * miss
+			turn *= 0.5 if skill == 3 else (1.0 / 1.9 if skill == 2 else 2.0 / 3.0)
+			turn = deg_to_rad(turn)
+			s.path_error -= turn
+			if not sand:
+				s.aim += turn
+			if skill >= 2:
+				var lost := 0.0
+				if miss != 0:
+					lost = rng.next() % absi(miss) + 1.0
+					if not lost < s.power:
+						lost = s.power - 1.0
+				s.power -= lost
+				var dp := (rng.next() % 100) * 0.0025
+				var df := deg_to_rad((rng.next() % 100) * 0.001)
+				s.power += -dp if rng.next() % 100 < 50 else dp
+				s.face_error += -df if rng.next() % 100 < 50 else df
+	else:
+		s.face_error = deg_to_rad(w.mouse_face_deg)
+		s.path_error = deg_to_rad(w.mouse_path_deg)
+		s.loft_scale = w.mouse_loft
+	if sand:
+		s.face_error = 0.0
+	if w.teed_up:
+		if w.method == Method.POWERSTROKE:
+			s.power += (rng.next() % 200 - 100) * 0.01
+			s.aim += (rng.next() % 200 - 100) * 1e-5
+		return
+
+	# The strike: the further off the meter, the more spin and speed the lie
+	# takes, and below a quality limit the ball comes off slower.
+	var c := absi(w.contact)
+	var quality: float
+	match lie.ground_class:
+		LinksGround.GREEN:
+			quality = 1.0
+		LinksGround.ROUGH:
+			quality = 0.6 - 0.03 * c
+		LinksGround.SAND:
+			quality = 0.4 - 0.03 * c
+		LinksGround.PATH, LinksGround.DIRT, LinksGround.BUSHES, LinksGround.ROCKS:
+			quality = 0.95 - 0.06 * c
+		_:
+			quality = (rng.next() % 200 - 100) * 5e-5 + (SINGLE_0_9 - 0.01 * c)
+	if lie.ground_class != LinksGround.GREEN:
+		quality = maxf(quality, 0.3)
+	# Only the driver, the 3-wood and the two longest irons feel it.
+	match s.club:
+		0:
+			pass
+		1:
+			quality = 1.0 - (1.0 - quality) * 0.5
+		7:
+			quality = 1.0 - (1.0 - quality) * 0.2
+		8:
+			quality = 1.0 - (1.0 - quality) * 0.05
+		_:
+			quality = 1.0
+	if skill == 0:
+		quality = (quality + 1.0) * 0.5
+	elif skill == 1:
+		quality = quality * 0.8 + 0.2
+	elif skill == 2:
+		quality = quality * 0.9 + 0.1
+
+	# The easier levels forgive the first steps of a miss.
+	var steps := c
+	var k := 1.0
+	if skill == 0:
+		steps = maxi(c - 2, 0)
+		k = 0.6
+	elif skill == 1:
+		steps = maxi(c - 1, 0)
+		k = 0.8
+	var power_snap := 0.0 if (not sand and w.method == Method.MOUSE) else ls.y
+	var speed := maxf(lie.lie_power - power_snap * steps * k, 0.25)
+	s.spin_scale = maxf(lie.lie_spin - steps * ls.x * k, 0.25)
+	s.speed_scale = minf(speed, quality)
+
+	if sand:
+		s.path_error = 0.0
+		var contact := w.contact
+		if w.method == Method.POWERSTROKE and w.left_handed:
+			contact = -contact
+		var f := _sand(s, contact)
+		s.speed_scale = f.x * lie.lie_power
+		s.spin_scale = f.y * lie.lie_spin
+
+
+## 0.9 as the game stores it, in single precision.
+const SINGLE_0_9 := 0.89999997615814209
+
+
+## Sand: how much sand the club takes for a contact. Returns the speed (x)
+## and spin (y) factors and sets the loft, which only a thin strike reduces.
+static func _sand(s: Strike, c: int) -> Vector2:
+	s.loft_scale = 1.0
+	if c >= 0:
+		return Vector2(0.3 + (15 - c) / 150.0, 0.25 + (15 - c) / 12.0)
+	var clean := float(-c)
+	if c >= -5:
+		return Vector2(0.4 + 0.1 * clean, 1.5 - 0.1 * clean)
+	s.loft_scale = 1.0 - 0.09 * (clean - 5.0)
+	return Vector2(0.9 - 0.065 * (clean - 5.0), 1.5 - 0.1 * clean)
 
 
 ## The same launch in the game shell's SI frame, with the ball at the origin.
