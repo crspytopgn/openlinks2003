@@ -22,6 +22,7 @@ varying vec3 base_color;
 varying vec2 blade;
 varying float height;
 varying vec2 root_xz;
+varying float blend;
 
 void vertex() {
 	// VERTEX and NORMAL are in world space here (world_vertex_coords).
@@ -29,7 +30,11 @@ void vertex() {
 	blade = UV2;
 	vec3 root = MODEL_MATRIX[3].xyz;
 	root_xz = root.xz;
-	float fade = 1.0 - smoothstep(fade_start, fade_end, distance(root.xz, camera_pos.xz));
+	float dist = distance(root.xz, camera_pos.xz);
+	float fade = 1.0 - smoothstep(fade_start, fade_end, dist);
+	// From a few metres out, blades take the turf's own tone, so the rough
+	// reads as one soft band rather than dark speckle on the ground.
+	blend = smoothstep(4.0, fade_start, dist);
 	float phase = INSTANCE_CUSTOM.a * 6.2831;
 	float gust = 0.6 + 0.4 * sin(TIME * 1.7 + phase + dot(root.xz, vec2(0.21, 0.17)));
 	vec2 bend = wind_vector * 0.012 * gust + vec2(sin(TIME * 2.3 + phase), cos(TIME * 1.9 + phase)) * 0.015;
@@ -47,7 +52,9 @@ void fragment() {
 	vec3 c = mix(base_color, straw, blade.y * 0.7) * mix(0.8, 1.15, blade.x);
 	// Capped well below white: pale disc rough lifted for Compatibility
 	// would otherwise pass the glow threshold and bloom into a white haze.
-	ALBEDO = min(c * mix(0.55, 1.28, smoothstep(0.0, 1.0, height)) * brightness * vec3(0.97, 1.03, 0.9), vec3(0.6))
+	vec3 near = c * mix(0.7, 1.22, smoothstep(0.0, 1.0, height)) * vec3(0.97, 1.03, 0.9);
+	vec3 far = base_color * mix(0.92, 1.05, blade.x);
+	ALBEDO = min(mix(near, far, blend) * brightness, vec3(0.6))
 		* ground_shading(root_xz, length(VERTEX));
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).
