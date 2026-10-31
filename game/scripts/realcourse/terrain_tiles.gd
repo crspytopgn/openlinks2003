@@ -142,3 +142,13 @@ static func _tile_x(lon: float, z: int) -> float:
 static func _tile_y(lat: float, z: int) -> float:
 	var phi := deg_to_rad(clampf(lat, -85.0, 85.0))
 	return (1.0 - log(tan(phi) + 1.0 / cos(phi)) / PI) * 0.5 * pow(2.0, z)
+
+
+## Longitude of a (fractional) tile column at a zoom.
+static func tile_lon(x: float, z: int) -> float:
+	return x / pow(2.0, z) * 360.0 - 180.0
+
+
+## Latitude of a (fractional) tile row at a zoom.
+static func tile_lat(y: float, z: int) -> float:
+	return rad_to_deg(atan(sinh(PI * (1.0 - 2.0 * y / pow(2.0, z)))))

@@ -84,6 +84,37 @@ static func from_bil(bytes: PackedByteArray, w: int, h: int, box: Array) -> GeoR
 	return r
 
 
+## A Japanese GSI elevation tile (PNG, 256 px, web mercator) covering
+## exactly (south, west, north, east). Its colour is the height in
+## centimetres, (R << 16 | G << 8 | B), as a signed 24-bit number; 2^23 is
+## no data. Over one tile web mercator is as good as linear in latitude
+## (well under a pixel), so it is stored as an ordinary grid.
+static func from_gsi_png(bytes: PackedByteArray, box: Array) -> GeoRaster:
+	var img := Image.new()
+	if bytes.size() < 8 or bytes.slice(0, 4) != PackedByteArray([0x89, 0x50, 0x4E, 0x47]):
+		return null
+	if img.load_png_from_buffer(bytes) != OK or img.get_width() != 256 or img.get_height() != 256:
+		return null
+	img.convert(Image.FORMAT_RGB8)
+	var rgb := img.get_data()
+	var r := GeoRaster.new()
+	r.width = 256
+	r.height = 256
+	r.nodata = -9999.0
+	r.data.resize(256 * 256)
+	for k in 256 * 256:
+		var v := (rgb[k * 3] << 16) | (rgb[k * 3 + 1] << 8) | rgb[k * 3 + 2]
+		if v == 0x800000:
+			r.data[k] = -9999.0
+		else:
+			r.data[k] = (v - 0x1000000 if v > 0x800000 else v) * 0.01
+	r.west = box[1]
+	r.north = box[2]
+	r.dlon = (float(box[3]) - float(box[1])) / 256.0
+	r.dlat = (float(box[2]) - float(box[0])) / 256.0
+	return r
+
+
 ## A single-band GeoTIFF in EPSG:4326: either byte order, 32-bit float or
 ## 16-bit integer samples, uncompressed or Deflate, in strips or tiles, with
 ## its position from ModelPixelScale + ModelTiepoint or ModelTransformation.
