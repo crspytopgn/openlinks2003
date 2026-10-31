@@ -26,12 +26,12 @@ product lead builds it.
    setup bytes but nothing set them. Done: Q/E and W/S in the round
    ([game-shell.md](docs/game-shell.md#playing)); the setup screen's own
    limits are still to read from the game.
-2. [ ] **Touch and controller swings**: a swipe swing on phones and tablets
+2. [x] **Touch and controller swings**: a swipe swing on phones and tablets
    (the web build), and an analog-stick swing on gamepads, both feeding the
-   PowerStroke model. Owner: new thread.
-3. [ ] **Tee view shows the target**: on hilly holes (placeholder hole 1) the
+   PowerStroke model. Done in #104.
+3. [x] **Tee view shows the target**: on hilly holes (placeholder hole 1) the
    tee camera looks into the slope and the fairway is out of sight; the
-   auto club also picks a 3 hybrid on a 389-yard par 4. Owner: bug-hunt.
+   auto club also picks a 3 hybrid on a 389-yard par 4. Fixed in #101.
 4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
    rounds (off in Classic Links). Gimmes done (Settings > Gimmes,
    [game-shell.md](docs/game-shell.md#gimmes)); mulligans and a choice of
@@ -45,9 +45,8 @@ product lead builds it.
    a sim-racing wheel. Owner: new thread, after item 5.
 7. [ ] **Career**: a season of events against the computer golfers, with a
    money list and the handicap and stats already kept. Owner: new thread.
-8. [ ] **Menu polish**: a live course flyover behind the menus, the round
-   setup panel centred, and the key hints kept clear of the lower third.
-   Owner: bug-hunt.
+8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
+   setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
    marker, UI scale, captions for voice and commentary. Owner: lead.
 10. [x] **Personal records**: longest drive, best rounds per course, birdie,
