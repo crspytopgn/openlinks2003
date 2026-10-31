@@ -843,6 +843,7 @@ func _test_graphics_settings() -> void:
 	s.skill = 1
 	s.green_firmness = 2
 	s.green_speed = 0
+	s.swing_method = 0
 	s.save(path)
 	var loaded := GraphicsSettings.load_saved(path)
 	_check(loaded.quality == GraphicsSettings.Quality.ULTRA, "quality saved")
@@ -853,6 +854,7 @@ func _test_graphics_settings() -> void:
 	_check(loaded.presentation == GraphicsSettings.Presentation.CLASSIC, "presentation saved")
 	_check(loaded.skill == 1, "swing skill saved")
 	_check(loaded.green_firmness == 2 and loaded.green_speed == 0, "green options saved")
+	_check(loaded.swing_method == 0 and GraphicsSettings.new().swing_method == 1, "swing method saved, mouse by default")
 	_check(GraphicsSettings.new().broadcast(), "broadcast presentation by default")
 	cfg = ConfigFile.new()
 	cfg.load(path)
@@ -1189,6 +1191,47 @@ func _test_links_swing_matches_olcore() -> void:
 		LinksLaunch.computer_putt_miss(cw, cg, c[4], c[3], LinksLaunch.Rand.new(c[5]))
 		_check_near(cw.power, c[7], 1e-4, "computer putt %d power" % cputts.find(c))
 		_check_near(deg_to_rad(cw.path_deg), c[8], 1e-5, "computer putt %d path" % cputts.find(c))
+	# The mouse swing, as test_links_mouse_swing: power, release, drift,
+	# height, skill, seed, then power, face, path, whiff.
+	var strokes := [
+		[100.0, 0.0, 0.0, 100.0, 3, 1, 100.0, 0.0, 0.0, false],
+		[100.0, 4.0, 10.0, 200.0, 3, 7, 95.0, 2.584, -1.67552598, false],
+		[90.0, -12.0, -20.0, 150.0, 2, 99, 81.0, -13.9536, 12.7073864, false],
+		[120.0, 20.0, 0.0, 100.0, 0, 5, 103.0, 28.10525, 0.0, false],
+		[100.0, 19.0, 0.0, 100.0, 3, 5, 0.0, 0.0, 0.0, true],
+		[150.0, -3.0, 5.0, 80.0, 1, 42, 150.51, -1.943, -7.58009526, false],
+	]
+	for c in strokes:
+		var ms := LinksLaunch.MouseStroke.new()
+		ms.power = c[0]
+		ms.release = c[1]
+		ms.drift = c[2]
+		ms.height = c[3]
+		ms.skill = c[4]
+		var mw := LinksLaunch.mouse_swing(ms, LinksLaunch.Rand.new(c[5]))
+		var i := strokes.find(c)
+		_check_near(mw.power, c[6], 1e-6, "mouse swing %d power" % i)
+		_check_near(mw.face_deg, c[7], 1e-6, "mouse swing %d face" % i)
+		_check_near(mw.path_deg, c[8], 1e-6, "mouse swing %d path" % i)
+		_check(mw.whiff == c[9], "mouse swing %d whiff" % i)
+	# The mouse swing control (outside the tree a unit is a pixel): 150 units
+	# back, then up through the line at 1300 units/s, let go 9 units past it.
+	var ctl := MouseSwingControl.new()
+	var got: Array = []
+	ctl.stroke_finished.connect(func(m: LinksLaunch.MouseStroke) -> void: got.append(m))
+	ctl.begin(Vector2(400, 300), 0.0)
+	for k in 16:
+		ctl.motion(Vector2(400, 300 + 10 * (k + 1)), 0.02 * (k + 1))
+	for k in 12:
+		ctl.motion(Vector2(400 + k, 460 - 13 * (k + 1)), 0.32 + 0.01 * (k + 1))
+	ctl.release(Vector2(411, 291), 0.45)
+	_check(got.size() == 1, "mouse stroke finished")
+	if got.size() == 1:
+		var st: LinksLaunch.MouseStroke = got[0]
+		_check_near(st.power, 100.0, 0.5, "mouse stroke power")
+		_check_near(st.release, 9.0 / 1300.0 * 200.0, 0.01, "mouse stroke late release")
+		_check(st.drift > 0.0 and st.height > 140.0, "mouse stroke drift and height")
+	ctl.free()
 	# Putts, as test_links_putt: skill, contact, then the face error.
 	var putts := [[0, 1, 0.0], [1, 1, -0.0111701], [2, 1, -0.017637], [2, -2, 0.0440925],
 			[2, 3, -0.070548], [3, 1, -0.0251327], [3, -2, 0.0502655], [3, 3, -0.0753982]]

@@ -8,6 +8,7 @@ var info: Label
 var message: Label
 var hint: Label
 var meter: SwingMeter
+var mouse_swing: MouseSwingControl
 var wind: WindIndicator
 var scorecard: ScorecardPanel
 var hand_over: HandOverPanel
@@ -50,6 +51,9 @@ func _ready() -> void:
 	meter = SwingMeter.new()
 	_place(meter, Control.PRESET_BOTTOM_RIGHT, Rect2(-240, -240, 220, 220))
 	add_child(meter)
+
+	mouse_swing = MouseSwingControl.new()
+	add_child(mouse_swing)
 
 	overlay = BroadcastOverlay.new()
 	overlay.visible = false
