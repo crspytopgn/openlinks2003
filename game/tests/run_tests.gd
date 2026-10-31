@@ -3495,6 +3495,10 @@ func _test_menu_resume() -> void:
 	SavedRound.save(s, {"hole": 0})
 	_check(boot._resume_slot() == 2, "menu: the saved course's slot")
 	var boot_script := load("res://scripts/boot.gd") as GDScript
+	var shell: Control = boot_script.new()
+	shell._build_ui()
+	_check(shell.get_node_or_null("MenuScroll") is ScrollContainer, "menu: the menus scroll when taller than the window")
+	shell.free()
 	_check(boot_script.primary_button(["Play with placeholders", "Career", "Players"]) == 0, "menu: Enter plays, not Players")
 	_check(boot_script.primary_button(["Load disc images...", "Players", "Play a round"]) == 2, "menu: focus skips Players")
 	_check(boot_script.primary_button(["Players", "Settings"]) == -1, "menu: no play button, no focus")
