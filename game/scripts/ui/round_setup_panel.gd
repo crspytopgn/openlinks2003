@@ -75,6 +75,7 @@ func _ready() -> void:
 	for n in RoundSetup.MAX_PLAYERS:
 		counts.append("1 player" if n == 0 else "%d players" % (n + 1))
 	_count = _row(players, "Players", counts)
+	_count.custom_minimum_size = _course.custom_minimum_size
 	_count.item_selected.connect(_on_count_selected.unbind(1))
 	for i in RoundSetup.MAX_PLAYERS:
 		var row := HBoxContainer.new()
@@ -367,10 +368,15 @@ func _challenge_slot(rec: RoundRecord) -> int:
 	return -1
 
 
+## Width of the row labels, the same in every grid so the dropdowns line up.
+const LABEL_W := 100.0
+
+
 func _row(grid: GridContainer, label: String, items: Array) -> OptionButton:
 	var l := Label.new()
 	l.text = label
 	l.add_theme_font_size_override("font_size", 18)
+	l.custom_minimum_size = Vector2(LABEL_W, 0)  # lines up the separate grids
 	grid.add_child(l)
 	var opt := OptionButton.new()
 	opt.custom_minimum_size = Vector2(240, 36)
