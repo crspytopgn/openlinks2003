@@ -197,6 +197,17 @@ OpenStreetMap from the club's own published scorecard.
   `landuse=forest`) filled on a jittered 9 m grid, thinned to keep the
   course under 5000 trees. `leaf_type` picks pines or broadleaves. No tree
   is planted on a fairway, green, tee, bunker or in water.
+- **What the map lacks:** many clubs are mapped with their hole lines but
+  not every green, tee, fairway or bunker. `CourseGuesser`
+  (`game/scripts/realcourse/course_guesser.gd`) draws whatever a hole is
+  missing at typical sizes along its line: a green round the pin (about
+  520, 600 and 650 m2 for par 3, 4 and 5, a quarter longer than wide), a
+  tee box at each tee, on par 4s and 5s a fairway from the landing area
+  (at most 140 m out) to the green, about 34 m wide and narrower at its
+  ends, and, on holes with no bunker mapped within 45 m of the line, two
+  or three greenside bunkers and a fairway bunker at 230 m. They are saved
+  with `"guessed": true`, and the designer's message says how many there
+  are, so they can be checked against the photo and redrawn.
 - **Cart paths:** `golf=cartpath` and `golf_cart=designated` ways.
 - **Ground:** the lidar or tile heights at every 2 m sample, bilinear. Heights below
   -12 m (the sea floor) are raised to -12 m, then the grid is stored round
@@ -227,6 +238,7 @@ game/scripts/realcourse/
   national_lidar.gd       NationalLidar: the lidar services, and trees from the canopy
   aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
   land_cover.gd           LandCover: 10 m land cover, trees and ground colours from it
+  course_guesser.gd       CourseGuesser: greens, tees, fairways and bunkers the map lacks
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests
@@ -236,6 +248,9 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
+- Finding missing greens, fairways and bunkers in the lidar (hollows,
+  smooth raised greens) and photos (bright sand, striped grass) instead of
+  guessing them.
 - More lidar and photo services (above); reprojecting from national
   grids would open most of the rest.
 - Buildings (`building=*`, already read to keep trees off them) as

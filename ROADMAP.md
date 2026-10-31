@@ -92,6 +92,8 @@ feel) still need a working install.
   - [x] Real courses: national lidar (England, Netherlands, France, US), trees from the lidar canopy or aerial photos, the photo under the designer, clubs with several courses
   - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
   - [x] Real courses: worldwide 10 m land cover for trees the map lacks and ground colours where there is no open photo
+  - [x] Real courses: greens, tees, fairways and bunkers the map lacks drawn at typical sizes along each hole (marked as guessed)
+  - [ ] Real courses: find missing greens, fairways and bunkers in the lidar and photos instead of guessing
   - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses

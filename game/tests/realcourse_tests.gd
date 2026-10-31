@@ -18,6 +18,7 @@ func run_all() -> Array[String]:
 	_test_extra_trees()
 	_test_photo_ground()
 	_test_land_cover()
+	_test_guesser()
 	return failures
 
 
@@ -127,7 +128,8 @@ func _test_builder() -> void:
 		check(h.route.size() == 1, "the dogleg point is an aim point (%d)" % h.route.size())
 	var counts := {}
 	for s in c.shapes:
-		counts[s.surface] = int(counts.get(s.surface, 0)) + 1
+		if not s.guessed:
+			counts[s.surface] = int(counts.get(s.surface, 0)) + 1
 	check(counts.get(Surface.Type.FAIRWAY, 0) == 1, "the fairway relation became one area")
 	check(counts.get(Surface.Type.GREEN, 0) == 1 and counts.get(Surface.Type.SAND, 0) == 1 and counts.get(Surface.Type.TEE, 0) == 2, "green, bunker, tees")
 	check(counts.get(Surface.Type.WATER, 0) >= 2, "pond and stream are water (%d)" % counts.get(Surface.Type.WATER, 0))
@@ -469,3 +471,54 @@ func _test_land_cover() -> void:
 	var want_nw: Color = LandCover.COLORS[LandCover.TREES]
 	var want_ne: Color = LandCover.COLORS[LandCover.CROPS]
 	check(absf(nw.r - want_nw.r) + absf(nw.g - want_nw.g) < 0.02 and absf(ne.r - want_ne.r) + absf(ne.g - want_ne.g) < 0.02, "ground picture: woods to the north-west, fields to the north-east")
+
+
+## A hole mapped only as a line gets a green, a tee, a fairway and bunkers
+## at typical sizes, all marked guessed; a fully mapped hole gets nothing.
+func _test_guesser() -> void:
+	var c := DesignedCourse.blank(Vector2(600, 600))
+	var h := DesignedHole.new()
+	h.tees = PackedVector2Array([Vector2(0, -200)])
+	h.pin = Vector2(0, 180)
+	h.par = 4
+	c.holes.append(h)
+	var added := CourseGuesser.fill(c, 7)
+	var by := {}
+	for s in added:
+		check(s.guessed, "guessed shapes are marked")
+		by[s.surface] = int(by.get(s.surface, 0)) + 1
+	check(by.get(Surface.Type.GREEN, 0) == 1 and by.get(Surface.Type.TEE, 0) == 1 and by.get(Surface.Type.FAIRWAY, 0) == 1, "green, tee and fairway: %s" % by)
+	check(int(by.get(Surface.Type.SAND, 0)) >= 3, "greenside and fairway bunkers: %s" % by)
+	var green: CourseShape = null
+	var fairway: CourseShape = null
+	for s in added:
+		if s.surface == Surface.Type.GREEN:
+			green = s
+		elif s.surface == Surface.Type.FAIRWAY:
+			fairway = s
+	if green != null:
+		var ring := green.outline()
+		var a := absf(_ring_area_of(ring))
+		check(a > 380.0 and a < 800.0, "green size: %.0f m2" % a)
+		check(Geometry2D.is_point_in_polygon(h.pin, ring), "the pin is on the green")
+		check(green.bounds().size.y > green.bounds().size.x, "the green is longer along the approach")
+	if fairway != null:
+		check(Geometry2D.is_point_in_polygon(Vector2(0, 30), fairway.outline()), "the fairway covers the landing area")
+		check(fairway.bounds().size.x > 25.0 and fairway.bounds().size.x < 45.0, "fairway width: %.1f" % fairway.bounds().size.x)
+		check(not Geometry2D.is_point_in_polygon(Vector2(0, -190), fairway.outline()), "no fairway at the tee")
+	var saved := DesignedCourse.from_json(c.to_json())
+	var kept := 0
+	for s in saved.shapes:
+		if s.guessed:
+			kept += 1
+	check(kept == added.size(), "the guessed mark is saved")
+	check(CourseGuesser.fill(c, 7).is_empty(), "a hole with everything gets nothing more")
+
+
+static func _ring_area_of(ring: PackedVector2Array) -> float:
+	var a := 0.0
+	for k in ring.size():
+		var p := ring[k]
+		var q := ring[(k + 1) % ring.size()]
+		a += p.x * q.y - q.x * p.y
+	return a * 0.5

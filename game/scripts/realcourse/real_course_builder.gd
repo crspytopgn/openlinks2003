@@ -60,6 +60,7 @@ var photo_trees := PackedVector2Array()
 ## Trees from the land cover (LandCover.tree_points), used when there are
 ## no lidar or photo trees, outside the mapped woods.
 var land_trees := PackedVector2Array()
+var _guessed: Array[Dictionary] = []  ## CourseGuesser's shapes: {"ring", "box"}
 ## With several courses at one club (golf:course:name on the holes),
 ## build only this one; empty builds every hole.
 var course_filter := ""
@@ -145,9 +146,16 @@ func build(height: Callable, fallback := Callable()) -> DesignedCourse:
 	_fill_heights(c, height, fallback)
 	_add_shapes(c)
 	_add_holes(c)
+	_guessed.clear()
+	for s in CourseGuesser.fill(c, hash(c.course_name)):
+		var ring := s.outline()
+		var r := Rect2(ring[0], Vector2.ZERO)
+		for p in ring:
+			r = r.expand(p)
+		_guessed.append({"ring": ring, "box": r})
 	_add_paths(c)
 	_add_trees(c)
-	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size()}
+	summary = {"holes": c.holes.size(), "areas": c.shapes.size(), "trees": c.objects.size(), "paths": c.paths.size(), "guessed": _guessed.size()}
 	return c
 
 
@@ -694,7 +702,7 @@ func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: A
 
 ## The play areas trees keep off, grown 2 m, with their bounds.
 func _play_rings() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
+	var out: Array[Dictionary] = _guessed.duplicate()
 	for d in _polys:
 		if d.has("wood") or not d["surface"] in [Surface.Type.FAIRWAY, Surface.Type.GREEN, Surface.Type.TEE, Surface.Type.SAND, Surface.Type.WATER]:
 			continue
