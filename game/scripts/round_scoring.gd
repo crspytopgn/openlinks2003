@@ -237,5 +237,11 @@ func winner_text() -> String:
 	if rows.size() == 1:
 		return "%s: %s" % rows[0]
 	if rows[0][1] == rows[1][1]:
-		return "Tied at the top: %s and %s, %s" % [rows[0][0], rows[1][0], rows[0][1]]
-	return "%s wins: %s" % rows[0]
+		var tied: Array[String] = []
+		for r: Array in rows:
+			if r[1] == rows[0][1]:
+				tied.append(str(r[0]))
+		var who := ", ".join(tied.slice(0, tied.size() - 1)) + " and " + tied[-1]
+		return "Tied at the top: %s, %s" % [who, rows[0][1]]
+	# A team ("Ann & Cy") wins as a plural.
+	return "%s %s: %s" % [rows[0][0], "win" if GameModes.is_team(mode) else "wins", rows[0][1]]
