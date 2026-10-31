@@ -482,13 +482,20 @@ def smooth(quats):
 
 def write_clip(glb, rig, name, times, rots, root, filtered=True):
     t_acc = glb.add(times, minmax=True)
+    t_one = None
     samplers, channels = [], []
     for j, node in enumerate(rig.joints):
         if rig.names[j] == "club":
             continue
         q = np.array([pose.quat(r[j]) for r in rots])
         q = (smooth(q) if filtered and len(q) > 2 else q).astype(np.float32)
-        samplers.append({"input": t_acc, "output": glb.add(q), "interpolation": "LINEAR"})
+        if len(q) > 1 and np.max(1.0 - np.abs(q @ q[0])) < 1e-7:
+            # Still all clip long (the fingers round the grip): one key.
+            if t_one is None:
+                t_one = glb.add(np.asarray(times[:1], np.float32), minmax=True)
+            samplers.append({"input": t_one, "output": glb.add(q[:1]), "interpolation": "LINEAR"})
+        else:
+            samplers.append({"input": t_acc, "output": glb.add(q), "interpolation": "LINEAR"})
         channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "rotation"}})
     samplers.append({"input": t_acc, "output": glb.add(root), "interpolation": "LINEAR"})
     channels.append({"sampler": len(samplers) - 1, "target": {"node": rig.joints[0], "path": "translation"}})
