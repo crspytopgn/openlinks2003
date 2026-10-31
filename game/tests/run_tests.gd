@@ -1935,6 +1935,12 @@ func _test_pause_stops_play() -> void:
 		game.camera.end_flyover()  # the broadcast hole flyover takes the first click
 	game._on_swing_pressed()
 	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
+	var method := game.graphics.swing_method
+	game.graphics.swing_method = 1
+	_check("mouse swing" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
+	game.graphics.swing_method = 0
+	_check("Space or click: swing" in game._aim_hint(), "aim hint names the meter")
+	game.graphics.swing_method = method
 	game.open_pause_menu()
 	game._process(0.1)
 	_check(not game.hud.meter.is_processing(), "pause: the swing meter stops")

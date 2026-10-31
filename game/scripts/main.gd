@@ -23,7 +23,9 @@ const RESULT_PAUSE := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
-const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    Space or click: swing    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM := "Left/Right: aim (Shift: fine)    Up/Down: club    %s    D: drop    Tab: scorecard    O: objects    Esc: menu"
+const HINT_AIM_METER := "Space or click: swing"
+const HINT_AIM_MOUSE := "Hold the left button: mouse swing    Space: meter"
 const HINT_FREE_DROP := "    F: free drop"
 const HINT_DROP := "%s: option    Arrows: move the ball (Shift: fine, Page Down: back 10 m)    Space or click: drop here"
 const HINT_DROP_CANCEL := "    Backspace: cancel"
@@ -839,7 +841,7 @@ func _on_mouse_stroke(stroke: LinksMouse.Stroke) -> void:
 func _on_mouse_stroke_cancelled() -> void:
 	if state == State.SWING:
 		state = State.AIM
-		hud.hint.text = HINT_AIM
+		hud.hint.text = _aim_hint()
 		if golfer:
 			golfer.play(&"address")
 
@@ -882,7 +884,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	aim_deg = rad_to_deg(atan2(target.x - ball_at.x, target.z - ball_at.z))
 	hud.meter.reset()
 	hud.mouse_swing.reset()
-	hud.hint.text = HINT_AIM
+	hud.hint.text = _aim_hint()
 	if hole.terrain.free_drop_at(ball_at.x, ball_at.z):
 		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
@@ -894,6 +896,11 @@ func _prepare_shot(snap_camera: bool) -> void:
 	_save_progress()
 	if opponents[shooter] != null:
 		_start_computer_turn()
+
+
+## The aiming keys, with the swing the settings chose.
+func _aim_hint() -> String:
+	return HINT_AIM % (HINT_AIM_MOUSE if graphics.swing_method == 1 else HINT_AIM_METER)
 
 
 func _process_aim(delta: float) -> void:
