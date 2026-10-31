@@ -127,6 +127,11 @@ func _fill_detail() -> void:
 		var c := _label("Career (%d rounds): %s" % [_profiles.career(_picked).rounds, career], 0)
 		c.add_theme_color_override("font_color", MenuStyle.ACCENT)
 		_detail.add_child(c)
+	var records := PlayerProfiles.records_text(_profiles.records(_picked))
+	if not records.is_empty():
+		var rl := _label("Records: %s" % records, 0)
+		rl.add_theme_color_override("font_color", MenuStyle.ACCENT)
+		_detail.add_child(rl)
 	var used := _used_rounds(played)
 	for k in mini(played.size(), SHOWN_ROUNDS):
 		var i := played.size() - 1 - k

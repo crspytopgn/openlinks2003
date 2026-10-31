@@ -71,6 +71,9 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	var rating := 100.0 if chip else club_rating(club)
 	var share := clampf(power, 0.0, OVERSWING_MAX)
 	s.power = rating * minf(share, 1.0) + 100.0 * maxf(share - 1.0, 0.0)
+	s.setup.ball_position = setup.ball_position
+	s.setup.face = setup.face
+	s.setup.stance = setup.stance
 	var lie_params := LinksGround.surface_for_class(LinksGround.ground_class_for(lie))
 	if computer:
 		if computer_ratings != null:

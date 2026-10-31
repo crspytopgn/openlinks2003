@@ -20,6 +20,7 @@ var _names: Array[LineEdit] = []
 var _teams: Array[OptionButton] = []
 var _who: Array[OptionButton] = []
 var _handicaps: OptionButton
+var _play: OptionButton
 var _indexes: Array[LineEdit] = []
 var _records: Array[Label] = []
 var _profiles := PlayerProfiles.new()
@@ -53,6 +54,8 @@ func _ready() -> void:
 	_course.custom_minimum_size = Vector2(380, 36)
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
+	_play = _row(grid, "Play", ["A round", "Practice range"])
+	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
 	_mode.item_selected.connect(_on_mode_selected.unbind(1))
 	_handicaps = _row(grid, "Handicaps", ["Off: gross scores", "On: net scores"])
@@ -160,6 +163,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_holes.select(saved.holes)
 	_mode.select(saved.mode)
 	_handicaps.select(1 if saved.handicaps else 0)
+	_play.select(0)
 	_profiles = PlayerProfiles.load_saved()
 	_count.select(saved.player_count() - 1)
 	for i in RoundSetup.MAX_PLAYERS:
@@ -181,6 +185,7 @@ func current_setup() -> RoundSetup:
 	s.holes = _holes.selected as RoundSetup.Holes
 	s.mode = _mode.selected as GameModes.Mode
 	s.handicaps = _handicaps.selected == 1
+	s.practice = _play.selected == 1
 	s.names.clear()
 	s.teams.clear()
 	s.computer.clear()
@@ -259,6 +264,8 @@ func _on_count_selected() -> void:
 func _refresh() -> void:
 	var best_ball := GameModes.is_team(_mode.selected as GameModes.Mode)
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
+	if _play.selected == 1:
+		_mode_help.text = "Hit from the tee as often as you like: the ball comes back and a launch monitor shows each shot. N and B change hole."
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
 		var level := _who[i].selected - 1
