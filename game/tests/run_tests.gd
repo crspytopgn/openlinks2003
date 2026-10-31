@@ -691,6 +691,23 @@ func _test_round_scoring() -> void:
 	_check(r.hole_result(0) == "Ann & Cy win the hole, 3 to 4.", "best ball hole: %s" % r.hole_result(0))
 	_check(r.winner_text() == "Ann & Cy win: 3 (-1)", "best ball winner: %s" % r.winner_text())
 
+	# Shared-ball teams get one handicap from their players' indexes.
+	var team_setup := RoundSetup.new()
+	team_setup.names = _strs(["Ann", "Bob", "Cy", "Di"])
+	team_setup.teams = _ints([0, 1, 0, 1])
+	team_setup.computer = _ints([RoundSetup.HUMAN, RoundSetup.HUMAN, RoundSetup.HUMAN, RoundSetup.HUMAN])
+	team_setup.indexes = _ints([300, 0, 100, 0])
+	team_setup.handicaps = true
+	var pars18: Array[int] = []
+	for i in 18:
+		pars18.append(4)
+	team_setup.mode = GameModes.Mode.SCRAMBLE
+	var ts := RoundScoring.new(team_setup, pars18, pars18)
+	_check(ts.playing == _ints([8, 0, 8, 0]), "scramble team handicap 35/15%%: %s" % [ts.playing])
+	team_setup.mode = GameModes.Mode.ALTERNATE_SHOT
+	ts = RoundScoring.new(team_setup, pars18, pars18)
+	_check(ts.playing == _ints([20, 0, 20, 0]), "alternate shot team handicap 50%%: %s" % [ts.playing])
+
 	s.mode = GameModes.Mode.STABLEFORD
 	r = RoundScoring.new(s, pars, numbers)
 	r.cards[0].record(0, 3)

@@ -96,9 +96,11 @@ plays on from the shot that leaves the fewest expected strokes
 (`OpponentSkill.expected_strokes`), so a person doesn't have to pick; a holed
 shot ends the hole at once. Alternate shot counts swings, not penalty
 strokes, when deciding whose turn it is. Team rounds don't go on the players'
-handicap records. With handicaps, scramble uses 25% and alternate shot 50% of
-each player's handicap, off the low, and the team counts its better net
-score (a simplification of the WHS team allowances). Computer golfers play
+handicap records. With handicaps, each team gets one handicap from its
+players' indexes, low first, as the WHS recommends: alternate shot 50% of the
+combined index, a scramble 35/15% for two players (25/20/15/10% for four),
+played off the low. A scramble shot into the water is dropped at the
+rules' best spot before the team compares its shots. Computer golfers play
 both, taking their turns like anyone else.
 
 `GameModes` (`game_modes.gd`) does the scoring and mirrors the game-mode

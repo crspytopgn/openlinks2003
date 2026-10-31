@@ -34,12 +34,37 @@ func _init(setup: RoundSetup, pars: Array[int], hole_numbers: Array[int], stroke
 		cards.append(Scorecard.new(pars))
 		indexes.append(setup.index_of(i))
 		playing.append(Handicap.playing_handicap(indexes[i], pars.size(), GameModes.allowance_percent(mode)) if handicaps else 0)
+	if handicaps and GameModes.shared_ball(mode):
+		_share_team_handicaps(pars.size())
 	if handicaps and GameModes.off_the_low(mode) and not playing.is_empty():
 		var low: int = playing.min()
 		for i in playing.size():
 			playing[i] -= low
 	for i in names.size():
 		received.append(Handicap.strokes(playing[i], ranks))
+
+
+## Scramble and alternate shot: a team plays one ball, so it gets one
+## handicap from its players' indexes, low first (the World Handicap System's
+## recommendations: alternate shot 50% of the combined index, a scramble
+## 35/15% for two, 25/20/15/10% for four), and every member carries it.
+func _share_team_handicaps(holes: int) -> void:
+	const SCRAMBLE_WEIGHTS := [[25], [35, 15], [30, 20, 10], [25, 20, 15, 10]]
+	for t in 2:
+		var members := team_members(t)
+		if members.is_empty():
+			continue
+		var idx: Array[int] = []
+		for m in members:
+			idx.append(0 if indexes[m] == Handicap.NONE else indexes[m])
+		idx.sort()
+		var weighted := 0
+		for k in idx.size():
+			var w: int = 50 if mode == GameModes.Mode.ALTERNATE_SHOT else SCRAMBLE_WEIGHTS[idx.size() - 1][k]
+			weighted += idx[k] * w
+		var team := Handicap.playing_handicap(Handicap.div_round(weighted, 100), holes, 100)
+		for m in members:
+			playing[m] = team
 
 
 ## Per-hole scores that count in the game: net with handicaps, else gross.
