@@ -1584,7 +1584,9 @@ void test_opponent_rng_and_swings() {
   CHECK(r.next() == 532058734u);
   CHECK(r.next() == 1922934515u);
   OpponentRng q(7);
-  std::printf("  rng: uniform %.9f normal %.9f\n", q.uniform(), q.normal());
+  double u = q.uniform();
+  double g = q.normal();
+  std::printf("  rng: uniform %.9f normal %.9f\n", u, g);
   OpponentRng s(42);
   for (int level = 0; level < kSkillLevelCount; ++level) {
     const SkillProfile& skill = skill_profile(static_cast<SkillLevel>(level));

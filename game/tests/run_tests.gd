@@ -413,8 +413,8 @@ func _test_opponent_skill_matches_olcore() -> void:
 	var r := OpponentSkill.Rng.new(2003)
 	_check(r.next() == 532058734 and r.next() == 1922934515, "xorshift32 sequence")
 	var q := OpponentSkill.Rng.new(7)
-	_check_near(q.uniform(), 0.903896391, 1e-9, "uniform")
-	_check_near(q.normal(), 0.022931999, 1e-8, "normal")
+	_check_near(q.uniform(), 0.000440598, 1e-9, "uniform")
+	_check_near(q.normal(), 0.396480682, 1e-8, "normal")
 	var expected := [
 		[0.897376, 0.170120, 7.908560, 0.387823, -5.478538],
 		[0.863215, 0.203403, 10.076681, 0.332468, -6.730970],
@@ -876,10 +876,16 @@ func _test_computer_opponents() -> void:
 	_check(game.state == GolfRound.State.COMPUTER, "a computer golfer is on the tee")
 	var started := Time.get_ticks_msec()
 	var steps := 0
+	var worst := 0
+	var worst_log := PackedStringArray()
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
+		if game.state == GolfRound.State.HOLE_DONE and game.players[0].strokes > worst:
+			worst = game.players[0].strokes
+			worst_log = game.shot_log.duplicate()
 	_check(game.state == GolfRound.State.ROUND_DONE, "computer round finishes")
+	print("  the tour pro's worst hole:\n    " + "\n    ".join(worst_log))
 	var pro := game.scoring.cards[0]
 	var hacker := game.scoring.cards[1]
 	_check(pro.holes_played() == game.holes.size() and hacker.holes_played() == game.holes.size(), "both played every hole")

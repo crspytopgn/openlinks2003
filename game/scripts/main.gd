@@ -78,6 +78,9 @@ var shot_from := Vector3.ZERO
 var shot_time := 0.0
 var result_timer := 0.0
 var _land_time := INF  ## when the ball first lands; INF once the sound has played
+## One line per shot on the current hole (who, club, lie, distances and
+## outcome), for the tests and for tuning.
+var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
@@ -177,6 +180,7 @@ func _round_name() -> String:
 
 func start_hole(index: int) -> void:
 	hole_index = index
+	shot_log.clear()
 	hole = holes[index]
 	if hole_root:
 		hole_root.queue_free()
@@ -488,6 +492,10 @@ func _complete_flight() -> void:
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
 	strokes += 1
+	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
+		scoring.names[current], strokes, clubs[club_index].short_name, Surface.name_of(lie),
+		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
+		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
 	var msg := ""
 	match shot.outcome:
 		ShotResult.Outcome.HOLED:
