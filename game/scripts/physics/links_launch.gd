@@ -227,6 +227,8 @@ class GolferRatings:
 	var short_irons := 85  ## clubs 13..15
 	var wedges := 85  ## clubs 16..18
 	var chips := 85
+	var long_putts := 85  ## putts from 15 ft and more
+	var short_putts := 85  ## putts up to 3 ft (blended in between)
 	var max_power := 100  ## percent; a plan past it is forced and misses more
 	var steady := false  ## halves the misses
 
@@ -240,6 +242,8 @@ class GolferRatings:
 		g.short_irons = rating
 		g.wedges = rating
 		g.chips = rating
+		g.long_putts = rating
+		g.short_putts = rating
 		return g
 
 
@@ -500,6 +504,81 @@ static func _putt_miss(s: Strike, w: SwingInput, skill: int, snap: float, rng: R
 	# The game still draws the power it would lose, then keeps it all.
 	if skill >= 2 and miss != 0:
 		rng.next()
+
+
+## A computer golfer's putt; mirrors olcore::links_computer_putt_miss (see
+## there and docs/formats/physics.md). Works in double precision.
+@warning_ignore("integer_division")
+static func computer_putt_miss(w: ComputerSwing, g: GolferRatings, ground_class: int, feet_to_hole: float, rng: Rand) -> void:
+	var d := feet_to_hole
+	if not d > (3.5 if g.steady else 2.0):
+		return
+	var feet := int(d)
+	var spread := maxi((100 - feet) / 3, 10) if d < 100.0 else 10
+	var long_r := _s8(g.long_putts)
+	var r := _s8(g.short_putts)
+	if r != long_r and feet > 3:
+		if feet >= 15:
+			if g.steady:
+				r = long_r
+			elif long_r > 30:
+				r = maxi(_s8(_s8(_s8(15 - feet) * 2) + long_r), long_r - 30)
+			else:
+				r = 10
+		else:
+			r = _s8(r - int((r - long_r) * 0.0833333358168602 * (feet - 3)))
+	var line_k := 0.5 if d <= 6.0 else 1.0
+	if r == 100:
+		if line_k == 1.0:
+			return
+		r = 98
+	var n := 100 - r
+	var a := rng.next() % n
+	a = (a + rng.next() % n) / 3
+	var b := rng.next() % n
+	b = (b + rng.next() % n) / 3
+	var length := float(b)
+	var line := a * line_k * 0.5
+	if feet > 2 and feet < 7:
+		line *= 0.4
+		length *= 2.0 / 7.0
+	elif feet <= 2:
+		if r > 60:
+			line = 0.0
+			length = 0.0
+		else:
+			line /= 3.0
+			length *= 0.25
+	else:
+		length *= 0.5
+	if ground_class == LinksGround.ROUGH:
+		line *= 2.0
+		length *= 2.0
+	elif ground_class == LinksGround.FAIRWAY:
+		line *= 1.5
+		length *= 1.5
+	line /= 30.0
+	length /= spread
+	var path := deg_to_rad(w.path_deg)
+	path += line if rng.next() % 100 < 50 else -line
+	w.path_deg = rad_to_deg(path)
+	var power := w.power
+	if rng.next() % 100 >= 25:
+		power += length
+		while power <= 0.0:
+			length *= 0.75
+			power -= length
+	else:
+		power -= length
+		while power <= 0.0:
+			length *= 0.75
+			power += length
+	w.power = power
+
+
+## A signed byte, as the game keeps the ratings.
+static func _s8(x: int) -> int:
+	return ((x + 128) & 255) - 128
 
 
 ## The putter's launch; mirrors olcore::links_putt. Velocity (ft/s) and spin
