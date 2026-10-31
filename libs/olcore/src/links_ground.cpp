@@ -36,6 +36,12 @@ constexpr int kLedgeProbes = 12;             // looks up to 1 ft ahead, in 1/12 
 constexpr double kLedgeHeight = 1.0;
 constexpr double kLeaveGround = 0.1;         // ft^2; a bigger squared drop takes off
 constexpr double kCheckpointTime = 1.0 + 1e-6;
+// On a 3D object.
+constexpr double kDeckProbe = 5.0;           // ft above the centre the ray down starts
+constexpr double kNoDeck = -100000.0;
+constexpr double kWallReach = 2.0;           // ft; a face this near stops a climb
+constexpr double kObjectBounceSpeed = 2.0;   // ft/s into a face; slower and the ball rolls on
+constexpr double kObjectKept = 0.7;
 constexpr double kStuckDistance = 0.14;
 
 // Rough: random hops.
@@ -142,6 +148,8 @@ LinksStepInfo flight_step(StepContext& c, LinksBall& b, double dt) {
     w2 = moved.spin;
     b.flagstick_out = moved.flagstick_out;
     b.last_object = moved.last_object;
+    b.mode = moved.mode;
+    b.on_object = moved.on_object;
   }
   double s = ground_crossing(g, p, p2);
   if (s < 0) {
@@ -184,8 +192,34 @@ LinksStepInfo ground_step(StepContext& c, LinksBall& b, double dt) {
   Vec3 v = v0;
   const double speed = length(v);
   const Vec3 p1 = p + v * dt;
-  const Vec3 n1 = g.normal(p1.x, p1.y);
-  const LinksSurface surf = g.surface(p1.x, p1.y);
+  Vec3 n1 = g.normal(p1.x, p1.y);
+  LinksSurface surf = g.surface(p1.x, p1.y);
+
+  // On a 3D object the ground is its face under the ball, found by a ray
+  // down from above it, while that is higher than the terrain; once it is
+  // not, the ball is in the air again.
+  const bool on_object = b.mode == LinksMode::OnObject && c.objects != nullptr && b.on_object >= 0 &&
+                         b.on_object < static_cast<int>(c.objects->models().size());
+  if (b.mode == LinksMode::OnObject && !on_object) {
+    b.mode = LinksMode::Roll;
+  }
+  auto deck_under = [&](Vec3 at, LinksObjects::Hit& h) {
+    return c.objects->hit_model(b.on_object, at + Vec3{0, 0, kDeckProbe}, Vec3{0, 0, -1}, -1, h);
+  };
+  if (on_object) {
+    LinksObjects::Hit under;
+    double deck = kNoDeck;
+    if (deck_under(p, under) && under.point.z > kNoDeck) {
+      deck = under.point.z + C::kRadius / under.normal.z;
+    }
+    if (!(deck > g.height(p1.x, p1.y))) {
+      b.mode = LinksMode::Flight;
+      b.on_object = -1;
+      return flight_step(c, b, dt);
+    }
+    n1 = under.normal;
+    surf = links_object_surface();
+  }
   const int cls = surf.ground_class;
 
   // Too steep to hold a ball on grass: look up to a foot ahead for a ledge
@@ -249,9 +283,42 @@ LinksStepInfo ground_step(StepContext& c, LinksBall& b, double dt) {
   Vec3 p2 = p + v2 * dt;
   Vec3 n2 = g.normal(p2.x, p2.y);
   double z2 = g.height(p2.x, p2.y) + C::kRadius / n2.z;
+  if (on_object) {
+    LinksObjects::Hit under;
+    if (!deck_under(p2, under)) {
+      // Rolled off its edge (the game flies on from the new point; this
+      // flies the step from the old one, as for leaving the ground).
+      b.mode = LinksMode::Flight;
+      b.on_object = -1;
+      return flight_step(c, b, dt);
+    }
+    n2 = under.normal;
+    z2 = under.point.z + C::kRadius / n2.z;
+  }
 
   // The ground falls away (or rises) too fast to follow: take off.
   if ((z2 - p.z) * (z2 - p.z) > kLeaveGround) {
+    if (on_object) {
+      // On an object the game looks back and ahead from halfway up the
+      // step for a face within 2 ft: off a wall the ball bounces into the
+      // air, and with none it stops where it was.
+      const Vec3 mid{p2.x, p2.y, (z2 + p.z) * 0.5}, landed{p2.x, p2.y, z2};
+      const Vec3 ahead = unit_or_zero(v0);
+      LinksObjects::Hit wall;
+      bool walled = false;
+      for (Vec3 d : {ahead * -1.0, ahead}) {
+        if (c.objects->hit_model(b.on_object, mid, d, -1, wall) && length(wall.point - landed) <= kWallReach) {
+          walled = true;
+          break;
+        }
+      }
+      if (!walled) {
+        rest(b);
+        return {};
+      }
+      b.velocity = v0 - wall.normal * (2 * dot(v0, wall.normal));
+      return flight_step(c, b, dt);
+    }
     b.mode = LinksMode::Flight;
     b.on_ground_started = false;
     return flight_step(c, b, dt);
@@ -755,6 +822,25 @@ bool hit_obstacles(const StepContext& c, const LinksBall& old, LinksBall& b) {
     double tau = 0;
     LinksBall m = blend(old, b, length(hit.point - old.position) / len, tau);
     Vec3 v = b.velocity;
+    if (hit.kind == 8) {
+      // A 3D object's face: off it with its velocity mirrored, keeping 70%;
+      // too slowly into it and the ball rolls on it instead, lifted off it
+      // by its radius.
+      const Vec3 n = hit.normal;
+      b.position = m.position;
+      b.spin = m.spin;
+      if (std::fabs(dot(v, n)) >= kObjectBounceSpeed) {
+        b.velocity = (v - n * (2 * dot(v, n))) * kObjectKept;
+      } else {
+        Vec3 slowed = v * kObjectKept;
+        b.velocity = slowed - n * dot(slowed, n);
+        b.position = m.position + n * C::kRadius;
+        b.mode = LinksMode::OnObject;
+        b.on_object = hit.object;
+      }
+      b.last_object = -1;  // only billboards are skipped next time
+      return true;
+    }
     if (hit.kind == 1) {
       const LinksObjectType& type = c.objects->types[std::size_t(c.objects->billboards()[std::size_t(hit.object)].type)];
       double kept = (type.collision & 1u) ? hit.factor : kSolidKept;
@@ -795,7 +881,8 @@ LinksStepInfo step(StepContext& c, LinksBall& b, double dt) {
     switch (b.mode) {
       case LinksMode::Flight: info = flight_step(c, b, dt); break;
       case LinksMode::Skid:
-      case LinksMode::Roll: info = ground_step(c, b, dt); break;
+      case LinksMode::Roll:
+      case LinksMode::OnObject: info = ground_step(c, b, dt); break;
       default:
         if (c.cup != nullptr) {
           cup_frame(c, b, dt);
@@ -828,6 +915,15 @@ LinksSurface links_surface(int ground_class) {
       return {kLinksDeepGrass, 0.24384, 0.07, 0.100116, 0.561193, 0.608475, 0.5, 3.0, 0.1992, 0.836732};
     default: return links_surface(kLinksFairway);
   }
+}
+
+LinksSurface links_object_surface() {
+  // The record a default-made TerrainType holds; its lie values are 0
+  // (angle) and 1 (power).
+  LinksSurface s{0, 0.27, 0.13, 0.13, 0.44, 0.2, 5.0, 0.0};
+  s.lie_spin = 0;
+  s.lie_power = 1;
+  return s;
 }
 
 LinksSurface links_green(LinksGreenFirmness firmness, LinksGreenSpeed speed) {
