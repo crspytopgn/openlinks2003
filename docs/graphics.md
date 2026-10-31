@@ -24,6 +24,17 @@ Natural on integrated graphics and desktop browsers, and Performance on
 phones, tablets and software renderers. The browser build also caps quality
 at Medium and grass at Low.
 
+## Device tiers
+
+- The browser build picks Natural on capable devices
+  (`GraphicsSettings.web_capable()`): every iPad and iPhone, recent Adreno,
+  Mali, Immortalis and Xclipse phone GPUs, and desktop browsers on a real
+  GPU. There it runs at High quality, with grass level 2 and 3D trees.
+  Other phones get Performance, and software renderers never get the higher tier.
+- Saved preset settings carry a `look_version`. When the presets change,
+  they are redone once, and a capable device that an older version put on
+  Performance moves up.
+
 ## Effects
 
 - **Lighting** (`Scenery.apply`): Classic is the linear tone map with flat
@@ -33,6 +44,12 @@ at Medium and grass at Low.
   a quarter stronger flat fill on Compatibility so shade isn't black),
   stronger aerial perspective, volumetric haze with light shafts (Forward+,
   Ultra) and screen-space reflections on water (Forward+, High and up).
+- **Global illumination** (`Scenery.gi_available`): at Ultra with Photoreal
+  lighting on Forward+ and a real graphics card, SDFGI bounces sunlight off
+  the turf into the shade and shuts the sky out under trees (six cascades
+  from 0.4 m cells; the flat fill drops to 60% to make room). Never on
+  software renderers or the web. Ultra also gets the softest sun shadow
+  filter, and High the next one down.
 - **Post pass** (`PostProcess`, `shaders/post_process.gdshader`): contrast-
   adaptive sharpening, colour grading (Neutral, Vivid, Warm afternoon, Cool
   morning, Film), vignette and film grain in one full-screen pass. It works

@@ -25,6 +25,8 @@ enum Grade { NEUTRAL, VIVID, WARM, COOL, FILM }
 enum TimeOfDay { AFTERNOON, MORNING, MIDDAY, GOLDEN, ROUND }
 
 const PATH := "user://settings.cfg"
+## Raised when the looks change, so saved preset settings are redone.
+const LOOK_VERSION := 2
 const SECTION := "graphics"
 const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
@@ -154,19 +156,47 @@ func _init() -> void:
 
 
 ## The look to start with on this device: Photoreal on a dedicated graphics
-## card, Natural on built-in graphics and desktop browsers, Performance on
-## phones, tablets and software renderers.
+## card, Natural on built-in graphics, browsers and capable phones and
+## tablets (web_capable()), Performance on other phones and software
+## renderers.
 static func detect_look() -> int:
-	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
-		return Look.PERFORMANCE
 	if OS.has_feature("web"):
-		return Look.NATURAL
+		return Look.NATURAL if web_capable() else Look.PERFORMANCE
+	if OS.has_feature("mobile"):
+		return Look.PERFORMANCE
 	match RenderingServer.get_video_adapter_type():
 		RenderingDevice.DEVICE_TYPE_DISCRETE_GPU:
 			return Look.PHOTOREAL
 		RenderingDevice.DEVICE_TYPE_CPU:
 			return Look.PERFORMANCE
 	return Look.NATURAL
+
+
+## Graphics chips (as the browser names them) that run the web build's
+## higher tier well: Apple's (every iPad and iPhone that runs WebGL 2),
+## recent Adreno, Mali, Immortalis and Xclipse phone GPUs, and any real
+## desktop GPU. Software renderers never.
+const WEB_SLOW_GPUS := ["swiftshader", "llvmpipe", "softpipe", "software", "mali-4", "mali-t", "mali-g5", "adreno (tm) 3", "adreno (tm) 4", "adreno (tm) 5", "powervr"]
+
+
+## Whether this browser's device gets the web build's higher tier: High
+## quality, denser grass and 3D trees further out.
+static func web_capable() -> bool:
+	if not OS.has_feature("web"):
+		return false
+	var gpu := RenderingServer.get_video_adapter_name().to_lower()
+	for slow: String in WEB_SLOW_GPUS:
+		if gpu.contains(slow):
+			return false
+	if OS.has_feature("web_ios"):
+		return true
+	if OS.has_feature("web_android"):
+		# Known-good mobile GPUs only: older and unknown ones stay light.
+		for good: String in ["apple", "adreno (tm) 6", "adreno (tm) 7", "adreno (tm) 8", "mali-g7", "mali-g6", "immortalis", "xclipse"]:
+			if gpu.contains(good):
+				return true
+		return false
+	return true
 
 
 ## Sets every option to the preset `which` (a Look). Options the renderer
@@ -200,9 +230,12 @@ func apply_look(which: int) -> void:
 	dynamic_res = 2
 	trees = 1 if which == Look.PERFORMANCE else (3 if quality >= Quality.ULTRA else 2)
 	if OS.has_feature("web"):
-		quality = mini(quality, Quality.MEDIUM)
-		grass = mini(grass, 1)
-		trees = mini(trees, 1)
+		# One thread for game and renderer: a notch lower, and two notches
+		# on devices outside web_capable().
+		var top := web_capable()
+		quality = mini(quality, Quality.HIGH if top else Quality.MEDIUM)
+		grass = mini(grass, 2 if top else 1)
+		trees = mini(trees, 2 if top else 1)
 		msaa = maxi(msaa, 2) if which != Look.PERFORMANCE else 0
 
 
@@ -263,6 +296,15 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 		s.apply_look(detect_look())
 		return s
 	s.look = clampi(int(cfg.get_value(SECTION, "look", s.look)), Look.PHOTOREAL, Look.CUSTOM)
+	if int(cfg.get_value(SECTION, "look_version", 1)) < LOOK_VERSION and s.look != Look.CUSTOM:
+		# The presets have changed since these were saved: take the new
+		# ones, and a capable phone or tablet the old version put on
+		# Performance moves up to its new look.
+		var which := s.look
+		if which == Look.PERFORMANCE and OS.has_feature("web"):
+			which = detect_look()
+		s.apply_look(which)
+		return s
 	s.lighting = clampi(int(cfg.get_value(SECTION, "lighting", s.lighting)), Lighting.CLASSIC, Lighting.PHOTOREAL)
 	s.upscaler = clampi(int(cfg.get_value(SECTION, "upscaler", s.upscaler)), Upscaler.OFF, Upscaler.FSR2)
 	s.dynamic_res = clampi(int(cfg.get_value(SECTION, "dynamic_res", s.dynamic_res)), 0, DYNAMIC_FPS.size() - 1)
@@ -310,6 +352,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "mulligans", mulligans)
 	cfg.set_value(GAME_SECTION, "pickup", pickup)
 	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
+	cfg.set_value(SECTION, "look_version", LOOK_VERSION)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)
@@ -353,8 +396,8 @@ func soft_shadow_quality() -> RenderingServer.ShadowQuality:
 		Quality.MEDIUM:
 			return RenderingServer.SHADOW_QUALITY_SOFT_LOW
 		Quality.HIGH:
-			return RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM
-	return RenderingServer.SHADOW_QUALITY_SOFT_HIGH
+			return RenderingServer.SHADOW_QUALITY_SOFT_HIGH
+	return RenderingServer.SHADOW_QUALITY_SOFT_ULTRA
 
 
 ## Applies the settings that belong to the window and the renderer.
