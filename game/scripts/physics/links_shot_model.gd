@@ -16,6 +16,8 @@ const COMPUTER_PUTT_FACE_ERROR_DEG := 2.0
 ## (not decoded); ours is linear in ball speed, and a full putt (58.6 ft/s)
 ## skids and rolls about 110 ft on a flat, medium, normal-speed green.
 const PUTT_POWER_AT_FULL := 25.0
+## A full swing's power at the meter's top (position 67): 8 points past full.
+const OVERSWING_MAX := 1.08
 
 var aero: LinksAero
 var clubs: LinksLaunch
@@ -62,15 +64,23 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 	var s := LinksLaunch.Strike.new()
 	s.club = LinksLaunch.CLUB_INDEX[club.short_name]
 	s.aim = deg_to_rad(aim_deg)
-	s.power = 100.0 * clampf(power, 0.0, 1.0)
+	# A full swing's power is a share of the club's own rating (112 for the
+	# driver down to 80 for the wedges), and an overswing (power past 1, from
+	# LinksPowerStroke.full_power) adds the same points for every club. A
+	# chip's power is already in the game's units.
+	var rating := 100.0 if chip else club_rating(club)
+	var share := clampf(power, 0.0, OVERSWING_MAX)
+	s.power = rating * minf(share, 1.0) + 100.0 * maxf(share - 1.0, 0.0)
 	var lie_params := LinksGround.surface_for_class(LinksGround.ground_class_for(lie))
 	if computer:
 		if computer_ratings != null:
 			var cw := LinksLaunch.ComputerSwing.new()
-			cw.power = s.power
+			# The plan goes in as a percentage of the club, so its forced-power
+			# penalty (past max_power) is the same for every club.
+			cw.power = 100.0 * share if not chip else s.power
 			LinksLaunch.computer_miss(cw, computer_ratings, s.club, lie == Surface.Type.TEE, chip,
 					lie_params.ground_class, to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
-			s.power = cw.power
+			s.power = cw.power if chip else cw.power * rating / 100.0
 			s.face_error = deg_to_rad(cw.face_deg)
 			s.path_error = deg_to_rad(cw.path_deg)
 		else:
@@ -91,6 +101,7 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 		s.power = mouse_swing.power
 	else:
 		w.contact = LinksLaunch.meter_contact(-METER_UNITS_AT_FULL_MISS * clampf(accuracy, -1.0, 1.0), skill)
+	w.full_power = rating
 	LinksLaunch.apply_swing(s, w, lie_params, rng)
 	var b := clubs.launch_state(s)
 	b.position = from
@@ -130,6 +141,24 @@ func _putt(power: float, accuracy: float, aim_deg: float, lie: int, from: Vector
 	var b := clubs.launch_state(s)
 	b.position = from
 	return b
+
+
+## The club's full-swing power rating from the game's default club records:
+## 112 for the driver down to 80 for the wedges (LinksMouse.MAX_POWER), 100
+## for a club the game doesn't have.
+static func club_rating(club: Club) -> float:
+	if club.is_putter or not LinksLaunch.CLUB_INDEX.has(club.short_name):
+		return 100.0
+	return LinksMouse.MAX_POWER[LinksLaunch.CLUB_INDEX[club.short_name]]
+
+
+## Club distances (Club.total_m) are at power 100; a full swing here gives
+## the club's rating instead, so reach scales by it (a little rough, as
+## distance isn't quite in proportion to power).
+func reach_scale(club: Club) -> float:
+	if clubs == null:
+		return 1.0
+	return club_rating(club) / 100.0
 
 
 func simulate(start: BallState, terrain: CourseTerrain, cup: Vector3, wind := Vector3.ZERO) -> ShotResult:

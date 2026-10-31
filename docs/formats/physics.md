@@ -364,8 +364,18 @@ either side of the line.
 **Power.** A full swing gives `(p - 15) / 39` of the club's power rating
 at position p, so 54 is 100 percent, and each overswing position adds
 8/13 of a power point, 8 more at the top. The rating is the club's default
-record (112 for the driver down to 80 for the wedges); the game shell keeps
-100 for every club, as the club distances it shows are built on that. A
+record: 112, 108, 106, 104, 102, 100 and 98 for the woods (clubs 0 to 6),
+then 98, 96, 94, 92, 90, 88, 86, 84, 82 for the irons (7 to 15) and 80 for
+the three wedges; the mouse swing's most power per club is the same list.
+The game shell does the same (`LinksShotModel.club_rating`), and a computer
+golfer's planned power is a share of it too, its forced-power penalty
+counted against 100 percent of the club. Flat carries at power 100 and at
+the rating, no wind, show what it does: driver 212 m to 242 m, 3 wood 209
+to 227, 4 iron 192 to 176, 7 iron 158 to 139, pitching wedge 124 to 105,
+sand wedge 109 to 93. The shell's club distances (`Club.total_m`, close to
+the power-100 numbers) are scaled by rating / 100 for reach and the auto
+club (`ShotModel.reach_scale`), which is within about 4 percent of the
+real change. A
 chip's power comes from its own table: 7 at the snap line, then 0.4 a
 position, rising by 0.05 a position every nine positions (0.45, 0.5, ...
 0.65), to 34.95 at the top. A long putt's table runs from 1.9 at the snap
