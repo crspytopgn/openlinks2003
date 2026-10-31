@@ -329,7 +329,54 @@ method.
 
 ### The PowerStroke meter
 
-The meter turns where the third click lands into the contact. The game
+**Geometry and speed.** The three-click meter has 69 positions. A full
+swing starts at the snap line, position 15, and climbs: position 54 is
+full power and 55 to 67 are overswing. Chips and putts have their own
+meters that start at the bottom (0) and run to 68. The marker moves one
+position at a time; each step waits `n x 70 / (1.2 e)` of the game's 8 ms
+frames (whole frames, the fraction carried to the next step), where `e`
+eases between 70 and 42 on a 40-position cycle (70 at positions 15 and 55,
+42 at 35; coming down the cycle is one position later) and `n` depends on
+the meter and the position:
+
+| Meter | Climbing: frames from position | Falling |
+|-------|--------------------------------|---------|
+| Full swing | 6 from 13, 5 from 17, 4 from 22, 3 from 28, 2 from 47, 1 from 63 | 1 |
+| Chip | 5, then 4 from 20, 3 from 29, 2 from 45 | 2 |
+| Putt (long and short) | 5, then 4 from 28, 3 from 38, 2 from 48 | 2 |
+
+So a full backswing takes about 1.05 s to full power, 1.2 s to the top,
+and the marker comes back down from the top to the bottom in about 0.55 s.
+Once a chip or putt has its power, its steps keep the speed of the power
+position, and a putt slows by half again within five positions of it.
+
+**Clicks.** A power click below position 25 (16 for chips and putts) waits
+until the marker gets there. A full swing's marker always runs on to the
+top and back; a power click on the way down counts only in the overswing,
+and with no power by position 48 on the way down the game sets it 12 below
+the marker and snaps 3 below that. A chip or putt turns six positions
+past its power click (at most 68). The snap click on the way down sets the
+contact: a click while the marker is still above the power position snaps
+6 below it (at it for chips and putts); a click above position 30 waits
+until the marker comes down to 30, so the snap lands between 0 and 30, 15
+either side of the line.
+
+**Power.** A full swing gives `(p - 15) / 39` of the club's power rating
+at position p, so 54 is 100 percent, and each overswing position adds
+8/13 of a power point, 8 more at the top. The rating is the club's default
+record (112 for the driver down to 80 for the wedges); the game shell keeps
+100 for every club, as the club distances it shows are built on that. A
+chip's power comes from its own table: 7 at the snap line, then 0.4 a
+position, rising by 0.05 a position every nine positions (0.45, 0.5, ...
+0.65), to 34.95 at the top. A long putt's table runs from 1.9 at the snap
+line to 16.8 at the top and a short putt's from 1.0 to 7.4, both times 0.7.
+
+The game shell's `SwingMeter` runs this meter (`LinksPowerStroke`, a
+GDScript model of the game's meter object) and draws it at these
+positions, the snap line 15 positions up; its accuracy is how far the snap
+lands from the line, over 15 positions.
+
+**Contact.** The meter turns where the third click lands into the contact. The game
 measures the click in meter units past a perfect zone, clamps it at 25 units
 either way, then
 
@@ -343,6 +390,25 @@ Ported as `links_meter_contact`; the game shell maps an accuracy of +/-1 on
 our meter to 25 units (late is a push-slice); the skill level is the
 "Swing skill" setting (level 3, the hardest, by default). Computer golfers
 skip this model, as in the game; they have their own.
+
+### Chips
+
+Chip is one of the game's shot types (with Draw, Straight, Fade, Flop,
+Punch and Putt; Straight has Pick and Explode variants for sand). When the
+game picks a club for the ball's position it picks the shot type too: the
+putter on the green, otherwise a Chip if the ball is within 100 ft of the
+hole (the straight-line distance to a point a foot above it) and not in
+sand. The player can change it.
+
+A chip launches like any other shot with the chosen club, but its power is
+the chip meter's (or the mouse chip's) own, in the same units as a full
+swing's (34.95 at most from the meter, 43.8 from the mouse). Its PowerStroke
+miss is a full swing's except that the lost power is drawn and then not
+taken off: the chip still pulls, pushes and scatters. A computer golfer's
+chip misses by its chip rating.
+
+The game shell picks chips by the same rule (`_auto_club`), shows "chip"
+after the club, and swings them on the chip meter or as a mouse chip.
 
 ### Computer golfers' misses
 
@@ -384,8 +450,8 @@ own files, gives every shot type the level's single rating from
 `SkillProfile::links_rating` (40, 65, 85 and 95: our numbers), with the most
 power at 100 percent.
 
-Not ported: chips (the shot type that uses the chip rating is not mapped
-yet) and one other shot type, which go to a separate routine; and a
+Chips use the chip rating (the Chip shot type above). Not ported: one
+other shot type, which goes to a separate routine; and a
 routine that, from the second shot of a hole, scales both misses (from a
 quarter up to eighteen times) and can change the club by how the golfer is
 scoring on the hole against a target. Without it both scales are 1, as on a
@@ -412,9 +478,12 @@ launch:
   slope (`R / n.z`), not in flight.
 
 On a flat, moderate, normal-speed green a putt of power 4 goes about 4.5
-ft, 10 about 28 ft and 25 about 112 ft. How the game's putt meters (the
-Classic swing has a long and a short putt scale) turn into that power was
-not found; the game shell's meter is linear in ball speed with 25 at full.
+ft, 10 about 28 ft and 25 about 112 ft. The game's own putt meters (see
+"The PowerStroke meter") give at most 11.8 on the long scale and 5.2 on
+the short one, and the mouse putt at most about 15.6, so in the game a putt
+tops out at about 40 ft (meter) or 60 ft (mouse) on such a green; nothing
+in the swing code reaches further. The game shell's meter keeps its own
+linear scale, 25 at full, so long putts stay playable on our greens.
 
 A PowerStroke miss on a putt only turns the face. The miss in steps is
 worked out as for a full swing (times 6, 5 or 2 by skill, times the lie's
@@ -497,7 +566,8 @@ is `speed x r`), with a speed wobbled by up to 5%. The club's travel moves
 the marker: one unit of travel is 800 x (backswing room) / 1000 meter
 pixels going back and 800 x (meter height) / 640 coming down, so the meter
 covers the same mouse travel at every size. In the top 65 pixels the
-backswing slows to a quarter (0.3 on a chip) and less again near the top.
+backswing slows to a quarter (0.3 on a chip or with an iron) and less
+again near the top.
 The club starts counting once its speed passes 0.2; before the downswing it
 cannot move backwards. When its speed changes sign, the backswing becomes
 the downswing (the reading at that moment, 0 to 1, is how far back the club
@@ -538,16 +608,36 @@ earlier) x k, push)` (k = 1, 1.3, 1.7 or 2 by level, at most 20 degrees):
 - *Chip.* The backswing asks for `(cap - 1) f + 0.1` give or take 0.2;
   slower falls off in proportion. Power = `(f + 1) f / 2 x 14.6 x 3`.
 
-Full swings and putts lose `|1 - x / 120|` of their power for the drift
-(`/ 80` on the two harder levels). Power stays within 1 and 145. Face and
+- *Irons and wedges* (clubs 7 to 18; the game marks them in its club
+  records). The full swing's own drift rule above is skipped. Instead,
+  for full swings and chips alike, the stroke's angle is scaled by
+  `2.16 - 0.16 (club - 7)` (2.16 for the 1 iron down to 0.4 for the lob
+  wedge) and the drift only turns the face: by `0.05 x |x|` within 10;
+  beyond that by `0.1 x |x|` for a leftward drift of 13 to 16 and by `3x`
+  otherwise, and past 18 the club misses. They lose power for the drift
+  as below, and the drift is halved before the straightness bonus.
+
+Full swings, putts and iron chips lose `|1 - x / 120|` of their power for
+the drift (`/ 80` on the two harder levels). Power stays within 1 and 145. Face and
 path are wobbled by up to 5% (`j = (rand % 100 + 1) x 0.0005`, then `x (1 + j)`
 or `x - j x` as one of two further draws is below the other). A straight
 stroke then earns a bonus: with `n = |4x / 5| + |round(2 path) / 2|` (whole
 numbers, at most 15), power is multiplied by `1 + (15 - n)^2 / K` with
 K = 4500, 3000, 2250, 2250 by level: up to 5% more on the easiest level and
-10% on the hardest. Last, the path is eased to two thirds, a putter's face
-turns the other way, and on the two easier levels a full swing's face and
-path are cut to 40%. The face and path then go through the lie and strike
+10% on the hardest. Only the woods earn it: irons, wedges and the putter
+keep 1. Last, the path is eased to two thirds, a putter's face turns the
+other way, and on the two easier levels a full swing's face and path are
+cut to 40% (50% with an iron).
+
+**Swing help.** An option in the game. With it on, the game counts each
+player's strokes and those with no sideways movement at all. Once there
+have been three or more strokes and more than three quarters were dead
+straight, every stroke that connects (above the easiest level) has its path
+nudged by `r = (rand % 100 - 50) / 10` degrees, moved out to at least 2
+either way (so 2 to 5 degrees, left or right), before the bonus is worked
+out. It seems meant to stop a mouse held perfectly straight from beating
+the swing. Ported as `LinksMouseHelp` (olcore) and `LinksMouse.Help`; the
+shell's "Swing help" setting turns it on, off by default. The face and path then go through the lie and strike
 model above (`links_apply_swing` with the mouse method).
 
 Ported as `LinksMouseClub` and `links_mouse_swing` (olcore,
@@ -555,7 +645,12 @@ Ported as `LinksMouseClub` and `links_mouse_swing` (olcore,
 the game's code agreed with the game's own routines run in an emulator on
 1500 random strokes (every frame's club position and state, then the power,
 face, path, loft and bonus), and the C++ port agrees with that reference
-on 3000 more. The game shell's `MouseSwingControl` captures the mouse,
+on 3000 more. A second run fed the C++ port and the game's routines (with
+each club's own kind, the post-processing and the swing help) the same
+2000 strokes, 90 of them misses and 169 nudged: they agree on all but 4,
+where the quality lands one step apart from float rounding at a boundary.
+(An earlier port read the iron rule as a "Real Time" mode; it is the
+club's kind.) The game shell's `MouseSwingControl` captures the mouse,
 feeds the screen-pixel movement to 60 frames a second and draws the meter
 the game's size for the window's width, at the same share (about 46%) of
 the screen's height.
@@ -570,17 +665,15 @@ shot uses them is not traced yet, so the shell leaves the club's loft alone.
 
 - A flag from the caller that adds 10 degrees of loft and removes all spin;
   what sets it is not known yet.
-- The screen geometry of the PowerStroke meter (where its perfect zone sits
-  and how its speed depends on the level) and the meter's own face value.
-- The mouse swing's "you may be having trouble with your swing" help (an
-  option that nudges the path by 2 to 5 degrees when three quarters of
-  strokes have no sideways movement at all), its Real Time variant, the
-  golfer animation that holds the club at the ball until the golfer is
-  ready, where its loft multiplier goes, and how a mouse putt reaches beyond
-  about 60 feet (its power tops out near 15.6).
-- Chips and one other shot type skip or flip parts of the swing model;
-  full swings and putts are ported. A game option that doubles every
-  PowerStroke miss is left out.
+- How the PowerStroke meter's snap position becomes the contact's units
+  (the shell maps 15 positions to a full miss) and whether the level
+  changes the meter's speed (the step tables do not depend on it).
+- The mouse swing's golfer animation that holds the club at the ball until
+  the golfer is ready, and where its loft multiplier goes.
+- The Draw, Fade, Flop, Punch, Pick and Explode shot types (the game picks
+  Pick or Explode in sand by distance) and the short-putt shot type; the
+  shell plays full swings, chips and putts. A game option that doubles
+  every PowerStroke miss is left out.
 - Per-course lie values for the strike: the launch still takes the class
   defaults above (the bounce and roll use the course's own records).
 

@@ -31,6 +31,7 @@ var _presentation: OptionButton
 var _disc_sounds: OptionButton  ## web only
 var _skill: OptionButton
 var _swing: OptionButton
+var _swing_help: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
 var _hd: OptionButton
@@ -92,6 +93,7 @@ func _ready() -> void:
 		# the browser's memory, so they are a choice, used from the next start.
 		_disc_sounds = _row(grid, "Sounds", ["Light", "Full disc sounds (about 100 MB, next start)"])
 	_swing = _row(grid, "Swing", ["Three-click meter", "Mouse swing (PowerStroke)"])
+	_swing_help = _row(grid, "Swing help", ["Off", "On"])
 	_skill = _row(grid, "Swing skill", SKILL_NAMES)
 	_firmness = _row(grid, "Green firmness", ["Soft", "Medium", "Firm"])
 	_speed = _row(grid, "Green speed", ["Slow", "Normal", "Fast"])
@@ -129,6 +131,7 @@ func open(s: GraphicsSettings) -> void:
 		_disc_sounds.select(1 if s.web_disc_sounds else 0)
 	_skill.select(s.skill)
 	_swing.select(s.swing_method)
+	_swing_help.select(1 if s.swing_help else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
 	_show_look()
@@ -322,6 +325,7 @@ func _on_selected() -> void:
 		settings.web_disc_sounds = _disc_sounds.selected == 1
 	settings.skill = _skill.selected
 	settings.swing_method = _swing.selected
+	settings.swing_help = _swing_help.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
 	settings.lighting = _lighting.selected

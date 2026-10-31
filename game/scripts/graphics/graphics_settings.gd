@@ -69,6 +69,10 @@ var green_speed := 1
 ## How the people playing swing: 0 the three-click meter, 1 Links 2003's
 ## PowerStroke mouse swing (MouseSwingControl). Space always uses the meter.
 var swing_method := 1
+## Links 2003's swing help for the mouse swing: once most of a player's
+## strokes have had no sideways movement at all, strokes are nudged a few
+## degrees off line (LinksMouse.Help).
+var swing_help := false
 
 var look: int = Look.CLASSIC
 var lighting: int = Lighting.CLASSIC
@@ -188,6 +192,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.green_firmness = clampi(int(cfg.get_value(GAME_SECTION, "green_firmness", s.green_firmness)), 0, 2)
 	s.green_speed = clampi(int(cfg.get_value(GAME_SECTION, "green_speed", s.green_speed)), 0, 2)
 	s.swing_method = clampi(int(cfg.get_value(GAME_SECTION, "swing_method", s.swing_method)), 0, 1)
+	s.swing_help = bool(cfg.get_value(GAME_SECTION, "swing_help", s.swing_help))
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -229,6 +234,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "green_firmness", green_firmness)
 	cfg.set_value(GAME_SECTION, "green_speed", green_speed)
 	cfg.set_value(GAME_SECTION, "swing_method", swing_method)
+	cfg.set_value(GAME_SECTION, "swing_help", swing_help)
 	for key in ["look", "lighting", "upscaler", "dynamic_res", "sharpen", "bloom", "vignette", "grain", "grade", "ssao", "dof", "grass", "foliage_wind", "cloud_shadows", "trees"]:
 		cfg.set_value(SECTION, key, get(key))
 	var err := cfg.save(path)

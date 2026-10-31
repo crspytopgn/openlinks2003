@@ -130,6 +130,9 @@ struct LinksSwing {
   double mouse_path_deg = 0;
   double mouse_loft = 1;
   bool left_handed = false;
+  // The Chip shot type: a PowerStroke miss still turns the shot but takes
+  // no power off it.
+  bool chip = false;
   // A ball on the tee peg strikes cleanly whatever the meter says; a
   // PowerStroke swing only wobbles its power and aim a little.
   bool teed_up = false;

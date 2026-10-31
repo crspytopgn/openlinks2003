@@ -339,20 +339,39 @@ func _test_swing_meter() -> void:
 	meter.swing_finished.connect(func(p: float, a: float) -> void: results.append([p, a]))
 	meter.click()
 	_check(meter.phase == SwingMeter.Phase.BACKSWING, "first click starts the backswing")
-	meter.value = 0.8
+	_check(meter.run.pos == LinksPowerStroke.SNAP, "a full swing starts at the snap line")
+	# Half a frame at a time, so the marker never moves more than a position.
+	var t := 0.0
+	while meter.run.pos < LinksPowerStroke.FULL_POWER:
+		meter._process(0.004)
+		t += 0.004
+	_check_near(t, 1.048, 0.01, "the game's meter takes about a second to full power")
 	meter.click()
-	_check_near(meter.power, 0.8, 1e-6, "second click sets power")
-	meter.value = 0.005
+	_check_near(meter.power, 1.0, 1e-6, "second click at position 54 is full power")
+	while meter.run.pos > LinksPowerStroke.SNAP:
+		meter._process(0.004)
 	meter.click()
 	_check(results.size() == 1, "third click finishes the swing")
 	if results.size() == 1:
 		_check_near(results[0][1], 0.0, 1e-6, "on the line is perfect")
 	meter.click()
-	meter.value = 1.0
+	while meter.run.pos < 40:
+		meter._process(0.004)
 	meter.click()
-	meter.value = -SwingMeter.ACCURACY_ZONE * 0.5
+	while meter.run.rising or meter.run.pos > 7:
+		meter._process(0.004)
 	meter.click()
 	_check(results.size() == 2 and results[1][1] > 0.4, "late click slices")
+	_check_near(LinksPowerStroke.full_power(67), 1.08, 1e-6, "overswing tops out 8 percent over")
+	_check_near(LinksPowerStroke.chip_power(15), 7.0, 1e-6, "chip power at the snap line")
+	_check_near(LinksPowerStroke.chip_power(68), 34.95, 1e-4, "chip power at the top")
+	_check_near(LinksPowerStroke.chip_power(32), 14.25, 1e-4, "chip power midway")
+	# A chip waits for its earliest power, then turns six positions on.
+	var chip := LinksPowerStroke.Run.new(LinksPowerStroke.Mode.CHIP)
+	chip.click_power()
+	while chip.rising:
+		chip.advance(0.004)
+	_check(chip.power_pos == 16 and chip.pos == 22, "chip power waits for 16 and turns at 22 (%d, %d)" % [chip.power_pos, chip.pos])
 	meter.free()
 
 
@@ -1311,16 +1330,16 @@ func _test_links_swing_matches_olcore() -> void:
 	# path, loft, quality.
 	var strokes := [
 		[3, LinksMouse.Shot.FULL, 0, 1920, 11, 20, 12, 90, 0, -4.772966, 0.0, 0.0, 90, 0.297828, 31.626182, 0.0, 0.0, 0.157841, 0],
-		[1, LinksMouse.Shot.FULL, 9, 1100, 5, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
-				0.068857, 0.071579, 0],
-		[2, LinksMouse.Shot.PUTT, 19, 1920, 7, 12, 6, 40, -2, -0.592555, 0.24, 0.0, 40, 0.034813, 1.1, -0.360105,
+		[1, LinksMouse.Shot.FULL, 9, 1100, 5, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 11.886348, 0.004837,
+				-0.117355, 0.071311, 0],
+		[2, LinksMouse.Shot.PUTT, 19, 1920, 7, 12, 6, 40, -2, -0.592555, 0.24, 0.0, 40, 0.034813, 1.0, -0.360105,
 				0.398950, 0.033288, 0],
-		[0, LinksMouse.Shot.CHIP, 16, 800, 3, 10, 8, 50, 1, -0.884124, -0.04, 0.0, 50, 0.064996, 1.598884, 0.0, -0.029809,
-				0.064996, 0],
+		[0, LinksMouse.Shot.CHIP, 16, 800, 3, 10, 8, 50, 1, -0.884124, -0.04, 0.0, 50, 0.064996, 1.522239, 0.000077,
+				-0.021463, 0.064996, 0],
 		[3, LinksMouse.Shot.FULL, 4, 1920, 9, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
 				-0.825252, 0.517093, 1],
-		[2, LinksMouse.Shot.FULL, 12, 1920, 21, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
-				1.50984, 1.021502, 0.361243, 1],
+		[2, LinksMouse.Shot.FULL, 12, 1920, 21, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 46.535126,
+				0.244594, -0.477122, 0.355657, 0],
 	]
 	for c in strokes:
 		var i := strokes.find(c)
@@ -1352,6 +1371,29 @@ func _test_links_swing_matches_olcore() -> void:
 	var miss := LinksMouse.swing(wild, LinksLaunch.Rand.new(1))
 	_check(miss.whiff and miss.power == 0.0, "mouse swing misses past 18")
 	_check(LinksMouse.meter_for(800).height == 278 and LinksMouse.meter_for(1024).ball_line == 96, "mouse meter sizes")
+	var iron := LinksMouse.Stroke.new()
+	iron.club = 13
+	iron.speed = -6.0
+	iron.down = 90
+	iron.backswing = 0.8
+	iron.drift = -12.0
+	iron.drift_before = -12.0
+	var hooked := LinksMouse.swing(iron, LinksLaunch.Rand.new(5))
+	_check_near(hooked.power, 44.295517, 1e-5, "iron drift power")
+	_check_near(hooked.face_deg, 35.1, 1e-5, "iron drift turns the face")
+	var still := LinksMouse.Stroke.new()
+	still.speed = -6.0
+	still.down = 90
+	still.backswing = 0.8
+	var help := LinksMouse.Help.new()
+	help.enabled = true
+	help.strokes = 3
+	help.still_strokes = 3
+	var nudged := LinksMouse.swing(still, LinksLaunch.Rand.new(42), help)
+	_check_near(nudged.help_deg, 3.9, 1e-6, "swing help nudge")
+	_check_near(nudged.path_deg, 2.600013, 1e-5, "swing help path")
+	_check_near(nudged.power, 65.042229, 1e-5, "swing help power")
+	_check(help.strokes == 4 and help.still_strokes == 4, "swing help counts")
 	# The control: frames of movement shared out; pushing first does nothing.
 	var ctl := MouseSwingControl.new()
 	var got: Array = []

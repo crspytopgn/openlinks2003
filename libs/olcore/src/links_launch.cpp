@@ -244,7 +244,7 @@ void links_apply_swing(LinksStrike& s, const LinksSwing& w, const LinksSurface& 
           lost = rng.next() % std::abs(miss) + 1.0;
           if (!(lost < s.power)) lost = s.power - 1;
         }
-        s.power -= lost;
+        if (!w.chip) s.power -= lost;  // chips draw it but keep their power
         double dp = (rng.next() % 100) * 0.0025;
         double df = (rng.next() % 100) * 0.001 * kDeg;
         s.power += rng.next() % 100 < 50 ? -dp : dp;

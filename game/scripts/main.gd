@@ -16,6 +16,7 @@ enum State { AIM, SWING, FLIGHT, SHOT_RESULT, HOLE_DONE, ROUND_DONE, COMPUTER, D
 const YARDS_PER_METRE := 1.0936
 const FEET_PER_METRE := 3.2808
 const MAX_STROKES := 10  ## pick up after this many on a hole
+const CHIP_RANGE_M := 30.48  ## the game picks a Chip within 100 ft of the hole
 const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
@@ -129,6 +130,12 @@ var _computer_ready := false  ## the computer has its plan and is addressing the
 var _computer_backswing := false
 ## The mouse swing for the shot being played, or null (play_shot uses it once).
 var _mouse_swing: LinksMouse.Outcome = null
+## The shot is a Chip (Links 2003's shot type): picked as the game does it,
+## within 100 ft of the hole off the green and out of sand. Chips swing on
+## their own meter and take their own power.
+var _chip := false
+## The game's swing-help count per player (the mouse swing's help option).
+var _swing_help: Array[LinksMouse.Help] = []
 ## Taking a drop (State.DROP): the DropRules.Reason, -1 when not dropping.
 var _drop_reason := -1
 var _drop_zones: Array[DropRules.Zone] = []
@@ -568,6 +575,7 @@ func play_shot(power: float, accuracy: float) -> void:
 			links.computer_ratings = LinksLaunch.GolferRatings.even(opponents[shooter].skill.links_rating)
 			links.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
 		links.mouse_swing = null if links.computer else _mouse_swing
+		links.chip = _chip and not club.is_putter
 	_mouse_swing = null
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
@@ -769,6 +777,7 @@ func _on_swing_pressed() -> void:
 			hud.scorecard.visible = false
 			state = State.SWING
 			hud.hint.text = HINT_SWING
+			hud.meter.mode = _meter_mode()
 			hud.meter.click()
 		State.SWING:
 			# Space mid mouse swing would start the meter on top of it.
@@ -819,7 +828,7 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 			var number := LinksMouse.PUTTER
 			if not club.is_putter:
 				number = LinksLaunch.CLUB_INDEX.get(club.short_name, 0)
-			ms.begin(number, graphics.skill)
+			ms.begin(number, graphics.skill, _chip and not club.is_putter)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
 		ms.motion((event as InputEventMouseMotion).screen_relative)
@@ -832,7 +841,11 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 func _on_mouse_stroke(stroke: LinksMouse.Stroke) -> void:
 	if state != State.SWING:
 		return
-	var mw := LinksMouse.swing(stroke, LinksLaunch.Rand.new(randi()))
+	while _swing_help.size() <= shooter:
+		_swing_help.append(LinksMouse.Help.new())
+	var help := _swing_help[shooter]
+	help.enabled = graphics.swing_help
+	var mw := LinksMouse.swing(stroke, LinksLaunch.Rand.new(randi()), help)
 	_mouse_swing = mw
 	var full := LinksShotModel.PUTT_POWER_AT_FULL if stroke.shot == LinksMouse.Shot.PUTT else 100.0
 	play_shot(clampf(mw.power / full, 0.0, 1.0), clampf(-mw.face_deg / 10.0, -1.0, 1.0))
@@ -853,6 +866,9 @@ func _on_backswing_started() -> void:
 
 func _on_swing_finished(power: float, accuracy: float) -> void:
 	if state == State.SWING:
+		if _chip and not clubs[club_index].is_putter:
+			# A chip's meter position reads its own power table.
+			power = LinksPowerStroke.chip_power(hud.meter.power_position) / 100.0
 		play_shot(power, accuracy)
 
 
@@ -1438,9 +1454,13 @@ func _computer_swing() -> void:
 
 func _auto_club() -> void:
 	var to_pin := _flat_distance(ball_at, hole.pin)
+	_chip = false
 	if lie == Surface.Type.GREEN or (lie == Surface.Type.FRINGE and to_pin < 15.0):
 		club_index = clubs.size() - 1
 		return
+	# The game's own rule: a Chip within 100 ft (straight line, to a foot
+	# above the hole) unless the ball is in sand.
+	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
 	var power := Surface.lie_power(lie)
 	var target := hole.aim_point(ball_at, clubs[0].total_m * power)
 	var d := _flat_distance(ball_at, target)
@@ -1448,6 +1468,13 @@ func _auto_club() -> void:
 	for i in clubs.size():
 		if not clubs[i].is_putter and clubs[i].total_m * power >= d:
 			club_index = i
+
+
+## Which of the game's meters the next swing uses.
+func _meter_mode() -> int:
+	if clubs[club_index].is_putter:
+		return LinksPowerStroke.Mode.PUTT
+	return LinksPowerStroke.Mode.CHIP if _chip else LinksPowerStroke.Mode.FULL
 
 
 ## Where the auto-aim points with the current club.
@@ -1771,7 +1798,9 @@ func _update_hud() -> void:
 	if lie == Surface.Type.GREEN or to_pin < 20.0:
 		pin_text = "%d ft" % roundi(to_pin * FEET_PER_METRE)
 	var club_text := club.full_name
-	if not club.is_putter:
+	if _chip and not club.is_putter:
+		club_text += " chip"
+	elif not club.is_putter:
 		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	var thru := card.holes_played()
 	var total := "E" if thru == 0 else Scorecard.format_to_par(card.to_par())

@@ -2117,6 +2117,24 @@ void test_links_swing() {
     CHECK_NEAR(s.speed_scale, c.speed, 1e-8);
     CHECK_NEAR(s.loft_scale, c.loft, 1e-9);
   }
+  // A chip's PowerStroke miss turns it the same way but keeps its power.
+  for (int chip = 0; chip < 2; ++chip) {
+    LinksStrike full, chipped;
+    LinksStrike& s = chip ? chipped : full;
+    s.club = 16;
+    s.power = 30;
+    LinksSwing w;
+    w.skill = 3;
+    w.contact = 2;
+    w.chip = chip == 1;
+    LinksRand rng(99);
+    links_apply_swing(s, w, links_surface(kLinksFairway), rng);
+    if (chip) {
+      CHECK(std::abs(s.power - 30) <= 0.25);
+    } else {
+      CHECK(s.power < 29);
+    }
+  }
 }
 
 void test_links_computer_putt() {
@@ -2178,16 +2196,16 @@ void test_links_mouse_swing() {
   };
   const Case cases[] = {
       {3, LinksMouseShot::Full, 0, 1920, 11u, 20, 12, 90, 0, -4.772966, 0, 0, 90, 0.297828, 31.626182, 0, 0, 0.157841, 0},
-      {1, LinksMouseShot::Full, 9, 1100, 5u, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 12.777824, 0.114660,
-       0.068857, 0.071579, 0},
-      {2, LinksMouseShot::Putt, kLinksPutter, 1920, 7u, 12, 6, 40, -2, -0.592555, 0.24, 0, 40, 0.034813, 1.1, -0.360105,
+      {1, LinksMouseShot::Full, 9, 1100, 5u, 15, 10, 70, 3, -3.412456, -0.45, -0.27, 70, 0.152596, 11.886348, 0.004837,
+       -0.117355, 0.071311, 0},
+      {2, LinksMouseShot::Putt, kLinksPutter, 1920, 7u, 12, 6, 40, -2, -0.592555, 0.24, 0, 40, 0.034813, 1.0, -0.360105,
        0.398950, 0.033288, 0},
-      {0, LinksMouseShot::Chip, 16, 800, 3u, 10, 8, 50, 1, -0.884124, -0.04, 0, 50, 0.064996, 1.598884, 0, -0.029809,
-       0.064996, 0},
+      {0, LinksMouseShot::Chip, 16, 800, 3u, 10, 8, 50, 1, -0.884124, -0.04, 0, 50, 0.064996, 1.522239, 0.000077,
+       -0.021463, 0.064996, 0},
       {3, LinksMouseShot::Full, 4, 1920, 9u, 30, 15, 110, -6, -8.128368, 1.8, 1.2, 127, 0.626433, 77.270356, -1.1742,
        -0.825252, 0.517093, 1},
-      {2, LinksMouseShot::Full, 12, 1920, 21u, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 50.588853,
-       1.50984, 1.021502, 0.361243, 1},
+      {2, LinksMouseShot::Full, 12, 1920, 21u, 25, 14, 100, 12, -7.405264, -2.16, -1.44, 127, 0.428111, 46.535126,
+       0.244594, -0.477122, 0.355657, 0},
   };
   for (const Case& c : cases) {
     LinksMouseClub club(c.skill, c.shot, c.club, links_mouse_meter(c.width));
@@ -2225,6 +2243,35 @@ void test_links_mouse_swing() {
   CHECK(miss.power == 0);
   CHECK(links_mouse_meter(800).height == 278 && links_mouse_meter(1024).ball_line == 96 &&
         links_mouse_meter(2560).height == 442);
+  // An iron's drift past 10 turns the face three times over.
+  LinksMouseStroke iron;
+  iron.club = 13;
+  iron.speed = -6;
+  iron.down = 90;
+  iron.backswing = 0.8;
+  iron.drift = -12;
+  iron.drift_before = -12;
+  LinksRand rng2(5);
+  LinksMouseSwing hooked = links_mouse_swing(iron, rng2);
+  CHECK_NEAR(hooked.power, 44.295517, 1e-5);
+  CHECK_NEAR(hooked.face_deg, 35.1, 1e-5);
+  CHECK_NEAR(hooked.path_deg, 0, 1e-12);
+  // Swing help: a player whose strokes never move sideways gets nudged.
+  LinksMouseStroke still;
+  still.club = 0;
+  still.speed = -6;
+  still.down = 90;
+  still.backswing = 0.8;
+  LinksMouseHelp help;
+  help.enabled = true;
+  help.strokes = 3;
+  help.still_strokes = 3;
+  LinksRand rng3(42);
+  LinksMouseSwing nudged = links_mouse_swing(still, rng3, &help);
+  CHECK_NEAR(nudged.help_deg, 3.9, 1e-9);
+  CHECK_NEAR(nudged.path_deg, 2.600013, 1e-5);
+  CHECK_NEAR(nudged.power, 65.042229, 1e-5);
+  CHECK(help.strokes == 4 && help.still_strokes == 4);
 }
 
 void test_links_putt() {

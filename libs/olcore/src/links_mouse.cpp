@@ -14,6 +14,11 @@ constexpr double kRadToDeg = 57.29578;
 // rest, 0.75 for the putter.
 double club_response(int club) { return club >= kLinksPutter ? 0.75 : club <= 7 ? 1.25 : 1.15; }
 
+// The irons and wedges (clubs 7 to 18) swing as the game's "iron" kind: a
+// gentler top of the backswing, their own sideways errors and no bonus for
+// a straight stroke.
+bool is_iron(int club) { return club >= 7 && club < kLinksPutter; }
+
 // Power per unit of club speed.
 constexpr double kGain[kLinksPutter + 1] = {10.5, 10.5, 10.5, 10.5, 10.0, 9.5, 9.0, 10.5, 9.75, 9.6,
                                             9.35, 9.15, 8.9,  8.9,  8.6,  8.6, 8.0, 8.5,  8.4,  0.75};
@@ -236,7 +241,7 @@ void LinksMouseClub::step(int dx, int dy, LinksRand& rng) {
 void LinksMouseClub::move_club(double delta, double side) {
   if (shot_ != LinksMouseShot::Putt && slow_ < pos_ && delta > 0) {
     // The top of the backswing slows the club.
-    delta = (1 - (pos_ - slow_) / 65) * delta * (shot_ == LinksMouseShot::Chip ? 0.3 : 0.25);
+    delta = (1 - (pos_ - slow_) / 65) * delta * (shot_ == LinksMouseShot::Chip || is_iron(club_) ? 0.3 : 0.25);
   }
   if (phase_ == Phase::Downswing && top_ < pos_ + delta) pos_ = top_;
   pos_ += delta;
@@ -286,9 +291,11 @@ int round_away(double x) { return static_cast<int>(x < 0 ? std::ceil(x - 0.5) : 
 
 }  // namespace
 
-LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng) {
+LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng, LinksMouseHelp* help) {
   const int skill = std::clamp(m.skill, 0, kLinksSkillCount - 1);
   const int club = std::clamp(m.club, 0, static_cast<int>(kLinksPutter));
+  const bool putter = club == kLinksPutter;
+  const bool iron = is_iron(club);
   const double k = club_response(club) * (m.shot == LinksMouseShot::Chip ? 0.75 : 1.0);
   const double gain = kGain[club];
   const double f = m.backswing;
@@ -307,7 +314,7 @@ LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng) {
   double path = t != 0 ? std::atan2(t, static_cast<double>(m.down)) * kRadToDeg : 0;
   if (path > 180) path -= 360;
   path = std::clamp(path, -20.0, 20.0);
-  const double stroke_angle = path;
+  double stroke_angle = path;
   double face = 0;
   double power;
   double loft;
@@ -342,43 +349,93 @@ LinksMouseSwing links_mouse_swing(const LinksMouseStroke& m, LinksRand& rng) {
     const double g = 2 * fp - fp * fp;
     power = wobble(speed * gain * g, 0, rng);
     loft = power / (g * gain * cap) * (f + 0.05);
+    if (!iron) {
+      const double ax = std::abs(x);
+      if (ax > 10) {
+        if (ax > 18) {
+          out.whiff = true;
+        } else {
+          face = ax * 0.1 * x;  // hook or slice
+        }
+      } else {
+        path += x;  // pull or push
+        face += x * (2 / 3.0);
+      }
+      power *= std::abs(1 - std::abs(x / kDriftPowerLoss[skill]));
+    }
+  }
+  if (iron && m.shot != LinksMouseShot::Putt) {
+    // Irons and wedges (chips with them too): the stroke's angle counts for
+    // more with the long irons and less with the wedges, and the drift only
+    // turns the face: a little within 10, a lot beyond, a miss past 18.
+    path *= 2.16 - (club - 7) * 0.16;
     const double ax = std::abs(x);
     if (ax > 10) {
-      if (ax > 18) {
+      if (13 <= x && x < 16) {
+        face += ax * 0.1 * x;
+      } else if (ax > 18) {
         out.whiff = true;
       } else {
-        face = ax * 0.1 * x;  // hook or slice
+        face += x * 3;
       }
     } else {
-      path += x;  // pull or push
-      face += x * (2 / 3.0);
+      face += ax * 0.05 * x;
     }
     power *= std::abs(1 - std::abs(x / kDriftPowerLoss[skill]));
+    if (m.shot == LinksMouseShot::Full) {
+      const double fp = std::min(f + 0.05, 1.0);
+      loft = power / ((2 * fp - fp * fp) * gain * cap) * (f + 0.05);
+    }
   }
   loft = std::min(loft, 1.0);
   power = std::max(power, 1.0);
   if (power > 145) power = wobble(145, 1, rng);
+  if (iron && m.shot != LinksMouseShot::Putt) x *= 0.5;
   face = wobble(face, 1, rng);
   path = wobble(path, 1, rng);
   if (out.whiff) {
     wobble(gain * speed, 1, rng);  // drawn and thrown away, as the game does
     power = 0;
+  } else if (help != nullptr) {
+    // The game's swing help: once three quarters of a player's strokes (three
+    // or more) have had no sideways movement at all, every stroke from a
+    // level above the easiest is nudged 2 to 5 degrees off line.
+    if (help->enabled) {
+      if (m.straight == 0) ++help->still_strokes;
+      ++help->strokes;
+    }
+    if (help->strokes > 2 && static_cast<double>(help->still_strokes) / help->strokes > 0.75 && skill != 0) {
+      double r = (rng.next() % 100 - 50) * 0.1;
+      if (r >= 2 || r < 0) {
+        if (-2 < r && r < 0) r -= 2;
+      } else {
+        r += 2;
+      }
+      path += r;
+      stroke_angle += r;
+      out.help_deg = r;
+    }
   }
-  // A straight stroke earns more power.
+  // A straight stroke earns more power (woods only).
   if (std::abs(x) < 1) x = 0;
   const double q = std::clamp(x * -4, -50.0, 50.0);
   const int b = std::clamp(round_away(stroke_angle * -2) + 10, 0, 20);
   out.quality = std::min(static_cast<int>(std::abs(q * 0.2) + std::abs(b - 10) / 2), 15);
-  const double bonus = (15.0 - out.quality) * (15.0 - out.quality) / kBonus[skill] + 1;
-  loft *= bonus / (225 / kBonus[skill] + 1);
+  double bonus = (15.0 - out.quality) * (15.0 - out.quality) / kBonus[skill] + 1;
+  if (iron || putter) {
+    bonus = 1;
+  } else {
+    loft *= bonus / (225 / kBonus[skill] + 1);
+  }
   // Then the swing reaches the shot: the path is eased to two thirds, a
   // putter's face turns the other way, and on the two easier levels a full
-  // swing's face and path errors are cut to 40%.
+  // swing's face and path errors are cut to 40% (50% with an iron).
   path *= 0.66667;
   if (m.shot == LinksMouseShot::Putt) face = -face;
   if (m.shot == LinksMouseShot::Full && skill < 2) {
-    face *= 0.4;
-    path *= 0.4;
+    const double cut = iron ? 0.5 : 0.4;
+    face *= cut;
+    path *= cut;
   }
   out.power = power * bonus;
   out.face_deg = face;

@@ -71,6 +71,14 @@ class Outcome:
 	var loft := 1.0
 	var whiff := false
 	var quality := 0
+	var help_deg := 0.0  ## the swing help's nudge to the path, if any
+
+
+## The game's swing-help count for one player; mirrors olcore::LinksMouseHelp.
+class Help:
+	var enabled := false  ## the option; with it off nothing is counted
+	var strokes := 0
+	var still_strokes := 0
 
 
 class Sample:
@@ -88,6 +96,11 @@ static func club_response(club: int) -> float:
 	if club >= PUTTER:
 		return 0.75
 	return 1.25 if club <= 7 else 1.15
+
+
+## The irons and wedges (clubs 7 to 18), which the game swings its own way.
+static func is_iron(club: int) -> bool:
+	return club >= 7 and club < PUTTER
 
 
 ## The game's wobble: up to 0.03% (mode 0) or 5% (mode 1) either way.
@@ -351,7 +364,7 @@ class MouseClub:
 
 	func _move_club(delta: float, side: float) -> void:
 		if _shot != Shot.PUTT and _slow < _pos and delta > 0.0:
-			delta = (1.0 - (_pos - _slow) / 65.0) * delta * (0.3 if _shot == Shot.CHIP else 0.25)
+			delta = (1.0 - (_pos - _slow) / 65.0) * delta * (0.3 if _shot == Shot.CHIP or LinksMouse.is_iron(_club) else 0.25)
 		if phase == Phase.DOWNSWING and _top < _pos + delta:
 			_pos = _top
 		_pos += delta
@@ -389,9 +402,11 @@ class MouseClub:
 
 ## Mirrors olcore::links_mouse_swing (see there).
 @warning_ignore("integer_division")
-static func swing(m: Stroke, rng: LinksLaunch.Rand) -> Outcome:
+static func swing(m: Stroke, rng: LinksLaunch.Rand, help: Help = null) -> Outcome:
 	var skill := clampi(m.skill, 0, SKILL_COUNT - 1)
 	var club := clampi(m.club, 0, PUTTER)
+	var putter := club == PUTTER
+	var iron := is_iron(club)
 	var k := club_response(club) * (0.75 if m.shot == Shot.CHIP else 1.0)
 	var gain: float = GAIN[club]
 	var f := m.backswing
@@ -441,38 +456,77 @@ static func swing(m: Stroke, rng: LinksLaunch.Rand) -> Outcome:
 		var g := 2.0 * fp - fp * fp
 		power = wobble(speed * gain * g, 0, rng)
 		loft = power / (g * gain * cap) * (f + 0.05)
+		if not iron:
+			var ax := absf(x)
+			if ax > 10.0:
+				if ax > 18.0:
+					out.whiff = true
+				else:
+					face = ax * 0.1 * x
+			else:
+				path += x
+				face += x * (2.0 / 3.0)
+			power *= absf(1.0 - absf(x / DRIFT_POWER_LOSS[skill]))
+	if iron and m.shot != Shot.PUTT:
+		# Irons and wedges, chips with them too: see olcore.
+		path *= 2.16 - (club - 7) * 0.16
 		var ax := absf(x)
 		if ax > 10.0:
-			if ax > 18.0:
+			if 13.0 <= x and x < 16.0:
+				face += ax * 0.1 * x
+			elif ax > 18.0:
 				out.whiff = true
 			else:
-				face = ax * 0.1 * x
+				face += x * 3.0
 		else:
-			path += x
-			face += x * (2.0 / 3.0)
+			face += ax * 0.05 * x
 		power *= absf(1.0 - absf(x / DRIFT_POWER_LOSS[skill]))
+		if m.shot == Shot.FULL:
+			var fp := minf(f + 0.05, 1.0)
+			loft = power / ((2.0 * fp - fp * fp) * gain * cap) * (f + 0.05)
 	loft = minf(loft, 1.0)
 	power = maxf(power, 1.0)
 	if power > 145.0:
 		power = wobble(145.0, 1, rng)
+	if iron and m.shot != Shot.PUTT:
+		x *= 0.5
 	face = wobble(face, 1, rng)
 	path = wobble(path, 1, rng)
 	if out.whiff:
 		wobble(gain * speed, 1, rng)
 		power = 0.0
+	elif help != null:
+		if help.enabled:
+			if m.straight == 0:
+				help.still_strokes += 1
+			help.strokes += 1
+		if help.strokes > 2 and float(help.still_strokes) / help.strokes > 0.75 and skill != 0:
+			var r := (rng.next() % 100 - 50) * 0.1
+			if r >= 2.0 or r < 0.0:
+				if -2.0 < r and r < 0.0:
+					r -= 2.0
+			else:
+				r += 2.0
+			path += r
+			stroke_angle += r
+			out.help_deg = r
 	if absf(x) < 1.0:
 		x = 0.0
 	var q := clampf(x * -4.0, -50.0, 50.0)
 	var b := clampi(_round_away(stroke_angle * -2.0) + 10, 0, 20)
 	out.quality = mini(int(absf(q * 0.2) + float(absi(b - 10) / 2)), 15)
 	var bonus := (15.0 - out.quality) * (15.0 - out.quality) / BONUS[skill] + 1.0
-	loft *= bonus / (225.0 / BONUS[skill] + 1.0)
+	if iron or putter:
+		bonus = 1.0
+	else:
+		loft *= bonus / (225.0 / BONUS[skill] + 1.0)
 	path *= 0.66667
 	if m.shot == Shot.PUTT:
 		face = -face
 	if m.shot == Shot.FULL and skill < 2:
-		face *= 0.4
-		path *= 0.4
+		var cut := 0.5 if iron else 0.4
+		face *= cut
+		path *= cut
 	out.power = power * bonus
 	out.face_deg = face
 	out.path_deg = path
