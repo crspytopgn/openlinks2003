@@ -1820,6 +1820,69 @@ void test_expected_strokes() {
   }
 }
 
+void test_links_swing() {
+  LinksRand r(1);
+  CHECK(r.next() == 41);
+  CHECK(r.next() == 18467);
+  CHECK(r.next() == 6334);
+  // The PowerStroke meter: a snap 16 units past the perfect zone is one step
+  // on the middle levels but not on the easiest or the hardest.
+  CHECK(links_meter_contact(16, 0) == 0);
+  CHECK(links_meter_contact(16, 1) == 1);
+  CHECK(links_meter_contact(16, 3) == 0);
+  CHECK(links_meter_contact(17, 3) == 1);
+  CHECK(links_meter_contact(-30, 3) == -1);
+  CHECK(links_meter_contact(10, 2) == 0);
+
+  struct Case {
+    int ground_class, club, skill;
+    bool mouse;
+    int contact;
+    double power;
+    unsigned seed;
+    bool left_handed, teed_up;
+    double aim, out_power, face, path, spin, speed, loft;
+  };
+  // Checked against the game's own code running in an emulator.
+  for (const Case& c : {
+           Case{kLinksRough, 13, 3, false, -1, 100, 12345, false, false, 0.073820061, 98.9875, 0.011343904,
+                0.006179939, 0.306505, 0.897315, 1},
+           Case{kLinksFairway, 0, 2, false, 1, 100, 777, false, false, 0.117637011, 98.105, 0.010139626, -0.037637011,
+                0.9, 0.902034979, 1},
+           Case{kLinksDirt, 7, 1, false, 2, 90, 99, false, false, 0.148869219, 90, 0.01, -0.068869219, 0.92, 0.9728, 1},
+           Case{kLinksRough, 11, 3, true, -2, 100, 5, false, false, 0.1, 100, 0.043633231, -0.06981317, 0.25,
+                0.927315, 0.95},
+           Case{kLinksSand, 17, 3, false, -1, 100, 42, true, false, 0.1, 94.8025, 0, 0, 1.416666667, 0.393333333, 1},
+           Case{kLinksFairway, 0, 3, false, 1, 100, 2003, false, true, 0.116496095, 97.3625, 0.011466077,
+                -0.036406095, 1, 1, 1},
+       }) {
+    LinksStrike s;
+    s.club = c.club;
+    s.power = c.power;
+    s.aim = 0.1;
+    s.face_error = 0.01;
+    s.path_error = -0.02;
+    LinksSwing w;
+    w.method = c.mouse ? LinksSwingMethod::Mouse : LinksSwingMethod::PowerStroke;
+    w.skill = c.skill;
+    w.contact = c.contact;
+    w.mouse_face_deg = 2.5;
+    w.mouse_path_deg = -4;
+    w.mouse_loft = 0.95;
+    w.left_handed = c.left_handed;
+    w.teed_up = c.teed_up;
+    LinksRand rng(c.seed);
+    links_apply_swing(s, w, links_surface(c.ground_class), rng);
+    CHECK_NEAR(s.aim, c.aim, 1e-8);
+    CHECK_NEAR(s.power, c.out_power, 1e-6);
+    CHECK_NEAR(s.face_error, c.face, 1e-8);
+    CHECK_NEAR(s.path_error, c.path, 1e-8);
+    CHECK_NEAR(s.spin_scale, c.spin, 1e-8);
+    CHECK_NEAR(s.speed_scale, c.speed, 1e-8);
+    CHECK_NEAR(s.loft_scale, c.loft, 1e-9);
+  }
+}
+
 int main() {
   std::vector<std::pair<std::string, std::function<void()>>> tests = {
       {"reader_little_endian", test_reader_little_endian},
@@ -1874,6 +1937,7 @@ int main() {
       {"links_shot", test_links_shot},
       {"links_launch", test_links_launch},
       {"links_lie", test_links_lie},
+      {"links_swing", test_links_swing},
       {"scorecard", test_scorecard},
       {"game_modes", test_game_modes},
       {"handicaps", test_handicaps},

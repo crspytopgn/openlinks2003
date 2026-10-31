@@ -29,6 +29,7 @@ func _initialize() -> void:
 	_run("links_ground_matches_olcore", _test_links_ground_matches_olcore)
 	_run("links_launch_matches_olcore", _test_links_launch_matches_olcore)
 	_run("links_lie_matches_olcore", _test_links_lie_matches_olcore)
+	_run("links_swing_matches_olcore", _test_links_swing_matches_olcore)
 	_run("obstacles_match_olcore", _test_obstacles_match_olcore)
 	_run("swing_accuracy", _test_swing_accuracy)
 	_run("swing_meter", _test_swing_meter)
@@ -923,6 +924,44 @@ func _test_links_lie_matches_olcore() -> void:
 		_check_near(t.speed_scale, c[1], 1e-5, "sand speed %d" % c[0])
 		_check_near(t.spin_scale, c[2], 1e-5, "sand spin %d" % c[0])
 		_check_near(t.loft_scale, c[3], 1e-6, "sand loft %d" % c[0])
+
+
+func _test_links_swing_matches_olcore() -> void:
+	var r := LinksLaunch.Rand.new(1)
+	_check(r.next() == 41 and r.next() == 18467 and r.next() == 6334, "C runtime rand")
+	# snap units, skill, contact: as test_links_swing in libs/olcore/tests.
+	for c in [[16.0, 0, 0], [16.0, 1, 1], [16.0, 3, 0], [17.0, 3, 1], [-30.0, 3, -1], [10.0, 2, 0]]:
+		_check(LinksLaunch.meter_contact(c[0], c[1]) == c[2], "meter contact %s" % [c])
+	# class, club, skill, mouse, contact, power, seed, left-handed, teed up,
+	# then aim, power, face, path, spin, speed, loft.
+	var cases := [
+		[LinksGround.ROUGH, 13, 3, false, -1, 100.0, 12345, false, false, 0.073820061, 98.9875, 0.011343904, 0.006179939, 0.306505, 0.897315, 1.0],
+		[LinksGround.FAIRWAY, 0, 2, false, 1, 100.0, 777, false, false, 0.117637011, 98.105, 0.010139626, -0.037637011, 0.9, 0.902034979, 1.0],
+		[LinksGround.DIRT, 7, 1, false, 2, 90.0, 99, false, false, 0.148869219, 90.0, 0.01, -0.068869219, 0.92, 0.9728, 1.0],
+		[LinksGround.ROUGH, 11, 3, true, -2, 100.0, 5, false, false, 0.1, 100.0, 0.043633231, -0.06981317, 0.25, 0.927315, 0.95],
+		[LinksGround.SAND, 17, 3, false, -1, 100.0, 42, true, false, 0.1, 94.8025, 0.0, 0.0, 1.416666667, 0.393333333, 1.0],
+		[LinksGround.FAIRWAY, 0, 3, false, 1, 100.0, 2003, false, true, 0.116496095, 97.3625, 0.011466077, -0.036406095, 1.0, 1.0, 1.0],
+	]
+	for c in cases:
+		var s := LinksLaunch.Strike.new()
+		s.club = c[1]
+		s.power = c[5]
+		s.aim = 0.1
+		s.face_error = 0.01
+		s.path_error = -0.02
+		var w := LinksLaunch.SwingInput.new()
+		w.method = LinksLaunch.Method.MOUSE if c[3] else LinksLaunch.Method.POWERSTROKE
+		w.skill = c[2]
+		w.contact = c[4]
+		w.mouse_face_deg = 2.5
+		w.mouse_path_deg = -4.0
+		w.mouse_loft = 0.95
+		w.left_handed = c[7]
+		w.teed_up = c[8]
+		LinksLaunch.apply_swing(s, w, LinksGround.surface_for_class(c[0]), LinksLaunch.Rand.new(c[6]))
+		var got := [s.aim, s.power, s.face_error, s.path_error, s.spin_scale, s.speed_scale, s.loft_scale]
+		for i in got.size():
+			_check_near(got[i], c[9 + i], 1e-6, "swing case %d value %d" % [cases.find(c), i])
 
 
 func _test_links_launch_matches_olcore() -> void:
