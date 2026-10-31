@@ -12,8 +12,23 @@ const MAX_ZOOM := 17
 const PHOTO_MAX := 2048  ## pixels a side of the course photo kept
 const PHOTO_RES := 1.0  ## metres per pixel of the course photo, at best
 
-## URL placeholders: {z} {x} {y} (web mercator tile).
+## URL placeholders: {z} {x} {y} (web mercator tile), or {bbox} (the
+## tile's web mercator box in metres, for WMS services). Smaller areas come
+## first: where boxes overlap, the first service with photos of the course
+## is used.
 const SOURCES := [
+	{
+		"id": "vl", "name": "Digitaal Vlaanderen orthophoto, Flanders",
+		"boxes": [[50.67, 2.53, 51.51, 5.92]],
+		"url": "https://geo.api.vlaanderen.be/omz/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=omzrgb24vl&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg",
+		"credit": "Aerial photo: Digitaal Vlaanderen, Modellicentie Gratis Hergebruik",
+	},
+	{
+		"id": "nrw", "name": "Geobasis NRW orthophoto, North Rhine-Westphalia",
+		"boxes": [[50.32, 5.86, 52.53, 9.46]],
+		"url": "https://www.wms.nrw.de/geobasis/wms_nw_dop?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=nw_dop_rgb&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg",
+		"credit": "Aerial photo: Geobasis NRW, dl-de/zero-2-0",
+	},
 	{
 		"id": "pdok", "name": "PDOK aerial photo, Netherlands",
 		"boxes": [[50.70, 3.20, 53.60, 7.25]],
@@ -27,6 +42,12 @@ const SOURCES := [
 		"credit": "Aerial photo: (c) swisstopo",
 	},
 	{
+		"id": "basemap", "name": "basemap.at orthophoto, Austria",
+		"boxes": [[46.37, 9.53, 49.02, 17.17]],
+		"url": "https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/{z}/{y}/{x}.jpeg",
+		"credit": "Aerial photo: basemap.at, CC BY 4.0",
+	},
+	{
 		"id": "ign", "name": "IGN BD ORTHO, France",
 		"boxes": [[41.30, -5.20, 51.15, 9.60]],
 		"url": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
@@ -37,6 +58,12 @@ const SOURCES := [
 		"boxes": [[35.9, -9.4, 43.9, 4.4], [27.6, -18.2, 29.5, -13.4]],
 		"url": "https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
 		"credit": "Aerial photo: PNOA (c) Instituto Geografico Nacional de Espana, CC BY 4.0",
+	},
+	{
+		"id": "gsi", "name": "GSI seamless photo, Japan",
+		"boxes": [[24.0, 122.9, 45.6, 146.0]],
+		"url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+		"credit": "Aerial photo: Geospatial Information Authority of Japan (GSI tiles)",
 	},
 	{
 		"id": "usgs", "name": "USGS/USDA NAIP orthoimagery, United States",
@@ -54,13 +81,21 @@ var loaded := 0
 var _mosaic: Image
 
 
-## The photo service covering a point, or {}.
+## The first photo service whose box holds a point, or {}.
 static func source_for(lat: float, lon: float) -> Dictionary:
+	var all := sources_for(lat, lon)
+	return all[0] if not all.is_empty() else {}
+
+
+## Every photo service whose box holds a point, to try in order.
+static func sources_for(lat: float, lon: float) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
 	for s: Dictionary in SOURCES:
 		for b: Array in s["boxes"]:
 			if lat >= b[0] and lat <= b[2] and lon >= b[1] and lon <= b[3]:
-				return s
-	return {}
+				out.append(s)
+				break
+	return out
 
 
 ## Tiles covering `box` (south, west, north, east) at the finest zoom
@@ -82,9 +117,17 @@ func _init(p_source: Dictionary, box: Array) -> void:
 
 func urls() -> PackedStringArray:
 	var out := PackedStringArray()
+	# Web mercator metres: the world is 2 pi R across, centred on 0.
+	var world := 2.0 * PI * 6378137.0
+	var size := world / pow(2.0, zoom)
 	for j in count.y:
 		for i in count.x:
-			out.append(str(source["url"]).format({"z": zoom, "x": origin.x + i, "y": origin.y + j}))
+			var x := origin.x + i
+			var y := origin.y + j
+			var x0 := x * size - world * 0.5
+			var y1 := world * 0.5 - y * size
+			var bbox := "%.3f,%.3f,%.3f,%.3f" % [x0, y1 - size, x0 + size, y1]
+			out.append(str(source["url"]).format({"z": zoom, "x": x, "y": y, "bbox": bbox}))
 	return out
 
 
@@ -99,10 +142,25 @@ func add_tile(index: int, bytes: PackedByteArray) -> bool:
 	if err != OK or img.get_width() != TILE or img.get_height() != TILE:
 		return false
 	img.convert(Image.FORMAT_RGB8)
+	if is_blank(img):
+		return false
 	var at := Vector2i(index % count.x, floori(float(index) / count.x)) * TILE
 	_mosaic.blit_rect(img, Rect2i(0, 0, TILE, TILE), at)
 	loaded += 1
 	return true
+
+
+## True for a tile of one flat colour: services answer outside their
+## country with white or empty tiles.
+static func is_blank(img: Image) -> bool:
+	var lo := 1.0
+	var hi := 0.0
+	for j in range(8, img.get_height(), 16):
+		for i in range(8, img.get_width(), 16):
+			var l := img.get_pixel(i, j).get_luminance()
+			lo = minf(lo, l)
+			hi = maxf(hi, l)
+	return hi - lo < 0.02
 
 
 ## Photo colour at a latitude and longitude.

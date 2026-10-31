@@ -108,10 +108,10 @@ func _build(place: Dictionary) -> DesignedCourse:
 	var height := tiles.height_at
 	var ground_name := "open elevation tiles"
 
-	# National lidar, where a service covers the course.
+	# National lidar: the first service that covers the course.
 	var lidar: NationalLidar = null
-	var src := NationalLidar.source_for(lat, lon)
-	if use_lidar and not src.is_empty():
+	var lidar_sources := NationalLidar.sources_for(lat, lon) if use_lidar else ([] as Array[Dictionary])
+	for src in lidar_sources:
 		lidar = NationalLidar.new(src, gb)
 		var lidar_urls := PackedStringArray()
 		for c in lidar.chunks:
@@ -132,28 +132,30 @@ func _build(place: Dictionary) -> DesignedCourse:
 				progress.emit("Finding the trees in the lidar...")
 				await get_tree().process_frame
 				builder.lidar_trees = lidar.find_trees()
-		else:
-			lidar = null
+			break
+		lidar = null
 
-	# Aerial photos, where an open service covers the course.
+	# Aerial photos: the first open service with photos of the course.
 	var photo: Image = null
-	var psrc := AerialPhotos.source_for(lat, lon)
-	if use_photos and not psrc.is_empty():
+	var photo_sources := AerialPhotos.sources_for(lat, lon) if use_photos else ([] as Array[Dictionary])
+	for psrc in photo_sources:
 		var photos := AerialPhotos.new(psrc, gb)
 		var purls := photos.urls()
 		var pgot := await _fetch_all(purls, "Fetching the aerial photo (%s)" % psrc["name"])
 		for i in purls.size():
 			if pgot[i][0] == 200:
 				photos.add_tile(i, pgot[i][1])
-		if photos.loaded * 2 >= purls.size():
-			photo = photos.course_photo(builder.frame, builder.area)
-			builder.extra_credits.append(psrc["credit"])
-			for t in builder.lidar_trees:
-				t["leaf"] = photos.leaf_at(t["lat"], t["lon"])
-			if photo != null and builder.lidar_trees.is_empty():
-				progress.emit("Finding the trees in the photo...")
-				await get_tree().process_frame
-				builder.photo_trees = AerialPhotos.find_trees(photo, builder.area, builder.grass_points())
+		if photos.loaded * 2 < purls.size():
+			continue
+		photo = photos.course_photo(builder.frame, builder.area)
+		builder.extra_credits.append(psrc["credit"])
+		for t in builder.lidar_trees:
+			t["leaf"] = photos.leaf_at(t["lat"], t["lon"])
+		if photo != null and builder.lidar_trees.is_empty():
+			progress.emit("Finding the trees in the photo...")
+			await get_tree().process_frame
+			builder.photo_trees = AerialPhotos.find_trees(photo, builder.area, builder.grass_points())
+		break
 
 	progress.emit("Building %s..." % builder.course_name)
 	await get_tree().process_frame

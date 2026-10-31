@@ -30,7 +30,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 8)
 	add_child(box)
 	var intro := Label.new()
-	intro.text = "Type a golf club or course anywhere in the world. Its holes, greens, bunkers and water come from OpenStreetMap; its ground from national lidar where it is open (England, the Netherlands, France, the US), else open elevation data; and its trees from the lidar or the country's aerial photos."
+	intro.text = "Type a golf club or course anywhere in the world. Its holes, greens, bunkers and water come from OpenStreetMap; its ground from national lidar where it is open (England, the Netherlands, Flanders, North Rhine-Westphalia, France, Norway, Japan, the US), else open elevation data; and its trees from the lidar or the country's aerial photos."
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(intro)
 	var row := HBoxContainer.new()

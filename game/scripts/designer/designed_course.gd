@@ -42,6 +42,8 @@ var credits := ""
 ## Where a real course came from: {"kind": "openstreetmap", "lat", "lon",
 ## "base_height"} (see docs/real-courses.md). Empty for hand-made courses.
 var source := {}
+var _photo: Image
+var _photo_tried := false
 
 
 ## A flat course of the given size, centred on the origin.
@@ -344,6 +346,27 @@ static func from_json(text: String) -> DesignedCourse:
 	if json.parse(text) != OK or not json.data is Dictionary:
 		return null
 	return from_dict(json.data)
+
+
+## The course's aerial photo, kept beside the course file (source.photo),
+## covering exactly `area` with its first pixel at the north-west (+x, +z)
+## corner; null if it has none.
+func photo_image() -> Image:
+	if not _photo_tried:
+		_photo_tried = true
+		var file := str(source.get("photo", ""))
+		var path := FOLDER.path_join(file)
+		if not file.is_empty() and file.get_file() == file and FileAccess.file_exists(path):
+			var img := Image.load_from_file(path)
+			if img != null and not img.is_empty():
+				_photo = img
+	return _photo
+
+
+## Sets the aerial photo directly (a freshly built course, or tests).
+func set_photo(img: Image) -> void:
+	_photo = img
+	_photo_tried = true
 
 
 static func load_file(path: String) -> DesignedCourse:

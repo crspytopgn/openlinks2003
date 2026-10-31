@@ -90,7 +90,8 @@ feel) still need a working install.
   - [x] Objects from the player's own object library with measured collision sizes, cart paths (free drop) and bridges, per-hole flyover, shareable single-file courses
   - [x] Real courses by name: OpenStreetMap holes and areas plus open lidar and elevation heights, in the browser too ([real-courses.md](docs/real-courses.md))
   - [x] Real courses: national lidar (England, Netherlands, France, US), trees from the lidar canopy or aerial photos, the photo under the designer, clubs with several courses
-  - [ ] Real courses: more countries' lidar and photos, ground colours from the photo, buildings
+  - [x] Real courses: lidar and photos for Flanders, North Rhine-Westphalia, Norway, Austria (photos) and Japan, falling back between services near borders; ground colours from the aerial photo
+  - [ ] Real courses: Scotland, Wales, Ireland, Denmark, Canada and the rest (need a key or reprojection from national grids), buildings
   - [ ] Crisp surface edges (splat map), free built-in bushes and buildings, hazard stakes, per-course skies
 - [ ] Community add-on courses
   - [x] Suggest popular free courses with links to Links Corner, and add them from a downloaded `.zip` in the browser ([community-courses.md](docs/community-courses.md))

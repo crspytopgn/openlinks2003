@@ -54,7 +54,9 @@ humps and hollows; those are worth sculpting by hand in the designer.
 
 `NationalLidar` (`game/scripts/realcourse/national_lidar.gd`) asks these
 services for the course's box in latitude and longitude, at 1 m, in
-requests of at most 1000 pixels a side. All of them allow requests from a
+requests of at most 1000 pixels a side (Japan's comes as web map tiles).
+Where the boxes overlap (near borders), each service is tried in turn and
+the first that covers at least a quarter of the course is used. All of them allow requests from a
 web page, so the browser build uses them too. Where a service has gaps
 (under water, some buildings, past a border) the Terrain Tiles fill in,
 shifted to match. Under 25% coverage, it isn't used.
@@ -63,13 +65,18 @@ shifted to match. Under 25% coverage, it isn't used.
 | --- | --- | --- | --- | --- |
 | England | Environment Agency lidar composite, WCS 2.0 | 1 m DTM | 1 m first-return DSM | Open Government Licence v3.0 |
 | Netherlands | AHN via PDOK, WCS 2.0 | 0.5 m DTM | 0.5 m DSM | CC0 |
+| Flanders (Belgium) | Digitaal Hoogtemodel Vlaanderen II, WCS 1.0 | 1 m DTM | 1 m DSM | Modellicentie Gratis Hergebruik |
+| North Rhine-Westphalia (Germany) | Geobasis NRW, WCS 2.0 (asked for Deflate) | 1 m DGM | 1 m DOM | dl-de/zero-2-0 |
 | France | IGN RGE ALTI / LiDAR HD via the Geoplateforme WMS-R (float BIL) | 1 m | LiDAR HD MNS where flown | Licence Ouverte 2.0 |
+| Norway | Kartverket national lidar (NHM), WCS 1.0 | 1 m DTM | 1 m DOM | CC BY 4.0 |
+| Japan | GSI elevation tiles (PNG, height in centimetres): DEM1A at zoom 17 where flown, else DEM5A (zoom 15), else DEM10B (zoom 14) | 1 to 10 m | none | GSI terms (credit) |
 | United States | USGS 3DEP ImageServer exportImage | 1 to 10 m, best available | none | Public domain |
 
 `GeoRaster` reads what they send: GeoTIFF in either byte order, float32 or
 int16, uncompressed or Deflate with the floating-point predictor, in
 strips or tiles, placed by ModelPixelScale and ModelTiepoint or
-ModelTransformation; and the raw float BIL from WMS.
+ModelTransformation; the raw float BIL from WMS; and GSI's colour-coded
+PNG tiles.
 
 **Trees from lidar:** the canopy height is the surface model minus the
 ground. Every local peak at least 3 m tall is a tree, its height the peak
@@ -89,11 +96,27 @@ photo**), to check and trace the course against.
 
 | Where | Service | Licence |
 | --- | --- | --- |
+| Flanders (Belgium) | Digitaal Vlaanderen summer orthophoto (WMS) | Modellicentie Gratis Hergebruik |
+| North Rhine-Westphalia | Geobasis NRW DOP (WMS) | dl-de/zero-2-0 |
 | Netherlands | PDOK Luchtfoto RGB (Beeldmateriaal Nederland) | CC BY 4.0 |
 | Switzerland | swisstopo SWISSIMAGE | free reuse with credit |
+| Austria | basemap.at orthophoto | CC BY 4.0 |
 | France | IGN BD ORTHO via the Geoplateforme | Licence Ouverte 2.0 |
 | Spain | PNOA (IGN Espana) | CC BY 4.0 |
+| Japan | GSI seamless photo | GSI terms (credit) |
 | United States | USGS The National Map orthoimagery (NAIP) | Public domain |
+
+WMS services are asked for each web mercator tile's box. Services answer
+white or empty tiles outside their country; those don't count, and the next
+service is tried when fewer than half the tiles have a photo.
+
+**Ground colours from the photo:** with a photo, the ground takes its
+colours partly from it, softened to about 6 m so crowns and cars blur out
+and kept near the game's own brightness: most beyond the course (fields,
+tracks, car parks), a lot in the rough (worn and dry patches), and only a
+touch on fairways, tees and greens, which keep their stripes. Deep shade
+and water in the photo are skipped. This works in the designer and in the
+round (`DesignedTerrain`, `DesignedCourse.photo_image()`).
 
 The photo also helps with trees. With lidar trees, the crown colour picks
 pines (dark green) or broadleaves (lighter, or brown in a winter photo).
@@ -102,14 +125,21 @@ darker than the fairways' grass, become trees.
 
 ### Not covered yet
 
-England has no open aerial photo service, and these lidar services need a
-key, return another projection, or have no cross-site access, so they are
-left for later: Scotland (remotesensingdata.gov.scot), Wales (DataMapWales),
-Ireland (GSI/OPW), Denmark (Dataforsyningen, free key), Belgium, Germany's
-states, Switzerland's swissALTI3D, the Nordic land surveys, Spain's 5 m
-model (integer metres only), Canada (NRCan HRDEM), Australia (ELVIS), New
-Zealand (LINZ, key) and Japan (GSI). Courses there use the Terrain Tiles
-(see the table above) and OpenStreetMap's trees.
+England has no open aerial photo service. These were checked on
+2026-10-31 and don't work from a web page yet, so courses there use the
+Terrain Tiles (see the table above) and OpenStreetMap's trees:
+
+- Scotland (remotesensingdata.gov.scot): its WCS is switched off.
+- Wales (DataMapWales): the GeoServer has no lidar coverage.
+- Ireland (GSI/OPW): lidar coverage maps only, no height service.
+- Denmark (Dataforsyningen): needs a free account token.
+- Canada (NRCan HRDEM): the WCS rejects requests in latitude and longitude.
+- Australia (ELVIS): no open height service.
+- New Zealand (LINZ): needs a key.
+- Wallonia, Germany's other states, Switzerland's swissALTI3D, Sweden,
+  Finland: answer only in their national projection, or with no
+  cross-site access.
+- Spain's 5 m model: whole metres only.
 
 ### Scorecards
 
@@ -187,9 +217,8 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
-- More lidar and photo services (above).
-- Ground colours from the photo (the terrain shader belongs to the
-  graphics work).
+- More lidar and photo services (above); reprojecting from national
+  grids would open most of the rest.
 - Buildings (`building=*`, already read to keep trees off them) as
   objects, and the course outline as out of bounds where the club marks it
   so.

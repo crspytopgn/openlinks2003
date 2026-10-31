@@ -16,6 +16,7 @@ func run_all() -> Array[String]:
 	_test_national_lidar()
 	_test_photo_trees()
 	_test_extra_trees()
+	_test_photo_ground()
 	return failures
 
 
@@ -192,6 +193,15 @@ func _test_national_lidar() -> void:
 	check(str(NationalLidar.source_for(52.2, 5.2).get("id", "")) == "ahn", "the Netherlands use AHN")
 	check(str(NationalLidar.source_for(36.57, -121.95).get("id", "")) == "3dep", "California uses 3DEP")
 	check(NationalLidar.source_for(-33.9, 151.2).is_empty(), "no service for Sydney yet")
+	check(str(NationalLidar.source_for(51.3, 4.55).get("id", "")) == "vl", "Flanders uses DHMV")
+	check(str(NationalLidar.source_for(51.23, 6.85).get("id", "")) == "nrw", "Duesseldorf uses Geobasis NRW")
+	check(str(NationalLidar.source_for(59.93, 10.75).get("id", "")) == "no", "Oslo uses Kartverket")
+	check(str(NationalLidar.source_for(35.6, 139.7).get("id", "")) == "gsi", "Tokyo uses the GSI tiles")
+	var both := NationalLidar.sources_for(51.4, 3.8)
+	check(both.size() == 2 and both[1]["id"] == "ahn", "Zeeland falls back from Flanders to AHN")
+	var vl := NationalLidar.new(_lidar_source("vl"), [51.30, 4.55, 51.302, 4.553])
+	check(vl.url(vl.chunks[0], false).contains("BBOX=4.5500000,51.3000000,4.5530000,51.3020000"), "WCS 1.0 box is west, south, east, north")
+	_test_gsi_tiles()
 	var l := NationalLidar.new(NationalLidar.source_for(51.4, -0.3), [51.40, -0.31, 51.42, -0.28])
 	# About 2.1 km by 2.2 km at 1 m: 3 x 3 requests of at most 1000 px.
 	check(l.chunks.size() == 9, "chunks: %d" % l.chunks.size())
@@ -210,12 +220,60 @@ func _test_national_lidar() -> void:
 			top.append(5.0 + maxf(crown, roof))
 	var box := [51.0, -1.0, 51.0004, -0.9994]
 	var chunk := {"box": box, "cols": 40, "rows": 40}
-	var lt := NationalLidar.new(NationalLidar.SOURCES[2], box)
+	var lt := NationalLidar.new(_lidar_source("ign"), box)
 	check(lt.add(chunk, ground.to_byte_array(), false) and lt.add(chunk, top.to_byte_array(), true), "BIL chunks load")
 	var trees := lt.find_trees()
 	check(trees.size() == 1, "one tree found, the roof skipped (%d)" % trees.size())
 	if trees.size() == 1:
 		check(absf(float(trees[0]["height"]) - 12.0) < 0.01, "tree height from the canopy")
+
+
+func _lidar_source(id: String) -> Dictionary:
+	for s: Dictionary in NationalLidar.SOURCES:
+		if s["id"] == id:
+			return s
+	return {}
+
+
+## Japan's GSI elevation tiles: chunks per layer, the colour code, and the
+## finest layer winning where it has heights.
+func _test_gsi_tiles() -> void:
+	var box := [35.600, 139.690, 35.610, 139.700]
+	var l := NationalLidar.new(_lidar_source("gsi"), box)
+	var zooms := {}
+	for c in l.chunks:
+		zooms[(c["tile"] as Vector3i).z] = true
+	check(zooms.has(17) and zooms.has(15) and zooms.has(14), "a chunk per tile of each layer")
+	check(l.url(l.chunks[0], false).begins_with("https://cyberjapandata.gsi.go.jp/xyz/dem1a_png/17/"), "finest layer first")
+	# One coarse tile with heights 12.34 m and -1.5 m, and a fine tile
+	# that is all no data.
+	var fine := l.chunks[0]
+	var coarse: Dictionary = {}
+	var fbox: Array = fine["box"]
+	for c in l.chunks:
+		var t: Vector3i = c["tile"]
+		var b: Array = c["box"]
+		var mid_lat := (float(fbox[0]) + float(fbox[2])) * 0.5
+		var mid_lon := (float(fbox[1]) + float(fbox[3])) * 0.5
+		if t.z == 14 and mid_lat > b[0] and mid_lat < b[2] and mid_lon > b[1] and mid_lon < b[3]:
+			coarse = c
+	var img := Image.create(256, 256, false, Image.FORMAT_RGB8)
+	var cm := 1234
+	img.fill(Color8((cm >> 16) & 255, (cm >> 8) & 255, cm & 255))
+	var neg := 0x1000000 - 150
+	img.fill_rect(Rect2i(0, 0, 128, 256), Color8((neg >> 16) & 255, (neg >> 8) & 255, neg & 255))
+	check(l.add(coarse, img.save_png_to_buffer(), false), "GSI tile loads")
+	var empty := Image.create(256, 256, false, Image.FORMAT_RGB8)
+	empty.fill(Color8(128, 0, 0))
+	check(l.add(fine, empty.save_png_to_buffer(), false), "an empty fine tile loads")
+	var cb: Array = coarse["box"]
+	var fb: Array = fine["box"]
+	var east := l.ground_at(lerpf(cb[0], cb[2], 0.5), lerpf(cb[1], cb[3], 0.9))
+	var west := l.ground_at(lerpf(cb[0], cb[2], 0.5), lerpf(cb[1], cb[3], 0.1))
+	check(absf(east - 12.34) < 0.001 and absf(west + 1.5) < 0.001, "GSI heights: %f %f" % [east, west])
+	var under := l.ground_at(lerpf(fb[0], fb[2], 0.5), lerpf(fb[1], fb[3], 0.5))
+	check(not is_nan(under), "no-data fine tile falls through to the coarse one")
+	check(l.coverage() > 0.2, "coverage from the coarse tile: %f" % l.coverage())
 
 
 func _test_photo_trees() -> void:
@@ -230,6 +288,19 @@ func _test_photo_trees() -> void:
 	for p in found:
 		check(p.length() < 10.0, "tree cells are on the clump: %s" % p)
 	check(AerialPhotos.source_for(52.2, 5.2).get("id", "") == "pdok", "Dutch photos from PDOK")
+	check(AerialPhotos.source_for(48.2, 16.3).get("id", "") == "basemap", "Vienna photos from basemap.at")
+	check(AerialPhotos.source_for(35.6, 139.7).get("id", "") == "gsi", "Tokyo photos from GSI")
+	var vl := AerialPhotos.new(AerialPhotos.source_for(51.30, 4.55), [51.300, 4.550, 51.302, 4.553])
+	var u := vl.urls()[0]
+	var bb := u.get_slice("BBOX=", 1).get_slice("&", 0).split(",")
+	check(bb.size() == 4 and absf(float(bb[2]) - float(bb[0]) - 305.748) < 0.01, "WMS tile box in web mercator metres: " + u)
+	var white := Image.create(256, 256, false, Image.FORMAT_RGB8)
+	white.fill(Color.WHITE)
+	check(AerialPhotos.is_blank(white) and not vl.add_tile(0, white.save_jpg_to_buffer()), "white tiles from outside the country don't count")
+	var grass := Image.create(256, 256, false, Image.FORMAT_RGB8)
+	grass.fill(Color(0.3, 0.45, 0.2))
+	grass.fill_rect(Rect2i(0, 0, 100, 100), Color(0.15, 0.25, 0.1))
+	check(not AerialPhotos.is_blank(grass), "a photo with a wood in it isn't blank")
 
 
 ## Lidar trees replace the guessed wood fill, and keep off buildings.
@@ -340,3 +411,28 @@ static func _be_or_le(v: int, size: int, be: bool) -> PackedByteArray:
 	if be:
 		out.reverse()
 	return out
+
+
+## The aerial photo tints the ground: a lot beyond the course, a little on
+## the fairway, and the photo's west (+x) half lands on the west half.
+func _test_photo_ground() -> void:
+	var c := DesignedCourse.blank(Vector2(200, 200))
+	var fairway := CourseShape.new()
+	fairway.surface = Surface.Type.FAIRWAY
+	fairway.points = PackedVector2Array([Vector2(-20, -20), Vector2(20, -20), Vector2(20, 20), Vector2(-20, 20)])
+	c.shapes.append(fairway)
+	var plain := DesignedTerrain.new(c)
+	var oob := plain.ground_color_at(-90, 0)
+	var mown := plain.ground_color_at(0, 0)
+	# A dry, brown photo whose west (left, +x) half is lighter.
+	var img := Image.create(200, 200, false, Image.FORMAT_RGB8)
+	img.fill(Color(0.55, 0.45, 0.3))
+	img.fill_rect(Rect2i(0, 0, 100, 200), Color(0.75, 0.65, 0.45))
+	c.set_photo(img)
+	var tinted := DesignedTerrain.new(c)
+	var east := tinted.ground_color_at(-90, 0)
+	var west := tinted.ground_color_at(90, 0)
+	check(east.r / east.g > oob.r / oob.g + 0.2, "the field beyond the course turns brown: %s" % east)
+	check(west.get_luminance() > east.get_luminance(), "the photo's west half is the course's +x half")
+	var m := tinted.ground_color_at(0, 0)
+	check(m.g > m.r and absf(m.r - mown.r) + absf(m.g - mown.g) + absf(m.b - mown.b) < 0.2, "the fairway stays green: %s" % m)

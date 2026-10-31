@@ -1137,10 +1137,13 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 		DirAccess.make_dir_recursive_absolute(DesignedCourse.FOLDER)
 		if photo.save_jpg(DesignedCourse.FOLDER.path_join(file), 0.85) == OK:
 			c.source["photo"] = file
+		c.set_photo(photo)
 	# Other courses at the same club are saved beside it.
 	var others: Array = summary.get("others", [])
 	for o: DesignedCourse in others:
-		if c.source.has("photo"):
+		# The photo covers the first course's area; another course shares it
+		# only if its area is the same.
+		if c.source.has("photo") and o.area == c.area:
 			o.source["photo"] = c.source["photo"]
 		o.save_file(o.default_path())
 	_photo_on = true
@@ -1157,12 +1160,10 @@ func _on_real_built(c: DesignedCourse, summary: Dictionary) -> void:
 ## The course's aerial photo as a ground overlay material, if it has one.
 func _load_photo() -> void:
 	_photo_material = null
-	var file := str(course.source.get("photo", ""))
-	if file.is_empty() or file.get_file() != file:
+	var photo := course.photo_image()
+	if photo == null:
 		return
-	var img := Image.load_from_file(DesignedCourse.FOLDER.path_join(file)) if FileAccess.file_exists(DesignedCourse.FOLDER.path_join(file)) else null
-	if img == null or img.is_empty():
-		return
+	var img: Image = photo.duplicate()
 	img.generate_mipmaps()
 	_photo_material = ShaderMaterial.new()
 	_photo_material.shader = load("res://shaders/aerial_photo.gdshader")

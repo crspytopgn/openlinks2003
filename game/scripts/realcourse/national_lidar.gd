@@ -1,7 +1,8 @@
 class_name NationalLidar
 extends RefCounted
 ## Finer ground heights from national lidar services that a browser can
-## read directly (they allow cross-site requests and answer in EPSG:4326):
+## read directly (they allow cross-site requests and answer in EPSG:4326,
+## or as web map tiles):
 ## the bare ground (DTM) for the course, and where offered the first-return
 ## surface (DSM), whose height above the ground finds every tree. Where no
 ## service covers a course, or it has gaps, the Terrain Tiles fill in.
@@ -13,12 +14,35 @@ extends RefCounted
 
 const CHUNK := 1000  ## pixels a side per request at most
 const RES := 1.0  ## metres per pixel asked for
+const MAX_TILE_CHUNKS := 256  ## tiles per layer at most, for tile sources
 
 ## Each source: the box it may cover (south, west, north, east; gaps
 ## outside the country come back as no data), how to ask for a box, and
 ## the credit its licence asks for. URL placeholders: {s} {w} {n} {e}
 ## (degrees), {cols} {rows} (pixels), {layer} (the DTM or DSM name).
+## A "tiles" source lists tile layers instead, finest first, each a URL
+## with {z} {x} {y} and its zoom; the finest that has a point wins.
+## Smaller areas come first: where boxes overlap, the first service whose
+## answer covers the course is used.
 const SOURCES := [
+	{
+		"id": "vl", "name": "Digitaal Hoogtemodel Vlaanderen II, Flanders (1 m)",
+		"boxes": [[50.67, 2.53, 51.51, 5.92]],
+		"format": "tiff",
+		"dtm": "https://geo.api.vlaanderen.be/DHMV/wcs", "dtm_layer": "DHMVII_DTM_1m",
+		"dsm": "https://geo.api.vlaanderen.be/DHMV/wcs", "dsm_layer": "DHMVII_DSM_1m",
+		"query": "?service=WCS&version=1.0.0&request=GetCoverage&coverage={layer}&format=GeoTIFF&CRS=EPSG:4326&BBOX={w},{s},{e},{n}&WIDTH={cols}&HEIGHT={rows}",
+		"credit": "Lidar: Digitaal Hoogtemodel Vlaanderen II (Digitaal Vlaanderen), Modellicentie Gratis Hergebruik",
+	},
+	{
+		"id": "nrw", "name": "Geobasis NRW lidar, North Rhine-Westphalia (1 m)",
+		"boxes": [[50.32, 5.86, 52.53, 9.46]],
+		"format": "tiff",
+		"dtm": "https://www.wcs.nrw.de/geobasis/wcs_nw_dgm", "dtm_layer": "nw_dgm",
+		"dsm": "https://www.wcs.nrw.de/geobasis/wcs_nw_dom", "dsm_layer": "nw_dom",
+		"query": "?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={layer}&FORMAT=image/tiff&SUBSET=x({w},{e})&SUBSET=y({s},{n})&SUBSETTINGCRS=http://www.opengis.net/def/crs/EPSG/0/4326&OUTPUTCRS=http://www.opengis.net/def/crs/EPSG/0/4326&SCALESIZE=x({cols}),y({rows})&GEOTIFF:COMPRESSION=DEFLATE",
+		"credit": "Lidar: Geobasis NRW, dl-de/zero-2-0",
+	},
 	{
 		"id": "ea", "name": "Environment Agency lidar, England (1 m)",
 		"boxes": [[49.85, -6.45, 55.82, 1.80]],
@@ -49,6 +73,27 @@ const SOURCES := [
 		"credit": "Lidar: IGN (Geoplateforme), Licence Ouverte 2.0",
 	},
 	{
+		"id": "no", "name": "Kartverket national lidar, Norway (1 m)",
+		"boxes": [[57.9, 4.4, 71.3, 31.3]],
+		"format": "tiff",
+		"dtm": "https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833", "dtm_layer": "nhm_dtm_topo_25833",
+		"dsm": "https://wcs.geonorge.no/skwms1/wcs.hoyde-dom-nhm-25833", "dsm_layer": "nhm_dom_topo_25833",
+		"query": "?service=WCS&version=1.0.0&request=GetCoverage&coverage={layer}&format=GeoTIFF&CRS=EPSG:4326&BBOX={w},{s},{e},{n}&WIDTH={cols}&HEIGHT={rows}",
+		"credit": "Lidar: Kartverket (Hoydedata), CC BY 4.0",
+	},
+	{
+		"id": "gsi", "name": "GSI elevation tiles, Japan (1 to 10 m)",
+		"boxes": [[24.0, 122.9, 45.6, 146.0]],
+		"format": "tiles",
+		"layers": [
+			{"url": "https://cyberjapandata.gsi.go.jp/xyz/dem1a_png/{z}/{x}/{y}.png", "zoom": 17},
+			{"url": "https://cyberjapandata.gsi.go.jp/xyz/dem5a_png/{z}/{x}/{y}.png", "zoom": 15},
+			{"url": "https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", "zoom": 14},
+		],
+		"dtm": "", "dtm_layer": "", "dsm": "", "dsm_layer": "", "query": "",
+		"credit": "Elevation: Geospatial Information Authority of Japan (GSI tiles)",
+	},
+	{
 		"id": "3dep", "name": "USGS 3DEP lidar, United States (1 to 10 m)",
 		"boxes": [[24.4, -125.0, 49.5, -66.9], [51.0, -170.0, 71.5, -129.9], [18.8, -160.4, 22.4, -154.7], [17.8, -67.4, 18.6, -65.2]],
 		"format": "tiff",
@@ -64,20 +109,34 @@ var source: Dictionary
 var chunks: Array[Dictionary] = []
 var dtm: Array[GeoRaster] = []
 var dsm: Array[GeoRaster] = []
+var _box: Array = []
+var _tiles := {}  ## tile sources: Vector3i(x, y, zoom) -> GeoRaster
 
 
-## The service covering a point, or {}.
+## The first service whose box holds a point, or {}.
 static func source_for(lat: float, lon: float) -> Dictionary:
+	var all := sources_for(lat, lon)
+	return all[0] if not all.is_empty() else {}
+
+
+## Every service whose box holds a point, to try in order.
+static func sources_for(lat: float, lon: float) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
 	for s: Dictionary in SOURCES:
 		for b: Array in s["boxes"]:
 			if lat >= b[0] and lat <= b[2] and lon >= b[1] and lon <= b[3]:
-				return s
-	return {}
+				out.append(s)
+				break
+	return out
 
 
 ## Requests for `box` (south, west, north, east) at about RES metres.
 func _init(p_source: Dictionary, box: Array) -> void:
 	source = p_source
+	_box = box
+	if source["format"] == "tiles":
+		_tile_chunks(box)
+		return
 	var mid := (float(box[0]) + float(box[2])) * 0.5
 	var f := GeoFrame.new(mid, (float(box[1]) + float(box[3])) * 0.5)
 	var m_lat := f.to_local(mid + 0.001, f.lon0).y * 1000.0
@@ -95,11 +154,33 @@ func _init(p_source: Dictionary, box: Array) -> void:
 			chunks.append({"box": [s, w, s + dn, w + dw], "cols": ceili(float(cols_total) / nx), "rows": ceili(float(rows_total) / ny)})
 
 
+## One chunk per web map tile of each layer (layers with too many tiles
+## for the box are left out).
+func _tile_chunks(box: Array) -> void:
+	for layer: Dictionary in source["layers"]:
+		var z := int(layer["zoom"])
+		var x0 := int(TerrainTiles._tile_x(box[1], z))
+		var x1 := int(TerrainTiles._tile_x(box[3], z))
+		var y0 := int(TerrainTiles._tile_y(box[2], z))
+		var y1 := int(TerrainTiles._tile_y(box[0], z))
+		if (x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILE_CHUNKS:
+			continue
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				chunks.append({
+					"box": [TerrainTiles.tile_lat(y + 1, z), TerrainTiles.tile_lon(x, z), TerrainTiles.tile_lat(y, z), TerrainTiles.tile_lon(x + 1, z)],
+					"cols": 256, "rows": 256, "tile": Vector3i(x, y, z),
+					"url": str(layer["url"]).format({"z": z, "x": x, "y": y}),
+				})
+
+
 func has_dsm() -> bool:
 	return not str(source.get("dsm", "")).is_empty()
 
 
 func url(chunk: Dictionary, surface: bool) -> String:
+	if chunk.has("url"):
+		return chunk["url"]
 	var b: Array = chunk["box"]
 	var q := str(source["query"]).format({
 		"s": "%.7f" % b[0], "w": "%.7f" % b[1], "n": "%.7f" % b[2], "e": "%.7f" % b[3],
@@ -114,27 +195,54 @@ func add(chunk: Dictionary, bytes: PackedByteArray, surface: bool) -> bool:
 	var r: GeoRaster
 	if source["format"] == "bil":
 		r = GeoRaster.from_bil(bytes, chunk["cols"], chunk["rows"], chunk["box"])
+	elif source["format"] == "tiles":
+		r = GeoRaster.from_gsi_png(bytes, chunk["box"])
 	else:
 		r = GeoRaster.from_tiff(bytes)
 	if r == null:
 		return false
-	(dsm if surface else dtm).append(r)
+	if chunk.has("tile"):
+		_tiles[chunk["tile"]] = r
+	# Finest first, so sampling prefers it where layers overlap.
+	var list := dsm if surface else dtm
+	var at := list.size()
+	while at > 0 and list[at - 1].dlat > r.dlat * 1.01:
+		at -= 1
+	list.insert(at, r)
 	return true
 
 
-## Share of the ground heights the service had (0 to 1).
+## Share of the box where the service has ground heights (0 to 1).
 func coverage() -> float:
-	if dtm.is_empty():
+	if dtm.is_empty() or _box.size() != 4:
 		return 0.0
-	var sum := 0.0
-	for r in dtm:
-		sum += r.valid_fraction()
-	return sum / maxf(chunks.size(), 1.0)
+	var n := 0
+	for j in 24:
+		for i in 24:
+			var lat := lerpf(float(_box[0]), float(_box[2]), (j + 0.5) / 24.0)
+			var lon := lerpf(float(_box[1]), float(_box[3]), (i + 0.5) / 24.0)
+			if not is_nan(ground_at(lat, lon)):
+				n += 1
+	return n / 576.0
 
 
 ## Bare-ground height at a point, NAN where the service has none.
 func ground_at(lat: float, lon: float) -> float:
+	if not _tiles.is_empty():
+		return _tile_sample(lat, lon)
 	return _sample(dtm, lat, lon)
+
+
+## Tile sources: the finest layer with a height at the point.
+func _tile_sample(lat: float, lon: float) -> float:
+	for layer: Dictionary in source["layers"]:
+		var z := int(layer["zoom"])
+		var r: GeoRaster = _tiles.get(Vector3i(int(TerrainTiles._tile_x(lon, z)), int(TerrainTiles._tile_y(lat, z)), z))
+		if r != null:
+			var h := r.sample(lat, lon)
+			if not is_nan(h):
+				return h
+	return NAN
 
 
 func surface_at(lat: float, lon: float) -> float:
