@@ -18,8 +18,8 @@ const PUTT_UP := 1.2
 ## The aim view looks at a point this far down the line, this high.
 const AIM_LOOK_AHEAD := 70.0
 const AIM_LOOK_UP := 2.0
-const AIM_MAX_LIFT := 14.0  ## highest the aim camera climbs to see over a rise
-const AIM_MAX_BACK_STEPS := 8  ## and how far it backs off (2 m steps) to keep the golfer in view
+const AIM_MAX_LIFT := 4.0  ## the aim camera climbs (and steps back) at most this far to see over a rise
+const AIM_FRAME_FOV := 50.0  ## framing over a rise assumes at most this vertical field of view
 const PUTT_LOOK_AHEAD := 6.0
 ## Shots that carry further than this get the landing view.
 const LANDING_VIEW_MIN_CARRY := 70.0
@@ -93,26 +93,24 @@ func look_from(pos: Vector3, look: Vector3) -> void:
 	_look = look
 	_look_now = look
 	look_at(look)
-## The aim view when a rise hides the target: the camera climbs until it
-## sees over, and backs off until the golfer and ball are still in frame
-## below the target.
+## The aim view when a rise hides the target. Links always shows the golfer
+## and ball at address, so the camera only climbs a little (and steps back
+## as it climbs) and pitches down to keep them in the lower part of the
+## frame; over a big rise the target can still be out of sight.
 func _aim_over_rise(ball: Vector3, dir: Vector3, start: Vector3, target: Vector3) -> void:
-	var half := deg_to_rad(fov) * 0.5
+	var half := deg_to_rad(minf(fov, AIM_FRAME_FOV)) * 0.5
 	var feet := ball + Vector3.UP * 0.1
 	var pos := start
-	var pitch := 0.0
-	for k in AIM_MAX_BACK_STEPS + 1:
-		pos = _above_ground(start - dir * (2.0 * k))
-		var lift := 0.0
-		while lift < AIM_MAX_LIFT and not sight_clear(terrain, pos + Vector3.UP * lift, target):
-			lift += 1.0
-		pos += Vector3.UP * lift
-		var down_to_target := _angle_below(pos, target)
-		var down_to_feet := _angle_below(pos, feet)
-		# Look down just enough to keep the feet inside the bottom edge.
-		pitch = maxf(down_to_target, down_to_feet - half * 0.85)
-		if pitch - down_to_target < half * 0.8:
+	for lift in range(1, int(AIM_MAX_LIFT) + 1):
+		pos = _above_ground(start - dir * lift + Vector3.UP * lift)
+		if sight_clear(terrain, pos, target):
 			break
+	var down_to_target := _angle_below(pos, target)
+	var down_to_feet := _angle_below(pos, feet)
+	# The feet sit 60% of the way to the bottom edge; the target shows above
+	# them when the frame is tall enough.
+	var pitch := down_to_feet - half * 0.6
+	pitch = maxf(pitch, minf(down_to_target, down_to_feet))
 	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
 	_look = pos + flat * 100.0 + Vector3.DOWN * tan(pitch) * 100.0
 	_aim_pos = pos

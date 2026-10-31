@@ -4,7 +4,11 @@ extends GolferAssets
 
 
 func create_golfer() -> GolferRig:
-	var golfer := FreeGolfer.create()
+	return create_golfer_for(null)
+
+
+func create_golfer_for(look: PlayerLook) -> GolferRig:
+	var golfer := FreeGolfer.create(look)
 	if golfer != null:
 		return golfer
 	return PlaceholderGolfer.new()

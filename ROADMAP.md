@@ -175,6 +175,9 @@ product lead builds it.
   - [x] Profiles by name with their finished rounds and handicap index (`user://profiles.cfg`)
   - [x] A players page to view and delete profiles; saving a round in progress and resuming it ([game-shell.md](docs/game-shell.md#saved-rounds))
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
+  - [x] Player creator: body, height, skin, face, hair, clothes and equipment looks, saved with the profile and played in rounds ([game-shell.md](docs/game-shell.md#player-creator))
+  - [x] Face from a photo, processed on the player's own device (found automatically in the browser; tapped on desktop)
+  - [ ] Find the face automatically on desktop too (MediaPipe or similar through GDExtension)
 - [ ] Settings, controller support, performance
   - [x] Touch swipe swing and on-screen aim and club buttons for phones and tablets; game pad play with an analog-stick mouse swing ([game-shell.md](docs/game-shell.md#touch-screens-and-game-pads))
   - [x] Graphics looks (Photoreal, Natural, Cinematic, Classic Links, Performance) picked per device, ReShade-style effects (sharpen, grading, vignette, grain, bloom, SSAO, depth of field), FSR upscaling, dynamic resolution, 3D grass in the rough and trees in the wind ([graphics.md](docs/graphics.md))
