@@ -238,6 +238,13 @@ func _test_national_lidar() -> void:
 	check(trees.size() == 1, "one tree found, the roof skipped (%d)" % trees.size())
 	if trees.size() == 1:
 		check(absf(float(trees[0]["height"]) - 12.0) < 0.01, "tree height from the canopy")
+	# The browser build finds them a chunk at a time, between frames.
+	var crowns: Array[Dictionary] = []
+	var taken := {}
+	for top_chunk in lt.dsm:
+		lt.trees_in(top_chunk, crowns, taken)
+	check(crowns.size() == trees.size(), "chunk-at-a-time tree search matches (%d)" % crowns.size())
+	check(not RealCourseFetcher.light_mode(), "full-size builds off phones and tablets")
 
 
 func _lidar_source(id: String) -> Dictionary:

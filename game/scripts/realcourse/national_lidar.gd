@@ -265,45 +265,52 @@ func find_trees(min_height := 3.0, spacing := 4.0) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var taken := {}
 	for top in dsm:
-		var ground := _matching(top)
-		var w := top.width
-		var h := top.height
-		var chm := PackedFloat32Array()
-		chm.resize(w * h)
-		for j in h:
-			for i in w:
-				var k := j * w + i
-				var g := ground.data[k] if ground != null else ground_at(top.pixel_lat(j), top.pixel_lon(i))
-				var t := top.data[k]
-				chm[k] = t - g if (t > -1000.0 and t < 9000.0 and g > -1000.0 and g < 9000.0) else 0.0
-		var m_px := maxf(top.dlat * 111000.0, 0.1)
-		var r := clampi(roundi(1.5 / m_px), 1, 4)
-		for j in range(r, h - r):
-			for i in range(r, w - r):
-				var c := chm[j * w + i]
-				if c < min_height or c > 60.0:
-					continue
-				var peak := true
-				var level := 0
-				for dj in range(-r, r + 1):
-					for di in range(-r, r + 1):
-						var v := chm[(j + dj) * w + i + di]
-						if v > c:
-							peak = false
-						elif absf(v - c) < 0.15:
-							level += 1
-				# A crown rises to its top; a roof is level (the pixel itself
-				# counts once).
-				if not peak or level > 3:
-					continue
-				var lat := top.pixel_lat(j)
-				var lon := top.pixel_lon(i)
-				var cell := Vector2i(floori(lat * 111000.0 / spacing), floori(lon * 111000.0 * cos(deg_to_rad(lat)) / spacing))
-				if taken.has(cell):
-					continue
-				taken[cell] = true
-				out.append({"lat": lat, "lon": lon, "height": c})
+		trees_in(top, out, taken, min_height, spacing)
 	return out
+
+
+## find_trees() for one surface chunk, appending to `out`; `taken` holds the
+## spacing cells already used. One chunk at a time lets the browser build
+## (single-threaded) draw a frame between chunks.
+func trees_in(top: GeoRaster, out: Array[Dictionary], taken: Dictionary, min_height := 3.0, spacing := 4.0) -> void:
+	var ground := _matching(top)
+	var w := top.width
+	var h := top.height
+	var chm := PackedFloat32Array()
+	chm.resize(w * h)
+	for j in h:
+		for i in w:
+			var k := j * w + i
+			var g := ground.data[k] if ground != null else ground_at(top.pixel_lat(j), top.pixel_lon(i))
+			var t := top.data[k]
+			chm[k] = t - g if (t > -1000.0 and t < 9000.0 and g > -1000.0 and g < 9000.0) else 0.0
+	var m_px := maxf(top.dlat * 111000.0, 0.1)
+	var r := clampi(roundi(1.5 / m_px), 1, 4)
+	for j in range(r, h - r):
+		for i in range(r, w - r):
+			var c := chm[j * w + i]
+			if c < min_height or c > 60.0:
+				continue
+			var peak := true
+			var level := 0
+			for dj in range(-r, r + 1):
+				for di in range(-r, r + 1):
+					var v := chm[(j + dj) * w + i + di]
+					if v > c:
+						peak = false
+					elif absf(v - c) < 0.15:
+						level += 1
+			# A crown rises to its top; a roof is level (the pixel itself
+			# counts once).
+			if not peak or level > 3:
+				continue
+			var lat := top.pixel_lat(j)
+			var lon := top.pixel_lon(i)
+			var cell := Vector2i(floori(lat * 111000.0 / spacing), floori(lon * 111000.0 * cos(deg_to_rad(lat)) / spacing))
+			if taken.has(cell):
+				continue
+			taken[cell] = true
+			out.append({"lat": lat, "lon": lon, "height": c})
 
 
 ## The ground raster fetched with the same box as `top`, or null.

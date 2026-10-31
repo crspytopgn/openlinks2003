@@ -27,6 +27,13 @@ const USER_AGENT := "OpenLinks2003 course importer (+https://github.com/crspytop
 const POINT_RADIUS := 1500.0
 const PARALLEL := 6  ## downloads at once
 const MAX_DETAILS := 40  ## close-ups of greens fetched at most
+## Phones and tablets in the browser have far less memory (an iPad's Safari
+## drops the page's graphics when it runs short, leaving a black screen),
+## so they build a lighter course: fewer trees and no green close-ups.
+const LIGHT_MAX_TREES := 2500
+## Milliseconds of work between drawn frames, so the progress keeps moving
+## in the single-threaded browser build.
+const FRAME_BUDGET_MS := 60
 
 var busy := false
 ## Use national lidar and aerial photos where they cover the course.
@@ -39,6 +46,28 @@ var configure_request: Callable
 ## Overpass servers, tried in order.
 var servers: Array = OVERPASS.duplicate()
 var _last_summary := {}
+var _cancelled := false
+var _last_yield := 0
+
+
+## True on a phone or tablet browser: build lighter courses there.
+static func light_mode() -> bool:
+	if not OS.has_feature("web"):
+		return false
+	# iPadOS Safari says it is a Mac, so a touch screen counts too.
+	return OS.has_feature("web_ios") or OS.has_feature("web_android") or DisplayServer.is_touchscreen_available()
+
+
+## Stops a build in progress; it ends with `failed`.
+func cancel() -> void:
+	if busy:
+		_cancelled = true
+		for c in get_children():
+			var req := c as HTTPRequest
+			if req != null:
+				# cancel_request() is silent; the waiting step needs its answer.
+				req.cancel_request()
+				req.request_completed.emit(HTTPRequest.RESULT_REQUEST_FAILED, 0, PackedStringArray(), PackedByteArray())
 
 
 ## Looks up places matching `query`, golf courses first.
@@ -62,10 +91,30 @@ func build(place: Dictionary) -> void:
 	if busy:
 		return
 	busy = true
+	_cancelled = false
+	_last_yield = Time.get_ticks_msec()
 	var course := await _build(place)
 	busy = false
-	if course != null:
+	if _cancelled:
+		_cancelled = false
+		failed.emit("Cancelled.")
+	elif course != null:
 		built.emit(course, _last_summary)
+
+
+## Lets a frame be drawn if this step has run for a while.
+func _breathe() -> void:
+	if Time.get_ticks_msec() - _last_yield >= FRAME_BUDGET_MS:
+		await get_tree().process_frame
+		_last_yield = Time.get_ticks_msec()
+
+
+## Shows `text`, then lets the browser draw it before a long step.
+func _step(text: String) -> void:
+	progress.emit(text)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_last_yield = Time.get_ticks_msec()
 
 
 
@@ -92,17 +141,26 @@ func _build(place: Dictionary) -> DesignedCourse:
 		e = f.lon_of(Vector2(-POINT_RADIUS, 0))
 	progress.emit("Reading the course map from OpenStreetMap...")
 	var data := await _overpass(overpass_query(s, w, n, e))
+	if _cancelled:
+		return null
 	if data.is_empty():
 		failed.emit("Couldn't reach OpenStreetMap's map server. Check the connection and try again in a minute.")
 		return null
+	await _step("Reading the map...")
 	var builder := RealCourseBuilder.new(data, lat, lon, str(place.get("name", "")))
+	var light := light_mode()
+	if light:
+		builder.max_trees = LIGHT_MAX_TREES
 	var gb := builder.geo_box()
 	var tiles := TerrainTiles.for_box(gb[0], gb[1], gb[2], gb[3])
 	var urls := tiles.urls()
 	var answers := await _fetch_all(urls, "Fetching the ground heights")
+	if _cancelled:
+		return null
 	for i in urls.size():
 		if answers[i][0] == 200:
 			tiles.add_tile(i, answers[i][1])
+			await _breathe()
 	if tiles.loaded == 0:
 		failed.emit("Couldn't fetch the ground heights. Check the connection and try again.")
 		return null
@@ -122,18 +180,29 @@ func _build(place: Dictionary) -> DesignedCourse:
 			for c in lidar.chunks:
 				lidar_urls.append(lidar.url(c, true))
 		var got := await _fetch_all(lidar_urls, "Fetching " + str(src["name"]))
+		if _cancelled:
+			return null
 		for i in got.size():
 			if got[i][0] == 200:
+				if i % 4 == 0:
+					await _step("Reading the lidar (%d of %d)..." % [i + 1, got.size()])
 				var k := i % lidar.chunks.size()
 				lidar.add(lidar.chunks[k], got[i][1], i >= lidar.chunks.size())
+				got[i] = [0, PackedByteArray()]  # free the download
+				await _breathe()
 		if lidar.coverage() >= 0.25:
 			height = lidar.ground_at
 			ground_name = src["name"]
 			builder.extra_credits.append(src["credit"])
 			if lidar.has_dsm() and not lidar.dsm.is_empty():
-				progress.emit("Finding the trees in the lidar...")
-				await get_tree().process_frame
-				builder.lidar_trees = lidar.find_trees()
+				var crowns: Array[Dictionary] = []
+				var taken := {}
+				for k in lidar.dsm.size():
+					await _step("Finding the trees in the lidar (%d of %d)..." % [k + 1, lidar.dsm.size()])
+					if _cancelled:
+						return null
+					lidar.trees_in(lidar.dsm[k], crowns, taken)
+				builder.lidar_trees = crowns
 			break
 		lidar = null
 
@@ -144,21 +213,27 @@ func _build(place: Dictionary) -> DesignedCourse:
 		var photos := AerialPhotos.new(psrc, gb)
 		var purls := photos.urls()
 		var pgot := await _fetch_all(purls, "Fetching the aerial photo (%s)" % psrc["name"])
+		if _cancelled:
+			return null
 		for i in purls.size():
 			if pgot[i][0] == 200:
 				photos.add_tile(i, pgot[i][1])
+				await _breathe()
+		pgot.clear()
 		if photos.loaded * 2 < purls.size():
 			continue
+		await _step("Putting the aerial photo together...")
 		photo = photos.course_photo(builder.frame, builder.area)
 		builder.extra_credits.append(psrc["credit"])
 		for t in builder.lidar_trees:
 			t["leaf"] = photos.leaf_at(t["lat"], t["lon"])
 		if photo != null and builder.lidar_trees.is_empty():
-			progress.emit("Finding the trees in the photo...")
-			await get_tree().process_frame
+			await _step("Finding the trees in the photo...")
 			builder.photo_trees = AerialPhotos.find_trees(photo, builder.area, builder.grass_points())
-		if photo != null and AerialPhotos.has_detail(psrc):
+		if photo != null and AerialPhotos.has_detail(psrc) and not light:
 			builder.details = await _fetch_details(psrc, builder)
+			if _cancelled:
+				return null
 		break
 
 	# Land cover everywhere: trees the map lacks and, without a photo, the
@@ -167,6 +242,9 @@ func _build(place: Dictionary) -> DesignedCourse:
 	if use_land_cover:
 		var land := LandCover.new(gb)
 		var lgot := await _fetch_all(PackedStringArray([land.url()]), "Fetching the land cover")
+		if _cancelled:
+			return null
+		await _step("Reading the land cover...")
 		if lgot[0][0] == 200 and land.add(lgot[0][1]) and land.coverage() >= 0.25:
 			builder.extra_credits.append(LandCover.CREDIT)
 			if builder.lidar_trees.is_empty() and builder.photo_trees.is_empty():
@@ -175,9 +253,9 @@ func _build(place: Dictionary) -> DesignedCourse:
 				cover = land.ground_image(builder.frame, builder.area)
 
 	builder.photo = photo
-	progress.emit("Building %s..." % builder.course_name)
-	await get_tree().process_frame
-	await get_tree().process_frame
+	await _step("Building %s..." % builder.course_name)
+	if _cancelled:
+		return null
 	# A club with several courses gives one designed course each; the
 	# first is opened, the others saved alongside.
 	var names := builder.course_names()
@@ -187,8 +265,9 @@ func _build(place: Dictionary) -> DesignedCourse:
 	var course := builder.build(height, tiles.height_at)
 	var first_summary := builder.summary.duplicate()
 	for k in range(1, names.size()):
-		progress.emit("Building %s..." % names[k])
-		await get_tree().process_frame
+		await _step("Building %s..." % names[k])
+		if _cancelled:
+			return null
 		builder.course_filter = names[k]
 		var more := builder.build(height, tiles.height_at)
 		if not more.holes.is_empty():
@@ -232,6 +311,8 @@ func _fetch_details(psrc: Dictionary, builder: RealCourseBuilder) -> Array[Dicti
 	if all_urls.is_empty():
 		return out
 	var got := await _fetch_all(all_urls, "Fetching close-ups of the greens")
+	if _cancelled:
+		return out
 	var at := 0
 	for k in parts.size():
 		var part := parts[k]
@@ -314,8 +395,8 @@ func _fetch_all(urls: PackedStringArray, label: String) -> Array:
 	var next := 0
 	var running := 0
 	var done := [0]
-	while next < urls.size() or running > 0:
-		while running < PARALLEL and next < urls.size():
+	while (next < urls.size() and not _cancelled) or running > 0:
+		while running < PARALLEL and next < urls.size() and not _cancelled:
 			var i := next
 			next += 1
 			running += 1

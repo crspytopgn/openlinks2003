@@ -40,6 +40,8 @@ var frame: GeoFrame
 var area := Rect2()
 ## What was found, for the status line: holes, areas, trees, paths.
 var summary := {}
+## Trees planted at most (lower for phones and tablets in the browser).
+var max_trees := MAX_TREES
 
 var _pick := Vector2.ZERO  ## the picked point, local
 var _boundary: Array[PackedVector2Array] = []  ## golf course outlines, local
@@ -594,7 +596,7 @@ func _add_trees(c: DesignedCourse) -> void:
 	for d in _polys:
 		if d.has("wood"):
 			wood_area += absf(_ring_area(d["ring"]))
-	var left := maxi(MAX_TREES - c.objects.size(), 0)
+	var left := maxi(max_trees - c.objects.size(), 0)
 	if left == 0 or wood_area <= 0.0:
 		return
 	var spacing := maxf(WOOD_SPACING, sqrt(wood_area / left))
@@ -635,7 +637,7 @@ func _add_land_trees(c: DesignedCourse, clear: Array[Dictionary]) -> void:
 			found.append({"p": p, "d": d})
 	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["d"] < b["d"])
 	# Keep room for the mapped woods.
-	var budget := MAX_TREES >> 1
+	var budget := max_trees >> 1
 	for t in found:
 		if budget <= 0:
 			break
@@ -678,7 +680,7 @@ func grass_points() -> PackedVector2Array:
 ## Plants a tree unless it would stand on a fairway, green, tee, bunker or
 ## in water (OpenStreetMap woods often overlap the play areas a little).
 func _plant(c: DesignedCourse, p: Vector2, leaf: String, height: float, clear: Array[Dictionary], gap := 0.0) -> void:
-	if c.objects.size() >= MAX_TREES or not area.grow(-2.0).has_point(p):
+	if c.objects.size() >= max_trees or not area.grow(-2.0).has_point(p):
 		return
 	for d in clear:
 		if (d["box"] as Rect2).has_point(p) and Geometry2D.is_point_in_polygon(p, d["ring"]):

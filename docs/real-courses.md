@@ -279,6 +279,22 @@ The result is an ordinary designed course (`.olc`) with two extra keys:
 and `source` (where it came from). It plays with the usual ground textures,
 grass and trees of the current graphics look.
 
+## Building in the browser
+
+The Web build has one thread, so a build runs between frames: downloads
+are awaited, and the slow steps (decoding lidar chunks, finding trees one
+surface chunk at a time) hand a frame back every 60 ms or between chunks.
+A progress window shows the current step and the time taken, with a Cancel
+button; a failure stays in that window until it is dismissed.
+
+Phones and tablets (a touch screen in the browser, which includes iPads,
+whose Safari reports a Mac) build a lighter course: at most 2,500 trees
+and no close-up photos of the greens. iPad Safari drops the page's WebGL
+context when it runs short of memory, which used to leave a black screen;
+the page now shows a "Reload" message instead (`html/head_include` in the
+Web export preset). The course is saved as soon as it is built, before the
+designer draws it, so a reload keeps it.
+
 ## Licence notes
 
 OpenStreetMap data is under the [ODbL](https://opendatacommons.org/licenses/odbl/).
