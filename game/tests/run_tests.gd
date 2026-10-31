@@ -1748,6 +1748,14 @@ func _test_course_marks() -> void:
 			on_sand = on_sand and t.surface_at(at.x, at.z) == Surface.Type.SAND
 		_check(on_sand, "footprints only on sand")
 		_check(spots.size() <= 2 + CourseMarks.MAX_STEPS, "the walk in is bounded")
+	# Tee markers stand square to the line of the hole, 5.5 m apart.
+	var tm := GolfRound.tee_marker_spots(Vector3.ZERO, Vector3(100, 0, 0))
+	_check_near(tm[0].distance_to(tm[1]), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers 5.5 m apart")
+	_check_near(absf(tm[0].z - tm[1].z), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers square to an east-bound hole")
+	_check(tm[0].x > 0.0 and tm[1].x > 0.0, "tee markers just in front of the ball")
+	var all_clubs := Club.standard_set()
+	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.72 m off the ball")
+	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.57 m")
 
 
 func _test_course_life() -> void:

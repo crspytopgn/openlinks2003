@@ -1535,7 +1535,7 @@ func _prepare_shot(snap_camera: bool) -> void:
 	read_view = GreenRead.View.PLAY
 	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
 		_footprints_at = ball_at
-		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()))
+		marks.add_footprints(hole.terrain, ball_at, _aim_dir(), Vector3.UP.cross(_aim_dir()), CourseMarks.stance_for(clubs[club_index]))
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(snap_camera)
@@ -2695,20 +2695,45 @@ func _add_flag() -> void:
 	hole_root.add_child(cup)
 
 
+## The tee markers: a pair of squat domes about 15 cm across, set square
+## to the line of the hole either side of the tee, as on a real tee box
+## (Rule 6.2b: the teeing area runs back two club-lengths from them).
+const TEE_MARKER_GAP := 5.5  ## metres between the two markers
+const TEE_MARKER_AHEAD := 0.6  ## how far in front of the ball they stand
+
+
 func _add_tee_markers() -> void:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.15, 0.15)
-	for side: float in [-1.0, 1.0]:
+	mat.albedo_color = Color(0.85, 0.12, 0.1)
+	mat.roughness = 0.45
+	var s := SphereMesh.new()
+	s.radius = 0.075
+	s.height = 0.11
+	s.is_hemisphere = true
+	# Square to the first leg of the hole, so doglegs face down the fairway.
+	var toward := hole.pin
+	for r in hole.route:
+		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
+			toward = Vector3(r.x, hole.tee.y, r.y)
+			break
+	for p in tee_marker_spots(hole.tee, toward):
 		var m := MeshInstance3D.new()
-		var s := SphereMesh.new()
-		s.radius = 0.12
-		s.height = 0.24
 		m.mesh = s
 		m.material_override = mat
-		var p: Vector3 = hole.tee + Vector3(3.5 * side, 0.0, 1.0)
-		p.y = hole.terrain.height_at(p.x, p.z) + 0.1
+		p.y = hole.terrain.height_at(p.x, p.z) - 0.005
 		m.position = p
 		hole_root.add_child(m)
+
+
+## Where the two tee markers go: across the line from `tee` toward `toward`.
+static func tee_marker_spots(tee: Vector3, toward: Vector3) -> Array[Vector3]:
+	var dir := Vector3(toward.x - tee.x, 0.0, toward.z - tee.z)
+	dir = Vector3(0, 0, 1) if dir.length() < 0.01 else dir.normalized()
+	var side := Vector3.UP.cross(dir)
+	var spots: Array[Vector3] = []
+	for k: float in [-0.5, 0.5]:
+		spots.append(tee + dir * TEE_MARKER_AHEAD + side * (k * TEE_MARKER_GAP))
+	return spots
 
 
 func _place_ball(p: Vector3) -> void:
