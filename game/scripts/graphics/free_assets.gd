@@ -40,9 +40,36 @@ static func tree_texture(file: String) -> Texture2D:
 	return _load(file)
 
 
-## The equirectangular sky panorama, or null.
+static var _sky: Texture2D
+static var _sky_loaded := false
+
+
+## The equirectangular HDR sky panorama, or null. Read once from
+## sky_panorama.olsky, which tools/fetch_free_assets.py writes (see
+## tools/sky_pack.py): the same RGB9E5 pixels as Godot's import of the .hdr,
+## deflated to half the size.
 static func sky() -> Texture2D:
-	return _load("sky_panorama.hdr")
+	if not _sky_loaded:
+		_sky_loaded = true
+		_sky = _load_packed_sky(DIR + "sky_panorama.olsky")
+	return _sky
+
+
+static func _load_packed_sky(path: String) -> Texture2D:
+	if not FileAccess.file_exists(path):
+		return null
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null or f.get_buffer(8).slice(0, 6).get_string_from_ascii() != "OLSKY1":
+		return null
+	var width := f.get_32()
+	var height := f.get_32()
+	var size := f.get_32()
+	if size != width * height * 4:
+		return null
+	var data := f.get_buffer(f.get_length() - f.get_position()).decompress(size, FileAccess.COMPRESSION_DEFLATE)
+	if data.size() != size:
+		return null
+	return ImageTexture.create_from_image(Image.create_from_data(width, height, false, Image.FORMAT_RGBE9995, data))
 
 
 ## Average colour of a texture: halved with a box filter down to a few

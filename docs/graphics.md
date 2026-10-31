@@ -306,6 +306,14 @@ data from 33 to 27.7 MB without changing the look (30.5 MB once the photoscanned
   from its `.glb`) default to lossy WebP at quality 0.85 through
   `[importer_defaults]` in `project.godot`, instead of lossless.
 
+Godot stores an imported HDR as uncompressed RGB9E5, so the sky was still
+8 MB. It is no longer imported: `tools/fetch_free_assets.py` packs it with
+`tools/sky_pack.py` into `free_assets/sky_panorama.olsky`, the same RGB9E5
+pixels deflated (3.8 MB; only 7 pixels in the sun's core, far brighter than
+white, differ by under 1% from Godot's rounding), and `FreeAssets.sky()`
+inflates it into an `ImageTexture` once, in about 50 ms. That took the pack
+from 36 MB to 31.7 MB on 2026-10-31.
+
 `.import` files are not committed, so import settings live in
 `tools/fetch_free_assets.py` (the free textures) and `project.godot` (the
 defaults).

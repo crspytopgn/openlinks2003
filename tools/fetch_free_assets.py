@@ -27,6 +27,8 @@ import time
 import urllib.request
 import zipfile
 
+import sky_pack
+
 API = "https://api.polyhaven.com"
 AMBIENTCG = "https://ambientcg.com"
 # ambientCG leaf sets (photographed leaves with an opacity map), in order of
@@ -69,9 +71,8 @@ SLOTS = {
 }
 
 # Import settings Godot would otherwise guess: compressed with mipmaps, as
-# 3D textures need (the sky panorama goes without: it is only ever magnified,
-# and the mip levels were a quarter of its size). Written next to each file
-# before the project is imported.
+# 3D textures need. Written next to each file before the project is imported.
+# The HDR sky is not imported: pack_sky() writes it for the game instead.
 TEXTURE_IMPORT = """[remap]
 
 importer="texture"
@@ -120,6 +121,20 @@ def choose(kind, preferred, keywords):
     return asset_id, assets[asset_id]
 
 
+def pack_sky(path):
+    """The HDR sky as a deflated .olsky next to it (see sky_pack.py), and the
+    .hdr itself left out of the import and the export. Lossless, and half
+    the size of Godot's import, which the pack stores uncompressed."""
+    packed_path = os.path.splitext(path)[0] + ".olsky"
+    if not (os.path.exists(packed_path) and os.path.getmtime(packed_path) >= os.path.getmtime(path)):
+        with open(path, "rb") as f:
+            packed, _raw = sky_pack.pack(f.read())
+        with open(packed_path, "wb") as f:
+            f.write(packed)
+    with open(path + ".import", "w") as f:
+        f.write('[remap]\n\nimporter="skip"\n')
+
+
 def fetch_slot(out_dir, slot, spec):
     kind, preferred, keywords, maps = spec
     asset_id, info = choose(kind, preferred, keywords)
@@ -132,9 +147,11 @@ def fetch_slot(out_dir, slot, spec):
             data = get(entry["url"])
             with open(path, "wb") as f:
                 f.write(data)
-        # Lossless for the HDR sky (lossy would clip it), lossy for the rest.
+        if fmt == "hdr":
+            pack_sky(path)
+            continue
         with open(path + ".import", "w") as f:
-            f.write(TEXTURE_IMPORT.format(mode=0 if fmt == "hdr" else 1, limit=size_limit(f"{slot}_{out_name}"), mipmaps=str(fmt != "hdr").lower()))
+            f.write(TEXTURE_IMPORT.format(mode=1, limit=size_limit(f"{slot}_{out_name}"), mipmaps="true"))
     authors = ", ".join(info.get("authors", {}).keys())
     return f"- **{slot}**: [{info.get('name', asset_id)}](https://polyhaven.com/a/{asset_id}) by {authors or 'Poly Haven'}, CC0"
 
