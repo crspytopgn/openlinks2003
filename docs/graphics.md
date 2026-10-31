@@ -160,6 +160,13 @@ at Medium and grass at Low.
   from hanging limp to straight out at about 20 mph, ripples faster as the
   wind gets up, and glows when the sun is behind it. Players can read the
   wind from it, as real golfers do.
+- **Course marks** (`CourseMarks`, `shaders/course_mark.gdshader`): iron and
+  wedge shots off the fairway or rough take a divot just ahead of the ball
+  (longer for wedges, a nick off a tee, small for chips; woods and hybrids
+  sweep it), approach shots landing hard on the green leave a pitch mark,
+  and balls landing in sand leave a crater (a bunker shot leaves a long
+  scoop). They last for the hole, at most 48 of them. Each is one small
+  lit quad, so they cost almost nothing. Looks only.
 
 ## Performance budget
 

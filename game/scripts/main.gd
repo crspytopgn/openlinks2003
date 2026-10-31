@@ -157,6 +157,7 @@ var aim_marker: MeshInstance3D
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig
 var hole_root: Node3D
+var marks: CourseMarks  ## divots, pitch marks and sand craters on this hole
 var graphics: GraphicsSettings
 var scenery: Scenery
 var settings_panel: SettingsPanel
@@ -421,6 +422,8 @@ func start_hole(index: int) -> void:
 		hole_root.add_child(node)
 	_add_flag()
 	_add_tee_markers()
+	marks = CourseMarks.new()
+	hole_root.add_child(marks)
 	if scenery.sun != null:
 		GroundShade.bake(hole, course.objects, -scenery.sun.global_transform.basis.z)
 	golfer = AssetProviders.golfer_assets.create_golfer()
@@ -578,6 +581,8 @@ func play_shot(power: float, accuracy: float) -> void:
 		links.chip = _chip and not club.is_putter
 	_mouse_swing = null
 	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
+	if marks != null:
+		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
 	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
 	wind.next_shot()
 	_update_wind_shaders()
@@ -962,6 +967,9 @@ func _play_landing() -> void:
 	var speed := (shot.position_at(t) - shot.position_at(t - 0.05)).length() / 0.05
 	sounds.play_detail(&"land", {
 		"surface": hole.terrain.surface_at(shot.first_landing.x, shot.first_landing.z), "speed": speed})
+	if marks != null:
+		var came := shot.position_at(t) - shot.position_at(t - 0.05)
+		marks.add_landing(hole.terrain, shot.first_landing, Vector3(came.x, 0.0, came.z), speed)
 
 
 func _complete_flight() -> void:

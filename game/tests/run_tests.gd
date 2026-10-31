@@ -51,6 +51,7 @@ func _initialize() -> void:
 	_run("graphics_settings", _test_graphics_settings)
 	_run("grass", _test_grass)
 	_run("wind_gusts", _test_wind_gusts)
+	_run("course_marks", _test_course_marks)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1108,6 +1109,35 @@ func _test_wind_gusts() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/flag.gdshader")
 	_check(mat.shader != null and mat.shader.get_code().contains("wind_vector"), "flag shader reads the wind")
+
+
+func _test_course_marks() -> void:
+	var clubs := Club.standard_set()
+	var by_name := {}
+	for c in clubs:
+		by_name[c.short_name] = c
+	_check(CourseMarks.divot_size(by_name["Dr"], Surface.Type.TEE) == Vector2.ZERO, "no divot off the tee with a driver")
+	_check(CourseMarks.divot_size(by_name["3W"], Surface.Type.FAIRWAY) == Vector2.ZERO, "fairway woods sweep the ball")
+	_check(CourseMarks.divot_size(by_name["Pt"], Surface.Type.GREEN) == Vector2.ZERO, "putts take no turf")
+	var seven := CourseMarks.divot_size(by_name["7i"], Surface.Type.FAIRWAY)
+	var wedge := CourseMarks.divot_size(by_name["SW"], Surface.Type.FAIRWAY)
+	_check(seven.x > 0.09 and seven.x < 0.18, "a 7 iron takes a hand-sized divot (%.2f m)" % seven.x)
+	_check(wedge.x > seven.x, "wedges take longer divots than irons")
+	_check(CourseMarks.divot_size(by_name["7i"], Surface.Type.TEE).x < seven.x, "an iron off a peg only nicks the tee")
+	_check(CourseMarks.divot_size(by_name["SW"], Surface.Type.FAIRWAY, true).x < wedge.x, "chips take small divots")
+	var centre := CourseMarks.divot_centre(Vector3.ZERO, Vector3(0, 0, 1), seven)
+	_check(centre.z > 0.0 and absf(centre.x) < 1e-6, "divots start ahead of the ball")
+	_check(CourseMarks.landing_mark(Surface.Type.GREEN, 25.0)[0] == CourseMarks.Kind.PITCH_MARK, "approach shots mark the green")
+	_check(CourseMarks.landing_mark(Surface.Type.GREEN, 3.0).is_empty(), "a rolling ball leaves no pitch mark")
+	_check(CourseMarks.landing_mark(Surface.Type.SAND, 20.0)[0] == CourseMarks.Kind.SAND_CRATER, "balls plug craters in sand")
+	_check(CourseMarks.landing_mark(Surface.Type.FAIRWAY, 30.0).is_empty(), "fairway landings leave no mark")
+	var course := AssetProviders.load_course("")
+	var t := course.holes[0].terrain
+	var marks := CourseMarks.new()
+	for i in CourseMarks.MAX_MARKS + 5:
+		marks.add_divot(t, course.holes[0].tee + Vector3(0, 0, 60 + i), Vector3(0, 0, 1), by_name["8i"], Surface.Type.FAIRWAY)
+	_check(marks.mark_count() == CourseMarks.MAX_MARKS, "marks are capped per hole")
+	marks.free()
 
 
 func _test_grass() -> void:
