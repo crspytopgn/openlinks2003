@@ -85,6 +85,8 @@ static var setup: RoundSetup
 ## Seeds the wind; 0 gives different conditions each round. Tests set it so
 ## their rounds play the same way every run.
 static var wind_seed := 0
+## Keep finished rounds in RoundRecord.folder.
+static var record_rounds := true
 ## A saved round to carry on with (SavedRound.load_state); start_round uses it
 ## once and clears it.
 static var resume := {}
@@ -128,8 +130,6 @@ var shot_log := PackedStringArray()
 var _computer_timer := 0.0
 var _computer_ready := false  ## the computer has its plan and is addressing the ball
 var _computer_backswing := false
-## The mouse swing for the shot being played, or null (play_shot uses it once).
-var _mouse_swing: LinksMouse.Outcome = null
 ## The shot is a Chip (Links 2003's shot type): picked as the game does it,
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
@@ -198,6 +198,17 @@ var _pip := false
 var _commentary_rng := RandomNumberGenerator.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
 var _strike_sound := {}  ## the last shot's club, lie and power, for its replay
+## Every random draw in the round comes from this (wind_seed, or a new seed).
+var round_seed := 1
+## The round's shots and drops, so it can be played again and checked
+## (RoundReplay, docs/online-play.md).
+var record: RoundRecord
+var _holes_started := 0
+## The PowerStroke mouse stroke for the shot being played, or null (play_shot
+## uses it once).
+var _mouse_stroke: LinksMouse.Stroke = null
+## The swing help count before that stroke.
+var _mouse_help: LinksMouse.Help = null
 
 
 func _ready() -> void:
@@ -233,6 +244,7 @@ func start_round() -> void:
 		course_path = round_setup.course_path
 	course = AssetProviders.load_course(course_path)
 	round_setup.course_name = course.course_name
+	round_seed = wind_seed if wind_seed != 0 else (randi() & 0x7fffffff) | 1
 	holes.clear()
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
@@ -259,7 +271,7 @@ func start_round() -> void:
 	for i in scoring.player_count():
 		var cpu: ComputerGolfer = null
 		if round_setup.is_computer(i):
-			cpu = ComputerGolfer.new(round_setup.computer_level(i), wind_seed * 31 + i + 1 if wind_seed != 0 else 0)
+			cpu = ComputerGolfer.new(round_setup.computer_level(i), round_seed * 31 + i + 1)
 		opponents.append(cpu)
 		var p := PlayerBall.new()
 		p.marker = _make_ball_mesh()
@@ -289,13 +301,17 @@ func start_round() -> void:
 	if ambience == null:
 		free_ambience = FreeAmbience.create(course)
 		add_child(free_ambience)
-	wind = Wind.new(graphics.wind, wind_seed)
+	wind = Wind.new(graphics.wind, round_seed)
+	_holes_started = 0
+	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", graphics.wind)
+	record.course_hash = RoundRecord.file_hash(course_path)
 	hud.scorecard.visible = false
 	round_stats.clear()
 	for _i in scoring.player_count():
 		round_stats.append(PlayerProfiles.empty_stats())
 	var saved := resume
 	resume = {}
+	record.resumed = not saved.is_empty()
 	if saved.is_empty():
 		start_hole(0)
 	else:
@@ -432,6 +448,7 @@ func start_hole(index: int) -> void:
 		ambience.start_hole(hole.tee)
 
 	wind.start_hole()
+	_holes_started += 1
 	_update_wind_shaders()
 	if free_ambience != null:
 		free_ambience.start_hole(hole, wind.velocity().length())
@@ -565,20 +582,36 @@ func play_shot(power: float, accuracy: float) -> void:
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
-	if shot_model is LinksShotModel:
-		var links := shot_model as LinksShotModel
-		links.skill = graphics.skill
-		links.computer = round_setup != null and round_setup.is_computer(shooter)
-		# A computer's swing or putt makes Links 2003's own computer misses.
-		links.computer_ratings = null
-		if links.computer and opponents[shooter] != null:
-			links.computer_ratings = LinksLaunch.GolferRatings.even(opponents[shooter].skill.links_rating)
-			links.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
-		links.mouse_swing = null if links.computer else _mouse_swing
-		links.chip = _chip and not club.is_putter
-	_mouse_swing = null
-	var start := shot_model.launch(club, power, accuracy, aim_deg, lie, ball_at)
-	shot = shot_model.simulate(start, hole.terrain, hole.pin, wind.velocity())
+	var rec := ShotRecord.new()
+	rec.index = record.shots.size()
+	rec.player = shooter
+	rec.ball = current
+	rec.hole = hole_index
+	rec.holes_started = _holes_started
+	rec.club = club_index
+	rec.club_name = club.short_name
+	rec.aim_deg = aim_deg
+	rec.power = power
+	rec.accuracy = accuracy
+	rec.lie = lie
+	rec.from = ball_at
+	rec.skill = graphics.skill
+	rec.computer = round_setup != null and round_setup.is_computer(shooter)
+	# A computer's swing or putt makes Links 2003's own computer misses.
+	if rec.computer and opponents[shooter] != null:
+		rec.cpu_rating = opponents[shooter].skill.links_rating
+		rec.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
+	rec.chip = _chip and not club.is_putter
+	rec.stroke = null if rec.computer else _mouse_stroke
+	rec.help = null if rec.computer else _mouse_help
+	rec.wind_level = wind.level
+	rec.wind = wind.velocity()
+	_mouse_stroke = null
+	_mouse_help = null
+	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
+	rec.rest = shot.rest
+	rec.outcome = shot.outcome
+	record.shots.append(rec)
 	wind.next_shot()
 	_update_wind_shaders()
 	if free_ambience != null:
@@ -847,10 +880,13 @@ func _on_mouse_stroke(stroke: LinksMouse.Stroke) -> void:
 		_swing_help.append(LinksMouse.Help.new())
 	var help := _swing_help[shooter]
 	help.enabled = graphics.swing_help
-	var mw := LinksMouse.swing(stroke, LinksLaunch.Rand.new(randi()), help)
-	_mouse_swing = mw
-	var full := LinksShotModel.PUTT_POWER_AT_FULL if stroke.shot == LinksMouse.Shot.PUTT else 100.0
-	play_shot(clampf(mw.power / full, 0.0, 1.0), clampf(-mw.face_deg / 10.0, -1.0, 1.0))
+	# The swing's draws come from the round seed and the help count is kept
+	# as it was before the swing, so a replay makes the same swing.
+	_mouse_help = RoundReplay.copy_help(help)
+	var mw := RoundReplay.mouse_outcome(stroke, round_seed, record.shots.size(), help)
+	_mouse_stroke = stroke
+	var inputs := RoundReplay.mouse_inputs(stroke, mw)
+	play_shot(inputs.x, inputs.y)
 
 
 func _on_mouse_stroke_cancelled() -> void:
@@ -1193,11 +1229,22 @@ func _next_hole() -> void:
 			var net := scoring.scored_card(0)
 			text += "  Net %d (%s)." % [net.total_strokes(), Scorecard.format_to_par(net.to_par())]
 	var records := _record_rounds()
+	_save_record()
 	if not records.is_empty():
 		text += "\n" + records
 	hud.show_message(text)
 	hud.scorecard.show_round(scoring, _round_name(), "Final")
 	hud.hint.text = HINT_DONE
+
+
+## Keeps the finished round in user://replays/ (RoundRecord).
+func _save_record() -> void:
+	record.finished = true
+	record.cards.clear()
+	for c in scoring.cards:
+		record.cards.append(c.strokes.duplicate())
+	if record_rounds:
+		record.save()
 
 
 ## Adds each person's finished card to their profile and says what it did to
@@ -1381,6 +1428,9 @@ func _finish_drop() -> void:
 	# The water penalty was counted when the ball went in.
 	if reason != DropRules.Reason.WATER:
 		strokes += DropRules.penalty(reason)
+	record.drops.append({"ball": current, "hole": hole_index, "reason": reason,
+		"penalty": 0 if reason == DropRules.Reason.WATER else DropRules.penalty(reason),
+		"spot": [ball_at.x, ball_at.y, ball_at.z]})
 	var what := DropRules.OPTION_NAMES[z.option]
 	if reason == DropRules.Reason.UNPLAYABLE:
 		what = "Unplayable: " + what.to_lower()

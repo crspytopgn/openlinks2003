@@ -39,6 +39,12 @@ That one change gives us almost everything below:
   through the same physics and gets the score itself, so a client that just
   claims "54" or quietly made its drives longer is caught.
 
+Built so far: the round seed, `ShotRecord` and `RoundRecord`
+(`game/scripts/replay/`), finished rounds saved to `user://replays/`, and
+`RoundReplay.verify`, which the headless tests run on the full test round
+along with a changed swing, card and seed that it must catch. Resumed rounds
+can't be checked yet (the wind is drawn again on resume).
+
 What it needs (phase 1 below):
 
 1. A `seed` in `RoundSetup`. Wind and every other draw are worked out from
