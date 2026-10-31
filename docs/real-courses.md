@@ -21,7 +21,9 @@ and the next import picks them up.
 | --- | --- | --- |
 | Name to place | [Nominatim](https://nominatim.openstreetmap.org) (OpenStreetMap's search) | ODbL; [usage policy](https://operations.osmfoundation.org/policies/nominatim/): at most one search a second, which a person typing never reaches |
 | Holes, fairways, greens, tees, bunkers, water, woods, trees, cart paths | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (public servers, tried in turn) | OpenStreetMap, ODbL 1.0 |
-| Ground heights | [Terrain Tiles on AWS Open Data](https://registry.opendata.aws/terrain-tiles/) (Mapzen "Terrarium" PNG tiles, zoom 15) | Open; each underlying source has its own attribution, listed below |
+| Ground heights | National lidar where a service covers the course (below), else the [Terrain Tiles on AWS Open Data](https://registry.opendata.aws/terrain-tiles/) (Mapzen "Terrarium" PNG tiles, zoom 15) | Per source, below |
+| Trees | Lidar canopy height (surface model minus ground) where offered, else the aerial photo, plus OpenStreetMap's trees and woods | As the source |
+| Aerial photo | National orthophoto tile services (below) | Per source, below |
 
 ### Elevation by country
 
@@ -48,44 +50,66 @@ Courses in places covered only by SRTM or EU-DEM come out with the right
 broad shape (hills, valleys, the slope of the land) but without small
 humps and hollows; those are worth sculpting by hand in the designer.
 
-### Better national data (not used yet)
+### National lidar (used where it covers the course)
 
-Many countries now publish 0.5 to 1 m lidar that is finer than the tiles.
-These portals are the candidates for a later "high detail" source per
-country. Each needs its own download format and map projection, and some
-need a free key, so none is wired in yet:
+`NationalLidar` (`game/scripts/realcourse/national_lidar.gd`) asks these
+services for the course's box in latitude and longitude, at 1 m, in
+requests of at most 1000 pixels a side. All of them allow requests from a
+web page, so the browser build uses them too. Where a service has gaps
+(under water, some buildings, past a border) the Terrain Tiles fill in,
+shifted to match. Under 25% coverage, it isn't used.
 
-| Country | Portal | Notes |
+| Where | Service | Ground | Surface (for trees) | Licence |
+| --- | --- | --- | --- | --- |
+| England | Environment Agency lidar composite, WCS 2.0 | 1 m DTM | 1 m first-return DSM | Open Government Licence v3.0 |
+| Netherlands | AHN via PDOK, WCS 2.0 | 0.5 m DTM | 0.5 m DSM | CC0 |
+| France | IGN RGE ALTI / LiDAR HD via the Geoplateforme WMS-R (float BIL) | 1 m | LiDAR HD MNS where flown | Licence Ouverte 2.0 |
+| United States | USGS 3DEP ImageServer exportImage | 1 to 10 m, best available | none | Public domain |
+
+`GeoRaster` reads what they send: GeoTIFF in either byte order, float32 or
+int16, uncompressed or Deflate with the floating-point predictor, in
+strips or tiles, placed by ModelPixelScale and ModelTiepoint or
+ModelTransformation; and the raw float BIL from WMS.
+
+**Trees from lidar:** the canopy height is the surface model minus the
+ground. Every local peak at least 3 m tall is a tree, its height the peak
+height, one per 4 m at most; level peaks (roofs) are skipped, and so are
+trees on OpenStreetMap buildings, play areas and water. A wooded course
+has tens of thousands, so the ones nearest the holes are planted first, up
+to 6000; with lidar trees, woods aren't filled by guesswork.
+
+### Aerial photos
+
+`AerialPhotos` (`game/scripts/realcourse/aerial_photos.gd`) fetches web
+mercator tiles at zoom 17 (about 0.8 m a pixel; zoom 16 for big courses)
+and crops them to a north-up photo of the course, at most 2048 pixels a
+side, saved beside the course as `<course>.photo.jpg` (the `.olc` names it
+in `source.photo`). The designer lays it over the ground (**Show the aerial
+photo**), to check and trace the course against.
+
+| Where | Service | Licence |
 | --- | --- | --- |
-| England | [DEFRA Data Services Platform](https://environment.data.gov.uk/survey) | 1 m composite DTM, OGL |
-| Scotland | [Scottish Remote Sensing Portal](https://remotesensingdata.gov.scot) | lidar phases 1 to 6, OGL |
-| Wales | [DataMapWales](https://datamap.gov.wales) | 1 m DTM, OGL |
-| Northern Ireland | [OpenDataNI](https://www.opendatani.gov.uk) | partial cover |
-| Ireland | [Geological Survey Ireland / OPW lidar](https://www.gsi.ie) | partial cover |
-| Netherlands | [AHN via PDOK](https://www.pdok.nl) | 0.5 m DTM, CC0, WCS |
-| Belgium (Flanders) | [Digitaal Vlaanderen DHM](https://www.vlaanderen.be/digitaal-vlaanderen) | 1 m |
-| Denmark | [Dataforsyningen](https://dataforsyningen.dk) | 0.4 m DHM, free key |
-| France | [IGN RGE ALTI / LiDAR HD](https://geoservices.ign.fr) | 1 m, open licence |
-| Spain | [CNIG / PNOA lidar](https://centrodedescargas.cnig.es) | CC BY 4.0 |
-| Germany | per state (for example NRW, Bavaria open data) | 1 m DGM in most states |
-| Switzerland | [swisstopo swissALTI3D](https://www.swisstopo.admin.ch) | 0.5 m, open |
-| Finland, Sweden, Norway | National land surveys (MML, Lantmäteriet, Kartverket hoydedata) | 1 to 2 m |
-| United States | [USGS 3DEP 1 m](https://apps.nationalmap.gov/downloader/) | public domain |
-| Canada | [NRCan HRDEM](https://open.canada.ca) | 1 to 2 m, OGL Canada |
-| Australia | [ELVIS](https://elevation.fsdf.org.au) | 1 to 5 m, CC BY |
-| New Zealand | [LINZ 1 m lidar](https://data.linz.govt.nz) | CC BY 4.0 |
-| Japan | [GSI 5 m DEM](https://fgd.gsi.go.jp) | GSI terms |
-| Global | [Copernicus GLO-30](https://spacedata.copernicus.eu) | 30 m, free |
+| Netherlands | PDOK Luchtfoto RGB (Beeldmateriaal Nederland) | CC BY 4.0 |
+| Switzerland | swisstopo SWISSIMAGE | free reuse with credit |
+| France | IGN BD ORTHO via the Geoplateforme | Licence Ouverte 2.0 |
+| Spain | PNOA (IGN Espana) | CC BY 4.0 |
+| United States | USGS The National Map orthoimagery (NAIP) | Public domain |
 
-### Aerial photos (planned)
+The photo also helps with trees. With lidar trees, the crown colour picks
+pines (dark green) or broadleaves (lighter, or brown in a winter photo).
+Without lidar, cells of 5 m that are mostly dark leafy pixels or deep shade,
+darker than the fairways' grass, become trees.
 
-Only public-domain or openly licensed photos may be used (not Google, Bing
-or Apple imagery). Candidates: USDA NAIP (US, public domain, 0.6 to 1 m),
-the national orthophotos of the Netherlands (PDOK, CC BY), Denmark, France
-(IGN BD ORTHO, open licence), Spain (PNOA), Switzerland (SWISSIMAGE), New
-Zealand (LINZ, CC BY) and England (Environment Agency vertical photography,
-OGL). They would help place single trees and tune ground colours; the
-importer doesn't use them yet.
+### Not covered yet
+
+England has no open aerial photo service, and these lidar services need a
+key, return another projection, or have no cross-site access, so they are
+left for later: Scotland (remotesensingdata.gov.scot), Wales (DataMapWales),
+Ireland (GSI/OPW), Denmark (Dataforsyningen, free key), Belgium, Germany's
+states, Switzerland's swissALTI3D, the Nordic land surveys, Spain's 5 m
+model (integer metres only), Canada (NRCan HRDEM), Australia (ELVIS), New
+Zealand (LINZ, key) and Japan (GSI). Courses there use the Terrain Tiles
+(see the table above) and OpenStreetMap's trees.
 
 ### Scorecards
 
@@ -112,6 +136,9 @@ OpenStreetMap from the club's own published scorecard.
   bunkers, more for big areas, at most 90 points) and clipped to the area.
   Streams, ditches and rivers become water strips cut into 60 m pieces, so
   each piece keeps its own water line on sloping ground.
+- **Several courses at one club:** when the holes' `golf:course:name` names
+  two or more courses of nine holes or more, each is built as its own
+  course; the first is opened and the others saved beside it.
 - **Holes:** each `golf=hole` line whose start or end lies inside the chosen
   course's outline, in `ref` order. The pin is the `golf=pin` on the green
   at the end of the line, else the green's centre; tees are the tee boxes
@@ -123,7 +150,7 @@ OpenStreetMap from the club's own published scorecard.
   course under 5000 trees. `leaf_type` picks pines or broadleaves. No tree
   is planted on a fairway, green, tee, bunker or in water.
 - **Cart paths:** `golf=cartpath` and `golf_cart=designated` ways.
-- **Ground:** the tile heights at every 2 m sample, bilinear. Heights below
+- **Ground:** the lidar or tile heights at every 2 m sample, bilinear. Heights below
   -12 m (the sea floor) are raised to -12 m, then the grid is stored round
   the midpoint of its range; the sea-level height of that midpoint is kept
   in the course's `source`.
@@ -138,14 +165,19 @@ grass and trees of the current graphics look.
 OpenStreetMap data is under the [ODbL](https://opendatacommons.org/licenses/odbl/).
 A course built from it is a derivative of the map: keep its `credits` when
 sharing it, and share it under the ODbL too. The importer adds the credits
-itself. Nothing from these services is stored in the repository; each
-player's game fetches it when they build a course.
+itself, with one line for each lidar or photo source used. Nothing from
+these services is stored in the repository; each player's game fetches it
+when they build a course. The aerial photo stays on the player's machine
+beside the course and isn't part of an exported `.olc`.
 
 ## Code map
 
 ```
 game/scripts/realcourse/
   geo_frame.gd            GeoFrame: latitude and longitude to course metres
+  geo_raster.gd           GeoRaster: GeoTIFF and BIL height grids
+  national_lidar.gd       NationalLidar: the lidar services, and trees from the canopy
+  aerial_photos.gd        AerialPhotos: the photo services, the course photo, trees from it
   terrain_tiles.gd        TerrainTiles: which tiles, PNG decoding, height sampling
   real_course_builder.gd  RealCourseBuilder: OpenStreetMap data to a DesignedCourse
   real_course_fetcher.gd  RealCourseFetcher: the Nominatim, Overpass and tile requests
@@ -155,9 +187,11 @@ game/tests/realcourse_tests.gd  checks on a made-up map (no network)
 
 ## Still to do
 
-- High-detail national lidar per country (the table above).
-- Aerial photos for tree placement and ground colours.
-- Buildings (`building=*`) as objects, and the course outline as out of
-  bounds where the club marks it so.
+- More lidar and photo services (above).
+- Ground colours from the photo (the terrain shader belongs to the
+  graphics work).
+- Buildings (`building=*`, already read to keep trees off them) as
+  objects, and the course outline as out of bounds where the club marks it
+  so.
 - Building the ground over several frames, so the browser doesn't pause
   for a few seconds on big courses.
