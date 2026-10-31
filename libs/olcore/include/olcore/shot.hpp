@@ -6,6 +6,10 @@
 #include "olcore/terrain.hpp"
 
 namespace olcore {
+class LinksObjects;
+}
+
+namespace olcore {
 
 // A whole shot: flight, bounces and roll over a Terrain until the ball stops,
 // drops in the cup, or finds water or out of bounds.
@@ -31,6 +35,10 @@ struct ShotOptions {
   double max_holing_speed = 1.6;     // faster balls lip out
   double roll_threshold = 0.4;       // normal speed below which bounces stop
   double stop_speed = 0.03;          // rolling speed treated as stopped
+  // With the Links model: the course's billboards in the game's frame (see
+  // links_objects.hpp), met as the game meets them. Leave them out of the
+  // terrain's own obstacles.
+  const LinksObjects* links_objects = nullptr;
 };
 
 struct ShotSample {

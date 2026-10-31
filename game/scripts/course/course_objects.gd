@@ -158,6 +158,12 @@ const SHADE_FLOOR := 0.55
 var plants: Sprites
 var crowds: Sprites
 var obstacles := ObstacleField.new()
+## Only the 3D objects of `obstacles` (walls, bridges): with the Links 2003
+## shot model the billboards are met through `links_objects` instead.
+var model_obstacles := ObstacleField.new()
+## The billboards as the Links 2003 model meets them, in its frame (feet,
+## z up); null when the course has none.
+var links_objects: LinksObjects
 var _meshes: Array[ArrayMesh] = []
 var _mesh_bounds: Array[AABB] = []
 var _placements: Array[Dictionary] = []  ## {model, transform}
@@ -165,7 +171,8 @@ var _placements: Array[Dictionary] = []  ## {model, transform}
 
 # --- Parsers (port of course_objects.cpp) --------------------------------------
 
-## `MasterObj` entry: [{name, sprite, aspect, width, height}] per type.
+## `MasterObj` entry: [{name, sprite, aspect, width, height, collision,
+## shape}] per type (collision and shape: see LinksObjects.ObjType).
 ## Empty on error.
 static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -179,7 +186,15 @@ static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 		var rec := b.decode_u32(table + 4 * k)
 		if rec + 0x38 > b.size():
 			return [] as Array[Dictionary]
-		var t := {"width": b.decode_u32(rec), "height": b.decode_u32(rec + 4), "aspect": b.decode_float(rec + 0x18), "sprite": "", "name": ""}
+		var t := {"width": b.decode_u32(rec), "height": b.decode_u32(rec + 4), "aspect": b.decode_float(rec + 0x18), "sprite": "", "name": "", "collision": 1, "shape": PackedFloat32Array([1, 1, 0, 0, 1, 1])}
+		# The collision record: a u32 and six floats.
+		var phys := b.decode_u32(rec + 0x14)
+		if phys != 0 and phys + 28 <= b.size():
+			t.collision = b.decode_u32(phys)
+			var shape := PackedFloat32Array()
+			for i in 6:
+				shape.append(b.decode_float(phys + 4 + 4 * i))
+			t.shape = shape
 		var lods := b.decode_u32(rec + 8)
 		var lod_list := b.decode_u32(rec + 12)
 		if lods > 0 and lod_list + 12 <= b.size():
@@ -197,15 +212,19 @@ static func parse_billboard_types(b: PackedByteArray) -> Array[Dictionary]:
 
 
 ## `2DPlant` entry: {type: PackedInt32Array, xyzh: PackedFloat32Array (base
-## and height in Godot metres)}. Empty on error.
+## and height in Godot metres), anchors: PackedFloat32Array (per placement
+## the fractions of the width left of the base and of the height below it,
+## LinksObjects.anchor_x/z)}. Empty on error.
 static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 	if b.size() < 0x40 or b.slice(0, 4).get_string_from_ascii() != "2JBO":
 		return {}
 	var count := b.decode_u32(8)
 	var types := PackedInt32Array()
 	var xyzh := PackedFloat32Array()
+	var anchors := PackedFloat32Array()
 	types.resize(count)
 	xyzh.resize(count * 4)
+	anchors.resize(count * 2)
 	var n := 0
 	var cx := 0.0
 	var cy := 0.0
@@ -230,10 +249,20 @@ static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 			return {}
 		var word := b.decode_u32(pos)
 		pos += 4
+		var extra_byte := -1
+		var extra_word := -1
 		if word & 0x20000000:
+			if pos + 1 > end:
+				return {}
+			extra_byte = b[pos]
 			pos += 1
 		if word & 0x40000000:
+			if pos + 2 > end:
+				return {}
+			extra_word = b.decode_u16(pos)
 			pos += 2
+		anchors[2 * n] = LinksObjects.anchor_x(extra_byte)
+		anchors[2 * n + 1] = LinksObjects.anchor_z(extra_word)
 		if pos + 8 > end:
 			return {}
 		var x := cx + b.decode_u16(pos) * PLACEMENT_UNIT
@@ -249,7 +278,7 @@ static func parse_billboard_placements(b: PackedByteArray) -> Dictionary:
 		n += 1
 	if n != count:
 		return {}
-	return {"type": types, "xyzh": xyzh}
+	return {"type": types, "xyzh": xyzh, "anchors": anchors}
 
 
 ## `TrnyPlant` entry: {kind, instance: PackedInt32Array, xyz:
@@ -506,8 +535,8 @@ static func decode(read: Callable) -> Dictionary:
 		return {}
 	var plain: Array = []
 	for t in types:
-		plain.append({"name": t.name, "sprite": t.sprite, "aspect": t.aspect})
-	return {"types": plain, "type": placements.type, "xyzh": placements.xyzh}
+		plain.append({"name": t.name, "sprite": t.sprite, "aspect": t.aspect, "collision": t.collision, "shape": t.shape})
+	return {"types": plain, "type": placements.type, "xyzh": placements.xyzh, "anchors": placements.anchors}
 
 
 ## Builds the course's objects from decode()'s data and the archive (`read`
@@ -521,6 +550,7 @@ static func build(read: Callable, decoded: Dictionary, crowd_library: Arc0 = nul
 	if crowd_library != null:
 		objects._load_crowds(read.call("TrnyPlant"), crowd_library)
 	objects.obstacles.finalize()
+	objects.model_obstacles.finalize()
 	return objects
 
 
@@ -552,6 +582,7 @@ func _load_plants(read: Callable, decoded: Dictionary) -> void:
 		s.light = billboard_light
 	var atlas := build_atlas(images)
 	s.rects = atlas.rects
+	links_objects = _links_objects(types, images, decoded)
 	s.material = _material(atlas.texture)
 	s.material.set_shader_parameter("grade", 1.0)
 	s.material.set_shader_parameter("lit", not s.light.is_empty())
@@ -691,6 +722,43 @@ static func _model_material(tex: Texture2D) -> StandardMaterial3D:
 
 
 # --- Obstacles ----------------------------------------------------------------
+
+## Largest side of the pictures kept for the Links 2003 billboard
+## collisions: only their alpha is read, at fractions of the picture.
+const LINKS_MASK_SIZE := 128
+
+
+## The billboards for the Links 2003 model (LinksObjects), in its frame:
+## feet, x to the golfer's right... as LinksGround._to_game() gives.
+static func _links_objects(types: Array, images: Array[Image], decoded: Dictionary) -> LinksObjects:
+	if not decoded.has("anchors"):
+		return null
+	var objects := LinksObjects.new()
+	for i in types.size():
+		var t: Dictionary = types[i]
+		var type := LinksObjects.ObjType.new()
+		type.collision = int(t.get("collision", 1))
+		type.shape = t.get("shape", PackedFloat32Array([1, 1, 0, 0, 1, 1]))
+		type.aspect = float(t.aspect)
+		var img: Image = images[i] if i < images.size() else null
+		if img != null:
+			var mask := img.duplicate() as Image
+			if mask.is_compressed():
+				mask.decompress()
+			mask.convert(Image.FORMAT_RGBA8)
+			var scale := minf(1.0, LINKS_MASK_SIZE / float(maxi(mask.get_width(), mask.get_height())))
+			if scale < 1.0:
+				mask.resize(maxi(1, int(mask.get_width() * scale)), maxi(1, int(mask.get_height() * scale)), Image.INTERPOLATE_NEAREST)
+			type.mask = mask
+		objects.types.append(type)
+	var xyzh: PackedFloat32Array = decoded.xyzh
+	var sprite: PackedInt32Array = decoded.type
+	var anchors: PackedFloat32Array = decoded.anchors
+	for i in sprite.size():
+		var base := LinksGround._to_game(Vector3(xyzh[4 * i], xyzh[4 * i + 1], xyzh[4 * i + 2]))
+		objects.add(base, xyzh[4 * i + 3] * LinksGround.FEET_PER_METRE, sprite[i], anchors[2 * i], anchors[2 * i + 1])
+	return objects
+
 
 ## Trees get a solid trunk and a canopy, bushes a canopy, rocks a solid;
 ## grasses and the rest let the ball through. The proportions are guesses
@@ -871,6 +939,7 @@ func _add_model_obstacles() -> void:
 		if rise < 0.15:
 			continue
 		obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
+		model_obstacles.add_box(t * bounds.get_center(), basis, world_half, ObstacleField.Kind.SOLID)
 
 
 # --- Drawing ------------------------------------------------------------------

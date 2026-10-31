@@ -526,6 +526,13 @@ void test_billboard_types() {
     std::memcpy(&bits, &aspect, 4);
     set_u32(b, rec + 0x18, bits);
     set_u32(b, rec + 0x34, 0x8401e192u + k);
+    if (k == 1) {
+      // A tree's collision record.
+      std::size_t phys = b.size();
+      put_u32(b, 0);
+      for (float v : {0.7f, 0.92f, 0.626f, 0.0f, 0.831f, 0.332f}) put_f32(b, v);
+      set_u32(b, rec + 0x14, std::uint32_t(phys));
+    }
   }
   std::size_t table = b.size();
   for (auto r : recs) put_u32(b, r);
@@ -542,6 +549,9 @@ void test_billboard_types() {
   CHECK(types[1].width == 201 && types[1].height == 150);
   CHECK(std::fabs(types[0].aspect - 200 / 150.0f) < 1e-6f);
   CHECK(types[1].id == 0x8401e193u);
+  CHECK(types[0].collision == 1 && types[0].shape[0] == 1.0f);
+  CHECK(types[1].collision == 0);
+  CHECK(types[1].shape[1] == 0.92f && types[1].shape[5] == 0.332f);
 }
 
 void test_billboard_placements() {

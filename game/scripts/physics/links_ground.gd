@@ -83,6 +83,8 @@ const POLE_TOP := 8.0
 const POLE_BOTTOM := 0.5
 const POLE_BOUNCE := 0.3
 const POLE_SPIN := 0.09
+const SOLID_KEPT := 0.5
+const STEP_BACK := 0.1
 const GRAVITY_VECTOR := Vector3(0, 0, -GRAVITY)
 
 ## class, restitution, impact friction, skid friction, impact drag, roll, stop, spin grip
@@ -127,6 +129,8 @@ class Ball:
 	var ground_time := 0.0
 	## The flagstick is out: struck from the green, or already hit once.
 	var flagstick_out := false
+	## The billboard it last hit (an index into LinksObjects), or -1.
+	var last_object := -1
 
 	func copy() -> Ball:
 		var c := Ball.new()
@@ -139,6 +143,7 @@ class Ball:
 		c.checkpoint_y = checkpoint_y
 		c.ground_time = ground_time
 		c.flagstick_out = flagstick_out
+		c.last_object = last_object
 		return c
 
 	func assign(o: Ball) -> void:
@@ -151,6 +156,7 @@ class Ball:
 		checkpoint_y = o.checkpoint_y
 		ground_time = o.ground_time
 		flagstick_out = o.flagstick_out
+		last_object = o.last_object
 
 
 ## The hole round the pin's base. Mirrors olcore::LinksCup.
@@ -166,6 +172,8 @@ class Ctx:
 	var wind: Vector3
 	var rng: Rng
 	var cup: Cup
+	var objects: LinksObjects
+	var facing := Vector3(0, -1, 0)
 	var depth := 0
 
 
@@ -426,8 +434,10 @@ static func cup_radius(option: int) -> float:
 
 
 ## Mirrors olcore::links_step. `wind` is in ft/s before the game's 0.5 factor.
-static func step(b: Ball, ground: Ground, aero: LinksAero, wind: Vector3, rng: Rng, dt := FRAME_DT, cup: Cup = null) -> StepInfo:
+static func step(b: Ball, ground: Ground, aero: LinksAero, wind: Vector3, rng: Rng, dt := FRAME_DT, cup: Cup = null, objects: LinksObjects = null, facing := Vector3(0, -1, 0)) -> StepInfo:
 	var c := Ctx.new()
+	c.objects = objects
+	c.facing = facing
 	c.g = ground
 	c.aero = aero
 	c.wind = wind
@@ -488,6 +498,9 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 	b.flagstick_out = ground.surface(b.position.x, b.position.y).ground_class == GREEN
 	var rng := Rng.new(Rng.seed_for(b.position.x, b.position.y))
 	var wind := _to_game(wind_mps)
+	# Billboards face the camera behind the ball: back along the shot.
+	var facing := Vector3(-b.velocity.x, -b.velocity.y, 0)
+	facing = facing.normalized() if facing.length() > 0.0 else Vector3(0, -1, 0)
 	var hole: Cup = null
 	if has_cup:
 		hole = Cup.new()
@@ -500,14 +513,16 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup: boo
 		var before_velocity := _from_game(b.velocity)
 		var before_spin := _spin_from_game(b.spin)
 		var was_flying := b.mode == Mode.FLIGHT
-		var info := step(b, ground, aero, wind, rng, dt, hole)
+		var info := step(b, ground, aero, wind, rng, dt, hole, terrain.links_objects, facing)
 		t += dt
 		n_steps += 1
 		var after := _from_game(b.position) - Vector3(0, radius_m, 0)
 		r.apex_m = maxf(r.apex_m, after.y - start.position.y)
 
-		# Trees and walls: our own handling, as in BallPhysics.simulate_shot.
-		var hit := terrain.obstacle_hit(before, after)
+		# Walls and the like (and trees, when the course has no billboards
+		# for the game's own model): our own handling, as in
+		# BallPhysics.simulate_shot.
+		var hit := terrain.links_obstacle_hit(before, after)
 		if not hit.is_empty() and (was_flying or int(hit.kind) == ObstacleField.Kind.SOLID):
 			var solid := int(hit.kind) == ObstacleField.Kind.SOLID
 			var hb := BallState.new(before.lerp(after, float(hit.fraction)), before_velocity, before_spin)
@@ -641,10 +656,12 @@ static func _flight_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 	moved.position = p2
 	moved.velocity = v2
 	moved.spin = w2
-	if _hit_flagstick(c, b, moved):
+	if _hit_obstacles(c, b, moved):
 		p2 = moved.position
 		v2 = moved.velocity
 		w2 = moved.spin
+		b.flagstick_out = moved.flagstick_out
+		b.last_object = moved.last_object
 	var s := _ground_crossing(g, p, p2)
 	if s < 0.0:
 		b.position = p2
@@ -796,7 +813,7 @@ static func _ground_step(c: Ctx, b: Ball, dt: float) -> StepInfo:
 			b.checkpoint_x = p2.x
 			b.checkpoint_y = p2.y
 			b.ground_time = 0.0
-	_hit_flagstick(c, before, b)
+	_hit_obstacles(c, before, b)
 	# Rolling across the hole's circle on the green.
 	if cls == GREEN:
 		_enter_cup_from_green(c, b, before)
@@ -1045,7 +1062,7 @@ static func _cup_air(c: Ctx, b: Ball, dt: float) -> void:
 	var to := b.copy()
 	from.position += c.cup.pin
 	to.position += c.cup.pin
-	if _hit_flagstick(c, from, to):
+	if _hit_obstacles(c, from, to):
 		b.assign(to)
 		b.position -= c.cup.pin
 
@@ -1165,6 +1182,31 @@ static func _hit_flagstick(c: Ctx, old: Ball, b: Ball) -> bool:
 	m.flagstick_out = true
 	b.assign(m)
 	return true
+
+
+## Trees and other billboards, then the flagstick, as the game checks them
+## after each step. Mirrors hit_obstacles in links_ground.cpp.
+static func _hit_obstacles(c: Ctx, old: Ball, b: Ball) -> bool:
+	if c.objects != null:
+		var hit := c.objects.hit(old.position, b.position, c.facing, b.last_object)
+		if hit != null:
+			var path := b.position - old.position
+			var length := path.length()
+			var bl: Array = _blend(old, b, (hit.point - old.position).length() / length)
+			var m: Ball = bl[0]
+			var v := b.velocity
+			if hit.kind == 1:
+				var kept := hit.factor if (c.objects.type_of(hit.object).collision & 1) != 0 else SOLID_KEPT
+				b.velocity = (v - hit.normal * (2.0 * v.dot(hit.normal))) * kept
+				b.position = m.position - path * (STEP_BACK / length)
+				b.spin = m.spin
+			else:
+				b.velocity = v * hit.factor
+				b.position = m.position
+				b.spin = m.spin * hit.factor
+			b.last_object = hit.object
+			return true
+	return _hit_flagstick(c, old, b)
 
 
 ## The game caps how deeply steps nest; past that a ball near the hole is
