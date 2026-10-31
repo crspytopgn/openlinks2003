@@ -223,7 +223,7 @@ func _substep(h: float, throttle: float, steer_in: float, terrain: CourseTerrain
 	var nl := Vector3.UP.cross(nf)
 	var vel := nf * nu + nl * nv
 	var next := position + vel * h
-	if vel.length_squared() > 1e-6:
+	if vel.length_squared() > 0.0:
 		var probe := next + vel.normalized() * PROBE
 		if keeps_off(terrain.surface_at(probe.x, probe.z)):
 			blocked = true
