@@ -254,6 +254,7 @@ game/scripts/
     placeholder_*.gd            Primitive trees, a hand-animated figure golfer, synthesised sounds
   ui/
     swing_meter.gd, hud.gd, scorecard_panel.gd, wind_indicator.gd
+    hud_art.gd, info_bar.gd, shot_panel.gd, shot_windows.gd   the original interface (below)
     round_setup_panel.gd, players_panel.gd, pause_menu.gd, settings_panel.gd, menu_style.gd
     hand_over_panel.gd          HandOverPanel: the hot-seat "pass the controls" screen
   designer/                     The course designer (docs/course-designer.md)
@@ -309,6 +310,35 @@ plus noise variation and close-up detail) and `Materials.water_disc()` for
 ponds, so decoded courses match the placeholder. CI renders real frames with
 Mesa on both renderers (`game/tests/render_check.gd`) to catch shader errors,
 and uploads the screenshots as the `render-check` artifact.
+
+## The original interface
+
+With the player's own `GRAPHICS.LS`, the Classic Links presentation draws
+its interface from the game's art (`HudArt` in `game/scripts/ui/hud_art.gd`
+loads it; without the file the HUD keeps its plain look):
+
+- Top left, one chrome info bar per line of shot information
+  (`CRSINFO.TGA`, `InfoBar`), lettered in the game's font (`SPBT14.D3F`,
+  [d3f.md](formats/d3f.md)).
+- Bottom centre, the classic swing bar (`RIND12.TGA`, `SwingMeter`).
+- Bottom left (`ShotPanel`), the PowerStroke title bar and the row for the
+  club's kind (`PSTROKE1.TGA`), the club's name and reach in a stone window
+  (`LIEBOX.TGA`), and under them the swing indicator gizmo with the club at
+  the ball (`SIGRDR12`, `SIGRIR12`, `SIGRPT12.TGA` for woods, irons and the
+  putter).
+- Top right (`ShotWindows`), the wind window with the game's arrow
+  (`WINDDIR.TGA`) turned to the wind, the elevation window with the
+  `ELEV00` to `ELEV12` picture for the aim point's height above the ball,
+  and the lie window with the lie and how much distance it allows.
+
+What's measured and what's guessed: the pieces' rectangles in their sheets
+are measured from the sheets' alpha, and the fonts and their metrics come
+straight from the files. Where the game places each piece on screen, the
+feet per elevation picture (5 here) and what the red-ringed gizmo variants
+(`SIRD*`), the `HV*` and `EZ*` sheets, `SISYMB*` (shot-shape arrows and
+tempo lights) and the `SI*.SHR` sprites are for aren't in the files; a
+screenshot of the running game would settle them. `CLUBICNS.TGA` is loaded
+but not placed yet.
 
 ## Broadcast presentation
 

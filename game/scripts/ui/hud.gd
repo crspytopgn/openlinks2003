@@ -14,6 +14,10 @@ var hand_over: HandOverPanel
 ## With the player's own interface art: one chrome bar per line of `info`.
 var art: HudArt
 var _bars: Array[InfoBar] = []
+## With the player's own interface art: the PowerStroke panel and swing
+## gizmo (bottom left), and the wind, elevation and lie windows (top right).
+var shot_panel: ShotPanel
+var windows: ShotWindows
 var overlay: BroadcastOverlay
 var broadcast := false
 
@@ -70,6 +74,41 @@ func use_art(hud_art: HudArt) -> void:
 	var want := meter.wanted_size()
 	_place(meter, Control.PRESET_CENTER_BOTTOM, Rect2(-want.x * 0.5, -want.y - 44.0, want.x, want.y))
 	meter.queue_redraw()
+	shot_panel = ShotPanel.new(art)
+	var panel := shot_panel.wanted_size()
+	_place(shot_panel, Control.PRESET_BOTTOM_LEFT, Rect2(12, -panel.y - 40.0, panel.x, panel.y))
+	add_child(shot_panel)
+	move_child(shot_panel, 0)
+	windows = ShotWindows.new(art)
+	var box := ShotWindows.wanted_size()
+	_place(windows, Control.PRESET_TOP_RIGHT, Rect2(-box.x - 12.0, 12, box.x, box.y))
+	add_child(windows)
+	move_child(windows, 0)
+	_show_classic()
+
+
+## The club, its reach, the aim point's height above the ball and the lie,
+## for the original's panels (nothing without the player's art).
+func show_shot(club: Club, reach_text: String, rise_m: float, lie_name: String, lie_power: float) -> void:
+	if art == null:
+		return
+	shot_panel.show_club(HudArt.club_kind(club.full_name, club.is_putter), club.full_name, reach_text)
+	windows.show_shot(rise_m, lie_name, lie_power)
+
+
+## The wind, on the arrow or in the original's wind window.
+func show_wind(w: Wind, aim_deg: float) -> void:
+	wind.show_wind(w, aim_deg)
+	if windows != null:
+		windows.show_wind(w, aim_deg)
+
+
+func _show_classic() -> void:
+	var classic := art != null and not broadcast
+	if shot_panel != null:
+		shot_panel.visible = classic
+		windows.visible = classic
+	wind.visible = windows == null or broadcast
 
 
 ## Switches between the Classic interface and the broadcast graphics.
@@ -79,6 +118,7 @@ func set_broadcast(on: bool) -> void:
 	info.visible = not on and art == null
 	for bar in _bars:
 		bar.visible = false
+	_show_classic()
 	if on:
 		message.text = ""
 	else:

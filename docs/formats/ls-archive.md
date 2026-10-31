@@ -28,7 +28,7 @@ describes both the archive and each file in it.
 |--------|------|------|-------|
 | 0x00 | char[4] | tag | `LSls` on the archive header and on most entries. Entries in older archives (`SOUNDS.LS`) carry zeros or leftover bytes here; don't rely on it. |
 | 0x04 | u16 | version | `0x020b` for `.LS` (8.3 names), `0x020c` for `.L3` (long names). Only meaningful on the archive header. |
-| 0x06 | u16 | header_size | Always 0x37. The entry's data starts this many bytes after the header start. |
+| 0x06 | u16 | header_size | 0x37 on tagged headers. Untagged entries (the fonts and `.SHR` sprites in `GRAPHICS.LS`, most of `SOUNDS.LS`) hold zero or leftover bytes here, so readers ignore it: the data always starts 0x37 bytes after the header. |
 | 0x08 | u16 | | 0 |
 | 0x0a | u32 | count / id | Archive header: number of files in the index. Entry headers: a running number with no use to a reader. |
 | 0x0e | 8 bytes | | 0 |
@@ -57,8 +57,7 @@ slots. Only the first `count` slots are used; the rest are zero.
 Names are upper case. The game looks them up case-insensitively, and `.L3`
 references in scripts use the form `clubs.l3|driver.skl`.
 
-The data of an entry is the `stored_size` bytes at
-`offset + header_size`.
+The data of an entry is the `stored_size` bytes at `offset + 0x37`.
 
 ## Compression
 
@@ -91,7 +90,7 @@ it. `lzw_decompress` takes it as an option anyway.
 | Archive | Entries | Contents |
 |---------|--------:|----------|
 | `SOUNDS.LS` | 55 | Swing whiffs, ball and UI clicks, menu music, crowd walla (WAV; only `WALLA.WAV` is compressed) |
-| `GRAPHICS.LS` | 275 | HUD TGAs; `CLUBDIST` is a small binary table (club distances), not an archive |
+| `GRAPHICS.LS` | 275 | HUD TGAs, the game's fonts ([d3f.md](d3f.md)) and `.SHR` sprites (tag `SHR1`); `CLUBDIST` is a small binary table (club distances), not an archive |
 | `SETUP.LS` | 99 | Menu TGAs |
 | `POLYANI/<golfer>.L3` | 200 to 230 | `<NAME>_BOUND.SKL` and `<NAME>_LOW_BOUND.SKL` (high and low detail model), about 160 `.CLP` animation clips, clothing and skin TGAs, `SCRIPT.TXT` (animation state script), swing timing tables (`*SWING.TXT`), and build leftovers (`MAKEFILE.MAK`, `NMAKE.EXE`, SourceSafe files) |
 | `POLYANI/CLUBS.L3` | 10 | `DRIVER.SKL`, `IRON.SKL`, `PUTTER.SKL` and their textures |
@@ -103,8 +102,8 @@ See [carrera-store.md](carrera-store.md) for `.SKL` and `.CLP`, and
 
 - Whether the spare index slots and the archive header's `original_size`
   field matter to the game (they look like bookkeeping for in-place edits).
-- The meaning of the first four bytes of untagged entries in `SOUNDS.LS`.
-- `SOUNDS.LS` entries still carry their 0x37-byte block header in front of the
-  WAV data, so a reader looks for the `RIFF` tag. Menu sounds: `BC_CLICK.WAV`
-  (button click); `MUSIC1.WAV` and `MUSIC2.WAV` (menu music, stereo MS ADPCM,
-  44.1 kHz, about 90 s), with the `LO` versions at a lower quality.
+- The meaning of the first eight bytes of untagged entries.
+
+Menu sounds in `SOUNDS.LS`: `BC_CLICK.WAV` (button click); `MUSIC1.WAV` and
+`MUSIC2.WAV` (menu music, stereo MS ADPCM, 44.1 kHz, about 90 s), with the
+`LO` versions at a lower quality.

@@ -12,6 +12,7 @@ add_library(olcore STATIC
   src/golfer_mesh.cpp
   src/image.cpp
   src/cvt.cpp
+  src/d3f.cpp
   src/inflate.cpp
   src/links_flight.cpp
   src/links_ground.cpp

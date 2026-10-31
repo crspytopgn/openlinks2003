@@ -15,6 +15,7 @@
 #include "olcore/btcv.hpp"
 #include "olcore/panorama.hpp"
 #include "olcore/carrera_store.hpp"
+#include "olcore/d3f.hpp"
 #include "olcore/golfer_anim.hpp"
 #include "olcore/golfer_mesh.hpp"
 #include "olcore/image.hpp"
@@ -236,6 +237,12 @@ void test_ls_archive() {
   std::copy(n2.begin(), n2.end(), a.begin() + static_cast<std::ptrdiff_t>(index + 17));
   set32(a, index + 17 + 13, static_cast<std::uint32_t>(second));
 
+  // Untagged entries (fonts in GRAPHICS.LS, SOUNDS.LS) have junk in the tag
+  // and the header size; the data still follows the 0x37-byte header.
+  for (std::size_t i = 0; i < 4; ++i) a[first + i] = 0;
+  a[first + 6] = 0x41;
+  a[first + 7] = 0x44;
+
   CHECK(LsArchive::looks_like(a));
   LsArchive archive(a);
   CHECK(archive.version() == LsArchive::kVersionShortNames);
@@ -253,6 +260,89 @@ void test_ls_archive() {
     threw = true;
   }
   CHECK(threw);
+}
+
+// A D3F font: header, the six glyph tables, the page list, then pages.
+Bytes d3f_font(bool colour) {
+  Bytes f(0x55 + 6 * 256, 0);
+  f[0] = 'D';
+  f[1] = '3';
+  f[2] = 'F';
+  f[3] = colour ? 0xd4 : 0xb4;
+  std::string face = "Arial";
+  std::copy(face.begin(), face.end(), f.begin() + 4);
+  set32(f, 0x44, static_cast<std::uint32_t>(-11));
+  f[0x48] = 1;
+  set32(f, 0x49, 700);
+  set32(f, 0x4d, 1);
+  set32(f, 0x51, 10);
+  const int H = 'H';
+  f[0x55 + 256 + H] = 2;      // x
+  f[0x55 + 512 + H] = 3;      // y
+  f[0x55 + 768 + H] = 4;      // width
+  f[0x55 + 1024 + H] = 0xff;  // left -1
+  f[0x55 + 1280 + H] = 2;     // right
+  const std::size_t bpp = colour ? 4 : 1;
+  Bytes px(16 * 16 * bpp, 0);
+  for (int y = 3; y < 3 + 7; ++y) {  // rows 0 to 6 of the cell: ascent 7
+    for (int x = 2; x < 6; ++x) {
+      std::size_t p = static_cast<std::size_t>(y * 16 + x) * bpp;
+      if (colour) {
+        px[p] = 10;
+        px[p + 1] = 20;
+        px[p + 2] = 30;
+        px[p + 3] = 200;
+      } else {
+        px[p] = 255;
+      }
+    }
+  }
+  Bytes packed = lzw_compress(px.data(), px.size() - 40);  // ends early, as some shipped pages do
+  std::size_t list = f.size();
+  f.resize(list + 4);
+  set32(f, list, static_cast<std::uint32_t>(f.size()));
+  Bytes head(8, 0);
+  set32(head, 0, static_cast<std::uint32_t>(-16));
+  set32(head, 4, static_cast<std::uint32_t>(packed.size()));
+  f.insert(f.end(), head.begin(), head.end());
+  f.insert(f.end(), packed.begin(), packed.end());
+  return f;
+}
+
+void test_d3f() {
+  Bytes b = d3f_font(false);
+  CHECK(is_d3f(b.data(), b.size()));
+  D3fFont f = read_d3f(b);
+  CHECK(f.face == "Arial");
+  CHECK(f.pixel_height == 11);
+  CHECK(f.italic);
+  CHECK(f.weight == 700);
+  CHECK(f.line_height == 10);
+  CHECK(!f.colour);
+  CHECK(f.pages.size() == 1 && f.pages[0].width == 16 && f.pages[0].height == 16);
+  const D3fGlyph& g = f.glyphs['H'];
+  CHECK(g.x == 2 && g.y == 3 && g.width == 4 && g.left == -1 && g.right == 2);
+  CHECK(f.glyphs['A'].width == 0);
+  CHECK(f.pages[0].pixels[(3 * 16 + 2) * 4 + 3] == 255);
+  CHECK(f.pages[0].pixels[(3 * 16 + 2) * 4 + 0] == 255);
+  CHECK(f.pages[0].pixels[(2 * 16 + 2) * 4 + 3] == 0);
+  CHECK(f.ascent() == 7);
+
+  D3fFont c = read_d3f(d3f_font(true));
+  CHECK(c.colour);
+  const std::uint8_t* p = &c.pages[0].pixels[(4 * 16 + 3) * 4];
+  CHECK(p[0] == 30 && p[1] == 20 && p[2] == 10 && p[3] == 200);  // BGRA to RGBA
+
+  Bytes bad = b;
+  set32(bad, 0x55 + 6 * 256, 999999);
+  bool threw = false;
+  try {
+    read_d3f(bad);
+  } catch (const ReadError&) {
+    threw = true;
+  }
+  CHECK(threw);
+  CHECK(!is_d3f(b.data(), 40));
 }
 
 void test_wav_pcm() {
@@ -1985,6 +2075,7 @@ int main() {
       {"lzw_round_trip", test_lzw_round_trip},
       {"lzw_known_stream", test_lzw_known_stream},
       {"ls_archive", test_ls_archive},
+      {"d3f", test_d3f},
       {"wav_pcm", test_wav_pcm},
       {"wav_ms_adpcm", test_wav_ms_adpcm},
       {"ssf", test_ssf},

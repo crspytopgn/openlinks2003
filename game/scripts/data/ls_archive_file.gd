@@ -65,7 +65,9 @@ func _parse(bytes: PackedByteArray) -> bool:
 		var header := bytes.decode_u32(base + name_width)
 		if header + BLOCK_HEADER_SIZE > bytes.size():
 			return false
-		var data_offset := header + bytes.decode_u16(header + 6)
+		# The data always follows the block header: untagged entries carry
+		# junk in its size field (ls_archive.cpp).
+		var data_offset := header + BLOCK_HEADER_SIZE
 		var stored := bytes.decode_u32(header + 0x1d)
 		if data_offset + stored > bytes.size():
 			return false
