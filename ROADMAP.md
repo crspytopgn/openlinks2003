@@ -14,6 +14,40 @@ type holds. Items below that only need files from the discs are now
 unblocked; items that need measurements from the running game (tuning,
 feel) still need a working install.
 
+## Next up: the product lead's ranked list
+
+Kept by the "Keep finding ways to improve the game" thread, from playing the
+web build and comparing it with Links 2003 and modern golf sims. Highest
+value first. The owner is the thread that should build it; "lead" means the
+product lead builds it.
+
+1. [ ] **Shot shaping**: draw, fade, high and low shots from Links 2003's shot
+   setup (ball position, club face, stance). The launch already reads the
+   setup bytes but nothing sets them. Owner: lead.
+2. [ ] **Touch and controller swings**: a swipe swing on phones and tablets
+   (the web build), and an analog-stick swing on gamepads, both feeding the
+   PowerStroke model. Owner: new thread.
+3. [ ] **Tee view shows the target**: on hilly holes (placeholder hole 1) the
+   tee camera looks into the slope and the fairway is out of sight; the
+   auto club also picks a 3 hybrid on a 389-yard par 4. Owner: bug-hunt.
+4. [ ] **Gimmes, mulligans and pick-up**: house rules for quicker casual
+   rounds (off in Classic Links). Owner: lead.
+5. [ ] **Driving range with launch-monitor numbers**: ball speed, launch,
+   spin, carry, total and dispersion per club, on the `.RNG` range or a
+   built-in one. Owner: lead.
+6. [ ] **Launch monitor input** (desktop): take real swings from home
+   simulators through the open GSPro-style connect API, the golf version of
+   a sim-racing wheel. Owner: new thread, after item 5.
+7. [ ] **Career**: a season of events against the computer golfers, with a
+   money list and the handicap and stats already kept. Owner: new thread.
+8. [ ] **Menu polish**: a live course flyover behind the menus, the round
+   setup panel centred, and the key hints kept clear of the lower third.
+   Owner: bug-hunt.
+9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
+   marker, UI scale, captions for voice and commentary. Owner: lead.
+10. [ ] **Personal records**: longest drive, best rounds per course, birdie
+   and eagle counts on the players page. Owner: lead.
+
 ## Phase 1: formats (see `docs/formats/`)
 
 - [x] Inventory the install folder: file types, counts, sizes (`docs/install-listing/`, `docs/formats/inventory.md`)
