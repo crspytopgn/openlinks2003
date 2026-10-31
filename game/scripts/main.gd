@@ -610,7 +610,13 @@ func auto_play_step() -> void:
 
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
-	if _replaying:
+	# The pause menu and settings stop the round: the swing meter, the ball
+	# in the air and the countdowns all wait.
+	var paused := pause_menu.visible or settings_panel.visible
+	hud.meter.set_process(not paused)
+	if paused:
+		pass
+	elif _replaying:
 		_process_replay(delta)
 	else:
 		match state:
@@ -630,7 +636,7 @@ func _process(delta: float) -> void:
 					result_timer -= delta
 					if result_timer <= 0.0:
 						_next_hole()
-	if _replay_delay >= 0.0 and not _replaying:
+	if _replay_delay >= 0.0 and not _replaying and not paused:
 		_replay_delay -= delta
 		if _replay_delay < 0.0:
 			start_replay()
@@ -656,7 +662,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					elif pause_menu.visible:
 						pause_menu.close()
 					else:
-						pause_menu.open()
+						open_pause_menu()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -762,6 +768,15 @@ func _on_swing_pressed() -> void:
 			_next_hole()
 		State.ROUND_DONE:
 			start_round()
+
+
+## Esc: the pause menu. A mouse swing in progress is called off, since the
+## menu takes the button's release.
+func open_pause_menu() -> void:
+	if hud.mouse_swing.is_swinging():
+		hud.mouse_swing.reset()
+		_on_mouse_stroke_cancelled()
+	pause_menu.open()
 
 
 ## Links 2003's mouse swing: holding the left button while aiming starts

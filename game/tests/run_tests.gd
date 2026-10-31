@@ -83,6 +83,7 @@ func _process(_delta: float) -> bool:
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
+	_run("pause_stops_play", _test_pause_stops_play)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("players_panel", _test_players_panel)
@@ -1833,6 +1834,38 @@ func _test_team_drops() -> void:
 	_check(game.state == GolfRound.State.DROP, "a person picks their drop on a computer partner's ball")
 	game._finish_drop()
 	GolfRound.setup = null
+
+
+## The pause menu holds the round: the meter, the ball in flight and the
+## pause after a shot all wait until it closes.
+func _test_pause_stops_play() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	game._on_swing_pressed()
+	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
+	game.open_pause_menu()
+	game._process(0.1)
+	_check(not game.hud.meter.is_processing(), "pause: the swing meter stops")
+	game.pause_menu.close()
+	game._process(0.01)
+	_check(game.hud.meter.is_processing(), "pause: the swing meter runs again")
+	game.hud.meter.reset()
+	game.state = GolfRound.State.AIM
+	game.play_shot(0.8, 0.0)
+	_check(game.state == GolfRound.State.FLIGHT, "pause: ball in the air")
+	game.open_pause_menu()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.FLIGHT and game.shot_time == 0.0, "pause: the ball waits in the air")
+	game.pause_menu.close()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the shot finishes after closing")
+	game.open_pause_menu()
+	game._process(60.0)
+	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the turn doesn't pass while paused")
+	game.pause_menu.close()
 
 
 ## The full and multiplayer rounds above went into the test profiles.
