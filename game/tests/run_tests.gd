@@ -2673,6 +2673,10 @@ func _test_online_round() -> void:
 	_check(copy != null and copy.names == setup.names and copy.computer == setup.computer and copy.round_seed == 4321 and copy.wind_level == Wind.Level.STRONG,
 		"the setup message carries the round")
 	_check(OnlineRound.owners_from(msg) == owners, "and who plays each seat")
+	setup.pins = 1
+	var pins_copy := OnlineRound.setup_from(JSON.parse_string(JSON.stringify(OnlineRound.setup_message(setup, 4321, Wind.Level.STRONG, owners, ""))))
+	_check(pins_copy != null and pins_copy.pins == 1, "the setup message carries the hole positions")
+	setup.pins = 0
 	var links := LoopbackLink.room(2)
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	var games: Array[GolfRound] = []
@@ -2686,6 +2690,10 @@ func _test_online_round() -> void:
 	var a := games[0]
 	var b := games[1]
 	_check(a.round_seed == 4321 and b.round_seed == 4321 and b.wind.level == Wind.Level.STRONG, "both games play the host's seed and wind")
+	var own_pickup := a.graphics.pickup
+	a.graphics.pickup = 1
+	_check(not a._house_rules() and a._pickup_at() == GolfRound.MAX_STROKES, "online: no own pick-up, gimmes or mulligans")
+	a.graphics.pickup = own_pickup
 	var dropped := false
 	var steps := 0
 	while not (a.state == GolfRound.State.ROUND_DONE and b.state == GolfRound.State.ROUND_DONE) and steps < 6000:
@@ -3375,6 +3383,14 @@ func _test_team_drops() -> void:
 	game._process(0.0)
 	_check(not game.hud.meter.visible, "drop: the meter is hidden under the drop options")
 	_check(BroadcastOverlay.caption_height(4) > BroadcastOverlay.caption_height(1) + 60.0, "drop: broadcast caption stacks the options")
+	var card_overlay := BroadcastOverlay.new()
+	card_overlay.hole_card({"number": 1, "par": 4, "yards": 400, "name": "Test"}, null)
+	card_overlay._process(1.0)
+	_check(card_overlay.hole_card_showing(), "hole card: shows before the tee shot")
+	card_overlay.end_hole_card()
+	card_overlay._process(BroadcastOverlay.HOLE_CARD_FADE + 0.05)
+	_check(not card_overlay.hole_card_showing(), "hole card: fades out once the player swings")
+	card_overlay.free()
 	game._finish_drop()
 	game._process(0.0)
 	_check(game.hud.meter.visible, "drop: the meter is back after the drop")
