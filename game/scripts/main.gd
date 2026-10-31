@@ -1570,8 +1570,12 @@ func _auto_club() -> void:
 	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
 	var power := Surface.lie_power(lie)
 	var target := hole.aim_point(ball_at, clubs[0].total_m * shot_model.reach_scale(clubs[0]) * power)
-	var d := _flat_distance(ball_at, target)
 	club_index = 0
+	# Off the tee with the green out of reach, take the driver: picking the
+	# shortest club that reaches a route point leaves a hybrid off a par 4.
+	if lie == Surface.Type.TEE and target != hole.pin:
+		return
+	var d := _flat_distance(ball_at, target)
 	for i in clubs.size():
 		if not clubs[i].is_putter and clubs[i].total_m * shot_model.reach_scale(clubs[i]) * power >= d:
 			club_index = i

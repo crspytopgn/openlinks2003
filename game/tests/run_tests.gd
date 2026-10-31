@@ -90,6 +90,7 @@ func _process(_delta: float) -> bool:
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
 	_run("pause_stops_play", _test_pause_stops_play)
+	_run("tee_view", _test_tee_view)
 	_run("rounds_recorded", _test_rounds_recorded)
 	_run("saved_round", _test_saved_round)
 	_run("viewer_return", _test_viewer_return)
@@ -2267,6 +2268,24 @@ func _test_team_drops() -> void:
 	game._process(0.0)
 	_check(game.hud.meter.visible, "drop: the meter is back after the drop")
 	GolfRound.setup = null
+
+
+## The first tee of the placeholder course: the driver comes out, and the
+## camera can see where the shot is aimed.
+func _test_tee_view() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	GolfRound.setup = null
+	game.start_round()
+	if game.camera.flying():
+		game.camera.end_flyover()
+	_check(game.lie == Surface.Type.TEE and game.hole.par >= 4, "tee view: a par 4 or 5 tee")
+	_check(game.club_index == 0, "tee view: the driver off the tee, not %s" % game.clubs[game.club_index].full_name)
+	var reach := game._flat_distance(game.ball_at, game._aim_target())
+	var far := game.ball_at + game._aim_dir() * reach
+	var target := Vector3(far.x, game.hole.terrain.height_at(far.x, far.z) + 1.0, far.z)
+	_check(RoundCamera.sight_clear(game.hole.terrain, game.camera._aim_pos, target), "tee view: the camera sees the target %.0f m away" % reach)
 
 
 ## The pause menu holds the round: the meter, the ball in flight and the
