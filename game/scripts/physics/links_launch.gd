@@ -195,6 +195,135 @@ static func lie_snap(ground_class: int) -> Vector3:
 	return Vector3(0.1, 0.0, 1.0)
 
 
+## How much a lie scales a computer golfer's misses (TerrainTypes AngleMiss
+## and PowerMiss, equal in every record). Mirrors olcore::links_lie_snap's
+## `miss`.
+static func lie_miss(ground_class: int) -> float:
+	match ground_class:
+		LinksGround.ROUGH, LinksGround.DIRT:
+			return 1.5
+		LinksGround.SAND:
+			return 1.9
+		LinksGround.PATH, LinksGround.ROCKS:
+			return 2.0
+		LinksGround.BUSHES:
+			return 1.4
+		LinksGround.DEEP_GRASS:
+			return 1.7
+	return 1.0
+
+
+## A computer golfer's steadiness with each kind of shot, 0 to 100 (more is
+## steadier). Mirrors olcore::LinksGolferRatings.
+class GolferRatings:
+	var tee := 85  ## tee shots
+	var woods := 85  ## clubs 0..6 off the ground
+	var long_irons := 85  ## clubs 7..9
+	var mid_irons := 85  ## clubs 10..12
+	var short_irons := 85  ## clubs 13..15
+	var wedges := 85  ## clubs 16..18
+	var chips := 85
+	var max_power := 100  ## percent; a plan past it is forced and misses more
+	var steady := false  ## halves the misses
+
+	## The same rating for every kind of shot.
+	static func even(rating: int) -> GolferRatings:
+		var g := GolferRatings.new()
+		g.tee = rating
+		g.woods = rating
+		g.long_irons = rating
+		g.mid_irons = rating
+		g.short_irons = rating
+		g.wedges = rating
+		g.chips = rating
+		return g
+
+
+## A computer golfer's planned swing, angles in degrees. Mirrors
+## olcore::LinksComputerSwing.
+class ComputerSwing:
+	var power := 100.0
+	var face_deg := 0.0
+	var path_deg := 0.0
+
+
+## The game's computer miss generator. Mirrors olcore::links_computer_miss
+## (see there and docs/formats/physics.md).
+@warning_ignore("integer_division")
+static func computer_miss(w: ComputerSwing, g: GolferRatings, club: int, teed_up: bool, chip: bool,
+		ground_class: int, feet_to_hole: float, rng: Rand) -> void:
+	var forced := int(w.power) - g.max_power if w.power > g.max_power else 0
+	var line := 0
+	var length := 0
+	if teed_up:
+		line = _draw(100 - (g.tee - forced), 6, rng)
+		length = _draw(100 - g.tee, 8, rng)
+	elif chip:
+		line = _draw(100 - g.chips, 8, rng)
+		length = _draw(100 - g.chips, 8, rng)
+	else:
+		var r := 0
+		if club >= 0 and club <= 6:
+			r = g.woods
+		elif club >= 7 and club <= 9:
+			r = g.long_irons
+		elif club >= 10 and club <= 12:
+			r = g.mid_irons
+		elif club >= 13 and club <= 15:
+			r = g.short_irons
+		elif club >= 16 and club <= 18:
+			r = g.wedges
+		line = _draw(100 - (r - 2 * forced), 8, rng)
+		length = _draw(100 - r, 8, rng)
+	var lie := lie_miss(ground_class)
+	var power_miss := length * lie * 0.125
+	var turn := minf(line * 0.5 * lie * 0.125, 5.0 if g.steady else 10.0)
+
+	# The direction miss turns the face or the path, either way.
+	if rng.next() % 100 < 50:
+		w.face_deg += turn if rng.next() % 100 < 50 else -turn
+	else:
+		w.path_deg += turn if rng.next() % 100 < 50 else -turn
+	if teed_up:
+		# The game means a random sign here but always adds.
+		power_miss += (rng.next() % 100) * 0.01
+		rng.next()
+		turn += (rng.next() % 100) * 0.01
+		rng.next()
+	if g.steady:
+		turn *= 0.5
+		power_miss *= 0.5
+
+	var power := w.power
+	if int(feet_to_hole) / 3 > 230 or rng.next() % 100 < 50:
+		power -= power_miss
+		power = _keep_positive(power, power_miss, 0.75)
+	else:
+		power += power_miss  # a positive plan stays positive
+	if turn != 0.0:
+		power -= turn * 0.5
+		power = _keep_positive(power, turn, 0.4)
+	w.power = power
+
+
+## Half the sum of two draws below `n` plus n / `bias` (0 when n is 0).
+@warning_ignore("integer_division")
+static func _draw(n: int, bias: int, rng: Rand) -> int:
+	if n == 0:
+		return 0
+	var a := rng.next() % n
+	var b := rng.next() % n
+	return (a + b + n / bias) / 2
+
+
+## A miss that would take all the power is backed off, step by step.
+static func _keep_positive(power: float, step: float, k: float) -> float:
+	while power <= 0.0:
+		step *= k
+		power += step
+	return power
+
+
 ## The PowerStroke meter's accuracy in whole steps for a snap `miss` meter
 ## units past the perfect zone (positive is late; clamped at 25). Mirrors
 ## olcore::links_meter_contact; `meter_width` is 150, 192 or 238.

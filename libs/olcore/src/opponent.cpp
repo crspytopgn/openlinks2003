@@ -11,11 +11,12 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 
 const SkillProfile kProfiles[kSkillLevelCount] = {
-    // name, power sd, accuracy sd, aim sd, putt pace sd, putt aim sd, mishit, strength, management
-    {"Weekend golfer", 0.075, 0.60, 2.0, 0.160, 1.90, 0.060, 0.80, false},
-    {"Club golfer", 0.055, 0.38, 1.4, 0.110, 1.50, 0.025, 0.88, true},
-    {"Scratch golfer", 0.040, 0.26, 1.0, 0.080, 1.25, 0.008, 0.95, true},
-    {"Tour pro", 0.030, 0.18, 0.8, 0.060, 1.00, 0.002, 1.00, true},
+    // name, power sd, accuracy sd, aim sd, putt pace sd, putt aim sd, mishit, strength, management,
+    // Links rating
+    {"Weekend golfer", 0.075, 0.60, 2.0, 0.160, 1.90, 0.060, 0.80, false, 40},
+    {"Club golfer", 0.055, 0.38, 1.4, 0.110, 1.50, 0.025, 0.88, true, 65},
+    {"Scratch golfer", 0.040, 0.26, 1.0, 0.080, 1.25, 0.008, 0.95, true, 85},
+    {"Tour pro", 0.030, 0.18, 0.8, 0.060, 1.00, 0.002, 1.00, true, 95},
 };
 
 struct Point {

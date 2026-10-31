@@ -10,12 +10,12 @@ enum Level { BEGINNER, CLUB, SCRATCH, TOUR }
 const LEVEL_NAMES := ["Weekend golfer", "Club golfer", "Scratch golfer", "Tour pro"]
 
 # power sd, accuracy sd, aim sd (deg), putt pace sd, putt aim sd (deg),
-# mishit chance, strength, course management
+# mishit chance, strength, course management, Links rating
 const PROFILES := [
-	[0.075, 0.60, 2.0, 0.160, 1.90, 0.060, 0.80, false],
-	[0.055, 0.38, 1.4, 0.110, 1.50, 0.025, 0.88, true],
-	[0.040, 0.26, 1.0, 0.080, 1.25, 0.008, 0.95, true],
-	[0.030, 0.18, 0.8, 0.060, 1.00, 0.002, 1.00, true],
+	[0.075, 0.60, 2.0, 0.160, 1.90, 0.060, 0.80, false, 40],
+	[0.055, 0.38, 1.4, 0.110, 1.50, 0.025, 0.88, true, 65],
+	[0.040, 0.26, 1.0, 0.080, 1.25, 0.008, 0.95, true, 85],
+	[0.030, 0.18, 0.8, 0.060, 1.00, 0.002, 1.00, true, 95],
 ]
 
 # (distance, strokes) pairs: putts by feet, and from the fairway by yards.
@@ -39,6 +39,10 @@ var putt_aim_sd_deg := 0.0
 var mishit_chance := 0.0
 var strength := 1.0
 var course_management := true
+## Steadiness, 0..100, for Links 2003's own miss generator
+## (LinksLaunch.computer_miss), which replaces execute() on full swings when
+## the Links physics is in use.
+var links_rating := 85
 
 
 func _init(p_level: int = Level.CLUB) -> void:
@@ -52,6 +56,7 @@ func _init(p_level: int = Level.CLUB) -> void:
 	mishit_chance = p[5]
 	strength = p[6]
 	course_management = p[7]
+	links_rating = p[8]
 
 
 func level_name() -> String:
