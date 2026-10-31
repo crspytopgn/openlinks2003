@@ -18,6 +18,7 @@ const DIM := Color(0.78, 0.86, 0.82)
 const RED := Color(0.86, 0.12, 0.12)
 const UNDER := Color(1.0, 0.45, 0.4)  ## scores under par, as on TV
 const TICKER_H := 28.0
+const CAPTION_LINE := 24.0
 const LOWER_THIRD_S := 4.5
 const SHOT_CARD_S := 6.0
 const HOLE_CARD_S := 5.5
@@ -291,14 +292,28 @@ func _draw_hole_card() -> void:
 		draw_texture_rect(_hole_map, Rect2(Vector2(x + (w - draw_size.x) * 0.5, y + 72), draw_size), false)
 
 
+## One line is centred in its box; several (drop options) are stacked
+## left-aligned, and the box grows upwards from the same bottom edge.
 func _draw_caption() -> void:
 	var fs := 18
-	var tw := _font.get_string_size(_caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var lines := _caption.split("\n")
+	var tw := 0.0
+	for line in lines:
+		tw = maxf(tw, _font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
 	var w := tw + 40.0
+	var h := caption_height(lines.size())
 	var fade := clampf(minf(_caption_t * 4.0, (_caption_len - _caption_t) * 2.0), 0.0, 1.0)
-	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 140.0, w, 34)
+	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 106.0 - h, w, h)
 	draw_rect(r, Color(PANEL_DARK, PANEL_DARK.a * fade))
-	_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)
+	if lines.size() == 1:
+		_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)
+		return
+	for i in lines.size():
+		_text(r.position + Vector2(20, 23 + i * CAPTION_LINE), lines[i], fs, Color(TEXT, fade))
+
+
+static func caption_height(line_count: int) -> float:
+	return 34.0 + CAPTION_LINE * maxf(line_count - 1, 0)
 
 
 func _draw_replay_bug() -> void:

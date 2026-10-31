@@ -179,7 +179,7 @@ func _process(delta: float) -> void:
 ## Shows a message; seconds <= 0 keeps it until the next one.
 func show_message(text: String, seconds := 0.0) -> void:
 	if broadcast:
-		overlay.caption(text.replace("\n", "    "), seconds)
+		overlay.caption(text, seconds)
 		message.text = ""
 		_message_time = 0.0
 		return
