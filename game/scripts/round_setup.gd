@@ -37,6 +37,9 @@ var practice := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null
+## A Career round: the id of the career round it plays (Career.round_id),
+## or "". Kept with a saved round but not with the setup.
+var career := ""
 ## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
 ## from their profile. Not saved with the setup.
 var indexes: Array[int] = []

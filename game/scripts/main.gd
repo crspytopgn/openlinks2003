@@ -50,6 +50,7 @@ const DRIVE_ARRIVE_M := 14.0  ## stopped this close, they get out and play
 const DRIVE_ARRIVE_GREEN_M := 40.0  ## the cart stays off the green
 const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
+const HINT_CAREER_DONE := "Space or click: back to your career    X: copy result code    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
 const REPLAY_SLOW := 0.35
@@ -109,6 +110,10 @@ var holes: Array[HoleData] = []
 var hole: HoleData
 var hole_index := 0
 var round_setup: RoundSetup
+## A Career round's title ("Kauri Classic, round 2") and the event
+## leaderboard before it, for the ticker; empty otherwise.
+var _career_title := ""
+var _career_board: Array[String] = []
 var scoring: RoundScoring
 var players: Array[PlayerBall] = []
 ## Each player's computer golfer, or null for a person.
@@ -298,6 +303,16 @@ func start_round() -> void:
 		numbers.append(h.number)
 		stroke_index.append(h.stroke_index)
 	scoring = RoundScoring.new(round_setup, pars, numbers, stroke_index)
+	_career_title = ""
+	_career_board.clear()
+	if not round_setup.career.is_empty():
+		var c := Career.load_saved()
+		if c != null and c.round_id() == round_setup.career:
+			_career_title = "%s, round %d" % [c.schedule[c.event].name, c.rounds_played() + 1]
+			if c.rounds_played() > 0:
+				_career_board.append("AFTER ROUND %d" % c.rounds_played())
+				for line in c.leaderboard_lines(5):
+					_career_board.append(line.to_upper())
 	for p in players:
 		if p.marker:
 			p.marker.queue_free()
@@ -447,6 +462,8 @@ func prepare_return() -> void:
 
 
 func _round_name() -> String:
+	if not _career_title.is_empty():
+		return _career_title
 	var title := course.course_name
 	if holes.size() < course.holes.size():
 		title += "  (%s)" % RoundSetup.HOLES_NAMES[round_setup.holes].to_lower()
@@ -916,7 +933,10 @@ func _on_swing_pressed() -> void:
 		State.HOLE_DONE:
 			_next_hole()
 		State.ROUND_DONE:
-			start_round()
+			if round_setup.career.is_empty():
+				start_round()
+			else:
+				_quit_to_menu()
 
 
 ## Esc (Start on a pad, the menu button on a touch screen): back out of the
@@ -1744,9 +1764,13 @@ func _next_hole() -> void:
 		text += "\nTheir round: " + round_setup.challenge.summary()
 	if not records.is_empty():
 		text += "\n" + records
+	if not round_setup.career.is_empty():
+		var report := _record_career()
+		if not report.is_empty():
+			text = report + "\n" + text
 	hud.show_message(text)
 	hud.scorecard.show_round(scoring, _round_name(), "Final")
-	hud.hint.text = HINT_DONE
+	hud.hint.text = HINT_DONE if round_setup.career.is_empty() else HINT_CAREER_DONE
 
 
 ## Keeps the finished round in user://replays/ (RoundRecord).
@@ -1787,6 +1811,26 @@ func _record_rounds() -> String:
 	if not lines.is_empty():
 		profiles.save()
 	return "\n".join(lines)
+
+
+## A Career round (RoundSetup.career): adds everyone's finished card to the
+## event (Career.record_round) and says what it meant. The person is seat 0.
+func _record_career() -> String:
+	var c := Career.load_saved()
+	if c == null:
+		return ""
+	var played := {}
+	for i in scoring.player_count():
+		var cd := scoring.cards[i]
+		if cd.holes_played() == cd.pars.size():
+			played[scoring.names[i]] = cd.to_par()
+	var me := scoring.cards[0]
+	var text := c.record_round(round_setup.career, played, me.pars.size(), me.total_par(), me.total_strokes())
+	if text.is_empty():
+		return ""
+	c.save()
+	Career.open_on_menu = true
+	return text
 
 
 func _quit_to_menu() -> void:
@@ -2575,6 +2619,13 @@ func _ticker_text() -> String:
 	if round_setup.mode == GameModes.Mode.MATCH:
 		# standings() is the final result ("Ann wins"); mid-match say who leads.
 		parts.append(scoring.status_text().to_upper())
+	elif not _career_title.is_empty():
+		parts.append(_career_title.to_upper())
+		parts.append_array(_career_board)
+		parts.append("HOLE %d OF %d" % [hole_index + 1, holes.size()])
+		var thru_c := card.holes_played()
+		if thru_c > 0:
+			parts.append("TODAY %s THRU %d" % [Scorecard.format_to_par(card.to_par()), thru_c])
 	elif scoring.player_count() > 1:
 		parts.append("LEADERBOARD")
 		parts.append_array(leaderboard_lines(scoring.standings()))

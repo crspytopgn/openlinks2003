@@ -46,6 +46,7 @@ func _initialize() -> void:
 	_run("player_profiles", _test_player_profiles)
 	_run("round_setup", _test_round_setup)
 	_run("round_scoring", _test_round_scoring)
+	_run("career", _test_career)
 	_run("drop_rules_match_olcore", _test_drop_rules_match_olcore)
 	_run("drop_rules_hazards_and_bounds", _test_drop_rules_hazards_and_bounds)
 	_run("rest_out_of_bounds", _test_rest_out_of_bounds)
@@ -108,6 +109,7 @@ func _process(_delta: float) -> bool:
 	_run("viewer_return", _test_viewer_return)
 	_run("retee_after_ob", _test_retee_after_ob)
 	_run("players_panel", _test_players_panel)
+	_run("career_round", _test_career_round)
 	SavedRound.clear()
 	_run("menu_resume", _test_menu_resume)
 	SavedRound.clear()
@@ -2928,6 +2930,164 @@ func _test_saved_round() -> void:
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE, "resumed round finishes")
 	_check(not SavedRound.exists(), "a finished round is no longer saved")
+	GolfRound.setup = null
+
+
+## Career mode's tour logic, without playing: the field, the schedule, the
+## purse shares, the cut, a win, a withdrawal, saving and the season's end.
+func _test_career() -> void:
+	Career.path = "user://test_career.cfg"
+	Career.remove()
+	var keys: Array[String] = ["Courses/A.crz", "Courses/B.crz"]
+	var titles: Array[String] = ["Alpha Golf Club", "Bravo Links"]
+	var c := Career.create("Ann", 2, 4, 4, false, 2, keys, titles, 77)
+	_check(c.names.size() == 132 and c.names[-1] == "Ann" and c.skills.size() == 131, "career: World Tour field of 131 plus Ann")
+	var seen := {}
+	for n in c.names:
+		seen[n.to_lower()] = true
+	_check(seen.size() == c.names.size(), "career: every golfer has their own name")
+	_check(c.skills[0] < c.skills[130], "career: the field is listed best first")
+	_check(c.schedule.size() == 4 and str(c.schedule[3].name) == "World Championship" and int(c.schedule[3].purse) == 16000000, "career: schedule %s" % [c.schedule])
+	for ev: Dictionary in c.schedule:
+		_check(keys.has(str(ev.course_key)), "career: events are on the player's courses")
+	_check(Career.format_money(1234567) == "$1,234,567" and Career.format_money(0) == "$0" and Career.format_money(950) == "$950", "career: money text")
+
+	# The purse: shares add up to it; ties split their places; a playoff
+	# winner takes first alone.
+	var totals: Array[int] = []
+	for i in 65:
+		totals.append(i - 20)
+	var pay := Career.payouts(totals, 1000000, 65, 65, false)
+	var sum := 0
+	for p in pay:
+		sum += p
+	_check(absi(sum - 1000000) <= 65 and pay[0] > pay[1] and pay[1] > pay[2], "career: the purse is paid out (%d)" % sum)
+	var tied := Career.payouts(_ints([-10, -8, -8, -5]), 1000000, 65, 65, false)
+	_check(tied[1] == tied[2] and tied[1] == roundi(1000000.0 * (Career.PAYOUT[1] + Career.PAYOUT[2]) / 2.0 / 100.0), "career: ties split their places: %s" % [tied])
+	var po := Career.payouts(_ints([-10, -10, -9]), 1000000, 65, 65, true)
+	_check(po[0] > po[1] and po[1] > po[2], "career: a playoff winner takes first: %s" % [po])
+	var unpaid := Career.payouts(_ints([1, 2, 3, 3, 5]), 1000, 3, 3, false)
+	_check(unpaid[2] == unpaid[3] and unpaid[2] > 0 and unpaid[4] == 0, "career: ties on the last paid place are paid: %s" % [unpaid])
+
+	# Event 1: two bad rounds miss the cut.
+	var s := c.next_setup()
+	_check(s != null and s.names.size() == 3 and s.names[0] == "Ann" and s.computer[0] == RoundSetup.HUMAN and s.computer[1] != RoundSetup.HUMAN, "career: Ann plays with two computer golfers")
+	_check(s.problem().is_empty() and s.mode == GameModes.Mode.STROKE and s.career == c.round_id(), "career: a stroke play round of this career")
+	_check(c.record_round("not this round", {"Ann": 0}, 18, 72, 72).is_empty(), "career: another round's card is ignored")
+	var partner := c.names.find(s.names[1])
+	var text := c.record_round(s.career, {"Ann": 20, s.names[1]: -3}, 18, 72, 92)
+	_check(not text.is_empty() and c.rounds_played() == 1, "career: round 1 counts: %s" % text)
+	_check(int(c.scores[partner][0]) == -3, "career: a partner's real round counts")
+	s = c.next_setup()
+	text = c.record_round(s.career, {"Ann": 20}, 18, 72, 92)
+	_check(text.contains("Missed the cut"), "career: missed the cut: %s" % text)
+	_check(c.event == 1 and str(c.results[0].status) == "MC" and int(c.stats.cuts_missed) == 1, "career: on to event 2")
+	var paid := 0
+	for m in c.money:
+		paid += m
+	_check(paid >= 8000000 * 0.95 and paid <= 8000000 * 1.15, "career: event 1 paid out its purse (%d)" % paid)
+	print("  " + text)
+
+	# Event 2: a record low wins.
+	for r in 4:
+		s = c.next_setup()
+		_check(s != null, "career: round %d to play" % (r + 1))
+		if s != null:
+			text = c.record_round(s.career, {"Ann": -12}, 18, 72, 60)
+	_check(c.event == 2 and int(c.results[1].pos) == 1 and int(c.stats.wins) == 1, "career: Ann wins: %s" % text)
+	_check(int(c.results[1].money) == roundi(8000000.0 * Career.PAYOUT[0] / _payout_sum(65)), "career: the winner's share: %d" % int(c.results[1].money))
+	print("  " + text)
+	print("  " + c.career_text())
+
+	# Saved and loaded, then a withdrawal.
+	c.save()
+	var d := Career.load_saved()
+	_check(d != null and d.names == c.names and d.money == c.money and d.round_id() == c.round_id() and d.stats == c.stats, "career: saved and loaded")
+	d.withdraw()
+	_check(d.event == 3 and str(d.results[2].status) == "WD", "career: a withdrawal plays the event out")
+	for r in 4:
+		s = d.next_setup()
+		if s != null:
+			d.record_round(s.career, {"Ann": -10}, 18, 72, 62)
+	_check(d.season_over() and d.next_setup() == null, "career: the season is over")
+	_check(d.money_rank() <= 3 and d.season_move() == 0, "career: Ann keeps her card")
+	print("  " + d.season_text())
+	for line in d.money_lines(3):
+		print("    " + line)
+	d.start_next_season()
+	_check(d.season == 2 and d.history.size() == 1 and d.tour == 2 and d.event == 0 and d.results.is_empty(), "career: season 2")
+
+	# The Regional Tour: one-round nine-hole events, no partners, moving up.
+	var e := Career.create("Bo", 0, 1, 1, true, 0, [] as Array[String], [] as Array[String], 5)
+	_check(e.names.size() == 60 and e.course_keys == _strs([""]), "career: the placeholder course stands in")
+	s = e.next_setup()
+	_check(s.names == _strs(["Bo"]) and s.holes == RoundSetup.Holes.FRONT_NINE and s.tees == RoundSetup.Tees.MIDDLE, "career: a quick nine on your own")
+	e.record_round(s.career, {"Bo": -9}, 9, 36, 27)
+	_check(e.season_over() and e.money_rank() == 1 and e.season_move() == 1, "career: top of the money list moves up")
+	e.start_next_season()
+	_check(e.tour == 1 and e.names.size() == 96, "career: on to the Challenge Tour")
+
+	SavedRound.save(c.next_setup(), {"hole": 0})
+	_check(SavedRound.load_setup().career == c.round_id(), "career: a saved round keeps its career round")
+	SavedRound.clear()
+	Career.remove()
+
+
+static func _payout_sum(n: int) -> float:
+	var t := 0.0
+	for i in n:
+		t += Career.PAYOUT[i]
+	return t
+
+
+## A Career round played through the real round: the event takes the cards.
+func _test_career_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	Career.path = "user://test_career.cfg"
+	var c := Career.create("Cara", 1, 2, 1, false, 1, [] as Array[String], [] as Array[String], 9)
+	c.save()
+	Career.open_on_menu = false
+	var s := c.next_setup()
+	GolfRound.setup = s
+	game.start_round()
+	_check(game._career_title.begins_with(str(c.schedule[0].name)), "career round: titled %s" % game._career_title)
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 3000:
+		game.auto_play_step()
+		steps += 1
+	_check(game.state == GolfRound.State.ROUND_DONE, "career round finishes")
+	var after := Career.load_saved()
+	_check(after != null and after.event == 1 and after.results.size() == 1, "career round: the event is played")
+	if after != null and after.results.size() == 1:
+		_check(int(after.results[0].to_par) == game.scoring.cards[0].to_par(), "career round: Cara's score counts")
+		print("  " + after.result_text(0))
+	_check(Career.open_on_menu, "career round: the menu opens the Career page")
+	_check(PlayerProfiles.load_saved().rounds("Cara").size() == 1, "career round: on Cara's profile too")
+	Career.open_on_menu = false
+
+	# The Career page: the season so far, then a new career from scratch.
+	var panel := CareerPanel.new()
+	root.add_child(panel)
+	panel.open(PackedStringArray(), PackedStringArray())
+	_check(panel.visible and panel._view_box.visible and panel._play.text == "Play round 1", "career page: next round (%s)" % panel._play.text)
+	_check(panel._summary.text.begins_with("Cara: Challenge Tour, season 1"), "career page: %s" % panel._summary.text)
+	var asked: Array[RoundSetup] = []
+	panel.play_pressed.connect(func(rs: RoundSetup) -> void: asked.append(rs))
+	panel._on_play()
+	_check(asked.size() == 1 and asked[0].career == Career.load_saved().round_id(), "career page: plays the next round")
+	panel._on_end()
+	_check(Career.exists(), "career page: the first press only asks")
+	panel._on_end()
+	_check(not Career.exists() and panel._new_box.visible, "career page: ended")
+	panel._player.text = "Dee"
+	panel._tour.select(0)
+	panel._on_play()
+	var fresh := Career.load_saved()
+	_check(fresh != null and fresh.player == "Dee" and fresh.tour == 0 and fresh.events_per_season == 8, "career page: a new career")
+	panel.queue_free()
+	Career.remove()
 	GolfRound.setup = null
 
 

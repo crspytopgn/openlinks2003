@@ -21,6 +21,7 @@ var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
 var _settings: SettingsPanel
 var _players: PlayersPanel
+var _career: CareerPanel
 var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
@@ -73,6 +74,10 @@ func _build_ui() -> void:
 	_players = PlayersPanel.new()
 	_players.back_pressed.connect(_close_players)
 	center.add_child(_players)
+	_career = CareerPanel.new()
+	_career.back_pressed.connect(_close_career)
+	_career.play_pressed.connect(_on_career_play)
+	center.add_child(_career)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -178,6 +183,7 @@ func _ask_for_files(problem := "") -> void:
 		["Load disc images...", _pick.bind(false)],
 		["Load a game folder...", _pick.bind(true)],
 		["Play with placeholders", _play_placeholders],
+		["Career", _open_career],
 		["Course designer", _open_designer],
 		["Players", _open_players],
 		["Settings", _open_settings],
@@ -277,6 +283,7 @@ Saved round: %s." % SavedRound.describe()
 	var items: Array = [["Play a round", _open_setup]]
 	if _can_resume():
 		items.append(["Resume round", _resume_round])
+	items.append(["Career", _open_career])
 	items += extra + [["Players", _open_players], ["Course designer", _open_designer], ["Settings", _open_settings]]
 	if not OS.has_feature("web"):
 		items.append(["Quit", get_tree().quit])
@@ -286,6 +293,10 @@ Saved round: %s." % SavedRound.describe()
 	else:
 		_community_hint.text = "Download a course and put its .crz in your game folder's Courses folder."
 	_community.visible = true
+	# Back from a Career round: straight to the Career page.
+	if Career.open_on_menu:
+		Career.open_on_menu = false
+		_open_career()
 
 
 func _play_placeholders() -> void:
@@ -334,6 +345,49 @@ func _close_players() -> void:
 	SceneFade.pop_in(_main_box)
 	if _play:
 		_play.grab_focus.call_deferred()
+
+
+func _open_career() -> void:
+	if _busy:
+		return
+	_setup_paths = _all_courses()
+	var titles := PackedStringArray()
+	for path in _setup_paths:
+		titles.append(CourseFiles.display_name(path))
+	_main_box.visible = false
+	_settings.close()
+	_players.close()
+	_career.open(_setup_paths, titles)
+	SceneFade.pop_in(_career)
+
+
+func _close_career() -> void:
+	_career.close()
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
+## Plays the next Career round on its event's course, carrying on with it if
+## it was saved part way through.
+func _on_career_play(chosen: RoundSetup) -> void:
+	if _busy or chosen == null:
+		return
+	var slot := 0
+	if not chosen.course_key.is_empty():
+		_setup_paths = _all_courses()
+		slot = _setup_paths.find(chosen.course_key) + 1
+		if slot <= 0:
+			_career.set_problem("%s isn't among your courses now. Load your game files again, or withdraw from this event." % chosen.course_name)
+			return
+	var saved := SavedRound.load_setup()
+	GolfRound.resume = {}
+	if saved != null and saved.career == chosen.career:
+		chosen = saved
+		GolfRound.resume = SavedRound.load_state()
+	_career.close()
+	_launch(chosen, slot)
 
 
 ## Every course the setup page offers after the placeholder: the game's
@@ -396,6 +450,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_close_setup()
 		elif _players.visible:
 			_close_players()
+		elif _career.visible:
+			_close_career()
 
 
 static func _last_course() -> String:
@@ -472,6 +528,7 @@ func _show_desktop_choice() -> void:
 	_set_buttons([
 		["Choose game folder...", _choose_folder],
 		["Play with placeholders", _play_placeholders],
+		["Career", _open_career],
 		["Course designer", _open_designer],
 		["Players", _open_players],
 		["Settings", _open_settings],
