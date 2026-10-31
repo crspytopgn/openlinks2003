@@ -252,6 +252,28 @@ func _test_caddie_and_buggy_in_round() -> void:
 				game.buggy.step(1.0 / 30.0, 1.0, 0.0, game.hole.terrain)
 			_check(game.buggy.drive.position.distance_to(from) > 1.0 or game.buggy.drive.blocked, "the buggy drives")
 			game._process_drive(1.0 / 30.0)
+			# By touch: a drag up drives, sideways steers, a tap skips.
+			var down := InputEventScreenTouch.new()
+			down.index = 0
+			down.pressed = true
+			down.position = Vector2(400, 500)
+			_check(game._drive_touch_input(down), "a finger takes the wheel")
+			var drag := InputEventScreenDrag.new()
+			drag.index = 0
+			drag.position = Vector2(445, 410)
+			game._drive_touch_input(drag)
+			_check(game._drive_stick.y < -0.9 and game._drive_stick.x > 0.4, "dragging up and right is pedal down and steering right")
+			var speed := game.buggy.drive.speed
+			for i in 30:
+				game._process_drive(1.0 / 30.0)
+			_check(game.buggy.drive.speed > speed or game.buggy.drive.blocked, "the touch pedal drives")
+			var up := InputEventScreenTouch.new()
+			up.index = 0
+			game._drive_touch_input(up)
+			_check(game._drive_stick == Vector2.ZERO and game.state == GolfRound.State.DRIVE, "letting go after a drag doesn't skip")
+			game._drive_touch_input(down)
+			game._drive_touch_input(up)
+			_check(game.state != GolfRound.State.DRIVE, "a tap skips to the ball")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE, "the round finishes with the caddie and buggy")
@@ -1428,8 +1450,8 @@ func _test_buggy_drive() -> void:
 	b.free()
 
 
-## Everything at its real size: the cart against a Club Car Precedent's
-## published dimensions, the golfer and caddie against an average man, the
+## Everything at its real size: the cart against the published dimensions
+## of a current two-seat fleet cart, the golfer and caddie against an average man, the
 ## bag, the ball and the hole against the Rules of Golf.
 func _test_real_scale() -> void:
 	var cart := (load(GolfBuggy.MODEL_PATH) as PackedScene).instantiate() as Node3D
@@ -1438,9 +1460,9 @@ func _test_real_scale() -> void:
 	var wheel := cart.find_child("Wheel_RR", true, false) as MeshInstance3D
 	var outer := wheel.position.x + wheel.get_aabb().end.x
 	print("  cart: %.2f m long, %.2f m wide, %.2f m high, wheels %.3f m radius" % [box.size.z, maxf(box.size.x, 2.0 * outer), box.end.y, wheel.get_aabb().end.y])
-	_check_near(box.size.z, 2.39, 0.03, "cart length (Precedent 2.39 m)")
-	_check_near(maxf(box.size.x, 2.0 * outer), 1.19, 0.03, "cart width (1.19 m)")
-	_check_near(box.end.y, 1.76, 0.03, "cart height to the canopy (1.76 m)")
+	_check_near(box.size.z, 2.38, 0.02, "cart length (2.38 m)")
+	_check_near(maxf(box.size.x, 2.0 * outer), 1.20, 0.02, "cart width (1.20 m)")
+	_check_near(box.end.y, 1.765, 0.02, "cart height to the sun top (1.765 m)")
 	_check_near(wheel.get_aabb().end.y, 0.2286, 0.003, "18 in tyres")
 	_check_near(absf((cart.find_child("Wheel_FR", true, false) as Node3D).position.z - wheel.position.z), BuggyDrive.WHEELBASE, 0.01, "wheelbase matches the physics")
 	cart.free()
