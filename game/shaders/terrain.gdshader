@@ -33,8 +33,15 @@ uniform float texture_strength = 0.85;
 // brightness), which tames the flat, saturated surface colours.
 uniform float photo_mix = 0.5;
 
+uniform float stripe_metres = 7.0; // width of one mowing stripe
+uniform float stripe_strength = 0.07;
+// The sand colour the mesh uses (sRGB), to undo its blend into the grass:
+// the bunker edge is drawn crisp from the sand weight instead.
+uniform vec3 sand_vertex = vec3(0.78, 0.72, 0.55);
+
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
+varying vec2 stripes; // across the hole (m), stripe strength
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -67,6 +74,7 @@ float fbm(vec2 p) {
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	weights = UV2;
+	stripes = vec2(UV.x, clamp(-UV.y, 0.0, 1.0));
 }
 
 // A texture sampled at two scales, so its repeat is hard to see.
@@ -80,8 +88,20 @@ void fragment() {
 	float close_up = 1.0 - smoothstep(grain_fade_start, grain_fade_end, length(VERTEX));
 	float fine = (value_noise(p * 2.7) - 0.5) + 0.5 * (value_noise(p * 7.3) - 0.5);
 
-	// The mesh colours are authored in sRGB; lighting works in linear.
+	// The bunker's edge: the vertex sand weight blends over a whole grid
+	// cell, so sharpen it to a trimmed, slightly ragged line, take the sand
+	// colour back out of the grass beside it, and shade a lip of turf
+	// where the bank drops into the bunker.
+	float wy = clamp(weights.y, 0.0, 1.0);
+	float edge_noise = value_noise(p * 1.7) - 0.5;
+	float sand = smoothstep(0.42, 0.5, wy + edge_noise * 0.12);
 	vec3 c = COLOR.rgb;
+	if (wy > 0.0 && wy < 0.97) {
+		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
+		c = mix(turf, sand_vertex, sand);
+	}
+	float lip = smoothstep(0.02, 0.4, wy) * (1.0 - sand);
+	// The mesh colours are authored in sRGB; lighting works in linear.
 	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
 	vec3 col = base * (1.0 + patches * variation * 2.0);
 	ROUGHNESS = 0.95;
@@ -89,7 +109,7 @@ void fragment() {
 
 	if (textured) {
 		vec2 uv = p / texture_metres;
-		float w_sand = clamp(weights.y, 0.0, 1.0);
+		float w_sand = sand;
 		float w_rough = clamp(weights.x, 0.0, 1.0) * (1.0 - w_sand);
 		float w_grass = 1.0 - w_sand - w_rough;
 		vec3 g = two_scale(grass_albedo, uv).rgb;
@@ -119,5 +139,14 @@ void fragment() {
 		vec3 tilt = (VIEW_MATRIX * vec4(-hx, 0.0, -hz, 0.0)).xyz;
 		NORMAL = normalize(NORMAL + tilt * bump * close_up);
 	}
+	// Mowing stripes along the hole, crisp-edged, alternately lighter and
+	// darker, as the mower lays the grass one way and then the other.
+	if (stripes.y > 0.0) {
+		float u = stripes.x / stripe_metres;
+		float aa = max(fwidth(u), 0.001);
+		float band = smoothstep(-aa, aa, sin(u * 3.14159) * 0.35);
+		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y;
+	}
+	col *= 1.0 - 0.35 * lip;
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
 }

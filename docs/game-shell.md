@@ -11,6 +11,8 @@ the browser and on desktop today.
 | --- | --- |
 | Left / Right | Aim (hold Shift for fine aim) |
 | Up / Down | Change club (the game picks one for you each shot) |
+| Q / E | Shape the shot: draw or fade, one degree at a time (up to 6) |
+| W / S | Hit it higher or lower: the ball one step forward or back (up to 3) |
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
@@ -57,6 +59,39 @@ and hooks the ball left, late pushes and slices it right.
 The yellow ring shows where a full swing would land (for putts, the hole
 distance). Holes run tee to cup, then on to the next. Out of bounds is
 stroke and distance. A hole is picked up at 10 strokes.
+
+Shot shaping uses Links 2003's own shot setup (ball position, club face and
+stance, `LinksLaunch.Setup`) through `ShotShape`: a fade turns the stance,
+and so the swing path, left of the target and the face back square to it,
+so the ball starts on line and curves right; a draw is the reverse. Moving
+the ball forward launches it higher with more spin, back lower with less.
+The shape resets to square each shot and is kept in the shot record, so
+replays and result codes play it back. With the game's executable the
+game's own launch does the rest; the stand-in physics starts the ball 75%
+along the face and adds 160 rpm of sidespin per degree of face to path, and
+1 degree of launch and 5% of backspin per ball step. The limits (6 degrees,
+3 steps) are ours: the game's setup screen limits are not read yet.
+
+### Gimmes
+
+Settings > Gimmes (off by default, as in Links 2003): a ball that stops on
+the green inside 2, 3 or 4 feet of the hole is conceded for one stroke and
+counted as a putt. The conceded stroke is kept with the round's drops
+(`"gimme": true`, penalty 1), so the replay checker adds it to the card.
+Never in a friend's round from a result code, nor in a scramble, whose best
+ball is picked only after everyone has played.
+
+### Practice range
+
+Round setup > Play > Practice range: one person hits from the tee of the
+chosen course as often as they like. The ball comes back after each shot,
+nothing is scored or saved, and N and B move to the next or previous hole
+for other targets. A launch monitor (`LaunchMonitor`, `LaunchMonitorPanel`)
+shows each shot's ball speed, launch angle, back and side spin (from the
+launch the shot model made, `ShotResult.launch`), carry, total, offline,
+apex and descent angle, and the session's average carry, total and
+left-right spread with that club. With the game's files on the `.RNG`
+driving range course this is the range Links 2003 has.
 
 ### Drops
 
@@ -229,6 +264,11 @@ its index, rounds and last date. Picking a player shows their career line
 their recent rounds with each round's stats, and stars the rounds the index
 counts. Delete asks once more, then removes
 the profile.
+
+Each profile also keeps personal records (`PlayerProfiles.records`): the
+best score per course and round length, the longest drive (a driver from
+the tee that stays in play), and counts of birdies, eagles and holes in
+one. The players page shows them under the career line.
 
 ### Saved rounds
 

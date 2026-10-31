@@ -19,6 +19,11 @@ uniform bool bake = false;
 // from the camera an instance collapses to a point and its impostor shows.
 uniform bool instanced = false;
 uniform vec2 leaf_grid = vec2(3.0, 2.0); // leaves in the leaf texture
+// Leaves across a card: with TreeFactory's cards of 1.4 to 2 m, a leaf
+// is 20 to 30 cm.
+uniform float leaf_cells = 7.0;
+uniform vec3 leaf_tint = vec3(0.54, 0.64, 0.4);
+uniform float fill = 0.12; // TreeFactory raises it for Compatibility
 uniform vec3 leaf_dark : source_color = vec3(0.16, 0.27, 0.08);
 uniform vec3 leaf_light : source_color = vec3(0.36, 0.47, 0.16);
 uniform vec3 needle_dark : source_color = vec3(0.07, 0.17, 0.08);
@@ -29,6 +34,8 @@ global uniform float foliage_sway;
 global uniform float tree_impostor_distance;
 
 varying vec4 info;
+
+#include "res://shaders/tree_wind.gdshaderinc"
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -45,29 +52,29 @@ void vertex() {
 		vec3 root = MODEL_MATRIX[3].xyz;
 		float phase = dot(root.xz, vec2(0.37, 0.23)) + COLOR.r * 6.28;
 		float speed = min(length(wind_vector), 15.0);
-		// The wind in the tree's own frame (turned about y, uniform scale).
-		vec3 wind_local = (vec4(wind_vector.x, 0.0, wind_vector.y, 0.0) * MODEL_MATRIX).xyz;
-		wind_local /= max(dot(MODEL_MATRIX[0].xyz, MODEL_MATRIX[0].xyz), 0.0001);
-		float gust = 0.6 + 0.4 * sin(TIME * 0.9 + phase);
+		// The whole tree leans and rocks (as the bark does); each card
+		// also flutters on its own, more at the outside of the crown.
+		VERTEX += tree_bend(VERTEX, MODEL_MATRIX, foliage_sway, wind_vector, TIME);
 		vec3 flutter = vec3(sin(TIME * 2.7 + phase), sin(TIME * 3.1 + phase * 1.3), cos(TIME * 2.3 + phase));
-		VERTEX += (wind_local * 0.012 * gust + flutter * (0.02 + speed * 0.006)) * COLOR.b * foliage_sway;
+		VERTEX += flutter * (0.02 + speed * 0.006) * COLOR.b * foliage_sway;
 	}
 }
 
 void fragment() {
-	float cells = needles ? 1.0 : 4.0;
+	float cells = needles ? 1.0 : (info.a < 0.5 ? leaf_cells * 3.0 : leaf_cells);
 	vec2 g = UV * cells;
 	vec2 cell = floor(g);
 	float h = hash(cell + info.r * 17.0);
 	float h2 = hash(cell.yx + h * 9.1);
 	vec3 col;
 	float alpha;
-	if (info.a < 0.5) {
+	bool core = info.a < 0.5;
+	if (core && needles) {
 		// Core cards: a solid, shaded mass inside the crown, so the gaps
-		// between leaves show foliage rather than sky.
+		// between needles show foliage rather than sky.
 		vec2 q = UV - 0.5;
 		alpha = length(q) < 0.47 - 0.06 * hash(floor(UV * 6.0) + h) ? 1.0 : 0.0;
-		col = (needles ? needle_dark : leaf_dark) * (0.55 + 0.2 * h);
+		col = needle_dark * (0.55 + 0.2 * h);
 	} else if (needles) {
 		// A sprig along v: a stem with needles slanting towards the tip,
 		// shortening towards it.
@@ -78,12 +85,21 @@ void fragment() {
 		alpha = (needle < 0.6 && across < envelope) || across < 0.05 ? 1.0 : 0.0;
 		col = mix(needle_dark, needle_light, fract(info.r * 7.0 + p.y * 0.6));
 	} else {
-		vec2 f = fract(g) - 0.5;
+		// A clump of leaves: one per cell, nudged off the cell's middle
+		// and dropped more often towards the card's rim, so a card reads
+		// as a round, ragged spray of leaves, not a square.
+		float h3 = hash(cell * 1.7 + info.r * 5.3 + 0.37);
+		float rim = length((cell + 0.5) / cells - 0.5) * 2.0;
+		// Core cards (the crown's shaded middle) are packed full of leaves
+		// inside their round outline.
+		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * 0.95 + 0.06;
+		vec2 jitter = (vec2(h3, fract(h3 * 13.7)) - 0.5) * 0.16;
+		vec2 f = fract(g) - 0.5 - jitter;
 		float a = h * 6.2831;
-		float k = 0.95 + h2 * 0.2;
+		float k = 1.08 + h2 * 0.3;
 		mat2 turn = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a))) * k;
 		vec2 luv = turn * f + 0.5;
-		bool inside = all(greaterThanEqual(luv, vec2(0.0))) && all(lessThanEqual(luv, vec2(1.0)));
+		bool inside = keep && all(greaterThanEqual(luv, vec2(0.0))) && all(lessThanEqual(luv, vec2(1.0)));
 		float idx = floor(h2 * leaf_grid.x * leaf_grid.y);
 		vec2 slot = vec2(mod(idx, leaf_grid.x), floor(idx / leaf_grid.x));
 		vec2 auv = (slot + clamp(luv, vec2(0.01), vec2(0.99))) / leaf_grid;
@@ -102,21 +118,29 @@ void fragment() {
 		if (has_texture) {
 			// The photo is of single leaves in flat light; in a crown they
 			// read darker and greener.
-			col = photo * vec3(0.5, 0.62, 0.36) * mix(0.75, 1.1, info.r);
+			col = photo * leaf_tint * mix(0.75, 1.1, info.r);
 			alpha = inside ? o : 0.0;
 		} else {
 			vec2 q = (luv - 0.5) * vec2(2.4, 1.8);
 			alpha = inside && length(q) < 1.0 ? 1.0 : 0.0;
 			col = mix(leaf_dark, leaf_light, h * 0.6 + info.r * 0.4);
 		}
+		// Each leaf faces its own way, so leaves next to each other catch
+		// the light differently; a few are yellower or bluer.
+		col *= mix(0.62, 1.22, h3);
+		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
 	}
 	// Inner leaves sit in the crown's own shade.
-	col *= mix(0.35, 1.0, info.g * info.g);
+	col *= core ? (needles ? 1.0 : 0.5) : mix(0.45, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col;
 	} else {
 		ALBEDO = col;
+		// Light from the sky and through neighbouring leaves, which the
+		// renderer's ambient misses (Compatibility has no sky fill), so a
+		// crown's shaded side stays green instead of black.
+		EMISSION = col * fill;
 	}
 	ALPHA = alpha;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
@@ -131,7 +155,7 @@ void fragment() {
 // behind them, and no specular highlights, which sparkled on the leaf
 // edges.
 void light() {
-	float wrap = clamp((dot(NORMAL, LIGHT) + 0.4) / 1.4, 0.0, 1.0);
+	float wrap = clamp((dot(NORMAL, LIGHT) + 0.5) / 1.5, 0.0, 1.0);
 	float through = pow(clamp(dot(-VIEW, LIGHT), 0.0, 1.0), 3.0) * 0.35;
 	DIFFUSE_LIGHT += (wrap + through) * ATTENUATION * LIGHT_COLOR / PI;
 }

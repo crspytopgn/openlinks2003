@@ -35,6 +35,10 @@ var handicaps := false
 var round_seed := 0
 ## Wind strength (Wind.Level) for this round, or -1 for the player's setting.
 var wind_level := -1
+## The practice range: one person hits from the tee as often as they like,
+## the ball comes back, and a launch monitor shows each shot. No scores.
+## Not saved with the setup.
+var practice := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null
@@ -84,6 +88,12 @@ static func computer_index(level: int) -> int:
 
 ## Why this setup can't be played, or "" if it can.
 func problem() -> String:
+	if practice:
+		if player_count() != 1 or is_computer(0):
+			return "The practice range is for one person: set Players to 1 player, Human."
+		if challenge != null:
+			return "A friend's round can't be played on the practice range."
+		return ""
 	var r := GameModes.player_range(mode)
 	var n := player_count()
 	if n < r.x or n > r.y:
