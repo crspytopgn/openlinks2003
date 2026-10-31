@@ -103,8 +103,8 @@ func add_landing(terrain: CourseTerrain, at: Vector3, travel: Vector3, speed: fl
 ## Footprints for a golfer in a bunker: the two feet of the stance beside
 ## the ball, and the walk in from behind it, stride by stride, up to where
 ## the sand ends. `left` is the golfer's side of the ball.
-func add_footprints(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3) -> void:
-	for spot in footprint_spots(terrain, ball, aim_dir, left):
+func add_footprints(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3, stance := STANCE_WOOD) -> void:
+	for spot in footprint_spots(terrain, ball, aim_dir, left, stance):
 		var turn := deg_to_rad(_rng.randf_range(-12.0, 12.0))
 		_add(terrain, Kind.FOOTPRINT, spot[0], (spot[1] as Vector3).rotated(Vector3.UP, turn), FOOT_SIZE)
 
@@ -112,14 +112,30 @@ func add_footprints(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, lef
 const FOOT_SIZE := Vector2(0.30, 0.11)  ## a shoe, heel to toe and across
 const STRIDE := 0.38  ## metres between one print and the next
 const MAX_STEPS := 18
+## How far the golfer's feet stand from the ball, across the line, matching
+## the golfer thread's address poses: long clubs stand further off.
+const STANCE_WOOD := 0.72
+const STANCE_IRON := 0.57
+const STANCE_PUTT := 0.45
+
+
+## The stance distance for `club`: the driver, woods and hybrids stand
+## further from the ball than the irons and wedges.
+static func stance_for(club: Club) -> float:
+	match SoundBank.club_kind(club):
+		&"putter":
+			return STANCE_PUTT
+		&"driver", &"wood":
+			return STANCE_WOOD
+	return STANCE_IRON
 
 
 ## Where the prints go, as [position, direction the toe points], all on sand.
-static func footprint_spots(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3) -> Array:
+static func footprint_spots(terrain: CourseTerrain, ball: Vector3, aim_dir: Vector3, left: Vector3, stance_m := STANCE_WOOD) -> Array:
 	var spots: Array = []
 	var aim := Vector3(aim_dir.x, 0.0, aim_dir.z).normalized()
 	var side := Vector3(left.x, 0.0, left.z).normalized()
-	var stance := ball + side * 0.72  # the golfer thread's address stance
+	var stance := ball + side * stance_m
 	# Standing square to the line, feet shoulder-width apart, toes to the ball.
 	for f: float in [-0.25, 0.25]:
 		var at := stance + aim * f
