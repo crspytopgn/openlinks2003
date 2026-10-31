@@ -252,9 +252,10 @@ func watch(target: Node3D, delay: float = 0.3) -> void:
 		_look.track(target, delay)
 
 
-func set_ground(height: Callable) -> void:
+func set_ground(height: Callable, sink: float = 0.0) -> void:
 	if _feet:
 		_feet.ground = height
+		_feet.sink = sink
 
 
 ## Walks forward to the address spot, then settles into the clip. Before a
