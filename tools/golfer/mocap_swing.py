@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import glb_edit  # noqa: E402
+import clubs  # noqa: E402
 import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
@@ -64,16 +65,16 @@ CLIPS = {
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
                          glance=(0.9, 0.45, 0.8, 75.0)),
-    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=329, putt=False),
-    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=329,
+    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=327, putt=False),
+    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=327,
                   downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
                          frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
-    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=329,
+    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
                            putt=False),
-    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=329,
+    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=327,
                        downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
@@ -287,6 +288,41 @@ HEAD_RISE_KEEP = 0.15  # of the actor's head rise
 EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 
 
+# Tour putters keep the lower body and the head still; the shoulders rock
+# the arms and putter like a pendulum. The actor's hips turn ~15 deg and his
+# head drifts 12 cm towards the hole through the stroke. These keep a share
+# of that: the legs and pelvis hold the address, and the upper body leans
+# back about the base of the spine so the head stays over the ball.
+LEAD_HEEL = 0.2  # of the actor's lead heel lift kept in full swings
+PUTT_STILL = 0.1  # of the actor's hip slide, foot moves and head drift kept
+LOWER_BODY = ("pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r")
+
+
+def still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss):
+    root = ref_root + PUTT_STILL * (root - ref_root)
+    for name in LOWER_BODY:
+        j = rig.index.get(name)
+        if j is not None:
+            rots[j] = ref_rots[j]
+    rots = fill(rig, rots, ref_local)
+    _, poss = rig.world(rig.locals(rots), root)
+    # Leaning back over the ball sideways (about the line to the ball) and
+    # then fore and aft (about the target line), so the shoulders don't turn.
+    for axis, (u, v) in (([0.0, 0.0, 1.0], (0, 1)), ([1.0, 0.0, 0.0], (2, 1))):
+        _, poss = rig.world(rig.locals(rots), root)
+        pivot = poss[rig.index["spine_01"]]
+        head = poss[rig.index["head"]] - pivot
+        want = ref_poss[rig.index["head"]] + PUTT_STILL * (poss[rig.index["head"]] - ref_poss[rig.index["head"]]) - pivot
+        turn = math.degrees(math.atan2(head[u], head[v]) - math.atan2(want[u], want[v]))
+        sign = 1.0 if axis[2] else -1.0  # right-handed: +z turns +x into +y, +x turns +y into +z
+        back = pose.rot(axis, sign * turn)
+        for j in descendants(rig, "spine_01"):
+            if rots[j] is not None:
+                rots[j] = back @ rots[j]
+        rots = fill(rig, rots, ref_local, keep=True)
+    return rots, root
+
+
 def backswing_weight(f, clip):
     """1 through the backswing, easing to 0 at impact; 0 after."""
     if "top" not in clip:
@@ -345,8 +381,37 @@ def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
 
 
 IMPACT_OPEN = 15.0  # degrees more shoulder turn toward the target at impact
-ROOT_SHARE = 0.3  # of the drop to the ball at impact taken through the knees
+# Forward shaft lean at impact, degrees (hands ahead of the club head along
+# the target line): tour irons strike with ~8-10 deg, the driver about level
+# (the ball is forward in the stance). The actor flips the wrists (head past
+# the hands); the lead wrist bows to fix it.
+SHAFT_LEAN = {"Driver": 1.0, "Iron": 8.0}
+RELEASE_SHARE = 0.7  # of the drop to the ball at impact taken by a steeper shaft
+ROOT_SHARE = 0.6  # of the drop to the ball at impact taken through the knees
 BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
+
+
+TRAIL_KNEE = 18.0  # degrees: the least the trail knee bends in a full swing
+
+
+def too_long(hip, ankle, lengths):
+    """How far `ankle` is beyond the leg's reach with the knee bent
+    TRAIL_KNEE degrees."""
+    l1, l2 = lengths
+    d = math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * math.cos(math.radians(TRAIL_KNEE)))
+    return max(0.0, float(np.linalg.norm(hip - ankle)) - d)
+
+
+def reach_drop(hip, ankle, lengths):
+    """How far the hip must come down for the leg to reach `ankle` with
+    the knee bent TRAIL_KNEE degrees (0 if it already bends that much)."""
+    l1, l2 = lengths
+    d = math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * math.cos(math.radians(TRAIL_KNEE)))
+    v = hip - ankle
+    h = math.hypot(v[0], v[2])
+    if np.linalg.norm(v) <= d or h >= d:
+        return 0.0
+    return v[1] - math.sqrt(d * d - h * h)
 
 
 def impact_weight(f, impact):
@@ -385,16 +450,25 @@ def retarget(glb, rig, clip, cache):
     hand_r_in_l = ref_rots[hands_l].T @ ref_rots[rig.index["hand_r"]]
 
     head_verts = club_head_verts(glb, clip.get("club", "Driver"))
+    legs = {s: (np.linalg.norm(ref_poss[rig.index[f"calf_{s}"]] - ref_poss[rig.index[f"thigh_{s}"]]),
+                np.linalg.norm(ref_poss[rig.index[f"foot_{s}"]] - ref_poss[rig.index[f"calf_{s}"]])) for s in "lr"}
     _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
 
     def club_head(rots, poss):
         w = (rots[club_j] @ (head_verts - rest[club_j]).T).T + poss[club_j]
         return np.array([*w.mean(axis=0)[[0]], w[:, 1].min(), w.mean(axis=0)[2]])
 
+    lean_fix, impact_lean = [0.0], [0.0]  # degrees added at impact, refined pass by pass
+
+    def lean_of(rots):
+        shaft = rots[club_j] @ club_dir
+        return math.degrees(math.atan2(shaft[0], -shaft[1]))
+
     def run(correct):
         nonlocal arm_angle
         arm_angle = 0.0
         impact_head = np.zeros(3)
+        impact_lean[0] = 0.0
         out_rots, out_root = [], []
         for i, f in enumerate(frames):
             m_rots, m_poss = bvh.frame(f)
@@ -410,28 +484,79 @@ def retarget(glb, rig, clip, cache):
             if not clip["putt"]:
                 rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
                                             backswing_weight(f, clip))
+            elif "impact" in clip:
+                rots, root = still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss)
             if "impact" in clip:
                 # Down into the shot at impact: a little through the knees
                 # (the feet are pinned below), the rest bending over the ball,
-                # so the lead leg can still straighten into impact.
+                # so the lead leg can still straighten into impact. The hips
+                # stay back from the ball (the actor's thrust towards it).
                 w = impact_weight(f, clip["impact"])
-                root = root + w * ROOT_SHARE * np.array([0.0, correct[1], 0.0])
-                if correct[1] != 0.0:
-                    bend = pose.rot([1.0, 0.0, 0.0], math.degrees(w * (1.0 - ROOT_SHARE) * correct[1] / BEND_LEVER))
+                body = (1.0 - RELEASE_SHARE) * correct[1]
+                root = root + w * np.array([0.0, ROOT_SHARE * body, correct[2]])
+                if body != 0.0:
+                    bend = pose.rot([1.0, 0.0, 0.0], math.degrees(w * (1.0 - ROOT_SHARE) * body / BEND_LEVER))
                     for j in descendants(rig, "spine_01"):
                         if rots[j] is not None:
                             rots[j] = bend @ rots[j]
             rots = fill(rig, rots, ref_local)
             _, poss = rig.world(rig.locals(rots), root)
             # Feet go where the actor's feet go.
+            targets = {}
             for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
                 k = bvh.index[actor]
-                target = ref_poss[rig.index[f"foot_{s}"]] + scale * (g @ (m_poss[k] - m_poss0[k]))
+                keep = PUTT_STILL if clip["putt"] and "impact" in clip else 1.0
+                target = ref_poss[rig.index[f"foot_{s}"]] + keep * scale * (g @ (m_poss[k] - m_poss0[k]))
                 foot = rots[rig.index[f"foot_{s}"]]
+                if s == "l" and not clip["putt"] and "impact" in clip:
+                    # The lead foot stays planted (the actor's heel comes up
+                    # 7 cm at the top and 5 cm at the finish): only a little
+                    # of its rise is kept, and the sole lies flat as at
+                    # address, still turning as the actor's does.
+                    rise = target[1] - ref_poss[rig.index["foot_l"]][1]
+                    target[1] = ref_poss[rig.index["foot_l"]][1] + LEAD_HEEL * rise
+                    to_toe = rest[rig.index["ball_l"]] - rest[rig.index["foot_l"]]
+                    v, v0 = foot @ to_toe, ref_rots[rig.index["foot_l"]] @ to_toe
+                    flat = np.array([v[0], 0.0, v[2]])
+                    if np.linalg.norm(flat) > 1e-6:
+                        want = pose.unit(flat) * math.hypot(v0[0], v0[2]) + np.array([0.0, v0[1], 0.0])
+                        foot = between(v, want) @ foot
                 # Up on the toes, not through the ground.
                 toe = target + foot @ (rest[rig.index[f"ball_{s}"]] - rest[rig.index[f"foot_{s}"]])
                 target = target + np.array([0.0, max(0.0, ref_poss[rig.index[f"ball_{s}"]][1] - toe[1],
                                                      ref_poss[rig.index[f"foot_{s}"]][1] - target[1]), 0.0])
+                targets[s] = [target, foot]
+            if not clip["putt"] and "impact" in clip:
+                # The trail knee stays flexed (the actor's locks straight):
+                # to the top and down to impact the hips sink a little; after
+                # impact the trail heel comes up, pivoting on the toe.
+                tgt, foot = targets["r"]
+                hip = poss[rig.index["thigh_r"]]
+                if f <= clip["impact"]:
+                    drop = reach_drop(hip, tgt, legs["r"])
+                    if drop > 0.0:
+                        root = root - np.array([0.0, drop, 0.0])
+                        _, poss = rig.world(rig.locals(rots), root)
+                else:
+                    ball = tgt + foot @ (rest[rig.index["ball_r"]] - rest[rig.index["foot_r"]])
+                    side = pose.unit(np.cross(ball - tgt, [0.0, 1.0, 0.0]))
+                    for _ in range(12):
+                        if too_long(hip, tgt, legs["r"]) <= 1e-4:
+                            break
+                        lift = pose.rot(side, 4.0)
+                        if (ball + lift @ (tgt - ball))[1] < tgt[1]:
+                            lift = lift.T
+                        tgt, foot = ball + lift @ (tgt - ball), lift @ foot
+                    # Still out of reach: the toe drags round towards the hips.
+                    for _ in range(6):
+                        excess = too_long(hip, tgt, legs["r"])
+                        if excess <= 1e-4:
+                            break
+                        pull = np.array([hip[0] - tgt[0], 0.0, hip[2] - tgt[2]])
+                        tgt = tgt + pose.unit(pull) * min(2.0 * excess, np.linalg.norm(pull))
+                    targets["r"] = [tgt, foot]
+            for s in "lr":
+                target, foot = targets[s]
                 two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", target)
                 rots[rig.index[f"foot_{s}"]] = foot
             rots = fill(rig, rots, ref_local, keep=True)
@@ -472,15 +597,38 @@ def retarget(glb, rig, clip, cache):
                     rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
                 w = impact_weight(f, clip["impact"])
+                if w > 0.0 and lean_fix[0] != 0.0:
+                    # The hands ahead of the head at impact: the lead wrist
+                    # bows, laying the head back about the hands (the arm
+                    # then swings the hands forward to the ball, below).
+                    rots[hands_l] = pose.rot([0.0, 0.0, 1.0], w * lean_fix[0]) @ rots[hands_l]
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
+                if w > 0.0 and correct[1] != 0.0:
+                    # Most of the way down to the ball: the shaft comes up
+                    # steeper at impact than at address (the hands higher,
+                    # as tour players' are), lowering the head.
+                    shaft = rots[club_j] @ club_dir
+                    flat = math.hypot(shaft[0], shaft[2])
+                    axis = pose.unit(np.cross([shaft[0], 0.0, shaft[2]], [0.0, 1.0, 0.0]))
+                    if (pose.rot(axis, 1.0) @ shaft)[1] > shaft[1]:
+                        axis = -axis
+                    steepen = math.degrees(-w * RELEASE_SHARE * correct[1] / (SHAFT_LENGTH * max(flat, 0.3)))
+                    rots[hands_l] = pose.rot(axis, steepen) @ rots[hands_l]
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
                 if w > 0.0 and np.any(correct):
                     # Brings the club head in to the ball at impact: the lead
                     # arm swings in (its length kept), the club turning with it.
+                    shoulder = poss[rig.index["upperarm_l"]]
+                    reach = poss[hands_l] + w * correct * np.array([1.0, 0.0, 0.0]) - shoulder
                     two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l",
-                             poss[hands_l] + w * correct * np.array([1.0, 0.0, 1.0]))
+                             shoulder + pose.unit(reach) * np.linalg.norm(poss[hands_l] - shoulder))
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
                 if f == clip["impact"]:
                     impact_head[:] = club_head(rots, poss)
+                    impact_lean[0] = lean_of(rots)
             if "impact" not in clip:
                 # Waggling over the ball, the club head stays above the
                 # ground: the wrists lift it a few degrees round the grip.
@@ -508,13 +656,16 @@ def retarget(glb, rig, clip, cache):
     correct = np.zeros(3)
     out_rots, out_root, head = run(correct)
     if not clip["putt"] and "impact" in clip and clip["impact"] in frames:
-        # The lowest point of the head on the ball at impact; the bend and
-        # the arm move the head in each other's way, so a few passes.
+        # The lowest point of the head on the ball at impact, the shaft
+        # leaning forward; the bend, the wrist and the arm move the head in
+        # each other's way, so a few passes.
         target = np.array(clip.get("strike", IMPACT_AT))
-        for _ in range(5):
-            if np.linalg.norm(target - head) < 0.002:
+        lean = SHAFT_LEAN[clip.get("club", "Driver")]
+        for _ in range(8):
+            if np.linalg.norm(target - head) < 0.002 and abs(lean - impact_lean[0]) < 0.5:
                 break
             correct = correct + (target - head)
+            lean_fix[0] += lean - impact_lean[0]
             out_rots, out_root, head = run(correct)
 
     if clip.get("loop"):
@@ -523,6 +674,9 @@ def retarget(glb, rig, clip, cache):
     keep = list(range(0, len(frames), STEP))
     if keep[-1] != len(frames) - 1:
         keep.append(len(frames) - 1)
+    if clip.get("impact") in frames:
+        # A key on the strike itself, so the head meets the ball.
+        keep = sorted(set(keep) | {frames.index(clip["impact"])})
     times = [times[i] for i in keep]
     out_rots = [out_rots[i] for i in keep]
     out_root = [out_root[i] for i in keep]
@@ -557,14 +711,16 @@ def ramp(angle, hinge):
 
 
 def club_direction(glb, rig):
-    """The shaft's direction (grip to head) in the rest frame."""
+    """The shaft's direction (grip to head) in the rest frame: towards the
+    middle of the driver's shaft, which lies on its axis (the head's middle
+    is off the axis, in front of the hosel and towards the toe)."""
     doc = glb.doc
-    head = None
+    mid = None
     for n in doc["nodes"]:
-        if n.get("name") == "Driver_head":
-            head = glb.read(doc["meshes"][n["mesh"]]["primitives"][0]["attributes"]["POSITION"]).mean(axis=0)
+        if n.get("name") == "Driver_shaft":
+            mid = glb.read(doc["meshes"][n["mesh"]]["primitives"][0]["attributes"]["POSITION"]).mean(axis=0)
     _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
-    return pose.unit(head - rest[rig.index["club"]])
+    return pose.unit(mid - rest[rig.index["club"]])
 
 
 def fill(rig, rots, ref_local, keep=False):
@@ -695,12 +851,18 @@ STAND_CLIPS = {
     "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25),
     "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
     "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
+    # A birdie: the actor's happy bounce at the knees, with the right fist
+    # pumped twice in front of the chest (PUMP_KEYS) and the club held low.
+    "fist_pump": dict(take="79_69", start=552, end=700, facing=(-0.7, 0.0, -0.7), carry=True, pump=True),
+    # A short putt missed: the head drops and a hand goes to the face.
+    "slump": dict(take="79_71", start=80, end=470, facing=(-0.7, 0.0, -0.7), carry=True),
     # Standing at ease: weight shifts and breathing (the caddie).
     "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5),
     # Crouching behind the ball to read a putt, putter in hand.
     "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
 }
-CARRY_HEAD_HEIGHT = 0.12  # the club head's height when carried, metres
+CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
+CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
 
 def actor_facing(bvh, f):
@@ -714,6 +876,65 @@ def actor_facing(bvh, f):
 def yaw_between(a, b):
     a, b = pose.unit(np.array([a[0], 0, a[2]])), pose.unit(np.array([b[0], 0, b[2]]))
     return pose.rot([0, 1, 0], math.degrees(math.atan2(np.cross(a, b)[1], np.dot(a, b))))
+
+
+# The fist pump's right hand, from the right shoulder in the chest's frame
+# (metres: forward, up, in across the body): fist up in front of the
+# shoulder, then pulled down to the hip, the elbow driven back past it.
+PUMP_HELD = ("spine_01", "spine_02", "spine_03", "neck_01", "head")
+PUMP_UP = np.array([0.22, -0.10, 0.10])
+PUMP_DOWN = np.array([0.10, -0.40, 0.02])
+# (seconds, how far up: 0 the actor's own hand, 1 PUMP_UP, 2 PUMP_DOWN)
+PUMP_KEYS = [(0.0, 0.0), (0.24, 1.0), (0.38, 2.0), (0.5, 1.0), (0.64, 2.0), (0.9, 2.0), (1.23, 0.0)]
+
+
+def pump_target(t, actor, up, down):
+    for (t0, a), (t1, b) in zip(PUMP_KEYS, PUMP_KEYS[1:]):
+        if t <= t1:
+            u = float(np.clip((t - t0) / (t1 - t0), 0.0, 1.0))
+            u = u * u * (3 - 2 * u)
+            break
+    else:
+        a, b, u = PUMP_KEYS[-1][1], PUMP_KEYS[-1][1], 1.0
+
+    def at(k):
+        return actor if k == 0.0 else (up if k == 1.0 else down)
+    return at(a) * (1 - u) + at(b) * u
+
+
+def reach_pole(rig, rots, poss, upper, lower, end, target, pole):
+    """two_bone with the elbow pointed towards `pole`."""
+    a, b, c = poss[rig.index[upper]], poss[rig.index[lower]], poss[rig.index[end]]
+    l1, l2 = np.linalg.norm(b - a), np.linalg.norm(c - b)
+    to = target - a
+    dist = float(np.clip(np.linalg.norm(to), abs(l1 - l2) + 1e-4, l1 + l2 - 1e-4))
+    d = pose.unit(to)
+    bend = pose.unit(pole - d * np.dot(pole, d))
+    cos_a = (l1 * l1 + dist * dist - l2 * l2) / (2 * l1 * dist)
+    mid = a + d * l1 * cos_a + bend * l1 * math.sqrt(max(0.0, 1 - cos_a * cos_a))
+    du = between(b - a, mid - a)
+    iu, il = rig.index[upper], rig.index[lower]
+    rots[iu] = du @ rots[iu]
+    rots[il] = between(du @ (c - b), a + d * dist - mid) @ du @ rots[il]
+
+
+def fist_pump(rig, rots, poss, root, t, hold_l, local0):
+    """The right fist pumped (PUMP_KEYS), the left hand and club held where
+    they started against the hips."""
+    chest = rots[rig.index["spine_03"]]
+    fwd, up, inward = chest @ np.array([0.0, 0.0, -1.0]), chest @ np.array([0.0, 1.0, 0.0]), chest @ np.array([-1.0, 0.0, 0.0])
+    shoulder = poss[rig.index["upperarm_r"]]
+    axes = np.stack([fwd, up, inward], axis=1)
+    target = pump_target(t, poss[rig.index["hand_r"]], shoulder + axes @ PUMP_UP, shoulder + axes @ PUMP_DOWN)
+    reach_pole(rig, rots, poss, "upperarm_r", "lowerarm_r", "hand_r", target, -up - 0.8 * fwd - 0.3 * inward)
+    rots[rig.index["hand_r"]] = rots[rig.index["lowerarm_r"]]
+    pel = rig.index["pelvis"]
+    rel_p, rel_r = hold_l
+    left = rots[rig.index["hand_l"]]
+    two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l", poss[pel] + rots[pel] @ rel_p)
+    rots[rig.index["hand_l"]] = rots[pel] @ rel_r if left is not None else left
+    rots = fill(rig, rots, local0, keep=True)
+    return rots
 
 
 def retarget_stand(glb, rig, clip, cache):
@@ -763,6 +984,8 @@ def retarget_stand(glb, rig, clip, cache):
     for j, name in enumerate(rig.names):
         if name.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb"):
             curl = 1.0 if (clip.get("carry") and name.endswith("_l")) else 0.35
+            if clip.get("pump") and name.endswith("_r"):
+                curl = 1.7  # a fist: tighter than round the grip
             relaxed[j] = pose.slerp(np.eye(3), grip_local[j], curl)
     relaxed[rig.index["club"]] = grip_local[rig.index["club"]]  # how it sits in the hand
     club_dir = club_direction(glb, rig)
@@ -777,6 +1000,18 @@ def retarget_stand(glb, rig, clip, cache):
             if name in ref:
                 k = bvh.index[BONES[name]]
                 rots[j] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ ref[name]
+        # The actor's collarbones come out raised (the shoulders ~10 cm
+        # high, a shrug); the golfer's stay at rest on the chest.
+        for name in ("clavicle_l", "clavicle_r"):
+            rots[rig.index[name]] = None
+        if clip.get("pump"):
+            # Chest held as at the start and the head looking ahead (the
+            # actor leans back to look at the sky); the legs still bounce.
+            if i == 0:
+                held = {n: rots[rig.parents[rig.index[n]]].T @ rots[rig.index[n]] for n in PUMP_HELD}
+                held.update(neck_01=np.eye(3), head=pose.rot([1.0, 0.0, 0.0], -8.0))  # eyes ahead, a little down
+            for n in PUMP_HELD:
+                rots[rig.index[n]] = rots[rig.parents[rig.index[n]]] @ held[n]
         local0 = [relaxed.get(j, np.eye(3)) for j in range(len(rig.names))]
 
         def place(x):
@@ -790,12 +1025,18 @@ def retarget_stand(glb, rig, clip, cache):
             two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", place(m_poss[bvh.index[actor]]))
             rots[rig.index[f"foot_{s}"]] = foot
         rots = fill(rig, rots, local0, keep=True)
+        if clip.get("pump"):
+            rots, poss = rig.world(rig.locals(rots), root)
+            if i == 0:
+                pel = rig.index["pelvis"]
+                hold_l = (rots[pel].T @ (poss[rig.index["hand_l"]] - poss[pel]), rots[pel].T @ rots[rig.index["hand_l"]])
+            rots = fist_pump(rig, rots, poss, root, i / fps, hold_l, local0)
         if clip.get("carry"):
             # The club in the left hand: head low in front, or held up
             # when the hand is raised above the shoulder.
             rots, poss = rig.world(rig.locals(rots), root)
             h = rig.index["hand_l"]
-            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / 1.07, 0.3, 0.95))
+            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / CARRY_REACH, 0.3, 0.95))
             low = facing * math.sqrt(1 - drop * drop) - up * drop
             raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
             w = float(np.clip(raised, 0, 1))
@@ -827,6 +1068,11 @@ def main():
     ensure_refs(glb, rig)
     iron.ensure_iron(glb, rig)
     grip.fit(glb, rig, club_direction(glb, rig))
+    grip.straighten(glb, rig)
+    grip.narrow(glb, rig)
+    # The clubs modelled from real ones, before the swings are measured
+    # against their heads.
+    clubs.swap(glb, rig)
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
             times, rots, root = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)

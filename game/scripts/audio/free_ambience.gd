@@ -1,11 +1,25 @@
 class_name FreeAmbience
 extends Node
 ## Background sound for courses without their own (the free build, the
-## legacy courses and the player's designs): looping field recordings from
-## game/assets/sounds/ (see CREDITS.md there). A bed chosen by the kind of
-## course (parkland birdsong, woodland, a seaside with waves and gulls, or
-## desert heat and cicadas), wind in the trees that rises with the wind, and
-## running water on holes that have water near the tee.
+## legacy courses and the player's designs), from game/assets/sounds/ (see
+## CREDITS.md there). Like a real course on TV it is mostly quiet:
+##
+## - wind in the trees, always a little, rising with the wind;
+## - a bed chosen by the kind of course (parkland or woodland birdsong, a
+##   seaside with waves and gulls, desert cicadas), kept low, and lowest in
+##   the middle of the day: birds sing most at dawn and again towards dusk;
+## - now and then a bird calls from a tree somewhere round the player (a
+##   snatch of the birdsong, from a point 25 to 90 m off, fainter and duller
+##   the further it is), more often in the morning;
+## - a far-off road, and in the morning or afternoon now and then a
+##   greenkeeper's mower working somewhere out of sight;
+## - running water near ponds and creeks.
+##
+## The mix follows where the camera is (the listener), checked twice a
+## second and blended: under the trees the birds and the leaves are louder;
+## out on an open fairway both drop away (on a seaside links the wind gets
+## louder instead); water rises as the camera nears it. Birdcalls come from
+## the hole's own trees round the listener, and seldom where there are none.
 
 enum Setting { PARKLAND, WOODLAND, SEASIDE, DESERT }
 
@@ -25,19 +39,64 @@ const KEYWORDS := {
 		"mountain", "ridge", "falls"],
 }
 
-const BED_DB := -12.0
+## The bed's level by time of day (Scenery.time_name). Birdsong is
+## loudest at dawn and quietest in the midday heat; cicadas the other way.
+const BIRDS_DB := {"morning": -21.0, "midday": -33.0, "afternoon": -30.0, "golden": -25.0}
+const CICADAS_DB := {"morning": -26.0, "midday": -15.0, "afternoon": -17.0, "golden": -22.0}
+const SEASIDE_DB := -15.0
+## Seconds between birdcalls, by time of day.
+const CALL_GAP := {"morning": Vector2(5.0, 14.0), "midday": Vector2(22.0, 50.0),
+	"afternoon": Vector2(15.0, 38.0), "golden": Vector2(9.0, 24.0)}
+const CALL_SECONDS := Vector2(1.2, 3.2)
+const CALL_DISTANCE := Vector2(25.0, 90.0)  ## metres from the listener
+const CALL_HEIGHT := Vector2(5.0, 14.0)  ## in a tree
+const CALL_DB := 4.0  ## at CALL_UNIT metres; fainter further off
+const CALL_UNIT := 12.0
+const TRAFFIC_DB := {Setting.PARKLAND: -31.0, Setting.WOODLAND: -36.0, Setting.SEASIDE: -60.0, Setting.DESERT: -33.0}
+const MOWER_DB := -27.0
+const MOWER_GAP := Vector2(80.0, 220.0)  ## seconds between passes
+const BREEZE_FLOOR_DB := -27.0  ## leaves stir even on a still day
+const LISTEN_EVERY := 0.5  ## seconds between checks of the listener's spot
+const TREE_RANGE := 40.0  ## trees this close count towards a wooded spot
+const TREES_FULL := 18  ## this many in range is as wooded as it gets
+const WATER_FULL_M := 12.0  ## water this close plays at WATER_DB
+const WATER_HEARD_M := 80.0  ## and further than this is not heard
+const WATER_STEP := 8.0  ## metres between samples when looking for water
+## Open ground to woods: what the birds and leaves gain or lose (dB).
+const OPEN_BIRDS_DB := -9.0
+const WOODS_BIRDS_DB := 3.0
+const OPEN_LEAVES_DB := -6.0
+const WOODS_LEAVES_DB := 2.0
+const LINKS_OPEN_WIND_DB := 4.0  ## a seaside links: more wind in the open
+const RELEVEL_DB := 0.75  ## smaller changes are not worth a new fade
 const WATER_DB := -16.0
 const BREEZE_DB := -14.0  ## at WINDY_MPS; quieter in light air
 const WINDY_MPS := 8.0
 const SILENT_DB := -60.0
 const FADE_SECONDS := 2.5
-const WATER_RANGE_M := 60.0  ## water this close to the tee is heard
 
 var setting: Setting = Setting.PARKLAND
+## GraphicsSettings.TimeOfDay and how far through the round (0 to 1), for
+## the "Through the round" setting.
+var time_of_day := 0
+var round_progress := 0.0
 var _bed: AudioStreamPlayer
 var _breeze: AudioStreamPlayer
 var _water: AudioStreamPlayer
+var _traffic: AudioStreamPlayer
+var _mower: AudioStreamPlayer
+var _call: AudioStreamPlayer3D
 var _tweens := {}
+var _next_call := 3.0
+var _next_mower := 40.0
+var _hole: HoleData
+var _wind := 0.0
+var _listen := 0.0
+var _levels := {}  ## player -> the level last faded to
+## How wooded the listener's spot is (0 open, 1 in the trees) and how near
+## water is (0 not heard, 1 right by it).
+var woods := 0.5
+var water := 0.0
 
 
 static func create(course: CourseData) -> FreeAmbience:
@@ -59,52 +118,223 @@ static func setting_for(course_name: String) -> Setting:
 	return Setting.PARKLAND
 
 
-## Whether the hole has water within WATER_RANGE_M of the tee.
-static func water_near_tee(hole: HoleData) -> bool:
-	if hole.terrain == null:
-		return false
-	var step := 15.0
-	var r := WATER_RANGE_M
-	var x := -r
-	while x <= r:
-		var z := -r
-		while z <= r:
-			if Vector2(x, z).length() <= r and hole.terrain.surface_at(hole.tee.x + x, hole.tee.z + z) == Surface.Type.WATER:
-				return true
-			z += step
-		x += step
-	return false
-
-
 func _ready() -> void:
 	_bed = _player(BEDS[setting])
 	_breeze = _player("amb_breeze")
 	_water = _player("amb_water")
-	_fade(_bed, BED_DB)
+	_traffic = _player("amb_traffic")
+	_mower = _player("amb_mower", false)
+	_call = AudioStreamPlayer3D.new()
+	_call.name = "BirdCall"
+	_call.unit_size = CALL_UNIT
+	_call.volume_db = CALL_DB
+	_call.attenuation_filter_cutoff_hz = 3500.0  # the air dulls far calls
+	_call.stream = _bed.stream
+	add_child(_call)
+	_next_call = randf_range(2.0, 6.0)
+	_next_mower = randf_range(30.0, MOWER_GAP.y)
+	set_time(time_of_day, round_progress)
+	_fade(_traffic, TRAFFIC_DB[setting])
 
 
-func _player(stem: String) -> AudioStreamPlayer:
+## The bed's level for a kind of course at a time of day.
+static func bed_db(p_setting: Setting, time: String) -> float:
+	match p_setting:
+		Setting.SEASIDE:
+			return SEASIDE_DB
+		Setting.DESERT:
+			return CICADAS_DB[time]
+	return BIRDS_DB[time]
+
+
+## Whether the course gets birdcalls: not over the waves, nor in the desert
+## (the bed there is cicadas).
+static func has_calls(p_setting: Setting) -> bool:
+	return p_setting == Setting.PARKLAND or p_setting == Setting.WOODLAND
+
+
+## The time of day changed (or the round moved on, for "Through the round").
+func set_time(p_time_of_day: int, progress: float) -> void:
+	time_of_day = p_time_of_day
+	round_progress = progress
+	_apply()
+
+
+## Levels for the listener's spot: {bed, breeze, water} in dB.
+static func spot_levels(p_setting: Setting, time: String, wind_mps: float, p_woods: float, p_water: float) -> Dictionary:
+	var bed := bed_db(p_setting, time)
+	var breeze := breeze_db(wind_mps)
+	if p_setting == Setting.SEASIDE:
+		breeze += lerpf(LINKS_OPEN_WIND_DB, 0.0, p_woods)
+	else:
+		breeze += lerpf(OPEN_LEAVES_DB, WOODS_LEAVES_DB, p_woods)
+		if p_setting != Setting.DESERT:
+			bed += lerpf(OPEN_BIRDS_DB, WOODS_BIRDS_DB, p_woods)
+	var wet := SILENT_DB if p_water <= 0.0 else lerpf(SILENT_DB * 0.5, WATER_DB, p_water)
+	return {"bed": bed, "breeze": breeze, "water": wet}
+
+
+## How wooded a spot is from the number of trees within TREE_RANGE.
+static func woods_for(count: int) -> float:
+	return clampf(float(count) / TREES_FULL, 0.0, 1.0)
+
+
+## How near water sounds from its distance (INF for none in range).
+static func water_for(distance_m: float) -> float:
+	return clampf(1.0 - (distance_m - WATER_FULL_M) / (WATER_HEARD_M - WATER_FULL_M), 0.0, 1.0)
+
+
+## The nearest water within WATER_HEARD_M of `at`, or INF.
+static func water_distance(terrain: CourseTerrain, at: Vector3) -> float:
+	if terrain == null:
+		return INF
+	var best := INF
+	var n := int(WATER_HEARD_M / WATER_STEP)
+	for i in range(-n, n + 1):
+		for j in range(-n, n + 1):
+			var d := Vector2(i, j).length() * WATER_STEP
+			if d >= best or d > WATER_HEARD_M:
+				continue
+			if terrain.surface_at(at.x + i * WATER_STEP, at.z + j * WATER_STEP) == Surface.Type.WATER:
+				best = d
+	return best
+
+
+## Trees (the hole's objects) within TREE_RANGE of `at`.
+static func trees_near(objects: Array[PlacedObject], at: Vector3) -> int:
+	var n := 0
+	var r2 := TREE_RANGE * TREE_RANGE
+	for o in objects:
+		var dx := o.position.x - at.x
+		var dz := o.position.z - at.z
+		if dx * dx + dz * dz <= r2:
+			n += 1
+	return n
+
+
+func _listener() -> Vector3:
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam != null:
+		return cam.global_position
+	return _hole.tee if _hole != null else Vector3.ZERO
+
+
+## Where the listener is: how wooded, how near water.
+func _sense() -> void:
+	if _hole == null:
+		return
+	var at := _listener()
+	woods = woods_for(trees_near(_hole.objects, at)) if not _hole.objects.is_empty() else 0.5
+	water = water_for(water_distance(_hole.terrain, at))
+
+
+## Fades each layer to its level for the listener's spot.
+func _apply() -> void:
+	if _bed == null:
+		return
+	var l := spot_levels(setting, Scenery.time_name(time_of_day, round_progress), _wind, woods, water)
+	_relevel(_bed, l.bed)
+	_relevel(_breeze, l.breeze)
+	_relevel(_water, l.water)
+
+
+func _relevel(p: AudioStreamPlayer, db: float) -> void:
+	var last: float = _levels.get(p, INF)
+	if absf(last - db) < RELEVEL_DB:
+		return
+	_levels[p] = db
+	_fade(p, db)
+
+
+func _process(delta: float) -> void:
+	_listen -= delta
+	if _listen <= 0.0:
+		_listen = LISTEN_EVERY
+		_sense()
+		_apply()
+	var time := Scenery.time_name(time_of_day, round_progress)
+	_next_call -= delta
+	if _next_call <= 0.0:
+		var gap: Vector2 = CALL_GAP[time]
+		_next_call = randf_range(gap.x, gap.y)
+		# Fewer calls out in the open, where there are few trees to sing in.
+		if has_calls(setting) and randf() < 0.25 + 0.75 * woods:
+			_bird_call()
+	_next_mower -= delta
+	if _next_mower <= 0.0:
+		_next_mower = randf_range(MOWER_GAP.x, MOWER_GAP.y)
+		# Greenkeepers mow in the morning, and some in the afternoon; never
+		# in the evening light.
+		if time != "golden" and setting != Setting.SEASIDE and not _mower.playing and _mower.stream != null:
+			_mower.volume_db = MOWER_DB + randf_range(-4.0, 0.0)
+			_mower.play()
+
+
+## A snatch of the birdsong from a tree some way off.
+func _bird_call() -> void:
+	if _call.stream == null or not is_inside_tree():
+		return
+	var trees: Array[PlacedObject] = _hole.objects if _hole != null else []
+	_call.global_position = call_spot(trees, _listener())
+	var length := randf_range(CALL_SECONDS.x, CALL_SECONDS.y)
+	_call.pitch_scale = randf_range(0.94, 1.06)
+	_call.volume_db = -40.0
+	_call.play(randf() * maxf(_call.stream.get_length() - length, 0.0))
+	var old: Tween = _tweens.get(_call)
+	if old != null and old.is_valid():
+		old.kill()
+	var t := create_tween()
+	t.tween_property(_call, "volume_db", CALL_DB, 0.25)
+	t.tween_interval(maxf(length - 0.8, 0.2))
+	t.tween_property(_call, "volume_db", -40.0, 0.55)
+	t.tween_callback(_call.stop)
+	_tweens[_call] = t
+
+
+func _player(stem: String, looping := true) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
 	p.name = stem
 	p.volume_db = SILENT_DB
 	var stream := load("res://assets/sounds/%s.ogg" % stem) as AudioStream
 	if stream is AudioStreamOggVorbis:
-		(stream as AudioStreamOggVorbis).loop = true
+		(stream as AudioStreamOggVorbis).loop = looping
 	p.stream = stream
 	add_child(p)
 	return p
 
 
-## A new hole: water if there is some by the tee, and the wind in the trees
-## as strong as the wind (m/s).
+## Where a bird calls from: up in one of the trees CALL_DISTANCE from the
+## listener, or (with none there) somewhere at that distance.
+static func call_spot(objects: Array[PlacedObject], listener: Vector3) -> Vector3:
+	var near: Array[Vector3] = []
+	for o in objects:
+		var d := Vector2(o.position.x - listener.x, o.position.z - listener.z).length()
+		if d >= CALL_DISTANCE.x and d <= CALL_DISTANCE.y:
+			near.append(o.position)
+	var h := randf_range(CALL_HEIGHT.x, CALL_HEIGHT.y)
+	if not near.is_empty():
+		return near[randi() % near.size()] + Vector3.UP * h
+	var a := randf() * TAU
+	var r := randf_range(CALL_DISTANCE.x, CALL_DISTANCE.y)
+	return Vector3(listener.x + cos(a) * r, listener.y + h, listener.z + sin(a) * r)
+
+
+## A new hole, and the wind (m/s) for the trees.
 func start_hole(hole: HoleData, wind_mps: float) -> void:
-	_fade(_water, WATER_DB if water_near_tee(hole) else SILENT_DB)
+	_hole = hole
+	_listen = 0.0
 	set_wind(wind_mps)
 
 
 func set_wind(wind_mps: float) -> void:
+	_wind = wind_mps
+	_apply()
+
+
+## Wind in the trees: a floor of stirring leaves, louder with the wind.
+static func breeze_db(wind_mps: float) -> float:
 	var k := clampf(wind_mps / WINDY_MPS, 0.0, 1.5)
-	_fade(_breeze, SILENT_DB if k < 0.05 else BREEZE_DB + linear_to_db(maxf(k, 0.05)))
+	return maxf(BREEZE_FLOOR_DB, BREEZE_DB + linear_to_db(maxf(k, 0.01)))
 
 
 ## Fades `p` to `db`, starting it if it is silent and stopping it once it

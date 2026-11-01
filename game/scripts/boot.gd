@@ -24,6 +24,7 @@ var _settings: SettingsPanel
 var _players: PlayersPanel
 var _creator: PlayerCreator
 var _career: CareerPanel
+var _tournament: TournamentPanel
 var _graphics: GraphicsSettings
 var _community: VBoxContainer
 var _community_hint: Label
@@ -33,6 +34,8 @@ var _course_paths: PackedStringArray = []
 var _setup_paths: PackedStringArray = []
 var _stored := {}  ## browser build: picked relative path -> size
 var _busy := false
+## Coming back to the menu from the designer doesn't open it again.
+static var _opened_from_launcher := false
 
 
 func _ready() -> void:
@@ -40,6 +43,10 @@ func _ready() -> void:
 	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
 	Glass.allow_blur = _graphics.quality != GraphicsSettings.Quality.LOW
 	GlassTheme.install()
+	if not OS.has_feature("web"):
+		# The display mode, window size and volumes the launcher may have set.
+		_graphics.apply_display(get_viewport())
+		AudioSettings.apply()
 	_build_ui()
 	var menu_sounds := MenuSounds.from_game_folder(true)
 	if menu_sounds != null:
@@ -52,6 +59,10 @@ func _ready() -> void:
 		_show_ready(CourseFiles.in_folder(GameFolder.configured_path()), [["Change game folder...", _choose_folder]])
 	else:
 		_show_desktop_choice()
+	# The launcher's Course builder button starts the game with --designer.
+	if OS.get_cmdline_user_args().has("--designer") and not _opened_from_launcher:
+		_opened_from_launcher = true
+		_open_designer.call_deferred()
 
 
 func _build_ui() -> void:
@@ -96,6 +107,10 @@ func _build_ui() -> void:
 	_career.back_pressed.connect(_close_career)
 	_career.play_pressed.connect(_on_career_play)
 	center.add_child(_career)
+	_tournament = TournamentPanel.new()
+	_tournament.back_pressed.connect(_close_tournament)
+	_tournament.play_pressed.connect(_on_tournament_play)
+	center.add_child(_tournament)
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
@@ -253,6 +268,7 @@ func _ask_for_files(problem := "") -> void:
 		["Load a game folder...", _pick.bind(true)],
 		["Play with placeholders", _play_placeholders],
 		["Career", _open_career],
+		["Tournament", _open_tournament],
 		["Course designer", _open_designer],
 		["Players", _open_players],
 		["Settings", _open_settings],
@@ -355,6 +371,7 @@ Saved round: %s." % SavedRound.describe()
 	if _can_resume():
 		items.append(["Resume round", _resume_round])
 	items.append(["Career", _open_career])
+	items.append(["Tournament", _open_tournament])
 	items += extra + [["Players", _open_players], ["Course designer", _open_designer], ["Settings", _open_settings]]
 	if not OS.has_feature("web"):
 		items.append(["Quit", get_tree().quit])
@@ -368,6 +385,9 @@ Saved round: %s." % SavedRound.describe()
 	if Career.open_on_menu:
 		Career.open_on_menu = false
 		_open_career()
+	elif Tournament.open_on_menu:
+		Tournament.open_on_menu = false
+		_open_tournament()
 
 
 func _play_placeholders() -> void:
@@ -500,6 +520,49 @@ func _on_career_play(chosen: RoundSetup) -> void:
 	_launch(chosen, slot)
 
 
+func _open_tournament() -> void:
+	if _busy:
+		return
+	_setup_paths = _all_courses()
+	var titles := PackedStringArray()
+	for path in _setup_paths:
+		titles.append(CourseFiles.display_name(path))
+	_main_box.visible = false
+	_settings.close()
+	_players.close()
+	_tournament.open(_setup_paths, titles)
+	SceneFade.pop_in(_tournament)
+
+
+func _close_tournament() -> void:
+	_tournament.close()
+	_main_box.visible = true
+	SceneFade.pop_in(_main_box)
+	if _play:
+		_play.grab_focus.call_deferred()
+
+
+## Plays the person's next tournament round on its course, carrying on with
+## it if it was saved part way through.
+func _on_tournament_play(chosen: RoundSetup) -> void:
+	if _busy or chosen == null:
+		return
+	var slot := 0
+	if not chosen.course_key.is_empty():
+		_setup_paths = _all_courses()
+		slot = _setup_paths.find(chosen.course_key) + 1
+		if slot <= 0:
+			_tournament.set_problem("%s isn't among your courses now. Load your game files again, or withdraw." % chosen.course_name)
+			return
+	var saved := SavedRound.load_setup()
+	GolfRound.resume = {}
+	if saved != null and saved.tournament == chosen.tournament:
+		chosen = saved
+		GolfRound.resume = SavedRound.load_state()
+	_tournament.close()
+	_launch(chosen, slot)
+
+
 ## Every course the setup page offers after the placeholder: the game's
 ## courses, then the player's own designs.
 func _all_courses() -> PackedStringArray:
@@ -564,6 +627,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_close_players()
 		elif _career.visible:
 			_close_career()
+		elif _tournament.visible:
+			_close_tournament()
 
 
 static func _last_course() -> String:
@@ -641,6 +706,7 @@ func _show_desktop_choice() -> void:
 		["Choose game folder...", _choose_folder],
 		["Play with placeholders", _play_placeholders],
 		["Career", _open_career],
+		["Tournament", _open_tournament],
 		["Course designer", _open_designer],
 		["Players", _open_players],
 		["Settings", _open_settings],

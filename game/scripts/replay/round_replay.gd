@@ -21,7 +21,10 @@ static func run_shot(model: ShotModel, r: ShotRecord, club: Club, terrain: Cours
 		links.skill = r.skill
 		links.computer = r.computer
 		links.computer_ratings = null
-		if r.computer and r.cpu_rating >= 0:
+		if r.computer and r.cpu_ratings.size() >= 5:
+			links.computer_ratings = classic_ratings(r.cpu_ratings)
+			links.to_hole_m = r.to_hole_m
+		elif r.computer and r.cpu_rating >= 0:
 			links.computer_ratings = LinksLaunch.GolferRatings.even(r.cpu_rating)
 			links.to_hole_m = r.to_hole_m
 		links.chip = r.chip
@@ -37,6 +40,17 @@ static func run_shot(model: ShotModel, r: ShotRecord, club: Club, terrain: Cours
 	var result := model.simulate(start, terrain, pin, wind)
 	result.launch = start
 	return result
+
+
+## Ratings from ShotRecord.cpu_ratings.
+static func classic_ratings(v: PackedInt32Array) -> LinksLaunch.GolferRatings:
+	var g := LinksLaunch.GolferRatings.even(v[1])
+	g.tee = v[0]
+	g.chips = v[2]
+	g.long_putts = v[3]
+	g.short_putts = v[3]
+	g.max_power = v[4]
+	return g
 
 
 ## A launch monitor's shot as measured, with the lie's loss of speed and

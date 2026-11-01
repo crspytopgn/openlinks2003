@@ -2195,13 +2195,30 @@ void test_opponent_rng_and_swings() {
   std::printf("  rng: uniform %.9f normal %.9f\n", u, g);
   OpponentRng s(42);
   for (int level = 0; level < kSkillLevelCount; ++level) {
-    const SkillProfile& skill = skill_profile(static_cast<SkillLevel>(level));
-    SwingInput full = execute_swing({0.9, 0.0, 10.0}, false, skill, s);
-    SwingInput putt = execute_swing({0.4, 0.0, -5.0}, true, skill, s);
-    std::printf("  %s: full %.6f %.6f %.6f, putt %.6f %.6f\n", skill.name, full.power, full.accuracy, full.aim_deg,
-                putt.power, putt.aim_deg);
-    CHECK(putt.accuracy == 0.0);
+    GolferProfile golfer = golfer_profile(level_stats(static_cast<SkillLevel>(level)));
+    std::printf("  %s: strength %.6f links %.6f mishit %.6f, drive %.6f %.6f %.6f, approach %.6f %.6f %.6f, chip %.6f %.6f %.6f, putt %.6f %.6f, links %d %d %d %d %d\n",
+                skill_name(static_cast<SkillLevel>(level)), golfer.strength, golfer.links_strength,
+                golfer.mishit_chance, golfer.shots[0].power_sd, golfer.shots[0].accuracy_sd, golfer.shots[0].aim_sd_deg,
+                golfer.shots[1].power_sd, golfer.shots[1].accuracy_sd, golfer.shots[1].aim_sd_deg,
+                golfer.shots[2].power_sd, golfer.shots[2].accuracy_sd, golfer.shots[2].aim_sd_deg,
+                golfer.shots[3].power_sd, golfer.shots[3].aim_sd_deg, golfer.links.tee, golfer.links.mid_irons,
+                golfer.links.chips, golfer.links.long_putts, golfer.links.max_power);
+    for (int kind = 0; kind < kShotKindCount; ++kind) {
+      SwingInput made = execute_shot({0.9, 0.05, 10.0}, static_cast<ShotKind>(kind), golfer, 1.25, s);
+      std::printf("    kind %d: %.6f %.6f %.6f\n", kind, made.power, made.accuracy, made.aim_deg);
+      if (kind == static_cast<int>(ShotKind::Putt)) CHECK(made.accuracy == 0.05);
+    }
   }
+  CHECK(shot_kind(true, false, false, 300) == ShotKind::Putt);
+  CHECK(shot_kind(false, true, true, 300) == ShotKind::Drive);
+  CHECK(shot_kind(false, true, false, 150) == ShotKind::Approach);
+  CHECK(shot_kind(false, false, true, 220) == ShotKind::Approach);
+  CHECK(shot_kind(false, false, false, 30) == ShotKind::Chip);
+  // No errors at all with a zero scale.
+  OpponentRng z(5);
+  SwingInput still = execute_shot({0.7, 0.1, 3.0}, ShotKind::Approach, golfer_profile(level_stats(SkillLevel::Beginner)), 0.0, z);
+  CHECK_NEAR(still.aim_deg, 3.0, 1e-12);
+  CHECK_NEAR(still.accuracy, 0.1, 1e-12);
 }
 
 // Drops. A hole running up +z to a pin at z = 100: a stream across it from
@@ -2302,42 +2319,83 @@ void test_drop_rules() {
 
 void test_opponent_levels_are_ordered() {
   for (int level = 1; level < kSkillLevelCount; ++level) {
-    const SkillProfile& a = skill_profile(static_cast<SkillLevel>(level - 1));
-    const SkillProfile& b = skill_profile(static_cast<SkillLevel>(level));
-    CHECK(b.power_sd < a.power_sd);
-    CHECK(b.accuracy_sd < a.accuracy_sd);
-    CHECK(b.putt_aim_sd_deg < a.putt_aim_sd_deg);
+    GolferProfile a = golfer_profile(level_stats(static_cast<SkillLevel>(level - 1)));
+    GolferProfile b = golfer_profile(level_stats(static_cast<SkillLevel>(level)));
+    for (int k = 1; k < kShotKindCount; ++k) {
+      CHECK(b.shots[k].aim_sd_deg < a.shots[k].aim_sd_deg);
+      CHECK(b.shots[k].power_sd < a.shots[k].power_sd);
+    }
     CHECK(b.mishit_chance < a.mishit_chance);
     CHECK(b.strength > a.strength);
+    CHECK(b.links_strength > a.links_strength);
+    CHECK(b.links.mid_irons >= a.links.mid_irons);
   }
-  // Through the physics: the better golfer is straighter off the tee and
-  // holes more eight-footers.
+  // Better numbers, smaller errors.
+  GolferStats st;
+  GolferStats better = st;
+  better.fairways_pct = 70;
+  better.approach_ft = 22;
+  better.chip_ft = 5;
+  better.putt8_pct = 58;
+  GolferProfile g = golfer_profile(st);
+  GolferProfile h = golfer_profile(better);
+  for (int k = 0; k < kShotKindCount; ++k) CHECK(h.shots[k].aim_sd_deg < g.shots[k].aim_sd_deg);
+}
+
+// The point of the calibration: through the physics on flat ground, a golfer
+// with the tour's average numbers hits the tour's average numbers. (The full
+// measurement, for every level and both physics, is tools/olcalibrate.)
+void test_opponent_matches_tour_numbers() {
+  constexpr double kFt = 3.2808399;
   BallParams p;
   FlatTerrain fairway(Surface::Fairway);
   FlatTerrain green(Surface::Green);
-  ShotOptions opt;
-  opt.has_cup = true;
-  opt.cup = {0, 0, 2.4};
-  double pace = std::sqrt(2.0 * surface_params(Surface::Green).rolling_resistance * 9.81 * 2.8) / club("Pt").ball_speed_mps;
-  double spread[2] = {0, 0};
-  int holed[2] = {0, 0};
-  const SkillLevel levels[2] = {SkillLevel::Beginner, SkillLevel::Tour};
-  for (int k = 0; k < 2; ++k) {
-    const SkillProfile& skill = skill_profile(levels[k]);
-    OpponentRng rng(99);
-    for (int i = 0; i < 200; ++i) {
-      SwingInput drive = execute_swing({skill.strength, 0, 0}, false, skill, rng);
-      spread[k] += std::fabs(simulate_shot(launch_from_swing(club("Dr"), drive, Surface::Tee), p, fairway).rest.x);
-      SwingInput putt = execute_swing({pace, 0, 0}, true, skill, rng);
-      if (simulate_shot(launch_from_swing(club("Pt"), putt, Surface::Green), p, green, opt).outcome == ShotOutcome::Holed) {
-        ++holed[k];
-      }
+  GolferStats tour = level_stats(SkillLevel::Tour);
+  GolferProfile g = golfer_profile(tour);
+  const std::vector<Club>& clubs = standard_clubs();
+  OpponentRng rng(2024);
+  const int n = 1500;
+  int fairways = 0;
+  for (int i = 0; i < n; ++i) {
+    SwingInput s = execute_shot({g.strength, 0, 0}, ShotKind::Drive, g, 1.0, rng);
+    if (std::fabs(simulate_shot(launch_from_swing(clubs[0], s, Surface::Tee), p, fairway).rest.x) < 15 / 1.0936133) {
+      ++fairways;
     }
   }
-  std::printf("  drive spread %.1f / %.1f m, 8 ft putts %d / %d of 200\n", spread[0] / 200, spread[1] / 200, holed[0],
-              holed[1]);
-  CHECK(spread[1] < spread[0] * 0.7);
-  CHECK(holed[1] > holed[0] + 30);
+  // 150 yards with the 9 iron: the power that gets there, then the misses.
+  const Club& nine = club("9i");
+  double d = 150 / 1.0936133;
+  double lo = 0.3, hi = 1.0;
+  for (int i = 0; i < 40; ++i) {
+    double m = 0.5 * (lo + hi);
+    (simulate_shot(launch_from_swing(nine, {m, 0, 0}, Surface::Fairway), p, fairway).total_m < d ? lo : hi) = m;
+  }
+  double near = 0;
+  for (int i = 0; i < n; ++i) {
+    SwingInput s = execute_shot({lo, 0, 0}, ShotKind::Approach, g, 1.0, rng);
+    ShotResult r = simulate_shot(launch_from_swing(nine, s, Surface::Fairway), p, fairway);
+    near += std::hypot(r.rest.x, r.rest.z - d) * kFt;
+  }
+  near /= n;
+  ShotOptions opt;
+  opt.has_cup = true;
+  opt.cup = {0, 0, 8 / kFt};
+  double pace = std::sqrt(2.0 * surface_params(Surface::Green).rolling_resistance * 9.81 * (8 / kFt + 0.35)) /
+                club("Pt").ball_speed_mps;
+  int holed = 0;
+  for (int i = 0; i < n; ++i) {
+    SwingInput s = execute_shot({pace, 0, 0}, ShotKind::Putt, g, 1.0, rng);
+    if (simulate_shot(launch_from_swing(club("Pt"), s, Surface::Green), p, green, opt).outcome == ShotOutcome::Holed) {
+      ++holed;
+    }
+  }
+  double fw_pct = 100.0 * fairways / n;
+  double putt_pct = 100.0 * holed / n;
+  std::printf("  tour pro: %.1f%% fairways (tour %.0f), %.1f ft from 150 yd (%.0f), %.1f%% from 8 ft (%.0f)\n", fw_pct,
+              tour.fairways_pct, near, tour.approach_ft, putt_pct, tour.putt8_pct);
+  CHECK(std::fabs(fw_pct - tour.fairways_pct) < 5);
+  CHECK(std::fabs(near - tour.approach_ft) < 3);
+  CHECK(std::fabs(putt_pct - tour.putt8_pct) < 5);
 }
 
 void test_expected_strokes() {
@@ -2707,6 +2765,7 @@ int main() {
       {"rough_and_sand_cost_distance", test_rough_and_sand_cost_distance},
       {"swing_accuracy_curves_ball", test_swing_accuracy_curves_ball},
       {"opponent_rng_and_swings", test_opponent_rng_and_swings},
+      {"opponent_matches_tour_numbers", test_opponent_matches_tour_numbers},
       {"opponent_levels_are_ordered", test_opponent_levels_are_ordered},
       {"drop_rules", test_drop_rules},
       {"drop_rules_hazards_and_bounds", test_drop_rules_hazards_and_bounds},

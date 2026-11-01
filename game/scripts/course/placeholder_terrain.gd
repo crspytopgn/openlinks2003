@@ -12,7 +12,7 @@ const FIRST_CUT := 2.5
 const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
 ## Mowing stripe strength per surface (the terrain shader draws them along
 ## the hole, crisp, from UV: x across the hole, -y the strength).
-const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.5}
+const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.3}
 ## Splat map (see the terrain shader): the surfaces rasterised every
 ## SPLAT_STEP metres, so their edges are drawn crisp rather than blended
 ## across the GRID_STEP mesh. Code FIRST_CUT_CODE is the first cut.
@@ -33,6 +33,8 @@ var _colors := {
 	Surface.Type.OUT_OF_BOUNDS: Color(0.13, 0.27, 0.10),
 }
 
+const POND_BED_COLOR := Color(0.09, 0.1, 0.06)
+
 var tee := Vector2.ZERO
 var route := PackedVector2Array()  ## tee first, green centre last
 var fairway_width := 34.0
@@ -43,10 +45,19 @@ var bunkers: Array[Vector3] = []  ## x, z, radius
 var ponds: Array[Vector3] = []  ## x, z, radius
 var bounds := Rect2()  ## in-bounds area, x and z
 var phase := Vector3.ZERO  ## varies the undulations between holes
+## Half the teeing ground's size (across, along); a range's tee line is wide.
+var tee_half := Vector2(5.0, 7.0)
+## Target greens (x, z, radius), as on a driving range: each a low crowned
+## circle of green with a collar.
+var targets: Array[Vector3] = []
+## Rolls in the green (metres up and down), for a practice green with more to
+## read than a plain tilt.
+var green_undulation := 0.0
 
 var _tee_level := 0.0
 var _green_level := 0.0
 var _pond_levels: Array[float] = []
+var _target_levels: Array[float] = []
 var _route_lengths: Array[float] = []
 
 
@@ -55,6 +66,9 @@ func finalize() -> void:
 	_tee_level = _base(tee.x, tee.y) + 0.3
 	var g := green_center()
 	_green_level = _base(g.x, g.y) + 0.5
+	_target_levels.clear()
+	for t in targets:
+		_target_levels.append(_base(t.x, t.y) + 0.2)
 	_pond_levels.clear()
 	for p in ponds:
 		_pond_levels.append(_base(p.x, p.y) - 0.6)
@@ -79,24 +93,38 @@ func height_at(x: float, z: float) -> float:
 	var p := Vector2(x, z)
 	var h := _base(x, z)
 
-	var d_tee := p.distance_to(tee)
+	# Flat within the tee's box less 1 m, blending out over the next 6 m
+	# (a plain tee's 5 x 7 m box comes to a 4 m circle).
+	var d_tee := (Vector2(absf(p.x - tee.x), absf(p.y - tee.y)) - tee_half + Vector2(5.0, 7.0)).max(Vector2.ZERO).length()
 	if d_tee < 10.0:
 		h = lerpf(_tee_level, h, smoothstep(4.0, 10.0, d_tee))
 
 	var g := green_center()
-	var d_green := p.distance_to(g)
+	var d_green := _blob_distance(p, g, green_radius, phase.x)
 	if d_green < green_radius + 9.0:
 		var green_h := _green_level + green_slope.dot(p - g)
+		if green_undulation != 0.0:
+			var q := p - g
+			# Rolls about 20 to 40 m long: up to 2 to 3 % with the tilt.
+			green_h += green_undulation * (sin(q.x * 0.16 + phase.x) * cos(q.y * 0.13 + phase.y) + 0.5 * sin((q.x - q.y) * 0.1 + phase.z))
 		h = lerpf(green_h, h, smoothstep(green_radius, green_radius + 9.0, d_green))
 
+	for i in targets.size():
+		var t := targets[i]
+		var d := p.distance_to(Vector2(t.x, t.y))
+		if d < t.z + 6.0:
+			# A gentle crown, 15 cm higher in the middle than at the edge.
+			var crown := 0.15 * (1.0 - minf(d / t.z, 1.0) * minf(d / t.z, 1.0))
+			h = lerpf(_target_levels[i] + crown, h, smoothstep(t.z, t.z + 6.0, d))
+
 	for b in bunkers:
-		var d := p.distance_to(Vector2(b.x, b.y))
+		var d := _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11)
 		if d < b.z + 1.5:
 			h -= 0.7 * (1.0 - smoothstep(b.z * 0.3, b.z + 1.5, d))
 
 	for i in ponds.size():
 		var w := ponds[i]
-		var d := p.distance_to(Vector2(w.x, w.y))
+		var d := _blob_distance(p, Vector2(w.x, w.y), w.z, w.x * 0.23 + w.y * 0.19)
 		if d < w.z + 7.0:
 			h = lerpf(_pond_levels[i] - 1.2, h, smoothstep(w.z - 3.0, w.z + 7.0, d))
 	return h
@@ -107,24 +135,74 @@ func surface_at(x: float, z: float) -> int:
 	if not bounds.has_point(p):
 		return Surface.Type.OUT_OF_BOUNDS
 	for w in ponds:
-		if p.distance_to(Vector2(w.x, w.y)) < w.z:
+		if _blob_distance(p, Vector2(w.x, w.y), w.z, w.x * 0.23 + w.y * 0.19) < w.z:
 			return Surface.Type.WATER
 	for b in bunkers:
-		if p.distance_to(Vector2(b.x, b.y)) < b.z:
+		if _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11) < b.z:
 			return Surface.Type.SAND
-	var d_green := p.distance_to(green_center())
+	var d_green := _blob_distance(p, green_center(), green_radius, phase.x)
 	if d_green < green_radius:
 		return Surface.Type.GREEN
 	if d_green < green_radius + 2.0:
 		return Surface.Type.FRINGE
-	if absf(p.x - tee.x) < 5.0 and absf(p.y - tee.y) < 7.0:
+	for t in targets:
+		var d := p.distance_to(Vector2(t.x, t.y))
+		if d < t.z:
+			return Surface.Type.GREEN
+		if d < t.z + 1.5:
+			return Surface.Type.FRINGE
+	if _in_tee(p):
 		return Surface.Type.TEE
 	var r := _route_distance(p)
-	if r.x < fairway_width * 0.5 and r.y > fairway_start:
+	if _in_fairway(r, 0.0):
 		return Surface.Type.FAIRWAY
-	if r.x < fairway_width * 0.5 + 10.0:
+	if r.x < _half_width(r.y) + 10.0:
 		return Surface.Type.ROUGH
 	return Surface.Type.DEEP_ROUGH
+
+
+## Real courses have no straight edges or perfect circles: greens, bunkers
+## and ponds are blobs, fairways swell and narrow, tees are rounded. These
+## give the shapes, the same for the ground, the splat map and the lies.
+
+## Distance from `centre` scaled so the shape's edge is at `radius`: a
+## circle pushed out and in round its rim (a kidney or a pear rather than
+## a coin), turned by `seed`.
+static func _blob_distance(p: Vector2, centre: Vector2, radius: float, seed: float) -> float:
+	var d := p - centre
+	var a := d.angle()
+	var rim := 1.0 + 0.16 * sin(2.0 * a + seed) + 0.08 * sin(3.0 * a + seed * 1.7) + 0.04 * sin(5.0 * a + seed * 2.3)
+	return d.length() / rim
+
+
+## Half the fairway's width `along` metres down the hole: it swells and
+## narrows over tens of metres, as a designer's fairway does.
+func _half_width(along: float) -> float:
+	return fairway_width * 0.5 * (1.0 + 0.14 * sin(along * 0.023 + phase.y) + 0.07 * sin(along * 0.061 + phase.z))
+
+
+## Inside the fairway (widened by `extra` metres) at route distance `r`.
+## Its front edge is rounded, not a straight line across the hole.
+func _in_fairway(r: Vector2, extra: float) -> bool:
+	var half := _half_width(r.y) + extra
+	if r.x >= half:
+		return false
+	var f := r.x / half
+	return r.y > fairway_start + 9.0 * (1.0 - sqrt(1.0 - f * f))
+
+
+## Inside the tee box: a box of tee_half (10 by 14 m unless set) along the
+## hole's first leg with well-rounded corners.
+func _in_tee(p: Vector2) -> bool:
+	var ahead := Vector2(0.0, 1.0)
+	if route.size() > 1 and route[1] != tee:
+		ahead = (route[1] - tee).normalized()
+	var d := p - tee
+	var q := Vector2(absf(d.dot(Vector2(ahead.y, -ahead.x))), absf(d.dot(ahead)))
+	# A rounded rectangle of half sizes tee_half, corners of 3 m radius.
+	var corner := 3.0
+	var inner := tee_half - Vector2(corner, corner)
+	return (q - inner).max(Vector2.ZERO).length() < corner
 
 
 ## Distance from the route centre line (x) and how far along it (y).
@@ -150,25 +228,41 @@ func build_visual() -> Node3D:
 
 ## Woods round the edge of the ground, out of bounds, so the hole is set
 ## among trees instead of ending in a bare edge against the sky. Visual
-## only (far trees are impostors); the ball never gets there.
+## only; the ball never gets there. Like a real wood seen from a fairway:
+## a skirt of shrubs at the edge, two rows of full trees, then deeper rows
+## that are only ever impostors (FAR_ONLY), close enough together that no
+## sky shows between the trunks.
 func _add_tree_line(root: Node3D) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector2i(roundi(tee.x), roundi(tee.y)))
 	var trees := PackedFloat32Array()
 	var ring := bounds.grow(MARGIN * 0.55)
 	var corners := [ring.position, Vector2(ring.end.x, ring.position.y), ring.end, Vector2(ring.position.x, ring.end.y)]
+	# Per row: distance out from the ring, spacing range, height range and
+	# whether the row is impostors only. Row -1 is the shrub skirt.
+	var rows := [
+		[-4.5, 3.0, 5.0, 2.5, 4.5, -1],
+		[0.0, 5.0, 8.0, 11.0, 18.0, 0],
+		[7.0, 5.0, 8.0, 12.0, 19.0, 0],
+		[13.0, 4.0, 6.5, 14.0, 22.0, 1],
+		[18.0, 4.0, 6.5, 15.0, 24.0, 1],
+	]
 	for side in 4:
 		var a: Vector2 = corners[side]
 		var b: Vector2 = corners[(side + 1) % 4]
 		var out := (b - a).normalized().orthogonal()
 		var length := a.distance_to(b)
-		var at := 0.0
-		while at < length:
-			for row in 2:
-				var p := a.lerp(b, at / length) + out * (row * 9.0 + rng.randf_range(-3.0, 3.0))
-				var species := TreeFactory.Species.PINE if rng.randf() < 0.45 else TreeFactory.Species.BROADLEAF
-				trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y) - 0.2, p.y, rng.randf_range(10.0, 17.0), species]))
-			at += rng.randf_range(6.0, 10.0)
+		for row: Array in rows:
+			var at := rng.randf_range(0.0, row[2])
+			while at < length:
+				var p := a.lerp(b, at / length) + out * (float(row[0]) + rng.randf_range(-2.5, 2.5))
+				var species := TreeFactory.Species.PINE if rng.randf() < 0.4 else TreeFactory.Species.BROADLEAF
+				if row[5] < 0:
+					species = TreeFactory.Species.BUSH
+				var code := float(species) + (TreeFactory.FAR_ONLY if row[5] > 0 else 0)
+				trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y) - 0.2, p.y, rng.randf_range(row[3], row[4]), code]))
+				at += rng.randf_range(row[1], row[2])
+	root.add_child(_wood_floor(corners))
 	for batch: Dictionary in TreeFactory.batches(trees, 50.0):
 		var node := MultiMeshInstance3D.new()
 		node.name = "TreeLine"
@@ -179,6 +273,44 @@ func _add_tree_line(root: Node3D) -> void:
 		else:
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
+
+
+## The dark inside of the wood, behind its front rows: a low band, unlit
+## and nearly black green, so the sky never shows under the crowns and
+## between the trunks. Real woods read that way from a fairway; fog still
+## fades it with distance like everything else.
+func _wood_floor(corners: Array) -> MeshInstance3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var low := Color(0.02, 0.028, 0.016)
+	var high := Color(0.045, 0.06, 0.032)
+	for side in 4:
+		var a: Vector2 = corners[side]
+		var b: Vector2 = corners[(side + 1) % 4]
+		var out := (b - a).normalized().orthogonal()
+		var steps := maxi(1, ceili(a.distance_to(b) / 8.0))
+		for k in steps:
+			var p0 := a.lerp(b, float(k) / steps) + out * 16.0
+			var p1 := a.lerp(b, float(k + 1) / steps) + out * 16.0
+			var h0 := height_at(p0.x, p0.y)
+			var h1 := height_at(p1.x, p1.y)
+			var quad := [
+				[Vector3(p0.x, h0 - 1.0, p0.y), low], [Vector3(p1.x, h1 - 1.0, p1.y), low], [Vector3(p1.x, h1 + 6.0, p1.y), high],
+				[Vector3(p0.x, h0 - 1.0, p0.y), low], [Vector3(p1.x, h1 + 6.0, p1.y), high], [Vector3(p0.x, h0 + 6.0, p0.y), high],
+			]
+			for v: Array in quad:
+				st.set_color(v[1])
+				st.add_vertex(v[0])
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var inst := MeshInstance3D.new()
+	inst.name = "WoodFloor"
+	inst.mesh = st.commit()
+	inst.material_override = mat
+	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return inst
 
 
 func _build_ground_mesh() -> MeshInstance3D:
@@ -283,6 +415,10 @@ func _splat_material() -> ShaderMaterial:
 	var mown := PackedFloat32Array()
 	for s in 10:
 		var c: Color = FIRST_CUT_COLOR if s == FIRST_CUT_CODE else _colors[s]
+		if s == Surface.Type.WATER:
+			# The pond's bed and the wet bank just above the water line:
+			# dark silt, not the map's blue, which showed as a bright rim.
+			c = POND_BED_COLOR
 		cols.append(Vector3(c.r, c.g, c.b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH if s == FIRST_CUT_CODE else s))
 		# The mesh's UV already carries the stripes along the hole.
@@ -301,7 +437,7 @@ func _splat_code(x: float, z: float) -> int:
 	var s := surface_at(x, z)
 	if s == Surface.Type.ROUGH:
 		var r := _route_distance(Vector2(x, z))
-		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+		if _in_fairway(r, FIRST_CUT):
 			return FIRST_CUT_CODE
 	return s
 
@@ -314,7 +450,7 @@ func _color_at(x: float, z: float) -> Color:
 	var s := surface_at(x, z)
 	if s == Surface.Type.ROUGH:
 		var r := _route_distance(Vector2(x, z))
-		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+		if _in_fairway(r, FIRST_CUT):
 			return FIRST_CUT_COLOR
 	return _colors[s]
 

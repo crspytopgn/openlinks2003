@@ -9,15 +9,15 @@ const STICK_HEIGHT := 0.55
 const STICK_RADIUS := 0.012
 
 var _white := StandardMaterial3D.new()
-var _black := StandardMaterial3D.new()
 var _yellow := StandardMaterial3D.new()
+var _cup := ShaderMaterial.new()
 
 
 func _init() -> void:
 	_white.albedo_color = Color(0.95, 0.95, 0.95)
-	_black.albedo_color = Color(0.03, 0.03, 0.03)
 	_yellow.albedo_color = Color(1.0, 0.85, 0.1)
 	_yellow.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_cup.shader = load("res://shaders/cup.gdshader")
 
 
 ## Rebuilds the cups, `active` marked.
@@ -26,14 +26,15 @@ func build(cups: Array[Vector3], active: int) -> void:
 		c.queue_free()
 	for i in cups.size():
 		var p := cups[i]
+		# The hole at its real size, liner and all, as on the course
+		# (shaders/cup.gdshader): not a black disc on top of the grass.
 		var cup := MeshInstance3D.new()
-		var disc := CylinderMesh.new()
-		disc.top_radius = BallPhysics.CUP_RADIUS * 1.6
-		disc.bottom_radius = BallPhysics.CUP_RADIUS * 1.6
-		disc.height = 0.02
+		var disc := PlaneMesh.new()
+		disc.size = Vector2.ONE * BallPhysics.CUP_RADIUS * 2.0
 		cup.mesh = disc
-		cup.material_override = _black
-		cup.position = p + Vector3(0, 0.005, 0)
+		cup.material_override = _cup
+		cup.position = p + Vector3(0, 0.004, 0)
+		cup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(cup)
 		var model := _flag(i == active)
 		if model != null:

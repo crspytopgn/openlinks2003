@@ -197,9 +197,12 @@ at Medium and grass at Low.
   beside the fairway (colour only, the ball plays it as rough); bunkers
   with a trimmed, slightly ragged edge sharpened from the sand weight
   (the sand colour taken back out of the grass beside it) and a shaded
-  lip of turf; and with 3D trees on, two rows of woods round the edge of
-  the ground, out of bounds and mostly impostors, so the hole no longer
-  ends in a bare edge against the sky.
+  lip of turf; and with 3D trees on, a wood round the edge of the ground,
+  out of bounds: a skirt of shrubs, two rows of full trees, two deeper
+  rows that are only ever impostors (`TreeFactory.FAR_ONLY`), and behind
+  them a dark, unlit band (`_wood_floor`) so no sky shows under the
+  crowns. Impostors darken towards their base, as the crown shades its
+  trunk. The pond bed is dark silt rather than the map's blue.
 - **Water's edge**: a disc course's water triangles carry how far each
   vertex is from the bank (`CrzTerrain._shore_levels`: 0 on a vertex dry
   ground also uses, 0.5 one triangle out, 1 beyond, in the vertex colour).
@@ -212,7 +215,10 @@ at Medium and grass at Low.
   middle is inside), each carrying its distance from the bank over 10 m
   (`DesignedTerrain.water_surface_mesh`). The finest ripples are drifting noise instead of
   more sine waves (whose crossings showed a regular diamond pattern), and
-  gusts roughen patches of the surface and leave others glassy.
+  gusts roughen patches of the surface and leave others glassy. Ripples
+  calm with the pixel footprint (`fwidth`), so far water is a smooth
+  mirror instead of aliased bands, and reflections up to about ten
+  degrees above the horizon show the dark trees of the far bank.
 - **Texture mappings and blended edges** (`TerrainMappings`,
   `shaders/terrain_mapped.gdshader`): the disc textures lie on the ground
   the way the course's `Mappings` entry says (per-hole fairway planars
@@ -321,7 +327,7 @@ at Medium and grass at Low.
   They run 7 m either side of the tee from just behind the markers to 30 m
   down the hole, and round the back of the green 5 m off the putting
   surface. Behind them stands a crowd of the player creator's people (random
-  `PlayerLook`, no clubs, the idle clip), facing the play. The crowd is 0, 10, 18
+  `PlayerLook`, no clubs, standing upright), facing the play. The crowd is 0, 10, 18
   or 28 people from Low to Ultra, nearest the tee and green first. Spectators
   cast no sun shadows: a dozen meshes each, redrawn into every shadow
   split, would cost more than the rest of the hole. Each gets a soft contact
@@ -329,9 +335,10 @@ at Medium and grass at Low.
   calls from the tee.
   The spectators react to each shot as the crowd sounds do: everyone
   celebrates a roar, most a cheer, a few polite applause, and about half show
-  dismay at a groan or an "ooh". About 30% of the front row (within 1.6 m
-  of the rope) crouch, as front rows do at real events, so the people
-  behind them can see.
+  dismay at a groan or an "ooh". The crowd watches the golfer: at each
+  address every spectator turns towards them, a moment apart (keeping a
+  little of their own angle), and their heads follow (GolferLook); once the
+  ball is struck the heads follow the ball. Spectators wear no golf glove.
 - **Crowd cards** (`Gallery`, `crowd_card.gdshader`): further back, 1.2 to
   5 m behind the ropes, the crowd thickens into camera-facing cards. Each
   card is one quad that turns about the vertical and draws a standing

@@ -9,6 +9,7 @@ config/name="OpenLinks2003"
 config/description="Open-source reimplementation of Links 2003. Requires your own copy of the original game."
 run/main_scene="res://scenes/boot.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
+config/icon="res://icon.png"
 
 [display]
 

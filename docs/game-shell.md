@@ -155,7 +155,28 @@ courses) keep it.
 
 ### Practice range
 
-Round setup > Play > Practice range: one person hits from the tee of the
+Round setup > Play > Driving range plays the built-in practice ground's
+range (`scripts/practice/practice_ground.gd`, `PracticeGround`), laid out
+from photos of real club and tour ranges: a 80 m grass tee line with
+hitting stations, each with a 55-ball pyramid and blue tee-line markers, a
+rope on stakes behind and old divots along the line; a striped field
+110 m wide with range balls lying out on it; and flagged target greens at
+50, 75, 100, 125, 150, 175, 200 and 250 yards, staggered left and right,
+each with a yardage board facing the tee (`RangeDressing`; all the balls
+are one MultiMesh). Auto-aim picks the furthest target the club reaches.
+
+Play > Range target game is the same range with a bucket of 20 balls
+(`RangeGame`): a ball that lands or finishes on a target green scores its
+points (10 at 50 yards up to 50 at 250), double inside the bullseye (35 %
+of the radius round the flag), and the last two balls score double. The
+launch monitor panel keeps the score and the session's best bucket.
+
+Play > Practice putting green is the practice ground's big rolling green
+(about 38 m across, up to 2 to 3 % of slope) with the putting practice
+below. Play > Putting on this course's greens and Hitting from this
+course's tees are the earlier ways, on the chosen course.
+
+Hitting from this course's tees: one person hits from the tee of the
 chosen course as often as they like. The ball comes back after each shot,
 nothing is scored or saved, and N and B move to the next or previous hole
 for other targets. A launch monitor (`LaunchMonitor`, `LaunchMonitorPanel`)
@@ -266,29 +287,88 @@ exactly the same physics as everyone else:
    water and bunkers. The weekend golfer just goes for the best-looking shot.
 2. **Swing** (`ai/opponent_skill.gd`, `OpponentSkill`, ported from
    `libs/olcore/src/opponent.cpp`). The plan becomes swing-meter inputs, and
-   the level's mistakes go on those inputs, never on the ball: power, timing
-   (hook and slice), line-up, putt pace and putt line errors, the odd duff or
-   top, and a strength cap on how hard it can swing. With the Links 2003
-   physics, full swings instead get the game's own computer misses
-   (`LinksLaunch.computer_miss`, see
-   [physics.md](formats/physics.md#computer-golfers-misses)) from the level's
-   steadiness rating; putts keep the errors here.
+   the golfer's mistakes go on those inputs, never on the ball: power, timing
+   (hook and slice) and line-up errors for each kind of shot (drive,
+   approach, chip, putt), the odd duff or top, and a strength cap on how hard
+   it can swing.
 
-| Level | Driver spread (sd) | 7 iron spread | 8 ft putts holed | Duffs |
-| --- | --- | --- | --- | --- |
-| Weekend golfer | about 30 m, 80% strength | 12 m | about 35% | 6% |
-| Club golfer | 24 m, 88% | 10 m | 47% | 2.5% |
-| Scratch golfer | 17 m, 95% | 8 m | 59% | 0.8% |
-| Tour pro | 14 m, full | 5 m | 74% | 0.2% |
+#### Calibrated to real numbers
 
-The spreads are from the stand-in physics on flat ground. The numbers are our
-own, set so the levels score roughly like their names; the original game's
-computer golfers haven't been measured.
+A computer golfer is described by the numbers tour statistics use
+(`GolferStats`): average drive, fairways hit, average distance from the hole
+after an approach from 150 yards and after a chip from 20 yards, eight-footers
+holed, and mishits. `golfer_profile` turns them into swing errors with tables
+measured through the physics on flat ground by `tools/olcalibrate` (run it
+with no argument for the standard physics, or with a Links 2003 executable to
+add the game's physics; the exe is only read). So a golfer with the PGA
+Tour's averages hits the PGA Tour's averages, and the C++ test
+`opponent_matches_tour_numbers` keeps it that way:
+
+| Level | Drive | Fairways | From 150 yd | Chip from 20 yd | 8 ft putts | Duffs |
+| --- | --- | --- | --- | --- | --- | --- |
+| Weekend golfer (about 18 handicap) | 220 yd | 45% | 60 ft | 14 ft | 33% | 6% |
+| Club golfer (about 9) | 245 yd | 50% | 44 ft | 10 ft | 40% | 2.5% |
+| Scratch golfer | 270 yd | 56% | 33 ft | 7.8 ft | 45% | 0.8% |
+| Tour pro (the tour average) | 300 yd | 60% | 27 ft | 6.5 ft | 50% | 0.2% |
+
+The tour column is the PGA Tour's ShotLink averages (about 2015 to 2024); the
+amateurs are rounded from Broadie's *Every Shot Counts* and Arccos amateur
+data. Measured with `olcalibrate`, the tour pro hits 59% of 30-yard fairways,
+finishes 27.6 ft from 150 yards, 6.5 ft from a 20-yard chip, and holes 94%
+from 3 ft, 50% from 8 ft and 18% from 20 ft (Broadie's tour make rates are
+96%, 50% and 15%). A golfer swings at the power that drives the ball its
+average drive with the standard physics. A full swing there goes about 290
+yards, so the tour pro drives 285 and the weekend golfer 211.
+
+With the Links 2003 physics a timing error turns the face (4.5 degrees at full
+error) and each kind of error is scaled (`links_error_scale`) so the same
+golfer hits the same numbers. Settings > Computer golfers > Classic Links
+uses the game's own computer miss generators instead
+(`LinksLaunch.computer_miss` and `computer_putt_miss`, see
+[physics.md](formats/physics.md#computer-golfers-misses)), with each
+golfer's ratings set from its numbers (`GolferProfile::links`). The game's own
+putting holes everything inside 5 ft, so Classic golfers putt better than
+real ones.
+
+#### Who they are
+
+Every computer golfer is a `TourPro` (`ai/tour_pro.gd`): its numbers plus a
+style.
+
+- **Shape**: a planned draw or fade (a timing offset); the planner aims for
+  it, so a fader starts it left and lets it come back.
+- **Aggression**: how far past the cup it paces putts (20 to 55 cm), how much
+  it weighs its likely misses against the shot it means to hit, and whether
+  it also looks at a line halfway to the middle of the green (where the
+  hole's pin positions average out).
+- **Course management**: how many of its best plans it re-tries with its own
+  likely misses (none to four).
+- **Nerve**: over the last three holes, when within two of the lead (in the
+  group, or of a tournament's live leaderboard), a nervy golfer's errors grow
+  by up to 30% and a clutch one's shrink.
+- **Form**: each round starts with a form factor (wider for a streaky
+  golfer), and birdies and bogeys move a short-term momentum.
+- **Routine**: its pre-shot routine in real seconds (20 to 50 on tour), played
+  quicker in the game: a fast player is over the ball and away while a slow
+  one is still reading the shot.
+
+Sixteen named pros (`TourPro.ROSTER`, ten men and six women) have numbers of
+their own (Marcus Bell: 318 yards, 52% fairways; Kenji Morita: short, dead
+straight and the best putter on tour; Mateo Ibarra: a superb ball-striker
+whose putting goes under pressure). Their looks come from `GolferRoster` by
+name. A "Tour pro" seat named after one of them plays as that pro. Plain
+level seats get the level's numbers with a style of their own, drawn from the
+round seed. Tournament and career field golfers are made up by
+`TourPro.generate`: numbers around their level, longer hitters finding fewer
+fairways, and their own style. `TourPro.scoring_average` turns any golfer's
+numbers into a scoring average with rounded strokes-gained values (20 yards
+of driving is about 0.75 a round, a foot closer from 150 yards about 0.2, a
+point of eight-footers about 0.1).
 
 Planning runs as small jobs over a few frames (about 6 ms of work a frame),
-so the browser build doesn't stall. The computer spends at least 0.8 s
-"thinking", shows its club and line for 1.2 s, then swings; a click hurries it
-up. When every seat is a computer, holes move on by themselves after 4 s.
+so the browser build doesn't stall. The computer "thinks" and then stands over
+the ball for its own routine (about 1.2 to 3.5 s in all), then swings; a
+click hurries it up. When every seat is a computer, holes move on by themselves after 4 s.
 Seeded rounds (`GolfRound.wind_seed`) seed the computer golfers too, so the
 tests play the same way every run.
 ### Handicaps and player profiles
@@ -472,6 +552,46 @@ leaderboard, the money list and the schedule with results. In a career
 round the ticker shows the event and the leaderboard before the round;
 when the round ends the result is added and Space goes back to the Career
 page. The rounds also go on the player's profile like any other round.
+
+
+### Tournaments
+
+Main menu > Tournament hosts an event of the person's own
+(`tournament/tournament.gd`, `Tournament`, kept in `user://tournament.cfg`;
+`ui/tournament_panel.gd` is the page):
+
+- **Format**: stroke play, Stableford, a knockout match play draw (8 to 64,
+  seeded by ability, 1 v 16 and so on) or a skins game (the person and three
+  named pros; holes 1 to 6 are worth one share, 7 to 12 two, 13 to 18 three,
+  ties carry, and anything left at the end goes to a playoff).
+- **Courses**: one per round, from the person's courses.
+- **Field**: men, women or mixed; 12 to 156 players; club amateurs, regional,
+  challenge or world tour, or a major championship (the top two include the
+  named pros).
+- **Cut** after round 2 of 3 or 4 (top 65, 50 or 70 and ties), **purse**
+  (paid by the tour shares Career uses), **weather** (calm to stormy, or
+  changeable round to round, which sets the round's wind) and **tee times**
+  (a morning or afternoon wave, or the tour draw: two waves and two tees on
+  the first two days, then the leaders go out last).
+
+The person plays every round for real with up to three field golfers, who
+play as themselves (`RoundSetup.pros`). Everyone else is simulated hole by
+hole: each golfer's expected score on a hole is the tour average for its par
+plus their scoring average, the day (pins and firmness), the wind (worse
+golfers lose more to it), their wave and their form. The odds of each score
+(`HOLE_ODDS`, rounded from tour scoring: about 11% birdies on par 3s, 15% on
+par 4s, 38% on par 5s) are tilted to that expectation, which keeps real shapes:
+better golfers make more birdies and fewer bogeys, weak ones more doubles. A
+tour-average golfer's simulated rounds average 0.6 under par 72 with a
+round-to-round spread of about 2.8 strokes.
+
+Field golfers start before and after the person's group (groups 10 minutes
+apart, about 0.7 holes), so while the person plays, the live leaderboard
+moves: the Tour presentation's rail shows the top five and the person's
+group with the holes each has played, the Broadcast ticker shows the board,
+and birdies and eagles near the top become captions ("Birdie at the 7th:
+Callum Reid -6, T2"). A level match after 18 holes, and a tie for a
+tournament, go to a simulated sudden-death playoff for now.
 
 ### Saved rounds
 
@@ -804,9 +924,22 @@ Nothing in the round needs to change.
   (driver, fairway wood or hybrid, iron, wedge) with turf, grass or sand
   layered in by lie, landings by surface and the crowd takes, each played
   with a little random pitch and level. Courses with no ambient sounds of
-  their own get `FreeAmbience`: a looping bed picked from the course name
-  (parkland, woodland, seaside, desert), wind in the trees that follows the
-  wind, and running water on holes with water near the tee. Menu buttons
+  their own get `FreeAmbience`. Like a real course on TV it is mostly
+  quiet: wind in the trees (always a little, more with the wind); a bed
+  picked from the course name (parkland, woodland, seaside, desert) kept
+  low, with birdsong loudest at dawn and quietest at midday (cicadas the
+  other way); now and then a single bird calling from a tree 25 to 90 m
+  away (a 3D sound, fainter and duller with distance); a far-off road;
+  some mornings and afternoons a distant mower; and running water near
+  ponds and creeks. The mix follows the camera round the hole, checked
+  twice a second and faded smoothly: under the trees the birds and leaves
+  are louder and the calls come from the hole's own trees; on an open
+  fairway both drop away (on a seaside links the wind rises instead); water
+  rises as the camera nears it. The time of day comes from Settings (and moves
+  through the round with "Through the round"). In Broadcast and Tour the
+  gallery murmurs from the tee and the green, and hushes while the player
+  is over the ball. The road, mower and murmur are synthesised by
+  `tools/audio/synth_ambience.py`. Menu buttons
   click with `ui_click.ogg`.
 - **Physics:** subclass `ShotModel` (`launch(...)`, `simulate(...)`) and set
   `AssetProviders.shot_model`. This is where a model tuned against the
