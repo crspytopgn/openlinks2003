@@ -3137,7 +3137,7 @@ func _choose_looks() -> void:
 		var player_name: String = round_setup.names[i] if i < round_setup.names.size() else ""
 		var look := profiles.look_of(player_name) if not player_name.is_empty() else null
 		if look == null and free:
-			look = PlayerLook.random(player_name.hash()) if round_setup.is_computer(i) else PlayerLook.new()
+			look = GolferRoster.look_for(player_name) if round_setup.is_computer(i) else PlayerLook.new()
 		_looks.append(look)
 
 
