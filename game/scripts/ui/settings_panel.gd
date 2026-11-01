@@ -77,11 +77,7 @@ var _columns: HBoxContainer
 
 
 func _ready() -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.12, 0.09, 0.94)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(18)
-	add_theme_stylebox_override("panel", style)
+	Glass.apply(self, Glass.RADIUS, 22.0)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)

@@ -310,6 +310,8 @@ func _ready() -> void:
 	shot_model = AssetProviders.shot_model
 	clubs = Club.standard_set()
 	graphics = GraphicsSettings.load_saved()
+	Glass.allow_blur = graphics.quality != GraphicsSettings.Quality.LOW
+	GlassTheme.install()
 	_build_world()
 	_apply_graphics()
 	sounds = AssetProviders.create_sound_bank()

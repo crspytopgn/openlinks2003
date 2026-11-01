@@ -12,10 +12,17 @@ extends Control
 
 const PANEL := Color(0.04, 0.13, 0.10, 0.86)
 const PANEL_DARK := Color(0.02, 0.06, 0.05, 0.9)
-## Panels are frosted glass (FrostedGlass) under a tint this see-through,
-## with a faint light edge along the top.
+## Panels are rounded glass (Glass, FrostedGlass): over the live blur the
+## tint is this see-through; where glass doesn't blur (the web, Low
+## quality) it is plain tinted glass, darker, with a light rim.
 const GLASS_TINT := 0.55
-const GLASS_EDGE := Color(1, 1, 1, 0.14)
+const FLAT_TINT := 0.92
+const R := 14.0  ## corner radius
+const ALL := Vector4(R, R, R, R)
+const TOP := Vector4(R, R, 0, 0)
+const BOTTOM := Vector4(0, 0, R, R)
+const LEFT := Vector4(R, 0, 0, R)
+const RIGHT := Vector4(0, R, R, 0)
 const ACCENT := Color(0.98, 0.78, 0.25)
 const TEXT := Color(1, 1, 1)
 const DIM := Color(0.78, 0.86, 0.82)
@@ -28,6 +35,7 @@ const SHOT_CARD_S := 6.0
 const HOLE_CARD_S := 5.5
 const HOLE_CARD_FADE := 0.35  # the fade of _ease_in_out
 const WIPE_S := 0.55
+const SPRING_IN_S := 0.55
 const TICKER_SPEED := 70.0  ## pixels per second
 
 var status := {}
@@ -65,7 +73,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glass = FrostedGlass.new()
 	add_child(glass)
-	_font = ThemeDB.fallback_font
+	_font = GlassTheme.font(600)
 	pip = SubViewportContainer.new()
 	pip.stretch = true
 	pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -226,11 +234,11 @@ func _draw_score_bug() -> void:
 	var x := 16.0
 	var y := 14.0
 	# Hole block: big number on the accent colour.
-	draw_rect(Rect2(x, y, 64, 64), ACCENT)
+	_fill(Rect2(x, y, 64, 64), ACCENT, LEFT)
 	_text(Vector2(x + 32, y + 30), str(status.get("hole", "")), 30, PANEL_DARK, true)
 	_text(Vector2(x + 32, y + 54), "PAR %s" % status.get("par", ""), 13, PANEL_DARK, true)
 	var w := 300.0
-	_panel(Rect2(x + 64, y, w, 64), PANEL)
+	_panel(Rect2(x + 64, y, w, 64), PANEL, 1.0, RIGHT)
 	_text(Vector2(x + 76, y + 24), str(status.get("player", "")).to_upper(), 19, TEXT)
 	var to_par := str(status.get("to_par", "E"))
 	_text_right(Vector2(x + 64 + w - 12, y + 24), to_par, 22, UNDER if to_par.begins_with("-") else TEXT)
@@ -239,7 +247,7 @@ func _draw_score_bug() -> void:
 
 func _draw_live_bug() -> void:
 	var r := Rect2(size.x - 186.0, 16.0, 62.0, 24.0)
-	draw_rect(r, RED)
+	_fill(r, RED, Vector4.ONE * 12.0)
 	var pulse := 0.6 + 0.4 * sin(_time * 4.0)
 	draw_circle(r.position + Vector2(12, 12), 4.0, Color(1, 1, 1, pulse))
 	_text(r.position + Vector2(38, 17), "LIVE", 14, TEXT, true)
@@ -257,7 +265,7 @@ func _draw_shot_panel() -> void:
 	var y := 92.0
 	var h := 24.0
 	_panel(Rect2(x, y, 364, h * rows.size() + 10), PANEL)
-	draw_rect(Rect2(x, y, 4, h * rows.size() + 10), ACCENT)
+	_fill(Rect2(x + 6, y + 10, 4, h * rows.size() - 10), ACCENT, Vector4.ONE * 2.0)
 	for i in rows.size():
 		var ry := y + 22 + i * h
 		_text(Vector2(x + 16, ry), rows[i][0], 13, ACCENT)
@@ -265,20 +273,20 @@ func _draw_shot_panel() -> void:
 
 
 func _draw_lower_third() -> void:
-	var a := _ease_in_out(_lower_t, LOWER_THIRD_S)
+	var a := _slide(_lower_t, LOWER_THIRD_S)
 	var w := 440.0
 	var x := lerpf(-w, 40.0, a)
 	# Clear of the key hints that run just above the ticker.
 	var y := size.y - TICKER_H - 100.0
-	_panel(Rect2(x, y, w, 34), PANEL_DARK)
-	draw_rect(Rect2(x, y, 6, 52), ACCENT)
+	_panel(Rect2(x, y, w, 34), PANEL_DARK, 1.0, TOP)
+	_fill(Rect2(x + 7, y + 8, 4, 18), ACCENT, Vector4.ONE * 2.0)
 	_text(Vector2(x + 18, y + 25), str(_lower.get("name", "")).to_upper(), 22, TEXT)
-	draw_rect(Rect2(x, y + 34, w, 20), Color(ACCENT, 0.92))
+	_fill(Rect2(x, y + 34, w, 20), Color(ACCENT, 0.92), BOTTOM)
 	_text(Vector2(x + 18, y + 49), str(_lower.get("line", "")), 13, PANEL_DARK)
 
 
 func _draw_shot_card() -> void:
-	var a := _ease_in_out(_card_t, SHOT_CARD_S)
+	var a := _slide(_card_t, SHOT_CARD_S)
 	var w := 250.0
 	var x := lerpf(size.x + 10.0, size.x - w - 16.0, a)
 	var y := 176.0 if not pip.visible else 404.0
@@ -290,9 +298,9 @@ func _draw_shot_card() -> void:
 		["LIE", _card.get("lie", "")],
 		["TO PIN", _card.get("to_pin", "")],
 	]
-	draw_rect(Rect2(x, y, w, 30), ACCENT)
+	_fill(Rect2(x, y, w, 30), ACCENT, TOP)
 	_text(Vector2(x + 12, y + 21), str(_card.get("title", "SHOT")).to_upper(), 15, PANEL_DARK)
-	_panel(Rect2(x, y + 30, w, rows.size() * 24 + 8), PANEL)
+	_panel(Rect2(x, y + 30, w, rows.size() * 24 + 8), PANEL, 1.0, BOTTOM)
 	for i in rows.size():
 		var ry := y + 52 + i * 24
 		_text(Vector2(x + 12, ry), rows[i][0], 13, ACCENT)
@@ -300,16 +308,16 @@ func _draw_shot_card() -> void:
 
 
 func _draw_hole_card() -> void:
-	var a := _ease_in_out(_hole_t, HOLE_CARD_S)
+	var a := _slide(_hole_t, HOLE_CARD_S)
 	var w := 300.0
 	var x := lerpf(-w - 20.0, 16.0, a)
 	var y := 92.0
 	var map_h := 280.0
-	_panel(Rect2(x, y, w, 64), PANEL_DARK)
+	_panel(Rect2(x, y, w, 64), PANEL_DARK, 1.0, TOP)
 	_text(Vector2(x + 14, y + 28), "HOLE %s" % _hole.get("number", ""), 24, ACCENT)
 	_text_right(Vector2(x + w - 14, y + 28), "PAR %s" % _hole.get("par", ""), 20, TEXT)
 	_text(Vector2(x + 14, y + 52), "%s YARDS    %s" % [_hole.get("yards", ""), str(_hole.get("name", "")).to_upper()], 13, DIM)
-	_panel(Rect2(x, y + 64, w, map_h + 16), PANEL)
+	_panel(Rect2(x, y + 64, w, map_h + 16), PANEL, 1.0, BOTTOM)
 	if _hole_map != null:
 		var ms := _hole_map.get_size()
 		var scale := minf((w - 16) / ms.x, map_h / ms.y)
@@ -329,7 +337,7 @@ func _draw_caption() -> void:
 	var h := caption_height(lines.size())
 	var fade := clampf(minf(_caption_t * 4.0, (_caption_len - _caption_t) * 2.0), 0.0, 1.0)
 	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 116.0 - h, w, h)
-	_panel(r, PANEL_DARK, fade)
+	_panel(r, PANEL_DARK, fade, Vector4.ONE * minf(17.0, h * 0.5))
 	if lines.size() == 1:
 		_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)
 		return
@@ -343,7 +351,7 @@ static func caption_height(line_count: int) -> float:
 
 func _draw_replay_bug() -> void:
 	var r := Rect2(size.x - 300.0, 16.0, 104.0, 24.0)
-	draw_rect(r, ACCENT)
+	_fill(r, ACCENT, Vector4.ONE * 12.0)
 	_text(r.position + Vector2(52, 18), "REPLAY", 15, PANEL_DARK, true)
 
 
@@ -351,7 +359,7 @@ func _draw_ticker() -> void:
 	if _ticker.is_empty():
 		return
 	var y := size.y - TICKER_H
-	_panel(Rect2(0, y, size.x, TICKER_H), PANEL_DARK)
+	_panel(Rect2(0, y, size.x, TICKER_H), PANEL_DARK, 1.0, Vector4.ZERO)
 	draw_rect(Rect2(0, y, size.x, 2), ACCENT)
 	var fs := 14
 	var tw := _font.get_string_size(_ticker, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 120.0
@@ -382,18 +390,40 @@ func _draw_wipe() -> void:
 
 # --- Helpers ------------------------------------------------------------------
 
-## A frosted-glass panel tinted `col`, faded by `alpha`.
-func _panel(r: Rect2, col: Color, alpha := 1.0) -> void:
-	glass.add(r, alpha)
-	draw_rect(r, Color(col, col.a * GLASS_TINT * alpha))
-	draw_rect(Rect2(r.position, Vector2(r.size.x, 1.0)), Color(GLASS_EDGE, GLASS_EDGE.a * alpha))
+## A glass panel tinted `col`, faded by `alpha`, with `corners` rounded
+## (top-left, top-right, bottom-right, bottom-left).
+func _panel(r: Rect2, col: Color, alpha := 1.0, corners := ALL) -> void:
+	glass.add(r, alpha, corners)
+	var blur := Glass.blurs()
+	var sb := _box(Color(col, col.a * (GLASS_TINT if blur else FLAT_TINT) * alpha), corners)
+	if not blur:
+		sb.border_color = Color(Glass.RIM, Glass.RIM.a * alpha)
+		sb.border_width_top = 1
+	draw_style_box(sb, r)
+
+
+## A solid rounded shape (the accent blocks).
+func _fill(r: Rect2, col: Color, corners := ALL) -> void:
+	draw_style_box(_box(col, corners), r)
+
+
+static func _box(col: Color, corners: Vector4) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.corner_radius_top_left = int(corners.x)
+	sb.corner_radius_top_right = int(corners.y)
+	sb.corner_radius_bottom_right = int(corners.z)
+	sb.corner_radius_bottom_left = int(corners.w)
+	sb.corner_detail = 8
+	sb.anti_aliasing = true
+	return sb
 
 func _tag(at: Vector2, text: String, right_align: bool) -> void:
 	var fs := 13
 	var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 20.0
 	var r := Rect2(at.x - w if right_align else at.x, at.y - 18.0, w, 22.0)
-	_panel(r, PANEL)
-	draw_rect(Rect2(r.position, Vector2(3, r.size.y)), ACCENT)
+	_panel(r, PANEL, 1.0, Vector4.ONE * 11.0)
+	_fill(Rect2(r.position + Vector2(5, 6), Vector2(3, r.size.y - 12)), ACCENT, Vector4.ONE * 1.5)
 	_text(r.position + Vector2(11, 16), text, fs, TEXT)
 
 
@@ -407,6 +437,14 @@ func _text(at: Vector2, text: String, fs: int, col: Color, centred := false) -> 
 func _text_right(at: Vector2, text: String, fs: int, col: Color) -> void:
 	var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	draw_string(_font, Vector2(at.x - w, at.y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+## A panel sliding in and out over `length` seconds: in on a spring (a
+## touch past its place and back, Glass.spring), out on a smooth ease.
+static func _slide(t: float, length: float) -> float:
+	if t < SPRING_IN_S and t < length * 0.5:
+		return Glass.spring(t / SPRING_IN_S)
+	return _ease_in_out(t, length) if t > length * 0.5 else 1.0
 
 
 ## 0 -> 1 over the first 0.35 s, 1 until the last 0.35 s, then back to 0.

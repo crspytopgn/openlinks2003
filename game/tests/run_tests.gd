@@ -118,6 +118,7 @@ func _process(_delta: float) -> bool:
 	_run("practice_ground_round", _test_practice_ground_round)
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
+	_run("glass_ui", _test_glass_ui)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -3722,6 +3723,27 @@ func _test_launch_monitor_input() -> void:
 
 ## Mulligans: the shot is taken again from the same spot, the card doesn't
 ## count it, and the round still replays to the same card.
+func _test_glass_ui() -> void:
+	_check(Glass.spring(0.0) == 0.0 and Glass.spring(1.0) == 1.0, "the spring starts at 0 and settles at 1")
+	var peak := 0.0
+	for i in 101:
+		peak = maxf(peak, Glass.spring(i / 100.0))
+	_check(peak > 1.0 and peak < 1.15, "and overshoots a touch (%.3f)" % peak)
+	GlassTheme.install()
+	var d := ThemeDB.get_default_theme()
+	var pill := d.get_stylebox("normal", "Button") as StyleBoxFlat
+	_check(pill != null and pill.corner_radius_top_left >= 20, "buttons are pills")
+	_check(d.default_font is FontVariation, "the theme's type is Inter")
+	var p := PanelContainer.new()
+	MenuStyle.panel(p)
+	var style := p.get_theme_stylebox("panel") as StyleBoxFlat
+	_check(style != null and style.corner_radius_top_left == Glass.RADIUS and style.bg_color.a < 0.8, "menu panels are rounded glass")
+	p.free()
+	Glass.allow_blur = false
+	_check(not Glass.blurs(), "Low quality: no live blur")
+	Glass.allow_blur = true
+
+
 func _test_click_aim() -> void:
 	var flat := FlatTerrain.new(Surface.Type.FAIRWAY, 2.0)
 	var hit: Variant = ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, -1, 1))

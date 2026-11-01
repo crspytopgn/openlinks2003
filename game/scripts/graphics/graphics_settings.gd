@@ -486,6 +486,7 @@ func apply_display(viewport: Viewport) -> void:
 	if viewport is Window:
 		(viewport as Window).content_scale_factor = UI_SCALES[ui_scale]
 	SwingMeter.colour_safe = colour_safe
+	Glass.allow_blur = quality != Quality.LOW
 	if DisplayServer.get_name() != "headless" and not OS.has_feature("web"):
 		var mode := DisplayServer.WINDOW_MODE_WINDOWED
 		if fullscreen:
