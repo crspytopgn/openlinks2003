@@ -65,16 +65,16 @@ CLIPS = {
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
                          glance=(0.9, 0.45, 0.8, 75.0)),
-    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=329, putt=False),
-    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=329,
+    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=327, putt=False),
+    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=327,
                   downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
                          frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
-    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=329,
+    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
                            putt=False),
-    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=329,
+    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=327,
                        downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
@@ -346,8 +346,13 @@ def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
 
 
 IMPACT_OPEN = 15.0  # degrees more shoulder turn toward the target at impact
-RELEASE_SHARE = 0.3  # of the drop to the ball at impact taken by a steeper shaft
-ROOT_SHARE = 0.3  # of the drop to the ball at impact taken through the knees
+# Forward shaft lean at impact, degrees (hands ahead of the club head along
+# the target line): tour irons strike with ~8-10 deg, the driver about level
+# (the ball is forward in the stance). The actor flips the wrists (head past
+# the hands); the lead wrist bows to fix it.
+SHAFT_LEAN = {"Driver": 1.0, "Iron": 8.0}
+RELEASE_SHARE = 0.7  # of the drop to the ball at impact taken by a steeper shaft
+ROOT_SHARE = 0.6  # of the drop to the ball at impact taken through the knees
 BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
 
 
@@ -418,10 +423,17 @@ def retarget(glb, rig, clip, cache):
         w = (rots[club_j] @ (head_verts - rest[club_j]).T).T + poss[club_j]
         return np.array([*w.mean(axis=0)[[0]], w[:, 1].min(), w.mean(axis=0)[2]])
 
+    lean_fix, impact_lean = [0.0], [0.0]  # degrees added at impact, refined pass by pass
+
+    def lean_of(rots):
+        shaft = rots[club_j] @ club_dir
+        return math.degrees(math.atan2(shaft[0], -shaft[1]))
+
     def run(correct):
         nonlocal arm_angle
         arm_angle = 0.0
         impact_head = np.zeros(3)
+        impact_lean[0] = 0.0
         out_rots, out_root = [], []
         for i, f in enumerate(frames):
             m_rots, m_poss = bvh.frame(f)
@@ -440,10 +452,11 @@ def retarget(glb, rig, clip, cache):
             if "impact" in clip:
                 # Down into the shot at impact: a little through the knees
                 # (the feet are pinned below), the rest bending over the ball,
-                # so the lead leg can still straighten into impact.
+                # so the lead leg can still straighten into impact. The hips
+                # stay back from the ball (the actor's thrust towards it).
                 w = impact_weight(f, clip["impact"])
                 body = (1.0 - RELEASE_SHARE) * correct[1]
-                root = root + w * ROOT_SHARE * np.array([0.0, body, 0.0])
+                root = root + w * np.array([0.0, ROOT_SHARE * body, correct[2]])
                 if body != 0.0:
                     bend = pose.rot([1.0, 0.0, 0.0], math.degrees(w * (1.0 - ROOT_SHARE) * body / BEND_LEVER))
                     for j in descendants(rig, "spine_01"):
@@ -533,6 +546,13 @@ def retarget(glb, rig, clip, cache):
                     rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
                 w = impact_weight(f, clip["impact"])
+                if w > 0.0 and lean_fix[0] != 0.0:
+                    # The hands ahead of the head at impact: the lead wrist
+                    # bows, laying the head back about the hands (the arm
+                    # then swings the hands forward to the ball, below).
+                    rots[hands_l] = pose.rot([0.0, 0.0, 1.0], w * lean_fix[0]) @ rots[hands_l]
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
                 if w > 0.0 and correct[1] != 0.0:
                     # Most of the way down to the ball: the shaft comes up
                     # steeper at impact than at address (the hands higher,
@@ -549,12 +569,15 @@ def retarget(glb, rig, clip, cache):
                 if w > 0.0 and np.any(correct):
                     # Brings the club head in to the ball at impact: the lead
                     # arm swings in (its length kept), the club turning with it.
+                    shoulder = poss[rig.index["upperarm_l"]]
+                    reach = poss[hands_l] + w * correct * np.array([1.0, 0.0, 0.0]) - shoulder
                     two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l",
-                             poss[hands_l] + w * correct * np.array([1.0, 0.0, 1.0]))
+                             shoulder + pose.unit(reach) * np.linalg.norm(poss[hands_l] - shoulder))
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
                 if f == clip["impact"]:
                     impact_head[:] = club_head(rots, poss)
+                    impact_lean[0] = lean_of(rots)
             if "impact" not in clip:
                 # Waggling over the ball, the club head stays above the
                 # ground: the wrists lift it a few degrees round the grip.
@@ -582,13 +605,16 @@ def retarget(glb, rig, clip, cache):
     correct = np.zeros(3)
     out_rots, out_root, head = run(correct)
     if not clip["putt"] and "impact" in clip and clip["impact"] in frames:
-        # The lowest point of the head on the ball at impact; the bend and
-        # the arm move the head in each other's way, so a few passes.
+        # The lowest point of the head on the ball at impact, the shaft
+        # leaning forward; the bend, the wrist and the arm move the head in
+        # each other's way, so a few passes.
         target = np.array(clip.get("strike", IMPACT_AT))
-        for _ in range(5):
-            if np.linalg.norm(target - head) < 0.002:
+        lean = SHAFT_LEAN[clip.get("club", "Driver")]
+        for _ in range(8):
+            if np.linalg.norm(target - head) < 0.002 and abs(lean - impact_lean[0]) < 0.5:
                 break
             correct = correct + (target - head)
+            lean_fix[0] += lean - impact_lean[0]
             out_rots, out_root, head = run(correct)
 
     if clip.get("loop"):
@@ -597,6 +623,9 @@ def retarget(glb, rig, clip, cache):
     keep = list(range(0, len(frames), STEP))
     if keep[-1] != len(frames) - 1:
         keep.append(len(frames) - 1)
+    if clip.get("impact") in frames:
+        # A key on the strike itself, so the head meets the ball.
+        keep = sorted(set(keep) | {frames.index(clip["impact"])})
     times = [times[i] for i in keep]
     out_rots = [out_rots[i] for i in keep]
     out_root = [out_root[i] for i in keep]
