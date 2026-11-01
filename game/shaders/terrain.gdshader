@@ -234,5 +234,10 @@ void fragment() {
 		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);
 	}
 	col *= 1.0 - 0.35 * lip;
+	// Sand is darker and damp where it meets the turf (the bank sheds
+	// water and shade into it), and a touch less bright overall, so a
+	// bunker reads as a hollow, not a white decal.
+	float damp = sand * (1.0 - smoothstep(0.55, 0.98, sand + edge_noise * 0.2));
+	col *= mix(1.0, 0.9 - 0.22 * damp, sand);
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
 }

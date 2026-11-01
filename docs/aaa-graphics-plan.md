@@ -74,7 +74,8 @@ with verdicts) are in `unusual-graphics-ideas.md`.
 
 ## Order for the graphics thread
 
-1. Grade, lower sun and haze. In progress.
+1. Grade, lower sun and haze. Done in #141; the bloom veil that greyed
+   Forward+ was removed after it.
 2. Telephoto tee and approach camera with background depth of field.
 3. Bunker lips, a green collar and soft surface edges.
 4. Contact shadows, SSAO and GI tuning on desktop, and the iPad tier

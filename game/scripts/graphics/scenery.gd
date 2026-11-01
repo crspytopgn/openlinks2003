@@ -39,7 +39,7 @@ const TIMES := {
 		haze = Color(0.70, 0.78, 0.88), fog = 0.9, exposure = 0.95},
 	"afternoon": {elevation = 30.0, bearing = 145.0, sun = Color(1.0, 0.92, 0.8), energy = 1.0, fill = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.0), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
-		haze = HORIZON, fog = 1.6, exposure = 1.0},
+		haze = HORIZON, fog = 1.2, exposure = 1.0},
 	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.66, 0.38), energy = 0.95, fill = 1.0,
 		ambient = Color(0.72, 0.66, 0.64), sky = Color(1.02, 0.86, 0.74), horizon = Color(1.15, 0.92, 0.72), glow = 0.8,
 		haze = Color(0.9, 0.74, 0.58), fog = 1.6, exposure = 1.35},
@@ -160,7 +160,10 @@ func apply(settings: GraphicsSettings) -> void:
 	# Classic keeps its faint glow on the brightest highlights.
 	environment.glow_enabled = bloom > 0.0 or (not photo and q >= GraphicsSettings.Quality.HIGH)
 	environment.glow_intensity = bloom * 2.0 if bloom > 0.0 else 0.25
-	environment.glow_bloom = bloom * 0.15
+	# Glow only off what is really bright (the sun on sand, white
+	# clouds): a whole-image bloom lays a milky veil over the course that
+	# reads as haze and greys the sky, most of all in Forward+.
+	environment.glow_bloom = bloom * 0.15 if not photo else 0.0
 	environment.glow_hdr_threshold = 1.0 if photo else 1.2
 	environment.ssao_enabled = fwd and settings.ssao
 	environment.ssil_enabled = fwd and settings.ssao and q >= GraphicsSettings.Quality.ULTRA
