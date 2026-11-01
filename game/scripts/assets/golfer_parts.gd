@@ -101,8 +101,10 @@ func standing_height(weights: Dictionary) -> float:
 
 
 ## The part with the shape applied, as a skinned ArrayMesh (no material).
-## Weights below 0.001 are ignored.
-func bake(part_name: String, weights: Dictionary) -> ArrayMesh:
+## Weights below 0.001 are ignored. Triangles whose vertices all follow
+## `split_bones` most (bone indices, as in bone_names()) go in a second
+## surface, for the glove.
+func bake(part_name: String, weights: Dictionary, split_bones := PackedInt32Array()) -> ArrayMesh:
 	var used := {}
 	var part := _part(part_name)
 	if part.is_empty():
@@ -114,6 +116,8 @@ func bake(part_name: String, weights: Dictionary) -> ArrayMesh:
 	var keys := used.keys()
 	keys.sort()
 	var key := part_name
+	if not split_bones.is_empty():
+		key += "|split=" + ",".join(Array(split_bones).map(func(b: int) -> String: return str(b)))
 	for k: String in keys:
 		key += "|%s=%.3f" % [k, used[k]]
 	if _meshes.has(key):
@@ -149,12 +153,44 @@ func bake(part_name: String, weights: Dictionary) -> ArrayMesh:
 	arrays[Mesh.ARRAY_WEIGHTS] = part.weights
 	arrays[Mesh.ARRAY_INDEX] = part.indices
 	var mesh := ArrayMesh.new()
+	var split := PackedInt32Array()
+	if not split_bones.is_empty():
+		var parts := _split(part, split_bones)
+		arrays[Mesh.ARRAY_INDEX] = parts[0]
+		split = parts[1]
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if not split.is_empty():
+		arrays[Mesh.ARRAY_INDEX] = split
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	_meshes[key] = mesh
 	_mesh_order.append(key)
 	while _mesh_order.size() > MESH_CACHE:
 		_meshes.erase(_mesh_order.pop_front())
 	return mesh
+
+
+## The part's triangles as [the rest, those that follow `bones` most].
+func _split(part: Dictionary, bones: PackedInt32Array) -> Array[PackedInt32Array]:
+	var b: PackedInt32Array = part.bones
+	var w: PackedFloat32Array = part.weights
+	var n := b.size() / 4
+	var inside := PackedByteArray()
+	inside.resize(n)
+	for v in n:
+		var best := 0
+		for k in range(1, 4):
+			if w[v * 4 + k] > w[v * 4 + best]:
+				best = k
+		inside[v] = 1 if bones.has(b[v * 4 + best]) else 0
+	var idx: PackedInt32Array = part.indices
+	var rest := PackedInt32Array()
+	var picked := PackedInt32Array()
+	for t in range(0, idx.size(), 3):
+		if inside[idx[t]] == 1 and inside[idx[t + 1]] == 1 and inside[idx[t + 2]] == 1:
+			picked.append_array([idx[t], idx[t + 1], idx[t + 2]])
+		else:
+			rest.append_array([idx[t], idx[t + 1], idx[t + 2]])
+	return [rest, picked]
 
 
 ## The part's material, with `tint` multiplied in (the tinted materials'

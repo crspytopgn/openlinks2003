@@ -33,6 +33,8 @@ const READ_SPOT := Vector3(1.6, 0.0, -0.75)
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
+## The left hand's bones, for the glove (with hand_l).
+const GLOVE_FINGERS := ["thumb", "index", "middle", "ring", "pinky"]
 const SHAFT_COLOURS := {"steel": Color(0.75, 0.76, 0.78), "graphite": Color(0.16, 0.17, 0.19), "black": Color(0.04, 0.04, 0.045)}
 
 var look: PlayerLook
@@ -108,6 +110,11 @@ func apply_look(p_look: PlayerLook) -> void:
 	var weights := look.shape_weights()
 	_fit_skeleton(parts.joint_offsets(weights))
 	var skin := Skin.new()
+	var glove_bones := PackedInt32Array()
+	var names := parts.bone_names()
+	for i in names.size():
+		if names[i] == "hand_l" or (names[i].ends_with("_l") and names[i].split("_")[0] in GLOVE_FINGERS):
+			glove_bones.append(i)
 	for bone_name in parts.bone_names():
 		var bone := _skeleton.find_bone(bone_name)
 		var rest := _skeleton.get_bone_global_rest(bone) if bone >= 0 else Transform3D.IDENTITY
@@ -117,9 +124,17 @@ func apply_look(p_look: PlayerLook) -> void:
 			continue
 		var mi := MeshInstance3D.new()
 		mi.name = part_name
-		mi.mesh = parts.bake(part_name, weights)
+		var mat_name := parts.part_material(part_name)
+		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
+		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
 		mi.skin = skin
-		mi.material_override = _matt(_material(parts, parts.part_material(part_name)))
+		var mat := _material(parts, mat_name)
+		mat = GolferSurface.skin(mat) if is_skin else (GolferSurface.cloth(mat) if _is_cloth(parts, mat_name) else _matt(mat))
+		if mi.mesh.get_surface_count() > 1:
+			mi.set_surface_override_material(0, mat)
+			mi.set_surface_override_material(1, GolferSurface.glove())
+		else:
+			mi.material_override = mat
 		_skeleton.add_child(mi)
 		mi.skeleton = NodePath("..")
 		_look_nodes.append(mi)
@@ -169,6 +184,10 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 		var eyes: Dictionary = parts.info.get("eyes", {})
 		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
 	return parts.make_material(material_name)
+
+
+static func _is_cloth(parts: GolferParts, material_name: String) -> bool:
+	return str(parts.info.materials[material_name].get("tint", "")) in ["top", "bottom", "cap"]
 
 
 ## Cloth, skin and hair as matt as they are in daylight: shinier materials
