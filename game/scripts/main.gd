@@ -249,6 +249,7 @@ var grass: GrassField
 var _trail_mesh := ImmediateMesh.new()
 ## Broadcast presentation pieces (GraphicsSettings.presentation).
 var broadcast := false
+var gallery: Gallery  ## the ropes, crowd and grandstand (Broadcast only)
 var tracer: BallTracer
 var green_grid: GreenGrid
 ## The Tour presentation (GraphicsSettings.Presentation.TOUR): the tour
@@ -586,10 +587,18 @@ func start_hole(index: int) -> void:
 	else:
 		_add_flag()
 	_add_tee_markers()
+	if broadcast and practice == null and graphics != null and graphics.quality > GraphicsSettings.Quality.LOW:
+		# The course's furniture: tee sign, ball washer, bench, bunker rakes.
+		hole_root.add_child(CourseProps.build(hole, _first_leg(), CourseProps.RAKES_BY_QUALITY[graphics.quality]))
 	if broadcast and practice == null:
 		# Tournament dressing: gallery ropes, and a crowd at the tee and green.
 		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
-		hole_root.add_child(Gallery.build(hole, _first_leg(), crowd, hole.number * 7919))
+		# Grandstands go up where tournaments build them: at par 3s and the last green.
+		var stand := hole.par == 3 or hole_index == holes.size() - 1
+		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand)
+		hole_root.add_child(gallery)
+	else:
+		gallery = null
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
@@ -2940,26 +2949,37 @@ func _add_flag() -> void:
 	hole_root.add_child(cup)
 
 
-## The tee markers: a pair of squat domes about 15 cm across, set square
-## to the line of the hole either side of the tee, as on a real tee box
-## (Rule 6.2b: the teeing area runs back two club-lengths from them).
+## The tee markers: a pair of spherical plastic markers 127 mm across
+## (tools/props/build_props.py, from the maker's photos), set square to the
+## line of the hole either side of the tee, as on a real tee box (Rule
+## 6.2b: the teeing area runs back two club-lengths from them).
 const TEE_MARKER_GAP := 5.5  ## metres between the two markers
 const TEE_MARKER_AHEAD := 0.6  ## how far in front of the ball they stand
+const TEE_MARKER_COLOUR := Color(0.8, 0.1, 0.08)
 
 
 func _add_tee_markers() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.85, 0.12, 0.1)
-	mat.roughness = 0.45
-	var s := SphereMesh.new()
-	s.radius = 0.075
-	s.height = 0.11
-	s.is_hemisphere = true
+	var model := CourseProps.mesh("tee_marker")
+	var mesh: Mesh = model
+	var mat: StandardMaterial3D
+	if model != null:
+		var base := model.surface_get_material(0) as StandardMaterial3D
+		mat = base.duplicate() as StandardMaterial3D if base != null else StandardMaterial3D.new()
+		mat.albedo_color = TEE_MARKER_COLOUR
+	else:
+		# Without the model: a ball of the same size.
+		var s := SphereMesh.new()
+		s.radius = 0.0635
+		s.height = 0.127
+		mesh = s
+		mat = StandardMaterial3D.new()
+		mat.albedo_color = TEE_MARKER_COLOUR
+		mat.roughness = 0.35
 	for p in tee_marker_spots(hole.tee, _first_leg()):
 		var m := MeshInstance3D.new()
-		m.mesh = s
+		m.mesh = mesh
 		m.material_override = mat
-		p.y = hole.terrain.height_at(p.x, p.z) - 0.005
+		p.y = hole.terrain.height_at(p.x, p.z) - 0.005 + (0.0 if model != null else 0.05)
 		m.position = p
 		hole_root.add_child(m)
 
@@ -3387,6 +3407,8 @@ func _report_shot() -> void:
 	hud.overlay.show_pip(false)
 	var line: Array = Commentary.pick(shot, surface, putting, to_pin, _shot_from_pin, _commentary_rng)
 	_caption_crowd(line[1])
+	if gallery != null and is_instance_valid(gallery):
+		gallery.react(line[1])
 	match line[1]:
 		Commentary.Crowd.POLITE:
 			sounds.play(&"applause")

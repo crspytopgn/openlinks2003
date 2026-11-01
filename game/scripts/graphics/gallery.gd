@@ -42,7 +42,9 @@ const ROPE_COLOUR := Color(0.92, 0.9, 0.84)
 
 
 ## Builds the gallery for `hole`, with up to `crowd` spectators.
-static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int) -> Gallery:
+## With `stand`, a grandstand goes up behind the green too, if there is
+## room for it.
+static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, stand := false) -> Gallery:
 	var g := Gallery.new()
 	g.name = "Gallery"
 	var lines := tee_lines(hole.terrain, hole.tee, toward)
@@ -50,6 +52,10 @@ static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int) 
 	g._build_ropes(hole.terrain, lines)
 	if crowd > 0:
 		g._build_crowd(hole, lines, crowd, seed_value)
+	if stand:
+		var at := grandstand_spot(hole)
+		if not at.is_empty():
+			g._build_grandstand(hole.terrain, at[0], at[1], seed_value)
 	return g
 
 
@@ -302,6 +308,235 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	shadows.multimesh = mm
 	shadows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(shadows)
+
+
+# --- Crowd reactions ------------------------------------------------------
+
+## Spectators react to a shot the way the crowd sounds (Commentary.Crowd):
+## a roar has everyone celebrating, a cheer most of them, polite applause
+## a few, a groan or an "ooh" some of them in dismay. Each reacts a moment
+## apart, then settles back to standing.
+func react(crowd: int) -> void:
+	var clip := &"celebrate"
+	var share := 0.0
+	match crowd:
+		Commentary.Crowd.ROAR:
+			share = 1.0
+		Commentary.Crowd.CHEER:
+			share = 0.6
+		Commentary.Crowd.POLITE:
+			share = 0.25
+		Commentary.Crowd.GROAN, Commentary.Crowd.OOH:
+			clip = &"upset"
+			share = 0.45
+	if share <= 0.0 or not is_inside_tree():
+		return
+	for c in get_children():
+		if not c is FreeGolfer or randf() > share:
+			continue
+		var player := c.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if player == null or not player.has_animation(clip):
+			continue
+		get_tree().create_timer(randf_range(0.1, 0.9)).timeout.connect(_react_one.bind(player, clip))
+
+
+static func _react_one(player: AnimationPlayer, clip: StringName) -> void:
+	if not is_instance_valid(player):
+		return
+	player.play(clip, 0.25)
+	player.queue(&"idle")
+
+
+# --- Grandstand ------------------------------------------------------------
+
+## A temporary tournament grandstand, the kind built behind the 18th green
+## and round par 3s: aluminium bleacher rows on a scaffold, a dark green
+## skirt round the sides and front, and a rail along the back. Real scale
+## from tour photos and bleacher specs: rows 0.85 m deep rising 0.42 m, the
+## first row 1.0 m up behind the front hoarding, 24 m wide.
+const STAND_ROWS := 8
+const STAND_TREAD := 0.85
+const STAND_RISE := 0.42
+const STAND_FIRST := 1.0
+const STAND_WIDTH := 24.0
+const STAND_RAIL := 1.05
+## How far behind the green rope the front of the stand stands.
+const STAND_BACK := 6.0
+const STAND_SEAT := 0.55  ## seat width per spectator
+const STAND_FULL := 0.8  ## share of seats taken
+const STEP_COLOUR := Color(0.78, 0.79, 0.8)
+const SKIRT_COLOUR := Color(0.13, 0.3, 0.19)
+
+
+static func stand_depth() -> float:
+	return STAND_ROWS * STAND_TREAD
+
+
+## Where a grandstand fits behind the green: [front centre, facing
+## direction (toward the pin)], or empty if water, sand, a green or a tree
+## is in the way whichever way it is tried.
+static func grandstand_spot(hole: HoleData) -> Array:
+	var t := hole.terrain
+	var back := Vector3(hole.pin.x - hole.tee.x, 0.0, hole.pin.z - hole.tee.z)
+	back = Vector3(0, 0, 1) if back.length() < 0.01 else back.normalized()
+	for turn_deg: float in [0.0, 25.0, -25.0, 50.0, -50.0]:
+		var d := back.rotated(Vector3.UP, deg_to_rad(turn_deg))
+		var front := hole.pin + d * (_green_edge(t, hole.pin, d) + GREEN_MARGIN + STAND_BACK)
+		if _stand_clear(hole, front, -d):
+			return [Vector3(front.x, t.height_at(front.x, front.z), front.z), -d]
+	return []
+
+
+static func _stand_clear(hole: HoleData, front: Vector3, facing: Vector3) -> bool:
+	var side := Vector3.UP.cross(facing)
+	var depth := stand_depth() + 1.0
+	for i in 5:
+		for j in 3:
+			var p := front + side * ((i / 4.0 - 0.5) * STAND_WIDTH) - facing * (j / 2.0 * depth)
+			var s := hole.terrain.surface_at(p.x, p.z)
+			if s == Surface.Type.WATER or s == Surface.Type.SAND or s == Surface.Type.GREEN:
+				return false
+	var centre := front - facing * (depth * 0.5)
+	var reach := Vector2(STAND_WIDTH * 0.5, depth * 0.5).length() + 3.0
+	for o in hole.objects:
+		if Vector2(o.position.x - centre.x, o.position.z - centre.z).length() < reach:
+			return false
+	return true
+
+
+func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, seed_value: int) -> void:
+	var side := Vector3.UP.cross(facing)
+	var depth := stand_depth()
+	# Level on the highest ground under it, so no corner sinks into a slope.
+	var base := front.y
+	var low := front.y
+	for i in 3:
+		for j in 3:
+			var p := front + side * ((i / 2.0 - 0.5) * STAND_WIDTH) - facing * (j / 2.0 * depth)
+			var h := terrain.height_at(p.x, p.z)
+			base = maxf(base, h)
+			low = minf(low, h)
+	var stand := Node3D.new()
+	stand.name = "Grandstand"
+	add_child(stand)
+	stand.transform = Transform3D(Basis(side, Vector3.UP, -facing), Vector3(front.x, base, front.z))
+	# In the stand's frame: x across, y up, +z back (away from the green).
+	var w := STAND_WIDTH * 0.5
+	var floor_y := low - base - 0.3
+	var top := STAND_FIRST + (STAND_ROWS - 1) * STAND_RISE
+	var steps := SurfaceTool.new()
+	steps.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for r in STAND_ROWS:
+		var y := STAND_FIRST + r * STAND_RISE
+		var z0 := r * STAND_TREAD
+		# The tread and, below it, the riser down to the row in front.
+		_quad(steps, Vector3(-w, y, z0), Vector3(w, y, z0), Vector3(w, y, z0 + STAND_TREAD), Vector3(-w, y, z0 + STAND_TREAD))
+		_quad(steps, Vector3(-w, y - STAND_RISE, z0), Vector3(w, y - STAND_RISE, z0), Vector3(w, y, z0), Vector3(-w, y, z0))
+	steps.generate_normals()
+	stand.add_child(_mesh(steps, STEP_COLOUR, 0.45))
+	var skirt := SurfaceTool.new()
+	skirt.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# The front hoarding, the back wall and the rail.
+	_quad(skirt, Vector3(-w, floor_y, -0.02), Vector3(w, floor_y, -0.02), Vector3(w, STAND_FIRST + 0.1, -0.02), Vector3(-w, STAND_FIRST + 0.1, -0.02))
+	_quad(skirt, Vector3(w, floor_y, depth), Vector3(-w, floor_y, depth), Vector3(-w, top + STAND_RAIL, depth), Vector3(w, top + STAND_RAIL, depth))
+	# The two sides, stepped with the rows.
+	for sx: float in [-w, w]:
+		for r in STAND_ROWS:
+			var y := STAND_FIRST + r * STAND_RISE
+			var z0 := r * STAND_TREAD
+			var a := Vector3(sx, floor_y, z0)
+			var b := Vector3(sx, floor_y, z0 + STAND_TREAD)
+			var c := Vector3(sx, y + 0.12, z0 + STAND_TREAD)
+			var d := Vector3(sx, y + 0.12, z0)
+			if sx < 0.0:
+				_quad(skirt, b, a, d, c)
+			else:
+				_quad(skirt, a, b, c, d)
+	skirt.generate_normals()
+	stand.add_child(_mesh(skirt, SKIRT_COLOUR, 0.8))
+	_seat_crowd(stand, seed_value)
+
+
+func _seat_crowd(stand: Node3D, seed_value: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 3
+	var seats: Array[Vector3] = []
+	var per_row := int(STAND_WIDTH / STAND_SEAT) - 1
+	for r in STAND_ROWS:
+		for k in per_row:
+			if rng.randf() < STAND_FULL:
+				var x := (k + 0.5 - per_row * 0.5) * STAND_SEAT + rng.randf_range(-0.06, 0.06)
+				seats.append(Vector3(x, STAND_FIRST + r * STAND_RISE, r * STAND_TREAD + 0.35))
+	if seats.is_empty():
+		return
+	# Seated people, seen from the green: a torso in the shirt's colour and
+	# a head, as one instanced mesh each. At grandstand distance from the
+	# cameras that reads as a crowd without paying for full people.
+	var torso := CapsuleMesh.new()
+	torso.radius = 0.2
+	torso.height = 0.62
+	torso.radial_segments = 8
+	torso.rings = 2
+	var head := SphereMesh.new()
+	head.radius = 0.11
+	head.height = 0.24
+	head.radial_segments = 8
+	head.rings = 4
+	var torsos := _instances(torso, seats.size())
+	var heads := _instances(head, seats.size())
+	for i in seats.size():
+		var at := seats[i]
+		var lean := Basis(Vector3.RIGHT, rng.randf_range(-0.12, 0.05)).scaled(Vector3(1.0, 1.0, 0.7))
+		torsos.set_instance_transform(i, Transform3D(lean, at + Vector3(0, 0.33, 0)))
+		torsos.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
+		heads.set_instance_transform(i, Transform3D(Basis.IDENTITY, at + Vector3(rng.randf_range(-0.02, 0.02), 0.78, -0.02)))
+		var cap := rng.randf() < 0.4
+		var skin: Color = PlayerLook.SKIN_TONES[rng.randi_range(0, PlayerLook.SKIN_TONES.size() - 1)][1]
+		heads.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1] if cap else skin)
+	for mm in [torsos, heads]:
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		var mat := StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.roughness = 0.9
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		stand.add_child(mi)
+
+
+static func _instances(mesh: Mesh, n: int) -> MultiMesh:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = mesh
+	mm.instance_count = n
+	return mm
+
+
+static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	for v in [a, c, b, a, d, c]:
+		st.add_vertex(v)
+
+
+static func _mesh(st: SurfaceTool, colour: Color, roughness: float) -> MeshInstance3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = colour
+	mat.roughness = roughness
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	return mi
+
+
+func seated_count() -> int:
+	var stand := get_node_or_null("Grandstand")
+	if stand == null:
+		return 0
+	for c in stand.get_children():
+		if c is MultiMeshInstance3D:
+			return (c as MultiMeshInstance3D).multimesh.instance_count
+	return 0
 
 
 func crowd_count() -> int:

@@ -29,10 +29,28 @@ Verdicts: **Built** (in the game), **Do next**, **Later**, **No** (with why).
    at dawn. It runs on the Photoreal look only and costs two noise lookups.
    Verdict: worth keeping. It only shows in motion, and it should stay
    faint, because strong shimmer looks like a bug.
+3. **The sky photo's sun where the game's sun is.** The free sky is a real
+   HDR photo with its own sun, which used to sit at a bearing and height
+   that had nothing to do with the game's sun. Looking towards the light,
+   the sky was a dark blue with no sun in it, while the trees were backlit.
+   `FreeAssets.sky_sun` finds the photo's sun (its brightest patch), and
+   `photo_sky.gdshader` turns the panorama to the game sun's bearing and
+   stretches the sky between the horizon and the zenith so the heights
+   match too, by at most 40%, so the clouds don't visibly squash.
+   Whatever height is left over, the photo's sun is dimmed to a glow and
+   the game's sun is drawn as the disc. It has no cost per frame beyond a
+   few instructions. Verdict: a big win when looking towards the sun.
+4. **A TV cameraman** (Broadcast presentation only). A long lens on a
+   tripod drifts by a few hundredths of a degree, a little more while
+   panning after the ball. The pan follows a damped spring, so it trails
+   the ball and settles with the faintest overshoot. `RoundCamera`,
+   `operator_offset`. The Classic Links camera stays locked off. Verdict:
+   free to run, and it reads as "filmed" in motion. It must stay small,
+   or it looks like shake.
 
 ## Do next
 
-3. **A colour grade learned from real broadcast frames.** Collect about
+5. **A colour grade learned from real broadcast frames.** Collect about
    twenty CC-licensed photos of sunny courses, and twenty matching renders
    from the same angles. Fit a colour transfer for each region (sky, turf,
    trees, sand) by matching mean and covariance in Lab colour space, and
@@ -40,17 +58,6 @@ Verdicts: **Built** (in the game), **Do next**, **Later**, **No** (with why).
    lookup, which is cheap everywhere. This makes the colours "photographic"
    by measurement rather than by eye. The grade belongs to the "Make course
    textures look photoreal" thread, so it should be built with them.
-4. **Sky-matched lighting from real HDRIs.** Use a CC0 HDRI (Poly Haven)
-   for the sky, read its sun direction and colour from the brightest
-   pixels, and drive the directional light and ambient from it. The light,
-   shadows and sky then always agree, which is the most common giveaway in
-   cheap games. This belongs to the skies work.
-5. **A camera operator.** Broadcast cameras on long lenses never sit dead
-   still. They show a tiny drift, small corrections and a slight lag as they
-   follow the ball, then settle. Add a small filtered noise to the camera
-   (well under 0.1 degree at 40 degrees FOV) and a critically damped
-   follow. It is free to run, and it does more for "this is filmed" than any
-   shader. This needs agreement with the broadcast presentation owners.
 
 ## Later
 
