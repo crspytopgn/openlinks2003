@@ -1362,7 +1362,8 @@ func _test_caddie() -> void:
 	print("  green: " + advice.text)
 	_check(advice.text.begins_with("20 feet"), "putt read gives the length (%s)" % advice.text)
 
-	_check(GolfBag.shared_mesh().get_surface_count() == 3, "bag is one mesh of three materials")
+	_check(GolfBag.shared_mesh().get_surface_count() == 5, "bag is one mesh of five materials")
+	_check(GolfBag.simple_mesh().get_surface_count() == 3, "simple bag is one mesh of three materials")
 	var figure := Caddie.make_figure()
 	_check(figure != null, "caddie figure from the free golfer")
 	if figure != null:
@@ -1480,9 +1481,58 @@ func _test_real_scale() -> void:
 	_check(top - bottom > 1.7 and top - bottom < 1.85, "golfer about 1.75 m tall (%.2f)" % (top - bottom))
 	golfer.free()
 	var bag := GolfBag.shared_mesh().get_aabb()
-	_check(bag.size.y > 0.95 and bag.size.y < 1.15, "stand bag with clubs about a metre high (%.2f)" % bag.size.y)
+	_check(bag.size.y > 1.2 and bag.size.y < 1.4, "staff bag with the driver's cover about 1.3 m up (%.2f)" % bag.size.y)
+	_test_props_real_size()
 	_check_near(BallPhysics.RADIUS * 2.0, 0.04267, 0.0001, "ball 42.67 mm across")
 	_check_near(BallPhysics.CUP_RADIUS * 2.0, 0.108, 0.001, "hole 108 mm across")
+
+
+## The course props are their real size (docs/props.md), and the tee
+## furniture and rakes go where they should.
+func _test_props_real_size() -> void:
+	var sizes := {
+		"tee_marker": [Vector3(0.127, 0.115, 0.127), 0.01],
+		"ball_washer": [Vector3(0.5, 1.28, 0.5), 0.03],
+		"tee_sign": [Vector3(0.71, 1.74, 0.08), 0.03],
+		"tee_bench": [Vector3(1.54, 0.97, 0.63), 0.04],
+		"bunker_rake": [Vector3(0.64, 0.06, 1.42), 0.02],
+	}
+	for prop: String in sizes:
+		var m := CourseProps.mesh(prop)
+		_check(m != null, "%s model loads" % prop)
+		if m == null:
+			continue
+		var want: Vector3 = sizes[prop][0]
+		var got := m.get_aabb().size
+		var tol: float = sizes[prop][1]
+		_check(absf(got.x - want.x) < tol and absf(got.y - want.y) < tol and absf(got.z - want.z) < tol,
+				"%s is %.2f x %.2f x %.2f m (want %.2f x %.2f x %.2f)" % [prop, got.x, got.y, got.z, want.x, want.y, want.z])
+	# A bunker 20 m right of the line, 100 m out: one rake, at its edge, the
+	# handle pointing out of the sand.
+	var t := _BunkerTerrain.new()
+	var route := PackedVector2Array([Vector2(0, 150)])
+	var rakes := CourseProps.rake_spots(t, Vector3.ZERO, Vector3(0, 0, 150), route, 8)
+	_check(rakes.size() == 1, "one rake for one bunker (%d)" % rakes.size())
+	if rakes.size() == 1:
+		var head: Vector3 = rakes[0][0]
+		var out: Vector3 = rakes[0][1]
+		_check(t.surface_at(head.x, head.z) == Surface.Type.SAND, "rake head in the sand")
+		var tip := head + out * CourseProps.RAKE_LENGTH
+		_check(t.surface_at(tip.x, tip.z) != Surface.Type.SAND, "rake handle out over the grass")
+		_check(head.x < -12.0, "rake on the side of the bunker facing the line (%.1f)" % head.x)
+	# Tee furniture keeps out of water: the right is a pond, so it goes left.
+	var spot := CourseProps.tee_spot(t, Vector3(0, 0, 0), Vector3(0, 0, 100), CourseProps.WASHER_SPOT)
+	_check(spot != Vector3.INF and spot.x > 0.0, "tee furniture on the dry side (%s)" % spot)
+
+
+## Flat fairway with a pond right of the tee and a 10 m bunker 100 m out.
+class _BunkerTerrain extends CourseTerrain:
+	func surface_at(x: float, z: float) -> int:
+		if x < -2.0 and x > -12.0 and z > -8.0 and z < 4.0:
+			return Surface.Type.WATER
+		if x < -15.0 and x > -25.0 and z > 95.0 and z < 105.0:
+			return Surface.Type.SAND
+		return Surface.Type.FAIRWAY
 
 
 func _test_placeholder_course() -> void:
