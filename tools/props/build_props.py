@@ -604,6 +604,96 @@ def build_sponsor_sign(out):
     pr.save(out)
 
 
+# --- Water cooler tower ---------------------------------------------------------------------
+#
+# From the maker's photo of a course water station in recycled plastic: a
+# tall box about 0.58 m square and 1.38 m to the ridge of its low-pitched roof, with a
+# gable at the front, two framed doors, a round hole in the upper one for the
+# cooler's tap (and one in the side) and a slot in the lower one for
+# rubbish. Front is +z.
+
+def build_water_station(out):
+    pr = Prop("water_station")
+    pr.material("plastic", (0.30, 0.19, 0.13, 1), 0.75)
+    pr.material("roof", (0.28, 0.2, 0.16, 1), 0.85)
+    pr.material("dark", (0.04, 0.035, 0.03, 1), 0.9)
+    H = 1.2  # top of the walls
+    body = box((-0.29, 0.0, -0.29), (0.29, H, 0.29), 0.012)
+    # Two doors on the front, each a raised panel in a frame, and the gable
+    # over them; the tap's round hole and the rubbish slot.
+    panels = union(box((-0.24, 0.07, 0.27), (0.24, 0.58, 0.296), 0.006),
+                   box((-0.24, 0.66, 0.27), (0.24, 1.14, 0.296), 0.006),
+                   box((0.27, 0.66, -0.24), (0.296, 1.14, 0.24), 0.006))
+    tap = sphere((0.0, 0.93, 0.29), 0.07)
+    tap_side = sphere((0.29, 0.93, 0.0), 0.06)
+    slot = box((-0.14, 0.42, 0.2), (0.14, 0.49, 0.35), 0.025)
+
+    def gable(x, y, z):  # the front and back triangles under the roof
+        tri = np.maximum(y - (H + 0.13) + np.abs(x) * 0.45, H - 0.01 - y)
+        return np.maximum(tri, np.abs(z) - 0.285)
+    walls = cut(cut(cut(union(body, panels, gable), tap), tap_side), slot)
+    pr.shape("plastic", walls, (-0.32, -0.01, -0.32), (0.32, H + 0.16, 0.32), 0.008, 6000)
+    inside = union(box((-0.06, 0.87, 0.18), (0.06, 0.99, 0.24)), box((0.18, 0.88, -0.05), (0.24, 0.98, 0.05)),
+                   box((-0.13, 0.43, 0.15), (0.13, 0.48, 0.22)))
+    pr.shape("dark", inside, (-0.15, 0.4, -0.1), (0.27, 1.02, 0.27), 0.006, 400)
+
+    # The roof: two slopes, the ridge running front to back, eaves all round.
+    def roof(x, y, z):
+        top = (y - (H + 0.165)) + np.abs(x) * 0.45
+        return np.maximum(np.abs(top + 0.013) - 0.013, np.maximum(np.abs(x) - 0.38, np.abs(z) - 0.36))
+    ridge = capsule((0.0, H + 0.165, -0.365), (0.0, H + 0.165, 0.365), 0.014)
+    pr.shape("roof", union(roof, ridge), (-0.41, H - 0.06, -0.4), (0.41, H + 0.2, 0.4), 0.005, 2000)
+    pr.save(out)
+
+
+# --- Practice green flag -------------------------------------------------------------------------
+#
+# A junior flagstick from the maker's photo: a 24 in (0.61 m) white
+# fibreglass stick, 1/2 in (13 mm) across, a brass ferrule that sits in the
+# cup, and a small square flag about 0.2 by 0.14 m near the top. The stick
+# stands in the hole: y = 0 is the green's surface. The flag is its own
+# surface so the game can colour it.
+
+def build_practice_flag(out):
+    pr = Prop("practice_flag")
+    pr.material("stick", (0.93, 0.93, 0.91, 1), 0.35)
+    pr.material("brass", (0.86, 0.68, 0.32, 1), 0.3, metal=1.0)
+    pr.material("flag", (0.95, 0.95, 0.93, 1), 0.85, double=True)
+    lathe_y(pr.parts["stick"], [(-0.02, 0.0), (-0.02, 0.0063), (0.61, 0.0063), (0.615, 0.0045), (0.618, 0.0)], 10)
+    lathe_y(pr.parts["brass"], [(-0.1, 0.0), (-0.1, 0.009), (-0.03, 0.009), (-0.02, 0.022), (-0.012, 0.022),
+                                (-0.012, 0.0)], 14)
+    # The flag, with a gentle wave in it.
+    cols, rows = 10, 4
+    P = np.zeros((rows + 1, cols + 1, 3))
+    for r in range(rows + 1):
+        for c in range(cols + 1):
+            u = c / cols
+            P[r, c] = (0.0065 + 0.2 * u, 0.6 - 0.14 * r / rows, 0.012 * math.sin(u * 5.0) * u)
+    pts, idx = grid(P)
+    pr.parts["flag"].add(pts, idx)
+    pr.save(out)
+
+
+# --- Course sign ----------------------------------------------------------------------------------
+#
+# A moulded resin course sign as the maker's photo shows ("No Chipping",
+# "Please Repair Ball Marks"): a 12 by 6 in (0.3 x 0.15 m) slab with clipped
+# top corners, about 12 mm thick, standing a few centimetres off the turf on
+# a U-shaped steel spike. The words go on in the game. Faces +z.
+
+def build_course_sign(out):
+    pr = Prop("course_sign")
+    pr.material("resin", (0.93, 0.93, 0.9, 1), 0.45)
+    pr.material("steel", (0.75, 0.75, 0.77, 1), 0.35, metal=1.0)
+    slab = box((-0.15, 0.025, -0.006), (0.15, 0.175, 0.006), 0.004)
+    def corners(x, y, z):  # the clipped top corners, 35 mm along each edge
+        return -((np.abs(x) - 0.15) + (y - 0.175) + 0.035) * 0.7071
+    pr.shape("resin", cut(slab, corners), (-0.17, 0.02, -0.03), (0.17, 0.21, 0.03), 0.003, 900)
+    for x in (-0.1, 0.1):
+        tube(pr.parts["steel"], [(x, 0.04, 0.0), (x, -0.02, 0.0)], 0.003, segs=6)
+    pr.save(out)
+
+
 def lathe_y(part, profile, segs):
     """Revolves (y, radius) points round the y axis."""
     th = np.linspace(0, 2 * math.pi, segs, endpoint=False)
@@ -615,7 +705,8 @@ def lathe_y(part, profile, segs):
 BUILDERS = {"golf_bag": build_bag, "tee_marker": build_tee_marker, "ball_washer": build_ball_washer,
             "tee_sign": build_tee_sign, "tee_bench": build_bench, "bunker_rake": build_rake,
             "yardage_plate": build_yardage_plate, "yardage_pole": build_yardage_pole,
-            "sponsor_sign": build_sponsor_sign}
+            "sponsor_sign": build_sponsor_sign, "water_station": build_water_station,
+            "practice_flag": build_practice_flag, "course_sign": build_course_sign}
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else OUT

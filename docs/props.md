@@ -41,6 +41,9 @@ side-by-side shots for each pass are kept in the project files
 | Fairway yardage plate (`yardage_plate.glb`) | 0.3 x 0.2 m white plate with a gold rim, flush in the turf, gold number | A maker's in-ground yardage plate ([Par Aide](https://www.paraide.com/products/fusioncast/fusioncast-fairway-yardage/)) | On the line of the hole, 100, 150 and 200 yards from the pin, where that is fairway, read from the tee side |
 | Yardage pole (`yardage_pole.glb`) | 38 mm (1.5 in) pole about 2 m tall, black and white bands, flush socket | A maker's vinyl-covered fairway pole ([Par Aide](https://www.paraide.com/products/course-markings/marker-stakes/fairway-and-hazard-poles/)) | At 150 yards, a metre into the rough at the right edge of the fairway (or the left) |
 | Sponsor plaque (`sponsor_sign.glb`) | 0.61 x 0.3 m black plaque with a gold rim, its top about 1 m up on a short post | A maker's cast sponsor signs ([Par Aide](https://www.paraide.com/products/fusioncast/fusioncast-sponsor-sign/)) | Beside each tee sign, with a made-up local business (never a real one) |
+| Water station (`water_station.glb`) | 0.58 m square, 1.38 m to the ridge, framed doors with a tap hole and a rubbish slot | A maker's recycled-plastic water cooler tower ([Par Aide](https://www.paraide.com/products/tee-area/water-coolers/water-cooler-tower/)), which takes a 5 or 10 gallon cooler | Beside every third tee, past the bench |
+| Practice green flag (`practice_flag.glb`) | 24 in (0.61 m) white stick, 1/2 in across, brass ferrule, 0.2 x 0.14 m flag | A maker's junior flagstick and flag set ([Par Aide](https://www.paraide.com/products/practice-area/practice-green-markers-cups/jr-flagstick-marker-flag-sets/)) | In every cup of the practice green (`PracticeCups`); the cup being putted to flies a yellow flag |
+| Course sign (`course_sign.glb`) | 12 x 6 in (0.3 x 0.15 m) moulded resin sign with clipped corners, on a steel spike | A maker's flexible resin course signs ([Par Aide](https://www.paraide.com/products/course-markings/signage/dura-flex-signs/)) | "Please repair ball marks", 2.5 m off the edge of each green on the side players walk on from |
 
 ## When they appear
 
@@ -65,5 +68,5 @@ These props are left to the threads that own them: golf shoes and the cap
 
 ## Next candidates
 
-Signage (sponsor boards, yardage plates), a fairway yardage post, the
-on-course drinking-water stand, and the putting-green practice flags.
+Cart path direction signs (once cart paths are known on every course
+type), and the golfer's own clubs.

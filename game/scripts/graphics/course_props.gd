@@ -6,7 +6,8 @@ extends Node3D
 ## number, par and yardage, the hole sponsor's plaque, a ball washer over a
 ## litter bin, and a bench; yardage plates set in the fairway 100, 150 and
 ## 200 yards from the green with a banded pole at the edge of the fairway at
-## 150; and a rake lying at the edge of the bunkers. Scenery only: nothing
+## 150; a water station at every third tee; a "please repair ball marks"
+## sign by each green; and a rake lying at the edge of the bunkers. Scenery only: nothing
 ## collides with them, and the ball's flight never sees them.
 ##
 ## Off in the Classic Links presentation (Links 2003 has none) and at Low
@@ -21,6 +22,14 @@ const SIGN_SPOT := Vector2(-0.5, 4.6)
 const SPONSOR_SPOT := Vector2(2.0, 4.3)
 const WASHER_SPOT := Vector2(-2.4, 4.8)
 const BENCH_SPOT := Vector2(-4.6, 5.4)
+const WATER_SPOT := Vector2(-6.4, 5.0)
+## A water station at every third tee, as courses space them.
+const WATER_EVERY := 3
+## The green's "please repair ball marks" sign: how far off the edge of the
+## green, and how far round from the line back to the tee (degrees).
+const GREEN_SIGN_OFF := 2.5
+const GREEN_SIGN_ANGLE := 40.0
+const SIGN_INK := Color(0.08, 0.3, 0.15)
 ## Rakes: the bunker search step (metres), how far round the hole's line it
 ## looks, and the most rakes per hole at each quality level.
 const RAKE_STEP := 2.0
@@ -47,6 +56,7 @@ static func build(hole: HoleData, toward: Vector3, rakes: int) -> CourseProps:
 	props.name = "CourseProps"
 	props._build_tee(hole, toward)
 	props._build_yardages(hole)
+	props._build_green_sign(hole)
 	if rakes > 0:
 		for r in rake_spots(hole.terrain, hole.tee, hole.pin, hole.route, rakes):
 			props._add_rake(hole.terrain, r[0], r[1])
@@ -143,6 +153,14 @@ func _build_tee(hole: HoleData, toward: Vector3) -> void:
 		bench.rotation.y = facing - PI * 0.5 * right
 		add_child(bench)
 
+	if hole.number % WATER_EVERY == 0:
+		var water_at := tee_spot(t, hole.tee, toward, WATER_SPOT)
+		var water := instance("water_station")
+		if water != null and water_at != Vector3.INF:
+			water.position = water_at
+			water.rotation.y = facing - PI * 0.5 * _side_of(hole.tee, dir, water_at)
+			add_child(water)
+
 
 ## -1 if p is right of the line from `tee` along `dir`, +1 if left.
 static func _side_of(tee: Vector3, dir: Vector3, p: Vector3) -> float:
@@ -167,6 +185,40 @@ static func _add_text(sign: Node3D, lines: Array, x: float, z: float, front_only
 			if face < 0.0:
 				label.rotation.y = PI
 			sign.add_child(label)
+
+
+## A small resin sign by the green, on the side players walk on from:
+## "PLEASE REPAIR BALL MARKS", facing them.
+func _build_green_sign(hole: HoleData) -> void:
+	var t := hole.terrain
+	var back := Vector3(hole.tee.x - hole.pin.x, 0.0, hole.tee.z - hole.pin.z)
+	back = Vector3(0, 0, -1) if back.length() < 0.01 else back.normalized()
+	var d := back.rotated(Vector3.UP, deg_to_rad(GREEN_SIGN_ANGLE))
+	var r := Gallery._green_edge(t, hole.pin, d) + GREEN_SIGN_OFF
+	var p := hole.pin + d * r
+	if t.surface_at(p.x, p.z) in NOT_ON:
+		return
+	var sign := instance("course_sign", false)
+	if sign == null:
+		return
+	p.y = t.height_at(p.x, p.z)
+	sign.position = p
+	sign.rotation.y = atan2(d.x, d.z)  # its face (+z) out, away from the green
+	for face: float in [1.0, -1.0]:
+		var label := Label3D.new()
+		label.text = "PLEASE REPAIR\nBALL MARKS"
+		label.font_size = 40
+		label.pixel_size = 0.0008
+		label.outline_size = 0
+		label.line_spacing = -6.0
+		label.modulate = SIGN_INK
+		label.shaded = true
+		label.double_sided = false
+		label.position = Vector3(0, 0.1, 0.0075 * face)
+		if face < 0.0:
+			label.rotation.y = PI
+		sign.add_child(label)
+	add_child(sign)
 
 
 ## The point on the hole's line `metres` short of the pin (walking back from
