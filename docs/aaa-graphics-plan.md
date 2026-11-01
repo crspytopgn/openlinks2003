@@ -14,6 +14,9 @@ with Mesa lavapipe (`apt-get install mesa-vulkan-drivers`,
 `--rendering-driver vulkan`). Run `tools/fetch_free_assets.py` and
 `godot --import` first, or the ground renders black.
 
+Rarely used tricks (view-dependent mowing stripes, heat shimmer and more,
+with verdicts) are in `unusual-graphics-ideas.md`.
+
 ## What 2K25 does that we don't
 
 1. **Camera and lens (graphics thread).** 2K25 shoots the tee from low and

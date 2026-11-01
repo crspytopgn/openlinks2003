@@ -867,6 +867,7 @@ func auto_play_step() -> void:
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
 	_update_wind_shaders()
+	_update_post_view()
 	# The pause menu and settings stop the round: the swing meter, the ball
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
@@ -2858,6 +2859,19 @@ func _update_wind_shaders() -> void:
 	var t := Time.get_ticks_msec() * 0.001
 	var seen := WindGust.visual_wind(Vector2(v.x, v.z), t, float(hole_index) if hole != null else 0.0)
 	RenderingServer.global_shader_parameter_set("wind_vector", seen)
+
+
+## The heat shimmer needs the camera's horizon and height every frame.
+func _update_post_view() -> void:
+	if post == null or not post.visible:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var ground := cam.global_position.y - 2.0
+	if hole != null and hole.terrain != null:
+		ground = hole.terrain.height_at(cam.global_position.x, cam.global_position.z)
+	post.update_view(cam, ground, scenery.sun if scenery != null else null)
 
 
 ## Flagstick height: the Rules ask for at least 7 ft (2.13 m).

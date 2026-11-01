@@ -1532,6 +1532,11 @@ func _test_hd_pack() -> void:
 func _test_graphics_settings() -> void:
 	_check(SettingsPanel.scroll_height(1100.0, 120.0, 720.0) == 584.0, "settings: the rows scroll in a 720p window")
 	_check(SettingsPanel.scroll_height(400.0, 120.0, 720.0) == 400.0, "settings: no scrolling when they fit")
+	# Heat shimmer: a level camera has the horizon mid-screen, one tipped
+	# down sees it higher up, and the top edge is half the lens away.
+	_check(is_equal_approx(PostProcess.horizon_screen_y(0.0, 0.7), 0.5), "shimmer: level camera, horizon mid-screen")
+	_check(PostProcess.horizon_screen_y(-0.1, 0.7) < 0.5, "shimmer: camera tipped down, horizon higher")
+	_check(is_equal_approx(PostProcess.horizon_screen_y(-0.35, 0.7), 0.0), "shimmer: horizon at the top edge")
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")
