@@ -219,6 +219,28 @@ def fetch_leaves(out_dir):
     raise RuntimeError("no leaf set could be fetched")
 
 
+def make_leaf_spray(out_dir):
+    """The broadleaf spray atlas (tools/trees/leaf_spray.py), built from the
+    leaf set. Needs Pillow; without it the trees keep their plain cards."""
+    out = os.path.join(out_dir, "leaf_spray.png")
+    if not os.path.exists(out):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "trees"))
+        import leaf_spray  # noqa: E402 - needs Pillow, so only imported here
+        print("  leaves: building the spray atlas")
+        leaf_spray.build(os.path.join(out_dir, "leaf_albedo.png"), os.path.join(out_dir, "leaf_opacity.png"), out)
+    # At 1024: half a metre of spray per 256 px, so a leaf is still 20 to
+    # 30 px across. Lossy is fine here (unlike the single leaves): the
+    # atlas fills the gaps round the leaves with green, so no bright
+    # fringes show.
+    with open(out + ".import", "w") as f:
+        f.write(TEXTURE_IMPORT.format(mode=1, limit=1024, mipmaps="true"))
+    # The single leaves are now only the fallback (the sprays are drawn
+    # from them above), so they ship small to keep the download in budget.
+    for name in LEAF_MAPS:
+        with open(os.path.join(out_dir, name) + ".import", "w") as f:
+            f.write(TEXTURE_IMPORT.format(mode=0, limit=256, mipmaps="true"))
+
+
 def fetch_twigs(out_dir):
     """The photoscanned fir sprigs for the conifers' needle cards."""
     paths = {name: os.path.join(out_dir, name) for name in TWIG_MAPS}
@@ -259,6 +281,11 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"WARNING: couldn't fetch leaves: {e}")
         failed.append("leaves")
+    else:
+        try:
+            make_leaf_spray(args.out)
+        except Exception as e:  # noqa: BLE001 - Pillow missing: plain leaf cards
+            print(f"WARNING: no leaf spray atlas: {e}")
     try:
         credits.append(fetch_twigs(args.out))
     except Exception as e:  # noqa: BLE001

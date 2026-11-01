@@ -526,6 +526,10 @@ static func material(which: String) -> ShaderMaterial:
 			mat.set_shader_parameter("leaf_color", leaf)
 			mat.set_shader_parameter("leaf_opacity", opacity)
 			mat.set_shader_parameter("has_texture", true)
+		var spray := FreeAssets.tree_texture("leaf_spray.png")
+		if spray != null and kind == "leaves":
+			mat.set_shader_parameter("leaf_spray", spray)
+			mat.set_shader_parameter("has_spray", true)
 	mat.set_shader_parameter("bake", bake)
 	mat.set_shader_parameter("instanced", instanced)
 	_materials[which] = mat
