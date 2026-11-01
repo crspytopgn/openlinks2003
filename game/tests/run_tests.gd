@@ -3019,6 +3019,27 @@ func _test_player_looks() -> void:
 	var back := PlayerLook.from_dict(look.to_dict())
 	_check(back.key() == look.key(), "a look reads back as saved")
 	_check(back.wears_cap(), "a cap goes with a ponytail")
+	_check(back.glove and not PlayerLook.from_dict({"glove": false}).glove, "the glove is on unless taken off")
+	var pack := GolferParts.shared()
+	if pack != null:
+		var names := pack.bone_names()
+		var left_hand := PackedInt32Array()
+		for i in names.size():
+			if names[i] == "hand_l" or (names[i].ends_with("_l") and names[i].split("_")[0] in FreeGolfer.GLOVE_FINGERS):
+				left_hand.append(i)
+		var gloved := 0
+		for part_name: String in pack.info.parts:
+			if not part_name.begins_with("Body"):
+				continue
+			var whole := pack.bake(part_name, {})
+			var split := pack.bake(part_name, {}, left_hand)
+			var tris := 0
+			for s in split.get_surface_count():
+				tris += split.surface_get_array_index_len(s)
+			_check(tris == whole.surface_get_array_index_len(0), "%s keeps every triangle when the glove is split off" % part_name)
+			if split.get_surface_count() > 1:
+				gloved += split.surface_get_array_index_len(1) / 3
+		_check(gloved > 200, "the glove covers the left hand (%d triangles)" % gloved)
 	var w := look.shape_weights()
 	_check(w.get("female") == 1.0 and w.get("thin") == 0.5 and w.get("old") == 0.25, "body shape weights: %s" % w)
 	_check(w.get("nose_width_plus") == 0.4 and w.get("jaw_minus") == 0.3 and not w.has("jaw_plus"), "face shape weights: %s" % w)

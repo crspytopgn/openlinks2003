@@ -100,6 +100,7 @@ func _stand(hole: HoleData, ball: Vector3, dir: Vector3, putting: bool) -> void:
 ## null without the model.
 static func make_figure() -> Node3D:
 	var look := PlayerLook.random(hash("caddie"))
+	look.glove = false  # caddies carry, they don't swing
 	look.outfit = "sleeves"
 	look.top = OVERALLS
 	look.bottom = OVERALLS
