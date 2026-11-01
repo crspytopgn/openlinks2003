@@ -3068,6 +3068,18 @@ func _test_free_sounds() -> void:
 	_check(FreeAmbience.breeze_db(12.0) > FreeAmbience.breeze_db(3.0), "louder trees in a stronger wind")
 	_check(Scenery.time_name(GraphicsSettings.TimeOfDay.ROUND, 0.0) == "morning" and Scenery.time_name(GraphicsSettings.TimeOfDay.ROUND, 1.0) == "golden", "the round runs from morning to evening")
 	_check(Scenery.time_name(GraphicsSettings.TimeOfDay.AFTERNOON, 0.0) == "afternoon", "afternoon by default")
+	var open := FreeAmbience.spot_levels(park, "afternoon", 3.0, 0.0, 0.0)
+	var wooded := FreeAmbience.spot_levels(park, "afternoon", 3.0, 1.0, 0.0)
+	_check(wooded.bed > open.bed + 6.0 and wooded.breeze > open.breeze, "birds and leaves louder under the trees than on an open fairway")
+	var links := FreeAmbience.Setting.SEASIDE
+	_check(FreeAmbience.spot_levels(links, "afternoon", 8.0, 0.0, 0.0).breeze > FreeAmbience.spot_levels(links, "afternoon", 8.0, 1.0, 0.0).breeze, "more wind out on an open links")
+	_check(open.water == FreeAmbience.SILENT_DB and FreeAmbience.spot_levels(park, "afternoon", 3.0, 0.5, 1.0).water == FreeAmbience.WATER_DB, "water heard only near it")
+	_check(FreeAmbience.water_for(5.0) == 1.0 and FreeAmbience.water_for(200.0) == 0.0 and FreeAmbience.water_for(46.0) > 0.0, "water fades with distance")
+	_check(FreeAmbience.woods_for(0) == 0.0 and FreeAmbience.woods_for(100) == 1.0, "woods from the trees around")
+	_check(FreeAmbience.water_distance(null, Vector3.ZERO) == INF, "no terrain, no water")
+	var trees: Array[PlacedObject] = [PlacedObject.new("oak", Vector3(50, 0, 0))]
+	var spot := FreeAmbience.call_spot(trees, Vector3.ZERO)
+	_check(Vector2(spot.x, spot.z).distance_to(Vector2(50, 0)) < 0.01 and spot.y >= FreeAmbience.CALL_HEIGHT.x, "birds call from up in the trees")
 
 
 ## An unplayable lie and a water drop through the real round.

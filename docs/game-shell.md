@@ -805,8 +805,12 @@ Nothing in the round needs to change.
   low, with birdsong loudest at dawn and quietest at midday (cicadas the
   other way); now and then a single bird calling from a tree 25 to 90 m
   away (a 3D sound, fainter and duller with distance); a far-off road;
-  some mornings and afternoons a distant mower; and running water on holes
-  with water near the tee. The time of day comes from Settings (and moves
+  some mornings and afternoons a distant mower; and running water near
+  ponds and creeks. The mix follows the camera round the hole, checked
+  twice a second and faded smoothly: under the trees the birds and leaves
+  are louder and the calls come from the hole's own trees; on an open
+  fairway both drop away (on a seaside links the wind rises instead); water
+  rises as the camera nears it. The time of day comes from Settings (and moves
   through the round with "Through the round"). In Broadcast and Tour the
   gallery murmurs from the tee and the green, and hushes while the player
   is over the ball. The road, mower and murmur are synthesised by
