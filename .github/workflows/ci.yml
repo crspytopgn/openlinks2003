@@ -120,6 +120,10 @@ jobs:
 
       - name: Export Linux, Windows, macOS and Web
         run: |
+          # The build shown on the main menu (game/scripts/build_info.gd).
+          built=$(date -u +"%Y-%m-%d %H:%M UTC")
+          sed -i "s/^const COMMIT := \"dev\"/const COMMIT := \"${GITHUB_SHA::7}\"/; s/^const BUILT := \"\"/const BUILT := \"$built\"/" game/scripts/build_info.gd
+          grep -q "${GITHUB_SHA::7}" game/scripts/build_info.gd
           cd game
           mkdir -p export/linux export/windows export/macos export/web
           ~/godot/godot --headless --export-release "Linux" export/linux/OpenLinks2003.x86_64

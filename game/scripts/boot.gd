@@ -135,7 +135,7 @@ func _build_ui() -> void:
 	box.add_child(_buttons)
 	_build_community(box)
 	var note := Label.new()
-	note.text = "OpenLinks2003 contains nothing from the original game. Your files are read on your own computer."
+	note.text = "OpenLinks2003 contains nothing from the original game. Your files are read on your own computer.\n" + BuildInfo.label()
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	note.add_theme_font_size_override("font_size", 14)
