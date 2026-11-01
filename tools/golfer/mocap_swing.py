@@ -277,6 +277,73 @@ ADDRESS_CLEAR = 0.004  # the club head's lowest point at address, metres
 IMPACT_WINDOW = 30  # mocap frames either side of impact the correction fades over
 
 
+# The CMU actor is an amateur: against tour swings (pelvis ~45 deg and
+# thorax ~90 deg turned at the top, pelvis moving a few cm away from the
+# target, head height held) his backswing sways 14 cm, stands up 7 cm and
+# turns the shoulders only ~70 deg. These take the backswing towards a
+# tour player's, fading out by impact so the strike is unchanged.
+SWAY_KEEP = 0.5  # of the actor's pelvis slide away from the target
+HEAD_RISE_KEEP = 0.15  # of the actor's head rise
+EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
+
+
+def backswing_weight(f, clip):
+    """1 through the backswing, easing to 0 at impact; 0 after."""
+    if "top" not in clip:
+        return 1.0
+    if f <= clip["top"]:
+        return 1.0
+    u = min(1.0, (f - clip["top"]) / max(1, clip["impact"] - clip["top"]))
+    return 1.0 - u * u * (3 - 2 * u)
+
+
+def descendants(rig, name):
+    j = rig.index[name]
+    out, stack = [], [j]
+    while stack:
+        k = stack.pop()
+        out.append(k)
+        stack.extend(c for c, p in enumerate(rig.parents) if p == k)
+    return out
+
+
+def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
+    """Less sway, posture held and a fuller shoulder turn (see SWAY_KEEP)."""
+    if w <= 0.0:
+        return rots, root
+    root = np.array(root, dtype=float)
+    slide = root[0] - ref_root[0]
+    if slide > 0.0:  # +x is away from the target
+        root[0] -= w * (1.0 - SWAY_KEEP) * slide
+    upper = descendants(rig, "spine_02")
+    # The thorax's turn from address, about the vertical.
+    sp = rig.index["spine_03"]
+    fwd0 = ref_rots[sp] @ np.array([0.0, 0.0, -1.0])
+    fwd = rots[sp] @ np.array([0.0, 0.0, -1.0])
+    turn = math.degrees(math.atan2(fwd0[2] * fwd[0] - fwd0[0] * fwd[2], fwd0[0] * fwd[0] + fwd0[2] * fwd[2]))
+    if turn < 0.0:  # turning away from the target (the backswing)
+        spin = pose.rot([0.0, 1.0, 0.0], w * EXTRA_TURN * turn)
+        for j in upper:
+            if rots[j] is not None:
+                rots[j] = spin @ rots[j]
+    # Posture: bend forward over the ball by what the head rose.
+    full = fill(rig, rots, ref_local)
+    _, poss = rig.world(rig.locals(full), root)
+    head, pelvis = poss[rig.index["head"]], poss[rig.index["pelvis"]]
+    keep = HEAD_RISE_KEEP * max(0.0, head[1] - ref_poss[rig.index["head"]][1])
+    for _ in range(3):
+        excess = head[1] - ref_poss[rig.index["head"]][1] - keep
+        if excess <= 1e-4:
+            break
+        bend = pose.rot([1.0, 0.0, 0.0], -w * math.degrees(math.atan2(excess, np.linalg.norm(head - pelvis))))
+        for j in descendants(rig, "spine_01"):
+            if rots[j] is not None:
+                rots[j] = bend @ rots[j]
+        _, poss = rig.world(rig.locals(fill(rig, rots, ref_local)), root)
+        head, pelvis = poss[rig.index["head"]], poss[rig.index["pelvis"]]
+    return rots, root
+
+
 def impact_weight(f, impact):
     u = max(0.0, 1.0 - abs(f - impact) / IMPACT_WINDOW)
     return u * u * (3 - 2 * u)
@@ -335,6 +402,9 @@ def retarget(glb, rig, clip, cache):
             if clip.get("glance"):
                 glance(rig, rots, i / MOCAP_FPS, clip["glance"])
             root = ref_root + scale * (g @ (m_poss[bvh.index["Hips"]] - m_poss0[bvh.index["Hips"]]))
+            if not clip["putt"]:
+                rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
+                                            backswing_weight(f, clip))
             if "impact" in clip:
                 # Down into the shot at impact: the knees flex (the feet are pinned below).
                 root = root + impact_weight(f, clip["impact"]) * np.array([0.0, correct[1], 0.0])
