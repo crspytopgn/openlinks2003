@@ -376,6 +376,36 @@ func _test_physics_matches_olcore() -> void:
 	_check(over.bounces >= 1, "a fast roll takes off over the crest")
 	_check_near(over.rest.z, 3.50, 0.3, "and stops beyond it")
 
+	# test_ball_never_sticks_in_a_bunker: a ball that met the foot of a
+	# steep bunker face over and over without time moving on.
+	var stuck := BallPhysics.simulate_shot(BallState.new(Vector3(0.7364647710729153, -0.64522872109385476, 1.6250296890954929),
+			Vector3(-1.1399553273896588, -6.2406774597931687, -29.675503655483684)), LippedBunkerTerrain.new())
+	print("  out of the bunker: outcome %d after %.2f s, %.2f m" % [stuck.outcome, stuck.time_s, stuck.total_m])
+	_check(stuck.outcome == ShotResult.Outcome.REST and stuck.time_s < 30.0, "the ball never sticks in a bunker")
+
+
+## test_main.cpp's LippedBunkerTerrain: a bunker as PlaceholderTerrain
+## draws one.
+class LippedBunkerTerrain extends CourseTerrain:
+	const RADIUS := 3.0176012188928478
+	const SEED := 4.2016863217362372
+
+	func _distance(x: float, z: float) -> float:
+		var a := atan2(z, x)
+		var rim := 1.0 + 0.16 * sin(2.0 * a + SEED) + 0.08 * sin(3.0 * a + SEED * 1.7) + 0.04 * sin(5.0 * a + SEED * 2.3)
+		return Vector2(x, z).length() / rim
+
+	func height_at(x: float, z: float) -> float:
+		var h := 0.02 * x + 0.01 * z
+		var d := _distance(x, z)
+		if d < RADIUS + 3.0:
+			h -= 0.75 * (1.0 - smoothstep(RADIUS * 0.45, RADIUS + 0.8, d))
+			h += 0.15 * exp(-pow((d - RADIUS - 1.1) / 0.9, 2.0))
+		return h
+
+	func surface_at(x: float, z: float) -> int:
+		return Surface.Type.SAND if _distance(x, z) < RADIUS else Surface.Type.ROUGH
+
 
 ## test_main.cpp's BankTerrain: flat sand up to z = 0, a 1 in 2 bank to a
 ## sharp crest 0.75 m up at z = 1.5, and fairway on top.

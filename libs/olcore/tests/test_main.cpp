@@ -1028,6 +1028,48 @@ void test_shots_off_a_bank() {
   CHECK(r.rest.z > 1.5);
 }
 
+// A placeholder course's bunker (PlaceholderTerrain.height_at): a kidney
+// shaped hollow with a flat floor, a steep face and a turf lip.
+class LippedBunkerTerrain : public Terrain {
+ public:
+  double distance(double x, double z) const {
+    double a = std::atan2(z, x);
+    double rim = 1 + 0.16 * std::sin(2 * a + seed_) + 0.08 * std::sin(3 * a + seed_ * 1.7) +
+                 0.04 * std::sin(5 * a + seed_ * 2.3);
+    return std::hypot(x, z) / rim;
+  }
+  double height(double x, double z) const override {
+    double h = 0.02 * x + 0.01 * z;
+    double d = distance(x, z);
+    if (d < radius_ + 3) {
+      double t = std::clamp((d - radius_ * 0.45) / (radius_ + 0.8 - radius_ * 0.45), 0.0, 1.0);
+      h -= 0.75 * (1 - t * t * (3 - 2 * t));
+      h += 0.15 * std::exp(-std::pow((d - radius_ - 1.1) / 0.9, 2));
+    }
+    return h;
+  }
+  Surface surface(double x, double z) const override { return distance(x, z) < radius_ ? Surface::Sand : Surface::Rough; }
+
+ private:
+  double radius_ = 3.0176012188928478;
+  double seed_ = 4.2016863217362372;
+};
+
+void test_ball_never_sticks_in_a_bunker() {
+  // This ball came off the ground already moving off its plane yet under
+  // the face ahead, and met the ground again at once, for ever, without
+  // time moving on: the computer golfers' test hung.
+  BallParams p;
+  LippedBunkerTerrain bunker;
+  BallState s;
+  s.position = Vec3{0.7364647710729153, -0.64522872109385476, 1.6250296890954929};
+  s.velocity = Vec3{-1.1399553273896588, -6.2406774597931687, -29.675503655483684};
+  ShotResult r = simulate_shot(s, p, bunker);
+  std::printf("  out of the bunker: %s after %.2f s, %.2f m\n", outcome_name(r.outcome), r.time_s, r.total_m);
+  CHECK(r.outcome == ShotOutcome::Rest);
+  CHECK(r.time_s < 30.0);
+}
+
 void test_drive_bounces_and_rolls() {
   BallParams p;
   FlatTerrain ground(Surface::Fairway);
@@ -2793,6 +2835,7 @@ int main() {
       {"skinned_mesh", test_skinned_mesh},
       {"drive_bounces_and_rolls", test_drive_bounces_and_rolls},
       {"shots_off_a_bank", test_shots_off_a_bank},
+      {"ball_never_sticks_in_a_bunker", test_ball_never_sticks_in_a_bunker},
       {"club_distances_decrease", test_club_distances_decrease},
       {"wedge_checks_on_green", test_wedge_checks_on_green},
       {"rough_and_sand_cost_distance", test_rough_and_sand_cost_distance},

@@ -270,6 +270,10 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
         }
 
         Vec3 n = terrain.normal(pos.x, pos.z);
+        // Already moving off the ground's plane yet under the ground: the
+        // slope ahead is steeper than the normal (the foot of a bunker face).
+        // It rolls up it, rather than meeting it again at once for ever.
+        bool leaving = dot(vel, n) >= 0;
         Vec3 spin = next.spin;
         bounce(vel, spin, n, surf, p);
         ++r.bounces;
@@ -279,7 +283,7 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
         // hair after it) was on it already (a bank ahead rising faster than
         // it flies): it rolls from there. Bounced again it would land at
         // almost the same instant, again and again, and never finish.
-        if (vn < opt.roll_threshold || frac < kLandAtStart) {
+        if (vn < opt.roll_threshold || frac < kLandAtStart || leaving) {
           rolling = true;
           s.velocity = vel - n * vn;
         }
@@ -314,8 +318,11 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
       // the ground: it takes off, without the spin it rolled with.
       double free_y = pos.y + nv.y * opt.dt - 0.5 * p.gravity * opt.dt * opt.dt;
       if (free_y - npos.y > kTakeOffGap) {
+        // The step is taken in the air, so time always moves on.
         rolling = false;
-        s = BallState{pos, nv, Vec3{}};
+        s = BallState{Vec3{npos.x, free_y, npos.z}, nv + Vec3{0, -p.gravity * opt.dt, 0}, Vec3{}};
+        t += opt.dt;
+        ++step;
         continue;
       }
       Vec3 nn = terrain.normal(npos.x, npos.z);
