@@ -200,6 +200,96 @@ def fit(glb, rig, club_dir):
     return True
 
 
+# Address posture, from tour players: the lead arm hangs nearly straight
+# (iron.LEAD_BEND, iron.DRIVER_LEAD_BEND) and the knees are flexed ~22
+# degrees. Fitting the grip into the palm raised the wrists ~6 cm against
+# the club, which bent the lead elbow to 54-62 degrees (and ~70 at the
+# top). straighten() takes it out round the club head and the feet: the
+# hands go lower (the shaft a few degrees flatter, as with tour players'
+# low hands), the hips a little back and the knees to KNEE_FLEX.
+POSTURE = {"ref_address": ("Driver", 20.0), "ref_address_iron": ("Iron", 12.0)}  # club, lead elbow
+KNEE_FLEX = 22.0
+HIPS_BACK = 0.04  # metres
+MAX_LIE = 8.0  # degrees
+
+
+def _angle(a, b):
+    return np.degrees(np.arccos(np.clip(np.dot(a, b) / np.linalg.norm(a) / np.linalg.norm(b), -1.0, 1.0)))
+
+
+def lead_bend(rig, P):
+    i = rig.index
+    return _angle(P[i["lowerarm_l"]] - P[i["upperarm_l"]], P[i["hand_l"]] - P[i["lowerarm_l"]])
+
+
+def knee_flex(rig, P):
+    i = rig.index
+    return _angle(P[i["calf_l"]] - P[i["thigh_l"]], P[i["foot_l"]] - P[i["calf_l"]])
+
+
+def _search(f, lo, hi, want):
+    """x in [lo, hi] where the increasing f(x) reaches want."""
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        if f(mid) < want:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def straighten(glb, rig):
+    """Re-poses the full-swing addresses to POSTURE. Marks the .glb;
+    returns False if already done."""
+    from mocap_swing import club_head_verts, two_bone, write_clip
+
+    cj = rig.index["club"]
+    club_node = glb.doc["nodes"][rig.joints[cj]]
+    if club_node.get("extras", {}).get("arm_fit"):
+        return False
+    _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
+    for ref, (club, elbow) in POSTURE.items():
+        if not glb.animation(ref):
+            continue
+        local, root = rig.sample(glb, ref)
+        R0, P0 = rig.world(local, root)
+        verts = club_head_verts(glb, club)
+        head = ((R0[cj] @ (verts - rest[cj]).T).T + P0[cj]).mean(axis=0)
+        shaft = P0[cj] - head
+        axis = pose.unit(np.cross([shaft[0], 0.0, shaft[2]], [0.0, 1.0, 0.0]))
+        if (pose.rot(axis, 1.0) @ shaft)[1] > shaft[1]:
+            axis = -axis  # + flattens the shaft (the hands go down)
+
+        def stand(lie, rise):
+            flat = pose.rot(axis, lie)
+            r2 = np.array(root, dtype=float) + np.array([0.0, rise, HIPS_BACK])
+            R, P = rig.world(local, r2)
+            R = list(R)
+            for s in "lr":
+                foot = R0[rig.index[f"foot_{s}"]]
+                two_bone(rig, R, list(P), f"thigh_{s}", f"calf_{s}", f"foot_{s}", P0[rig.index[f"foot_{s}"]])
+                R[rig.index[f"foot_{s}"]] = foot
+            R, P = rig.world(rig.locals(R), r2)
+            R = list(R)
+            for s in "lr":
+                h = rig.index[f"hand_{s}"]
+                two_bone(rig, R, list(P), f"upperarm_{s}", f"lowerarm_{s}", f"hand_{s}", head + flat @ (P0[h] - head))
+                R[h] = flat @ R0[h]
+            R[cj] = flat @ R0[cj]
+            R, P = rig.world(rig.locals(R), r2)
+            return R, P, r2
+
+        # Taller straightens the knees; flatter (hands lower) the lead arm.
+        rise = _search(lambda y: -knee_flex(rig, stand(0.0, y)[1]), -0.1, 0.1, -KNEE_FLEX)
+        lie = _search(lambda a: -lead_bend(rig, stand(a, rise)[1]), 0.0, MAX_LIE, -elbow)
+        R, P, r2 = stand(lie, rise)
+        write_clip(glb, rig, ref, np.zeros(1, np.float32), [rig.locals(R)], np.array([r2], np.float32), filtered=False)
+        print(f"{ref}: hands {(P0[rig.index['hand_l']][1] - P[rig.index['hand_l']][1]) * 100:.1f} cm lower (shaft {lie:.1f} deg flatter), "
+              f"lead elbow {lead_bend(rig, P0):.0f} -> {lead_bend(rig, P):.0f}, knees {knee_flex(rig, P0):.0f} -> {knee_flex(rig, P):.0f}")
+    club_node.setdefault("extras", {})["arm_fit"] = 1
+    return True
+
+
 def between(a, b):
     a, b = pose.unit(a), pose.unit(b)
     axis = np.cross(a, b)

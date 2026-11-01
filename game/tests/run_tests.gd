@@ -1519,6 +1519,8 @@ func _test_props_real_size() -> void:
 		"water_station": [Vector3(0.76, 1.38, 0.745), 0.03],
 		"practice_flag": [Vector3(0.228, 0.718, 0.043), 0.01],
 		"course_sign": [Vector3(0.3, 0.195, 0.012), 0.01],
+		"tee_peg": [Vector3(0.011, 0.0705, 0.011), 0.002],
+		"flagstick": [Vector3(0.0196, 2.2375, 0.0196), 0.005],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
@@ -1750,6 +1752,32 @@ func _test_graphics_settings() -> void:
 	loaded = GraphicsSettings.load_saved(path)
 	GraphicsSettings.force_look = -1
 	_check(loaded.look == GraphicsSettings.Look.CLASSIC, "forced look")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	# The desktop launcher's requests: a look, then a quality, applied once.
+	cfg = ConfigFile.new()
+	cfg.set_value("graphics", "look", GraphicsSettings.Look.CLASSIC)
+	cfg.set_value("graphics", "look_version", GraphicsSettings.LOOK_VERSION)
+	cfg.set_value("graphics", "display_mode", GraphicsSettings.DisplayMode.EXCLUSIVE)
+	cfg.set_value("graphics", "window_width", 1920)
+	cfg.set_value("graphics", "window_height", 1080)
+	cfg.set_value("launcher", "look", GraphicsSettings.Look.NATURAL)
+	cfg.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.Look.NATURAL and loaded.grass == natural.grass, "the launcher's look is applied")
+	_check(loaded.display_mode == GraphicsSettings.DisplayMode.EXCLUSIVE and loaded.window_size == Vector2i(1920, 1080), "display mode and window size load")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(not cfg.has_section("launcher") and int(cfg.get_value("graphics", "look", -1)) == GraphicsSettings.Look.NATURAL, "launcher requests are used up and saved")
+	cfg.set_value("launcher", "quality", GraphicsSettings.Quality.LOW)
+	cfg.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.LOW and loaded.look == GraphicsSettings.Look.CUSTOM, "the launcher's quality makes the look custom")
+	cfg = ConfigFile.new()
+	cfg.set_value("audio", "master", 50)
+	cfg.set_value("audio", "music", 0)
+	cfg.save(path)
+	_check_near(AudioSettings.level("master", path), 0.5, 1e-6, "master volume")
+	_check(AudioSettings.music_db(path) <= -79.0 and AudioSettings.level("effects", path) == 1.0, "music off, unset volumes full")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	for g in GraphicsSettings.Grade.values():
 		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
@@ -3065,13 +3093,26 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	# GolferHands: a grip for the driver, iron and putter, the right hand a
+	# hand's width or so from the left; on for swings, off for the walk.
+	var hands: GolferHands = golfer._hands
+	var fresh := GolferHands.new()
+	_check(fresh.influence == 0.0 and not fresh.holding, "the hands start free (a walk before any swing keeps them apart)")
+	fresh.free()
+	for ref: StringName in [&"ref_address", &"ref_address_iron", &"ref_address_putt"]:
+		var gap := hands.grips.get(ref, Transform3D.IDENTITY).origin.length() as float
+		_check(gap > 0.03 and gap < 0.2, "the %s grip has the right hand %.3f m from the left" % [ref, gap])
+	hands.follow(&"swing_iron", 0.0)
+	_check(hands.holding and hands.influence == 1.0, "both hands hold the club in a swing")
+	hands.follow(&"walk", 0.0)
+	_check(not hands.holding and hands.influence == 0.0, "the hands swing free on the walk")
 	_test_club_heads(golfer)
 	golfer.free()
 

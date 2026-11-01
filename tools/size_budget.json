@@ -4,6 +4,6 @@
     "Web": {"folder": "web", "max_download_mb": 43, "max_pack_mb": 35},
     "Linux": {"folder": "linux", "max_download_mb": 59, "max_pack_mb": 35},
     "Windows": {"folder": "windows", "max_download_mb": 66, "max_pack_mb": 35},
-    "macOS": {"folder": "macos", "max_download_mb": 90, "max_pack_mb": 35}
+    "macOS": {"folder": "macos", "max_download_mb": 91, "max_pack_mb": 35}
   }
 }

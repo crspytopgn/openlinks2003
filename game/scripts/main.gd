@@ -23,6 +23,8 @@ const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
+## A putt missed from inside this many metres (8 ft) gets a slump.
+const SLUMP_PUTT := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
@@ -1906,6 +1908,8 @@ func _complete_flight() -> void:
 				msg = ""
 			elif clubs[club_index].is_putter:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
+			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
+				golfer.play(&"slump")
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
 	if _gimme_now():
@@ -2170,7 +2174,8 @@ func _hole_out(picked_up: bool) -> void:
 		sounds.play(&"applause")
 		_caption_crowd(Commentary.Crowd.POLITE)
 		if golfer:
-			golfer.play(&"celebrate")
+			# A fist pump for a birdie; both arms up for an eagle or better.
+			golfer.play(&"fist_pump" if strokes == hole.par - 1 else &"celebrate")
 	if _next_player() < 0:
 		_finish_hole()
 		return
@@ -2768,16 +2773,21 @@ func _build_world() -> void:
 	pause_menu.menu_pressed.connect(_quit_to_menu)
 
 
+const BALL_SHADER := preload("res://shaders/golf_ball.gdshader")
+
+
 func _make_ball_mesh() -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
 	sphere.radius = 1.0
 	sphere.height = 2.0
+	sphere.radial_segments = 40
+	sphere.rings = 20
 	m.mesh = sphere
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color.WHITE
-	mat.emission_enabled = true
-	mat.emission = Color(0.25, 0.25, 0.25)
+	# A real ball's dimpled cover (shaders/golf_ball.gdshader), glowing a
+	# little so it still reads at TV distances.
+	var mat := ShaderMaterial.new()
+	mat.shader = BALL_SHADER
 	m.material_override = mat
 	return m
 
@@ -2905,18 +2915,23 @@ const FLAGSTICK_M := 2.13
 
 func _add_flag() -> void:
 	var pin := hole.pin
-	var pole := MeshInstance3D.new()
-	var pole_mesh := CylinderMesh.new()
-	# True to scale: tour flagsticks are about 3/4 in (19 mm) thick.
-	pole_mesh.top_radius = 0.0095
-	pole_mesh.bottom_radius = 0.0095
-	pole_mesh.height = FLAGSTICK_M
-	pole_mesh.radial_segments = 8
-	pole.mesh = pole_mesh
-	pole.position = pin + Vector3(0, FLAGSTICK_M * 0.5, 0)
-	var white := StandardMaterial3D.new()
-	white.albedo_color = Color(0.95, 0.95, 0.92)
-	pole.material_override = white
+	# A tournament flagstick (tools/props/build_props.py): 19 mm white
+	# fibreglass with a chrome cap, its foot down in the cup on a ferrule.
+	var pole := CourseProps.instance("flagstick")
+	if pole != null:
+		pole.position = pin
+	else:
+		pole = MeshInstance3D.new()
+		var pole_mesh := CylinderMesh.new()
+		pole_mesh.top_radius = 0.0095
+		pole_mesh.bottom_radius = 0.0095
+		pole_mesh.height = FLAGSTICK_M
+		pole_mesh.radial_segments = 8
+		pole.mesh = pole_mesh
+		pole.position = pin + Vector3(0, FLAGSTICK_M * 0.5, 0)
+		var white := StandardMaterial3D.new()
+		white.albedo_color = Color(0.95, 0.95, 0.92)
+		pole.material_override = white
 	hole_root.add_child(pole)
 
 	# The flag flies with the wind (shaders/flag.gdshader).
@@ -3076,19 +3091,22 @@ func _tee_gap() -> float:
 
 
 func _build_ball_details() -> void:
-	# A white wooden tee: a thin shank with a cup on top.
+	# A white wooden tee, 70 mm long (tools/props/build_props.py), its
+	# origin where the ball's bottom sits in its cup.
 	_tee_peg = MeshInstance3D.new()
-	var shank := CylinderMesh.new()
-	shank.top_radius = 0.0055
-	shank.bottom_radius = 0.0022
-	shank.height = 0.012
-	shank.radial_segments = 8
-	shank.rings = 1
-	_tee_peg.mesh = shank
-	var peg_mat := StandardMaterial3D.new()
-	peg_mat.albedo_color = Color(0.92, 0.9, 0.84)
-	peg_mat.roughness = 0.8
-	_tee_peg.material_override = peg_mat
+	_tee_peg.mesh = CourseProps.mesh("tee_peg")
+	if _tee_peg.mesh == null:
+		var shank := CylinderMesh.new()
+		shank.top_radius = 0.0055
+		shank.bottom_radius = 0.0022
+		shank.height = 0.07
+		shank.radial_segments = 8
+		shank.rings = 1
+		_tee_peg.mesh = shank
+		var peg_mat := StandardMaterial3D.new()
+		peg_mat.albedo_color = Color(0.92, 0.9, 0.84)
+		peg_mat.roughness = 0.8
+		_tee_peg.material_override = peg_mat
 	_tee_peg.visible = false
 	add_child(_tee_peg)
 	_ball_shadow = MeshInstance3D.new()
@@ -3110,9 +3128,9 @@ func _update_ball_details(base: Vector3, r: float, gap: float) -> void:
 		return
 	if gap > 0.0:
 		var ground := hole.terrain.height_at(base.x, base.z)
-		var shank := _tee_peg.mesh as CylinderMesh
-		shank.height = gap + 0.004  # its cup holds the ball; the rest is in the ground
-		_tee_peg.position = Vector3(base.x, ground + shank.height * 0.5, base.z)
+		# The ball sits in its cup; the rest of the peg is in the ground.
+		var below := 0.035 if _tee_peg.mesh is CylinderMesh else 0.0
+		_tee_peg.position = Vector3(base.x, ground + gap - below, base.z)
 		_tee_peg.visible = ball.visible
 	elif state == State.AIM or state == State.COMPUTER:
 		_tee_peg.visible = false
@@ -3178,9 +3196,9 @@ func _tint_ball(m: MeshInstance3D, i: int) -> void:
 	if m == null:
 		return
 	var look: PlayerLook = _looks[i] if i < _looks.size() else null
-	var mat := m.material_override as StandardMaterial3D
+	var mat := m.material_override as ShaderMaterial
 	if mat != null:
-		mat.albedo_color = look.ball if look != null else Color.WHITE
+		mat.set_shader_parameter("albedo", look.ball if look != null else Color.WHITE)
 
 
 func _place_golfer() -> void:

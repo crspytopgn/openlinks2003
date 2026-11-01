@@ -12,7 +12,7 @@ const FIRST_CUT := 2.5
 const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
 ## Mowing stripe strength per surface (the terrain shader draws them along
 ## the hole, crisp, from UV: x across the hole, -y the strength).
-const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.5}
+const STRIPES := {Surface.Type.FAIRWAY: 1.0, Surface.Type.GREEN: 0.6, Surface.Type.TEE: 0.3}
 ## Splat map (see the terrain shader): the surfaces rasterised every
 ## SPLAT_STEP metres, so their edges are drawn crisp rather than blended
 ## across the GRID_STEP mesh. Code FIRST_CUT_CODE is the first cut.
@@ -84,19 +84,19 @@ func height_at(x: float, z: float) -> float:
 		h = lerpf(_tee_level, h, smoothstep(4.0, 10.0, d_tee))
 
 	var g := green_center()
-	var d_green := p.distance_to(g)
+	var d_green := _blob_distance(p, g, green_radius, phase.x)
 	if d_green < green_radius + 9.0:
 		var green_h := _green_level + green_slope.dot(p - g)
 		h = lerpf(green_h, h, smoothstep(green_radius, green_radius + 9.0, d_green))
 
 	for b in bunkers:
-		var d := p.distance_to(Vector2(b.x, b.y))
+		var d := _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11)
 		if d < b.z + 1.5:
 			h -= 0.7 * (1.0 - smoothstep(b.z * 0.3, b.z + 1.5, d))
 
 	for i in ponds.size():
 		var w := ponds[i]
-		var d := p.distance_to(Vector2(w.x, w.y))
+		var d := _blob_distance(p, Vector2(w.x, w.y), w.z, w.x * 0.23 + w.y * 0.19)
 		if d < w.z + 7.0:
 			h = lerpf(_pond_levels[i] - 1.2, h, smoothstep(w.z - 3.0, w.z + 7.0, d))
 	return h
@@ -107,24 +107,68 @@ func surface_at(x: float, z: float) -> int:
 	if not bounds.has_point(p):
 		return Surface.Type.OUT_OF_BOUNDS
 	for w in ponds:
-		if p.distance_to(Vector2(w.x, w.y)) < w.z:
+		if _blob_distance(p, Vector2(w.x, w.y), w.z, w.x * 0.23 + w.y * 0.19) < w.z:
 			return Surface.Type.WATER
 	for b in bunkers:
-		if p.distance_to(Vector2(b.x, b.y)) < b.z:
+		if _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11) < b.z:
 			return Surface.Type.SAND
-	var d_green := p.distance_to(green_center())
+	var d_green := _blob_distance(p, green_center(), green_radius, phase.x)
 	if d_green < green_radius:
 		return Surface.Type.GREEN
 	if d_green < green_radius + 2.0:
 		return Surface.Type.FRINGE
-	if absf(p.x - tee.x) < 5.0 and absf(p.y - tee.y) < 7.0:
+	if _in_tee(p):
 		return Surface.Type.TEE
 	var r := _route_distance(p)
-	if r.x < fairway_width * 0.5 and r.y > fairway_start:
+	if _in_fairway(r, 0.0):
 		return Surface.Type.FAIRWAY
-	if r.x < fairway_width * 0.5 + 10.0:
+	if r.x < _half_width(r.y) + 10.0:
 		return Surface.Type.ROUGH
 	return Surface.Type.DEEP_ROUGH
+
+
+## Real courses have no straight edges or perfect circles: greens, bunkers
+## and ponds are blobs, fairways swell and narrow, tees are rounded. These
+## give the shapes, the same for the ground, the splat map and the lies.
+
+## Distance from `centre` scaled so the shape's edge is at `radius`: a
+## circle pushed out and in round its rim (a kidney or a pear rather than
+## a coin), turned by `seed`.
+static func _blob_distance(p: Vector2, centre: Vector2, radius: float, seed: float) -> float:
+	var d := p - centre
+	var a := d.angle()
+	var rim := 1.0 + 0.16 * sin(2.0 * a + seed) + 0.08 * sin(3.0 * a + seed * 1.7) + 0.04 * sin(5.0 * a + seed * 2.3)
+	return d.length() / rim
+
+
+## Half the fairway's width `along` metres down the hole: it swells and
+## narrows over tens of metres, as a designer's fairway does.
+func _half_width(along: float) -> float:
+	return fairway_width * 0.5 * (1.0 + 0.14 * sin(along * 0.023 + phase.y) + 0.07 * sin(along * 0.061 + phase.z))
+
+
+## Inside the fairway (widened by `extra` metres) at route distance `r`.
+## Its front edge is rounded, not a straight line across the hole.
+func _in_fairway(r: Vector2, extra: float) -> bool:
+	var half := _half_width(r.y) + extra
+	if r.x >= half:
+		return false
+	var f := r.x / half
+	return r.y > fairway_start + 9.0 * (1.0 - sqrt(1.0 - f * f))
+
+
+## Inside the tee box: a 10 by 14 m box along the hole's first leg with
+## well-rounded corners.
+func _in_tee(p: Vector2) -> bool:
+	var ahead := Vector2(0.0, 1.0)
+	if route.size() > 1 and route[1] != tee:
+		ahead = (route[1] - tee).normalized()
+	var d := p - tee
+	var q := Vector2(absf(d.dot(Vector2(ahead.y, -ahead.x))), absf(d.dot(ahead)))
+	# A rounded rectangle: half sizes 5 and 7 m, corners of 3 m radius.
+	var corner := 3.0
+	var inner := Vector2(5.0 - corner, 7.0 - corner)
+	return (q - inner).max(Vector2.ZERO).length() < corner
 
 
 ## Distance from the route centre line (x) and how far along it (y).
@@ -301,7 +345,7 @@ func _splat_code(x: float, z: float) -> int:
 	var s := surface_at(x, z)
 	if s == Surface.Type.ROUGH:
 		var r := _route_distance(Vector2(x, z))
-		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+		if _in_fairway(r, FIRST_CUT):
 			return FIRST_CUT_CODE
 	return s
 
@@ -314,7 +358,7 @@ func _color_at(x: float, z: float) -> Color:
 	var s := surface_at(x, z)
 	if s == Surface.Type.ROUGH:
 		var r := _route_distance(Vector2(x, z))
-		if r.x < fairway_width * 0.5 + FIRST_CUT and r.y > fairway_start:
+		if _in_fairway(r, FIRST_CUT):
 			return FIRST_CUT_COLOR
 	return _colors[s]
 

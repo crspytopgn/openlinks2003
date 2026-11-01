@@ -38,7 +38,7 @@ func _ready() -> void:
 	_click_player.volume_db = CLICK_DB
 	add_child(_click_player)
 	_music_player = AudioStreamPlayer.new()
-	_music_player.volume_db = MUSIC_DB
+	_music_player.volume_db = MUSIC_DB + AudioSettings.music_db()
 	add_child(_music_player)
 	if _path.is_empty():
 		_click = load(FREE_CLICK) as AudioStream

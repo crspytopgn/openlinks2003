@@ -38,6 +38,13 @@ and don't start a "(needs data)" item on guesses.
   (`course_objects.cpp`) and `game/scripts/course/course_areas.gd`
   (`course_areas.cpp`).
 
+- `launcher/` is a separate small Godot project: the desktop launcher
+  (docs/launcher.md). It writes the game's `user://settings.cfg` keys, so
+  keep `launcher/scripts/game_config.gd` in step with
+  `game/scripts/graphics/graphics_settings.gd` (look and quality go through
+  `[launcher]`, see `apply_launcher_requests`). Its tests are
+  `launcher/tests/run_tests.gd`, run by the CI `export` job.
+
 ## Checks before pushing
 
 ```bash
