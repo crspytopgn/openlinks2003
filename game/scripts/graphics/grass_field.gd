@@ -156,6 +156,9 @@ static func material() -> ShaderMaterial:
 		# Compatibility has no sky fill light, so the blades' sides get less
 		# light than the ground beside them; lift them to match.
 		_mat.set_shader_parameter("brightness", 1.0 if GraphicsSettings.is_forward_plus() else 1.5)
+		var fwd := GraphicsSettings.is_forward_plus()
+		_mat.set_shader_parameter("blend_amount", 0.35 if fwd else 1.0)
+		_mat.set_shader_parameter("blade_relief", 0.7 if fwd else 0.0)
 	return _mat
 
 

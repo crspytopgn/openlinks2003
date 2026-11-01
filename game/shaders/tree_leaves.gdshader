@@ -24,6 +24,10 @@ uniform vec2 leaf_grid = vec2(3.0, 2.0); // leaves in the leaf texture
 uniform float leaf_cells = 7.0;
 uniform vec3 leaf_tint = vec3(0.54, 0.64, 0.4);
 uniform float fill = 0.12; // TreeFactory raises it for Compatibility
+// How light the leaves inside the crown are (1 as lit as the outside).
+// Forward+ darkens them more: its sky light would otherwise flatten the
+// crown into one bright mass, where a real one has deep shade inside.
+uniform float inner_shade = 0.58;
 uniform vec3 leaf_dark : source_color = vec3(0.16, 0.27, 0.08);
 uniform vec3 leaf_light : source_color = vec3(0.36, 0.47, 0.16);
 uniform vec3 needle_dark : source_color = vec3(0.07, 0.17, 0.08);
@@ -138,7 +142,7 @@ void fragment() {
 		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
 	}
 	// Inner leaves sit in the crown's own shade.
-	col *= core ? (needles ? 1.0 : 0.5) : mix(0.58, 1.0, info.g * info.g);
+	col *= core ? (needles ? 1.0 : 0.5) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col;
