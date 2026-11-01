@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="brand.css">
+<style>
+body { width: 1000px; height: 860px; }
+.tile {
+	position: absolute; inset: 0; border-radius: 44px; overflow: hidden;
+	background: var(--bg); display: flex; flex-direction: column;
+}
+.dark .tile { background: #161618; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+.text { padding: 58px 64px 0; }
+.eyebrow { font-size: 30px; font-weight: 600; color: #30B94D; letter-spacing: 0.01em; margin-bottom: 12px; }
+h2 { font-size: 66px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+p { margin-top: 16px; font-size: 34px; line-height: 1.35; color: var(--ink-2); max-width: 820px; }
+.shot { position: relative; margin: 40px 64px 0; flex: 1; border-radius: 26px 26px 0 0; overflow: hidden;
+	box-shadow: 0 -2px 30px rgba(0, 0, 0, 0.12); }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chip { position: absolute; left: 22px; bottom: 22px; padding: 14px 28px; font-size: 28px; font-weight: 500; }
+</style></head>
+<body>
+<div class="tile">
+	<div class="text"><div class="eyebrow" id="e"></div><h2 id="t"></h2><p id="p"></p></div>
+	<div class="shot"><img id="i"><div class="chip glass" id="c"></div></div>
+</div>
+<script>
+const TILES = {
+	broadcast: ['Presentation', 'Tour-grade coverage.', 'TV cameras, a score bug, live wind and a gallery.', 'tee.jpg', 'center 60%', 'Live from the tee'],
+	tracer: ['Ball flight', 'Every shot, traced.', 'A TV tracer and a pin cam follow every ball home.', 'pin-cam.jpg', 'center 40%', 'Pin cam'],
+	swing: ['Golfer', 'A swing that looks real.', 'Motion-captured swings, chips and putts.', 'golfer.jpg', 'contain', 'Top, impact, finish'],
+	designer: ['Course designer', 'Build your own course.', 'Shape the land, draw the holes, plant trees, play.', 'designer.jpg', 'left top', 'Draw, shape, play', 'right'],
+};
+const q = new URLSearchParams(location.search);
+if (q.has('dark')) document.documentElement.className = 'dark';
+const [e, t, p, img, pos, chip, side] = TILES[q.get('tile')];
+document.getElementById('e').textContent = e;
+document.getElementById('t').textContent = t;
+document.getElementById('p').textContent = p;
+const i = document.getElementById('i'); i.src = '../shots/' + img;
+if (pos === 'contain') { i.style.objectFit = 'contain'; i.parentElement.style.background = '#8CB2D9'; i.style.transform = 'scale(1.18)'; } else i.style.objectPosition = pos;
+if (side === 'right') { const c = document.getElementById('c'); c.style.left = 'auto'; c.style.right = '22px'; }
+document.getElementById('c').textContent = chip;
+</script>
+</body></html>
