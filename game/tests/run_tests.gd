@@ -1526,8 +1526,11 @@ func _test_props_real_size() -> void:
 	# 150 yards back from the pin along a dogleg, and the fairway's edge.
 	var dog := PackedVector2Array([Vector2(0, 200), Vector2(100, 200)])
 	var at := CourseProps.point_back_from_pin(Vector3.ZERO, Vector3(200, 0, 200), dog, 150.0)
-	_check((at[0] as Vector3).distance_to(Vector3(0, 0, 150)) < 0.01, "150 m back round the dogleg (%s)" % at[0])
-	_check((at[1] as Vector3).distance_to(Vector3(0, 0, 1)) < 0.01, "line runs towards the pin there")
+	_check((at[0] as Vector3).distance_to(Vector3(50, 0, 200)) < 0.01, "150 m back along the route (%s)" % at[0])
+	_check((at[1] as Vector3).distance_to(Vector3(1, 0, 0)) < 0.01, "line runs towards the pin there")
+	at = CourseProps.point_back_from_pin(Vector3.ZERO, Vector3(200, 0, 200), dog, 250.0)
+	_check((at[0] as Vector3).distance_to(Vector3(0, 0, 150)) < 0.01, "250 m back is round the dogleg (%s)" % at[0])
+	_check((at[1] as Vector3).distance_to(Vector3(0, 0, 1)) < 0.01, "and the line there runs up the first leg")
 	var edge := CourseProps.fairway_edge(_FairwayTerrain.new(), Vector3(0, 0, 100), Vector3(0, 0, 1))
 	_check(absf(edge.x + 16.0) < 0.01, "pole a metre into the rough on the right (%s)" % edge)
 	# Tee furniture keeps out of water: the right is a pond, so it goes left.

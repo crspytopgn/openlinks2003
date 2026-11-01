@@ -38,11 +38,11 @@ sys.path.insert(0, os.path.join(HERE, "..", "golfer"))
 sys.path.insert(0, os.path.join(HERE, "..", "buggy"))
 from gltf import FLOAT, UBYTE, UINT, USHORT, Gltf  # noqa: E402
 from build_golf_cart import Part, grid, superquadric, tube  # noqa: E402
-from sdf import ambient_occlusion, mesh as sdf_mesh, rbox, smooth_union, sphere, union  # noqa: E402
+from sdf import ambient_occlusion, gradient, mesh as sdf_mesh, rbox, smooth_union, sphere, union  # noqa: E402
 
 # Every shape's triangle budget is scaled by this: the game's props are seen
 # from a few metres at the closest, and Godot adds distance LODs on import.
-FACES = 0.6
+FACES = 0.3
 
 OUT = os.path.join(HERE, "..", "..", "game", "assets", "props")
 
@@ -161,6 +161,29 @@ def srgb_to_linear(c):
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
 
+def simplified(shape, lo, hi, step, faces):
+    """sdf.mesh, simplified harder: small parts with tight curves stop the
+    gentle pass well short of the budget. Then back onto the surface."""
+    import fast_simplification
+    p, n, i = sdf_mesh(shape, lo, hi, step, faces)
+    for agg in (7, 10):
+        if len(i) <= faces * 1.2:
+            break
+        v, t = fast_simplification.simplify(p.astype(np.float32), i.astype(np.int64),
+                                            target_reduction=1.0 - faces / len(i), agg=agg)
+        p, i = v.astype(np.float64), t
+        for _ in range(4):
+            d = shape(p[:, 0], p[:, 1], p[:, 2])
+            p = p - gradient(shape, p) * d[:, None]
+        f = np.cross(p[i[:, 1]] - p[i[:, 0]], p[i[:, 2]] - p[i[:, 0]])
+        i = i[np.linalg.norm(f, axis=1) > 1e-10]
+        n = gradient(shape, p)
+        f = np.cross(p[i[:, 1]] - p[i[:, 0]], p[i[:, 2]] - p[i[:, 0]])
+        if np.sum(f * n[i[:, 0]]) < 0:
+            i = i[:, [0, 2, 1]]
+    return p, n, i
+
+
 # --- Writing ------------------------------------------------------------------------
 
 class Prop:
@@ -188,7 +211,7 @@ class Prop:
         self.parts[key] = Part()
 
     def shape(self, key, shape, lo, hi, step, faces):
-        p, n, i = sdf_mesh(shape, lo, hi, step, int(faces * FACES))
+        p, n, i = simplified(shape, lo, hi, step, int(faces * FACES))
         self.parts[key].add(p, i, n)
         self.solids.append(shape)
 
@@ -489,7 +512,7 @@ def build_bench(out):
         x = -L + 0.12 + k * (2 * L - 0.24) / (n - 1)
         slats.append(box((x - 0.024, 0.55, -0.29), (x + 0.024, 0.87, -0.255), 0.005))
     back_parts = turned(union(*(rails + slats)), (0, 0.45, -0.22), "x", -2)
-    pr.shape("plastic", union(*parts, back_parts), (-0.82, -0.01, -0.45), (0.82, 0.97, 0.36), 0.006, 9000)
+    pr.shape("plastic", union(*parts, back_parts), (-0.82, -0.01, -0.45), (0.82, 0.97, 0.36), 0.006, 15000)
     pr.save(out)
 
 
@@ -526,7 +549,7 @@ def build_yardage_plate(out):
     pr.material("white", (0.92, 0.92, 0.9, 1), 0.5)
     pr.material("gold", (0.86, 0.72, 0.45, 1), 0.38, metal=1.0)
     plate = box((-0.15, -0.03, -0.1), (0.15, 0.0, 0.1), 0.006)
-    pr.shape("white", plate, (-0.17, -0.05, -0.12), (0.17, 0.02, 0.12), 0.003, 600)
+    pr.shape("white", plate, (-0.17, -0.05, -0.12), (0.17, 0.02, 0.12), 0.003, 1500)
     rim = cut(box((-0.152, -0.01, -0.102), (0.152, 0.004, 0.102), 0.002),
               box((-0.135, -0.02, -0.085), (0.135, 0.02, 0.085)))
     pr.shape("gold", rim, (-0.17, -0.03, -0.12), (0.17, 0.02, 0.12), 0.002, 1200)
