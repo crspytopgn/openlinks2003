@@ -17,6 +17,13 @@ extends RefCounted
 ## UV layout is small).
 const WEAVE_TILES := 90.0
 const GLOVE_COLOUR := Color(0.86, 0.85, 0.82)
+## How deep the scanned face's lines and pores are on an average man.
+const FACE_RELIEF := 1.0
+
+## The scanned face detail on the skin (FreeGolfer, from
+## GraphicsSettings.quality via main.gd): 0 off (Low), 1 at half its
+## resolution (Medium: the web and phones), 2 full (High and Ultra).
+static var face_detail := 2
 
 static var _weave: Texture2D
 static var _pores: Texture2D
@@ -44,7 +51,10 @@ static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
 ## and a man's beard shadow and stubble from PlayerLook.stubble), with
 ## pores. Null without a region map (an older pack), so the caller can
 ## keep skin() instead.
-static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D) -> ShaderMaterial:
+## `face` is the scanned face detail ({albedo, normal: Texture2D, rect:
+## Vector4}, see FreeGolfer._face_detail), or empty for none: full on a
+## weathered older man, softer on a woman's and a young face.
+static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D, face := {}) -> ShaderMaterial:
 	if regions == null:
 		return null
 	var m := ShaderMaterial.new()
@@ -62,6 +72,13 @@ static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Text
 	m.set_shader_parameter("shave_shadow", (0.35 + 0.65 * look.stubble) if man else 0.0)
 	m.set_shader_parameter("lip_strength", 1.15 if not man else 0.8)
 	m.set_shader_parameter("flush_strength", 1.0)
+	if not face.is_empty():
+		var years := clampf(1.0 + 0.3 * look.age, 0.6, 1.4)
+		m.set_shader_parameter("face_albedo", face.albedo)
+		m.set_shader_parameter("face_normal", face.normal)
+		m.set_shader_parameter("face_rect", face.rect)
+		m.set_shader_parameter("face_colour", (1.0 if man else 0.65) * minf(years, 1.0))
+		m.set_shader_parameter("face_relief", (FACE_RELIEF if man else FACE_RELIEF * 0.5) * years)
 	return m
 
 

@@ -7,7 +7,9 @@ Run it on a pack straight from build_free_golfer.py (and golf_shoes.py):
 - cap.py: the structured six-panel tour cap;
 - skin_regions.py: the face's region map for the skin shader;
 - collar.py: polo collars, plackets and buttons;
-- tailored.py: tailored trousers instead of jeans.
+- tailored.py: tailored trousers instead of jeans;
+- face_detail.py: a scanned face's pores, lines and skin colour on the face
+  (fetches the CC BY scan it uses the first time).
 Each step refuses a pack it has already been run on.
 """
 
@@ -21,7 +23,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import golf_shoes  # noqa: E402
 
-STEPS = ["cap.py", "skin_regions.py", "collar.py", "tailored.py"]
+STEPS = ["cap.py", "skin_regions.py", "collar.py", "tailored.py", "face_detail.py"]
 SPAN_KEYS = {"positions", "normals", "uvs", "bones", "weights", "indices", "tangents", "rows", "normals_u8", "data",
              "golf_source"}
 

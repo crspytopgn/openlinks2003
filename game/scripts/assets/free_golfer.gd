@@ -142,7 +142,7 @@ func apply_look(p_look: PlayerLook) -> void:
 		var std := _material(parts, mat_name)
 		var mat: Material = null
 		if is_skin:
-			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name))
+			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name), _face_detail(parts, mat_name))
 			if mat == null:
 				mat = GolferSurface.skin(std)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
@@ -284,6 +284,19 @@ static func under_cap(hair: ArrayMesh, parts: GolferParts, weights: Dictionary) 
 static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2D:
 	var index := int(parts.info.materials[material_name].get("regions", -1))
 	return parts.texture(index) if index >= 0 else null
+
+
+## The look pack's scanned face detail for the skin shader at
+## GolferSurface.face_detail's tier, or empty (that tier is off, or an
+## older pack).
+static func _face_detail(parts: GolferParts, material_name: String) -> Dictionary:
+	var fd: Variant = parts.info.materials[material_name].get("face_detail")
+	if GolferSurface.face_detail <= 0 or not fd is Dictionary:
+		return {}
+	var size := 0 if GolferSurface.face_detail >= 2 else 512
+	var r: Array = fd.rect
+	return {"albedo": parts.texture(int(fd.albedo), size), "normal": parts.texture(int(fd.normal), size),
+		"rect": Vector4(r[0], r[1], r[2], r[3])}
 
 
 ## Whether a part is clothing that moves (the cap stays put on the head).

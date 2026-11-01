@@ -3032,6 +3032,7 @@ func _apply_graphics() -> void:
 	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
 	GolferCloth.detail = graphics.quality
+	GolferSurface.face_detail = mini(graphics.quality, 2)
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	RenderingServer.global_shader_parameter_set("billboard_photo", 1.0 if CrzTerrain.photo_ground else 0.0)
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
