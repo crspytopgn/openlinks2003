@@ -224,7 +224,11 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 				r.bounces += 1
 				s = b
 				var vn := b.velocity.dot(n)
-				if vn < ROLL_THRESHOLD:
+				# A ball that meets the ground at the very start of a step was
+				# on it already (a bank ahead rising faster than it flies): it
+				# rolls from there. Bounced again it would land at the same
+				# instant forever.
+				if vn < ROLL_THRESHOLD or frac <= 0.0:
 					rolling = true
 					s.velocity = b.velocity - n * vn
 				continue

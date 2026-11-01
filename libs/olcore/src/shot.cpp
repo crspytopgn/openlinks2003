@@ -256,7 +256,10 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
         ++r.bounces;
         s = BallState{pos, vel, spin};
         double vn = dot(vel, n);
-        if (vn < opt.roll_threshold) {
+        // A ball that meets the ground at the very start of a step was on it
+        // already (a bank ahead rising faster than it flies): it rolls from
+        // there. Bounced again it would land at the same instant forever.
+        if (vn < opt.roll_threshold || frac <= 0.0) {
           rolling = true;
           s.velocity = vel - n * vn;
         }
