@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import glb_edit  # noqa: E402
+import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
 
@@ -303,7 +304,8 @@ def retarget(glb, rig, clip, cache):
     scale = golfer_hip / actor_hip
     hands_l = rig.index["hand_l"]
     club_dir = club_direction(glb, rig)
-    shaft0 = ref_rots[hands_l] @ club_dir
+    club_j = rig.index["club"]
+    shaft0 = ref_rots[club_j] @ club_dir  # the club turns in the hand (grip.py)
     plane = pose.unit(np.cross([-1.0, 0.0, 0.0], shaft0))  # + turns the club head away from the target
     arm0 = plane_dir(ref_poss[hands_l] - ref_poss[rig.index["upperarm_l"]], plane)
     arm_angle = 0.0
@@ -312,7 +314,6 @@ def retarget(glb, rig, clip, cache):
 
     head_verts = club_head_verts(glb, clip.get("club", "Driver"))
     _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
-    club_j = rig.index["club"]
 
     def club_head(rots, poss):
         w = (rots[club_j] @ (head_verts - rest[club_j]).T).T + poss[club_j]
@@ -363,7 +364,7 @@ def retarget(glb, rig, clip, cache):
                 else:
                     club = max(arm_angle - ramp(-arm_angle, HINGE_FOLLOW), FINISH_LIMIT)
                 want = pose.rot(plane, club) @ shaft0
-                rots[hands_l] = between(rots[hands_l] @ club_dir, want) @ rots[hands_l]
+                rots[hands_l] = between(rots[club_j] @ club_dir, want) @ rots[hands_l]
                 rots = fill(rig, rots, ref_local, keep=True)
                 rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
@@ -385,7 +386,7 @@ def retarget(glb, rig, clip, cache):
                     low = club_head(rots, poss)[1]
                     if low >= ADDRESS_CLEAR:
                         break
-                    shaft = rots[hands_l] @ club_dir
+                    shaft = rots[club_j] @ club_dir
                     axis = pose.unit(np.cross(shaft, [0.0, 1.0, 0.0]))
                     reach = SHAFT_LENGTH * math.sqrt(max(1e-4, 1.0 - shaft[1] ** 2))
                     lift = math.degrees((ADDRESS_CLEAR - low) / reach)
@@ -422,7 +423,7 @@ def retarget(glb, rig, clip, cache):
             # Held at the finish, then the club spun once in the fingers.
             start, seconds = clip["twirl"]
             club_j = rig.index["club"]
-            shaft = iron.poser(rig).club_dir_rest["l"]  # the spin axis, along the shaft
+            shaft = club_dir  # the spin axis, along the shaft
             for k in range(TWIRL_KEYS + 1):
                 u = k / TWIRL_KEYS
                 key = list(last)
@@ -654,6 +655,7 @@ def retarget_stand(glb, rig, clip, cache):
         if name.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb"):
             curl = 1.0 if (clip.get("carry") and name.endswith("_l")) else 0.35
             relaxed[j] = pose.slerp(np.eye(3), grip_local[j], curl)
+    relaxed[rig.index["club"]] = grip_local[rig.index["club"]]  # how it sits in the hand
     club_dir = club_direction(glb, rig)
     facing = pose.unit(np.array(clip["facing"], dtype=float))
 
@@ -689,7 +691,7 @@ def retarget_stand(glb, rig, clip, cache):
             raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
             w = float(np.clip(raised, 0, 1))
             want = pose.unit(low * (1 - w * w * (3 - 2 * w)) + pose.unit(up + 0.5 * facing) * w * w * (3 - 2 * w))
-            rots[h] = between(rots[h] @ club_dir, want) @ rots[h]
+            rots[h] = between(rots[rig.index["club"]] @ club_dir, want) @ rots[h]
             rots = fill(rig, rots, local0, keep=True)
         out_rots.append(rig.locals(rots))
         out_root.append(root)
@@ -715,6 +717,7 @@ def main():
     rig = Rig(glb)
     ensure_refs(glb, rig)
     iron.ensure_iron(glb, rig)
+    grip.fit(glb, rig, club_direction(glb, rig))
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
             times, rots, root = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
