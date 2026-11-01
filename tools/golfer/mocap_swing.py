@@ -288,6 +288,40 @@ HEAD_RISE_KEEP = 0.15  # of the actor's head rise
 EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 
 
+# Tour putters keep the lower body and the head still; the shoulders rock
+# the arms and putter like a pendulum. The actor's hips turn ~15 deg and his
+# head drifts 12 cm towards the hole through the stroke. These keep a share
+# of that: the legs and pelvis hold the address, and the upper body leans
+# back about the base of the spine so the head stays over the ball.
+PUTT_STILL = 0.1  # of the actor's hip slide, foot moves and head drift kept
+LOWER_BODY = ("pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r")
+
+
+def still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss):
+    root = ref_root + PUTT_STILL * (root - ref_root)
+    for name in LOWER_BODY:
+        j = rig.index.get(name)
+        if j is not None:
+            rots[j] = ref_rots[j]
+    rots = fill(rig, rots, ref_local)
+    _, poss = rig.world(rig.locals(rots), root)
+    # Leaning back over the ball sideways (about the line to the ball) and
+    # then fore and aft (about the target line), so the shoulders don't turn.
+    for axis, (u, v) in (([0.0, 0.0, 1.0], (0, 1)), ([1.0, 0.0, 0.0], (2, 1))):
+        _, poss = rig.world(rig.locals(rots), root)
+        pivot = poss[rig.index["spine_01"]]
+        head = poss[rig.index["head"]] - pivot
+        want = ref_poss[rig.index["head"]] + PUTT_STILL * (poss[rig.index["head"]] - ref_poss[rig.index["head"]]) - pivot
+        turn = math.degrees(math.atan2(head[u], head[v]) - math.atan2(want[u], want[v]))
+        sign = 1.0 if axis[2] else -1.0  # right-handed: +z turns +x into +y, +x turns +y into +z
+        back = pose.rot(axis, sign * turn)
+        for j in descendants(rig, "spine_01"):
+            if rots[j] is not None:
+                rots[j] = back @ rots[j]
+        rots = fill(rig, rots, ref_local, keep=True)
+    return rots, root
+
+
 def backswing_weight(f, clip):
     """1 through the backswing, easing to 0 at impact; 0 after."""
     if "top" not in clip:
@@ -449,6 +483,8 @@ def retarget(glb, rig, clip, cache):
             if not clip["putt"]:
                 rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
                                             backswing_weight(f, clip))
+            elif "impact" in clip:
+                rots, root = still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss)
             if "impact" in clip:
                 # Down into the shot at impact: a little through the knees
                 # (the feet are pinned below), the rest bending over the ball,
@@ -468,7 +504,8 @@ def retarget(glb, rig, clip, cache):
             targets = {}
             for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
                 k = bvh.index[actor]
-                target = ref_poss[rig.index[f"foot_{s}"]] + scale * (g @ (m_poss[k] - m_poss0[k]))
+                keep = PUTT_STILL if clip["putt"] and "impact" in clip else 1.0
+                target = ref_poss[rig.index[f"foot_{s}"]] + keep * scale * (g @ (m_poss[k] - m_poss0[k]))
                 foot = rots[rig.index[f"foot_{s}"]]
                 # Up on the toes, not through the ground.
                 toe = target + foot @ (rest[rig.index[f"ball_{s}"]] - rest[rig.index[f"foot_{s}"]])
