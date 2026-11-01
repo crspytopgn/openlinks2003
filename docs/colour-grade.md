@@ -54,6 +54,12 @@ region's mean lands within about 2 (turf, trees) to 8 (sky) Lab units of
 the photos. The sky can't go all the way, because lifting it further would
 also lift every dark blue in the frame.
 
+The lookups for afternoon, midday and morning were refitted after the
+tree and rough colours changed (#154). On the afternoon Compatibility
+renders, the old lookup had left the turf 12 and the trees 9 Lab units off
+the photos; the refit brings them to 5 and 2.5. Forward+ lands within about
+2 (turf), 1 (trees) and 5 (sky).
+
 ## Refitting
 
 Refit after any change to the light, sky, exposure or surface colours.
