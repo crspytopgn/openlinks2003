@@ -65,6 +65,12 @@ var _teed_up := false
 var _jobs: Array[Callable] = []
 var _candidates: Array[Candidate] = []
 var _best_putt: Candidate
+## What its own shots on this hole really did: [from, club, strokes still to
+## play after it] (learn). A plan from the same spot with a club that went
+## wrong there is scored no better than it really came off, so after stroke
+## and distance it doesn't hit the same shot out of bounds again.
+var _tried: Array = []
+const SAME_SPOT_M := 0.5
 
 
 class Candidate:
@@ -97,6 +103,26 @@ func start_round() -> void:
 ## A hole finished `to_par` (-1 a birdie, +1 a bogey).
 func end_hole(to_par: int) -> void:
 	momentum = clampf(0.6 * momentum - clampf(float(to_par), -2.0, 2.0), -2.5, 2.0)
+	_tried.clear()
+
+
+## How the shot it just played from `from` with `club` really came off (the
+## planner's own simulation has no misses, so a lip or a hazard can catch
+## the real swing where the plan cleared it). Ignored unless it planned that
+## shot.
+func learn(from: Vector3, club: int, r: ShotResult) -> void:
+	if _hole == null or _model == null or _flat(from, _from) > SAME_SPOT_M or r == null:
+		return
+	_tried.append([from, club, _value(r)])
+
+
+## The worst it has really scored with `club` from where it is now, or -1.
+func _observed(club: int) -> float:
+	var worst := -1.0
+	for t: Array in _tried:
+		if int(t[1]) == club and _flat(t[0], _from) <= SAME_SPOT_M:
+			worst = maxf(worst, float(t[2]))
+	return worst
 
 
 ## Multiplies its mistakes now: today's form, recent holes (more for a
@@ -119,6 +145,8 @@ func address_time() -> float:
 
 ## Starts planning a shot from `from` on `lie`.
 func plan(model: ShotModel, clubs: Array[Club], hole: HoleData, from: Vector3, lie: int, wind: Vector3) -> void:
+	if hole != _hole:
+		_tried.clear()
 	_model = model
 	_clubs = clubs
 	_hole = hole
@@ -259,6 +287,13 @@ func _job_rank() -> void:
 	if _candidates.is_empty():
 		_choose_fallback()
 		return
+	# A club that really went wrong from here ranks as it came off, so the
+	# risk checks look at the others.
+	for c in _candidates:
+		var seen := _observed(c.club)
+		if seen >= 0.0:
+			c.nominal = maxf(c.nominal, seen)
+			c.score = maxf(c.score, seen)
 	_candidates.sort_custom(func(a: Candidate, b: Candidate) -> bool: return a.nominal < b.nominal)
 	if _manages():
 		var n := _risk_candidates()
@@ -298,6 +333,9 @@ func _job_choose() -> void:
 	for c in _candidates:
 		if managed and not c.checked:
 			continue
+		var seen := _observed(c.club)
+		if seen >= 0.0:
+			c.score = maxf(c.score, seen)
 		if best == null or c.score < best.score:
 			best = c
 	_use(best)
