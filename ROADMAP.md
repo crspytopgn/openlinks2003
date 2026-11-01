@@ -123,7 +123,7 @@ product lead builds it.
   - [x] Texture projections (`Mappings`) and blended edges (`... Alpha.tga` masks) ([crz.md](docs/formats/crz.md#mappings-texture-projections)); `.SHA` tree shadow shapes in the baked ground shade ([sha.md](docs/formats/sha.md))
   - [x] The rest of `.SHA` ([sha.md](docs/formats/sha.md)): 3D object footprints stamped as ground shadows, per-billboard light dimming trees among trees; detail texture variants (`... 32.tga`, `... 128.tga`) faded in with distance
   - [ ] The trailer's four floats (sun direction?), the `.SHA` cell lists, and the game's exact variant distances
-- [x] Course props modelled from photos of the real thing at real scale: tour staff bag, spherical tee markers, tee sign, ball washer, bench, bunker rakes, fairway yardage plates and poles, sponsor plaques ([props.md](docs/props.md))
+- [x] Course props modelled from photos of the real thing at real scale: tour staff bag, spherical tee markers, tee sign, ball washer, bench, bunker rakes, fairway yardage plates and poles, sponsor plaques, water stations, practice-green flags, green signs ([props.md](docs/props.md))
 - [ ] In-play interface from `GRAPHICS.LS`
   - [x] Chrome info bars (`CRSINFO.TGA`) and the classic swing bar (`RIND12.TGA`)
   - [x] Swing indicator gizmo (`SI*.TGA`), PowerStroke panel, wind, elevation and lie windows, the game's own fonts (`.D3F`, [d3f.md](docs/formats/d3f.md)) ([game-shell.md](docs/game-shell.md#the-original-interface))

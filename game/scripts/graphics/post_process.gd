@@ -29,6 +29,18 @@ const PHOTO_CURVE := 0.6
 ## (Photoreal only). A long lens magnifies it (RoundCamera.lens_factor).
 const SHIMMER_PIXELS := 2.2
 
+## The learned grade (docs/colour-grade.md): a lookup per light and
+## renderer, fitted by tools/grade/fit_grade.py. Photoreal only.
+const LUT_DIR := "res://grade/"
+## How much of the learned grade shows.
+const LUT_MIX := 1.0
+## Off to see or measure the frame without the learned grade.
+var grade_lut := true:
+	set(v):
+		grade_lut = v
+		_mat.set_shader_parameter("lut_mix", LUT_MIX if v and _lut_ready else 0.0)
+var _lut_ready := false
+
 var _rect: ColorRect
 var _mat: ShaderMaterial
 var _shimmer := 0.0
@@ -72,6 +84,10 @@ func apply(s: GraphicsSettings) -> void:
 	_mat.set_shader_parameter("shadow_tint", _vec(g[4]))
 	_mat.set_shader_parameter("vignette", GraphicsSettings.VIGNETTE_LEVELS[s.vignette])
 	_mat.set_shader_parameter("grain", GraphicsSettings.GRAIN_LEVELS[s.grain])
+	var lut := lut_for(s.time_of_day, GraphicsSettings.is_forward_plus()) if photo else null
+	_lut_ready = lut != null
+	_mat.set_shader_parameter("grade_lut", lut)
+	_mat.set_shader_parameter("lut_mix", LUT_MIX if _lut_ready and grade_lut else 0.0)
 	_shimmer = SHIMMER_PIXELS if photo else 0.0
 	if _shimmer == 0.0:
 		_mat.set_shader_parameter("shimmer", 0.0)
@@ -106,3 +122,19 @@ func update_view(camera: Camera3D, ground_y: float, sun: DirectionalLight3D) -> 
 ## `pitch` radians up, with vertical field of view `fov` radians.
 static func horizon_screen_y(pitch: float, fov: float) -> float:
 	return 0.5 + 0.5 * tan(pitch) / tan(fov * 0.5)
+
+
+## The learned grade for a time of day, fitted to that light's renders
+## (Forward+ and Compatibility light the course differently, so each has
+## its own).
+static func lut_for(time_of_day: int, forward_plus: bool) -> Texture2D:
+	var light := "afternoon"  # also "Through the round"
+	match time_of_day:
+		GraphicsSettings.TimeOfDay.MORNING:
+			light = "morning"
+		GraphicsSettings.TimeOfDay.MIDDAY:
+			light = "midday"
+		GraphicsSettings.TimeOfDay.GOLDEN:
+			light = "golden"
+	var path := LUT_DIR + "%s_%s.png" % [light, "forward" if forward_plus else "compat"]
+	return load(path) as Texture2D if ResourceLoader.exists(path) else null

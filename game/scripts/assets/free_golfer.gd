@@ -232,8 +232,8 @@ func _dress_clubs() -> void:
 		elif mi.name.ends_with("_grip"):
 			colour = look.grip
 		elif mi.name == "Driver_head":
-			colour = look.club_head
-			metal = 0.5
+			_paint_crown(mi, look.club_head)
+			continue
 		if colour.a == 0.0:
 			continue
 		var mat := StandardMaterial3D.new()
@@ -241,6 +241,20 @@ func _dress_clubs() -> void:
 		mat.metallic = metal
 		mat.roughness = 0.3 if metal > 0.0 else 0.9
 		mi.material_override = mat
+
+
+## The driver's crown takes the player's head colour; its face, sole and
+## ferrule keep their own materials (tools/golfer/clubs.py).
+static func _paint_crown(mi: MeshInstance3D, colour: Color) -> void:
+	for i in mi.mesh.get_surface_count():
+		var own := mi.mesh.surface_get_material(i)
+		if own == null or own.resource_name != "DriverHead":
+			continue
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = colour
+		mat.metallic = 0.4
+		mat.roughness = 0.22
+		mi.set_surface_override_material(i, mat)
 
 
 func has_animation(animation: StringName) -> bool:

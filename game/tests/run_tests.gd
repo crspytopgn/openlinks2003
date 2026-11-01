@@ -248,6 +248,13 @@ func _test_caddie_and_buggy_in_round() -> void:
 			print("  caddie: " + game.caddie.advice.text)
 		if game.state == GolfRound.State.DRIVE and not drove:
 			drove = true
+			_check(not game.hud.meter.visible and not game.hud.info.visible, "the swing meter and shot info hide while driving")
+			var rider := game.buggy.rider
+			if rider != null:  # only with the free golfer model
+				var sk := rider.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+				var thigh := sk.find_bone("thigh_l")
+				var bent := sk.get_bone_global_pose(thigh).basis.get_rotation_quaternion().angle_to(Quaternion.IDENTITY)
+				_check(rider.is_visible_in_tree() and bent > 1.0, "the golfer sits at the wheel, thighs along the seat")
 			var from := game.buggy.drive.position
 			for i in 60:
 				game.buggy.step(1.0 / 30.0, 1.0, 0.0, game.hole.terrain)
@@ -275,6 +282,7 @@ func _test_caddie_and_buggy_in_round() -> void:
 			game._drive_touch_input(down)
 			game._drive_touch_input(up)
 			_check(game.state != GolfRound.State.DRIVE, "a tap skips to the ball")
+			_check(game._drive_hidden.is_empty() and (rider == null or not rider.visible), "after the drive the HUD is back and the seat is empty")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE, "the round finishes with the caddie and buggy")
@@ -1410,7 +1418,9 @@ func _test_buggy_drive() -> void:
 		d.step(dt, -1.0, 0.0, fairway)
 		t += 1
 	print("  stops from top speed in %.1f s, %.1f m" % [t * dt, d.position.z - from])
-	_check(t * dt < 2.5 and d.position.z - from < 8.0, "brakes hard")
+	# Rear drum brakes only, as on real fleet carts: about 0.3 g on grass,
+	# held back by the grip of the rear tyres.
+	_check(t * dt < 2.6 and d.position.z - from < 9.0 and d.position.z - from > 4.0, "rear brakes stop it in a few metres")
 	for i in 150:
 		d.step(dt, -1.0, 0.0, fairway)
 	_check(d.speed < 0.0 and d.speed >= -BuggyDrive.GOVERNED_REVERSE - 0.1, "backs up slowly (%.2f)" % d.speed)
@@ -1443,6 +1453,12 @@ func _test_buggy_drive() -> void:
 	_check(spot.z < 0.0 and spot.length() > 5.0, "parks back from the ball, off the line (%s)" % spot)
 	var b := GolfBuggy.new()
 	_check(b.get_child_count() == 5, "body (with the bag) and four wheels")
+	var noise := BuggySound.whine_clip()
+	_check(noise.loop_mode == AudioStreamWAV.LOOP_FORWARD and noise.data.size() == BuggySound.RATE * 2, "a second of motor whine, looping")
+	b.sound.update(BuggyDrive.GOVERNED, 1.0, 1.0)
+	var loud: float = (b.sound.get_child(0) as AudioStreamPlayer3D).volume_db
+	b.sound.update(0.0, 0.0, 0.0)
+	_check(loud > -20.0 and (b.sound.get_child(0) as AudioStreamPlayer3D).volume_db < -60.0, "the motor whines at speed and is silent stopped")
 	b.park(Vector3(5.0, 0.0, 5.0), 90.0, fairway)
 	for i in 30:
 		b.step(dt, 1.0, 0.0, fairway)
@@ -1499,6 +1515,9 @@ func _test_props_real_size() -> void:
 		"yardage_plate": [Vector3(0.304, 0.034, 0.204), 0.01],
 		"yardage_pole": [Vector3(0.09, 2.04, 0.09), 0.02],
 		"sponsor_sign": [Vector3(0.61, 0.985, 0.075), 0.02],
+		"water_station": [Vector3(0.76, 1.38, 0.745), 0.03],
+		"practice_flag": [Vector3(0.228, 0.718, 0.043), 0.01],
+		"course_sign": [Vector3(0.3, 0.195, 0.012), 0.01],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
@@ -1618,6 +1637,13 @@ func _test_graphics_settings() -> void:
 	var mapped := Scenery.sky_sun_mapping(Vector3(0.0, 0.5, 0.866), deg_to_rad(48.0))
 	_check(absf(mapped.y - deg_to_rad(30.0)) < 0.001, "sky sun: the photo's sun is moved down to a 30 degree sun")
 	_check(absf(Scenery.sky_sun_mapping(Vector3(0.0, 0.156, 0.988), deg_to_rad(48.0)).y - deg_to_rad(28.8)) < 0.001, "sky sun: a low sun stretches the sky at most 40%")
+	# The learned grade: a 32-cubed lookup per time of day and renderer.
+	for t in [GraphicsSettings.TimeOfDay.AFTERNOON, GraphicsSettings.TimeOfDay.MORNING, GraphicsSettings.TimeOfDay.MIDDAY, GraphicsSettings.TimeOfDay.GOLDEN]:
+		for fwd in [false, true]:
+			var lut := PostProcess.lut_for(t, fwd)
+			_check(lut != null and lut.get_width() == 1024 and lut.get_height() == 32, "grade: lookup for time %d (forward %s)" % [t, fwd])
+	var lut_img := PostProcess.lut_for(GraphicsSettings.TimeOfDay.AFTERNOON, false).get_image()
+	_check(lut_img.get_pixel(0, 0).get_luminance() < 0.1 and lut_img.get_pixel(1023, 31).get_luminance() > 0.9, "grade: black stays dark and white stays bright")
 	# The TV cameraman's drift stays tiny, and grows while panning.
 	var most := 0.0
 	var most_pan := 0.0
@@ -1943,6 +1969,23 @@ func _test_gallery() -> void:
 		_check(g.seated_count() > capacity / 2 and g.seated_count() <= capacity, "a grandstand full of people (%d)" % g.seated_count())
 		var front: Vector3 = spot[0]
 		_check(front.distance_to(hole.pin) > Gallery.GREEN_MARGIN + Gallery.STAND_BACK, "the grandstand stands back from the green")
+	_check(g.card_count() > 0 and g.card_count() <= Gallery.CARDS_BY_QUALITY[3], "crowd cards fill in behind the 3D people (%d)" % g.card_count())
+	var cards := Gallery.card_spots(hole, lines, spots, 120, 7)
+	var spaced := cards.size() > 0
+	for i in cards.size():
+		var c := cards[i]
+		var cs := t.surface_at(c.x, c.z)
+		spaced = spaced and cs != Surface.Type.GREEN and cs != Surface.Type.SAND and cs != Surface.Type.WATER
+		for spot_i: Array in spots:
+			var q: Vector3 = spot_i[0]
+			spaced = spaced and Vector2(q.x - c.x, q.z - c.z).length() >= Gallery.CARD_SPACING - 1e-3
+		for j in i:
+			spaced = spaced and Vector2(cards[j].x - c.x, cards[j].z - c.z).length() >= Gallery.CARD_SPACING - 1e-3
+	_check(spaced, "crowd cards off greens, bunkers and water, clear of people and each other")
+	var low := Gallery.build(hole, hole.pin, 0, 7, false, 0)
+	root.add_child(low)
+	_check(low.crowd_count() == 0 and low.card_count() <= Gallery.CARDS_BY_QUALITY[0], "Low quality: cards only, no 3D people")
+	low.free()
 	g.react(Commentary.Crowd.ROAR)
 	g.free()
 	_check_near(Gallery.stand_depth(), 6.8, 1e-4, "eight bleacher rows of 0.85 m")
@@ -3041,7 +3084,35 @@ func _test_free_golfer() -> void:
 	_check(hands.holding and hands.influence == 1.0, "both hands hold the club in a swing")
 	hands.follow(&"walk", 0.0)
 	_check(not hands.holding and hands.influence == 0.0, "the hands swing free on the walk")
+	_test_club_heads(golfer)
 	golfer.free()
+
+
+## The clubs are modelled to real sizes (tools/golfer/clubs.py): each head's
+## widest span, hosel and ferrule included, and the driver's crown, face and
+## sole as separate surfaces so only the crown takes the player's colour.
+func _test_club_heads(golfer: Node) -> void:
+	var spans := {"Driver_head": [0.15, 0.19], "Iron_head": [0.12, 0.16], "Putter_head": [0.13, 0.17]}
+	for node in golfer.find_children("*_head", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if not spans.has(String(mi.name)):
+			continue
+		var pts := PackedVector3Array()
+		var names: Array[String] = []
+		for i in mi.mesh.get_surface_count():
+			pts.append_array(mi.mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX])
+			names.append(mi.mesh.surface_get_material(i).resource_name)
+		var span := 0.0
+		for i in range(0, pts.size(), 3):
+			for j in range(i + 3, pts.size(), 3):
+				span = maxf(span, pts[i].distance_to(pts[j]))
+		var want: Array = spans[String(mi.name)]
+		_check(span > want[0] and span < want[1], "%s spans %.3f m" % [mi.name, span])
+		_check(names.has("Ferrule"), "%s has a ferrule" % mi.name)
+		if mi.name == "Driver_head":
+			_check(names.has("DriverHead") and names.has("DriverFace") and names.has("DriverSole"), "driver crown, face and sole: %s" % [names])
+		spans.erase(String(mi.name))
+	_check(spans.is_empty(), "every club head found: %s left" % [spans.keys()])
 
 
 ## The player creator's looks: saved and read back, mapped to blend shapes,

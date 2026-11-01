@@ -26,7 +26,13 @@ const DAMPING := 9.0  ## and damping, 1/s
 const PITCH_PER_ACCEL := 0.012  ## radians of squat or dive per m/s^2
 const ROLL_PER_ACCEL := 0.016  ## radians of lean per m/s^2 of cornering
 const BODY_PIVOT := 0.3  ## the body leans about this height
-const BAG_APART := 0.22  ## two bags side by side, from the middle
+const GROUND_LAG := 0.6  ## the share of a change in ground slope the body lags
+const BUMPS := 9.0  ## rad/s^2 of jiggle at full speed in the rough
+const BAG_APART := 0.22
+## Where the driver sits (on the left), on the cushion, in the cart's frame.
+const DRIVER_SEAT := Vector3(-0.27, 0.82, 0.36)
+## The figure's forward in its own skeleton frame (towards the wheel).
+const SEATED_FORWARD := Vector3(0.0, 0.0, -1.0)  ## the rig faces -z; the model turns it round
 
 static var _body_mesh: ArrayMesh
 static var _wheel_mesh: ArrayMesh
@@ -40,7 +46,11 @@ var _pitch_rate := 0.0
 var _roll := 0.0
 var _roll_rate := 0.0
 var _spin := 0.0
+var sound := BuggySound.new()
+var rider: Node3D  ## the golfer at the wheel while driving (null without the free model)
+var _rider_key := "-"
 var _bags: Array[GolfBag] = []
+var _bump_phase := 0.0
 var _chase_pos := Vector3.INF
 var _chase_look := Vector3.ZERO
 
@@ -63,6 +73,107 @@ func _init() -> void:
 			_wheels.append(w)
 			_wheel_base.append(Basis.IDENTITY)
 	set_bags(1)
+	_chassis.add_child(sound)
+
+
+## Puts the golfer (`look`, null for the default) in the driver's seat,
+## hands on the wheel, or takes them out (`on` false).
+func seat_driver(on: bool, look: PlayerLook = null) -> void:
+	var key := look.key() if look != null else ""
+	if on and (rider == null or key != _rider_key):
+		if rider != null:
+			rider.queue_free()
+		rider = seated_figure(look)
+		_rider_key = key
+		if rider != null:
+			rider.position = DRIVER_SEAT - Vector3(0.0, BODY_PIVOT, 0.0)
+			_chassis.add_child(rider)
+			# Posed off the tree, the skeleton didn't mark its bones to update:
+			# set the poses again now it is in.
+			for sk: Skeleton3D in rider.find_children("*", "Skeleton3D", true, false):
+				for i in sk.get_bone_count():
+					sk.set_bone_pose_rotation(i, sk.get_bone_pose_rotation(i))
+	if rider != null:
+		rider.visible = on
+
+
+## The free golfer sitting: thighs along the seat, shins down to the floor,
+## arms out to the wheel. Bones are posed from their own positions (as the
+## caddie's arms are), so it doesn't depend on how the rig is oriented.
+## The figure's origin is where it sits on the cushion. Null without the model.
+static func seated_figure(look: PlayerLook) -> Node3D:
+	var g: Node3D = FreeGolfer.create(look)
+	if g == null:
+		return null
+	(g as FreeGolfer).walk_in = false
+	for node in g.find_children("*", "MeshInstance3D", true, false):
+		var m := node as MeshInstance3D
+		if m.name.begins_with("Driver") or m.name.begins_with("Putter") or m.name.begins_with("Iron"):
+			m.visible = false
+	var player := g.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if player != null:
+		player.stop()
+		player.active = false
+	var skeletons := g.find_children("*", "Skeleton3D", true, false)
+	if skeletons.is_empty():
+		return g
+	var sk := skeletons[0] as Skeleton3D
+	for child in sk.get_children():
+		if child is SkeletonModifier3D:
+			sk.remove_child(child)  # no foot planting or head turning in the seat
+			child.free()
+	sk.reset_bone_poses()
+	var fwd := SEATED_FORWARD
+	for side: String in ["l", "r"]:
+		var out := signf(sk.get_bone_rest(sk.find_bone("upperarm_" + side)).origin.x)
+		_limb(sk, ["thigh_" + side, "calf_" + side, "foot_" + side],
+				[fwd + Vector3(0.0, -0.12, 0.0), fwd * 0.3 + Vector3(0.0, -1.0, 0.0)])
+		_limb(sk, ["upperarm_" + side, "lowerarm_" + side, "hand_" + side],
+				[fwd * 0.55 + Vector3(0.05 * out, -0.8, 0.0), fwd + Vector3(-0.3 * out, 0.25, 0.0)])
+	var pelvis := sk.find_bone("pelvis")
+	var hips := _rest_global(sk, pelvis).y if pelvis >= 0 else 0.95
+	# Sit the hips on the cushion: the figure's origin goes to the seat.
+	var inner := Node3D.new()
+	g.position.y = -hips - 0.06
+	inner.add_child(g)
+	return inner
+
+
+## Turns a chain of bones (upper, lower, end) so each segment points along
+## `dirs` in the skeleton's frame. Works from the rest positions, which the
+## free golfer's rig keeps unrotated, so it needs no up-to-date global poses
+## (a skeleton outside the scene tree doesn't update them).
+static func _limb(sk: Skeleton3D, names: Array, dirs: Array) -> void:
+	var ids: Array[int] = []
+	for n: String in names:
+		ids.append(sk.find_bone(n))
+	if ids.has(-1):
+		return
+	var above := _rest_rotation(sk, sk.get_bone_parent(ids[0]))
+	for k in 2:
+		var along := above * sk.get_bone_rest(ids[k + 1]).origin  # the segment, posed so far
+		var turn := Quaternion(along.normalized(), (dirs[k] as Vector3).normalized())
+		var local := above.inverse() * turn * above
+		sk.set_bone_pose_rotation(ids[k], local)
+		above = above * local
+
+
+## A bone's rotation in the skeleton from its posed parents (rests unrotated).
+static func _rest_rotation(sk: Skeleton3D, bone: int) -> Quaternion:
+	var q := Quaternion.IDENTITY
+	while bone >= 0:
+		q = sk.get_bone_pose_rotation(bone) * q
+		bone = sk.get_bone_parent(bone)
+	return q
+
+
+## A bone's rest position in the skeleton.
+static func _rest_global(sk: Skeleton3D, bone: int) -> Vector3:
+	var p := Vector3.ZERO
+	while bone >= 0:
+		p += sk.get_bone_rest(bone).origin
+		bone = sk.get_bone_parent(bone)
+	return p
 
 
 ## Stands one or two golf bags in the well behind the seat, leaning on the
@@ -92,14 +203,39 @@ func park(p: Vector3, heading_deg: float, terrain: CourseTerrain) -> void:
 	_roll_rate = 0.0
 	_chassis.basis = Basis.IDENTITY
 	fit(terrain)
+	sound.silence()
 	_chase_pos = Vector3.INF
 
 
 func step(dt: float, throttle: float, steer: float, terrain: CourseTerrain) -> void:
 	drive.step(dt, throttle, steer, terrain)
 	_spin += drive.speed * dt / WHEEL_RADIUS
-	_springs(dt)
+	var before := basis
 	fit(terrain)
+	var rough := BuggySound.roughness(terrain, drive.position)
+	_ground_lag(before)
+	_bumps(dt, rough)
+	_springs(dt)
+	sound.update(drive.speed, drive.pedal, rough)
+
+
+## Where the ground under the wheels tips, the body on its springs doesn't
+## follow at once: it lags, then settles (cresting a rise, dropping into a
+## hollow, one side running over a slope).
+func _ground_lag(before: Basis) -> void:
+	var turn := (basis.inverse() * before).get_euler()
+	_pitch += clampf(turn.x, -0.1, 0.1) * GROUND_LAG
+	_roll += clampf(turn.z, -0.1, 0.1) * GROUND_LAG
+
+
+## Small bumps in the turf jiggle the body, more in the rough and faster
+## (none on smooth cart paths).
+func _bumps(dt: float, rough: float) -> void:
+	_bump_phase += absf(drive.speed) * dt
+	var k := rough * clampf(absf(drive.speed) / BuggyDrive.GOVERNED, 0.0, 1.0) * BUMPS
+	var p := _bump_phase
+	_pitch_rate += k * sin(p * 7.3) * sin(p * 2.9 + 1.7) * dt
+	_roll_rate += k * sin(p * 5.1 + 0.4) * sin(p * 3.7) * dt
 
 
 ## The body on its springs: squats under acceleration, dives under braking

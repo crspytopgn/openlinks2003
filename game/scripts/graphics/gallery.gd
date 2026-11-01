@@ -44,14 +44,20 @@ const ROPE_COLOUR := Color(0.92, 0.9, 0.84)
 ## Builds the gallery for `hole`, with up to `crowd` spectators.
 ## With `stand`, a grandstand goes up behind the green too, if there is
 ## room for it.
-static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, stand := false) -> Gallery:
+## `quality` (GraphicsSettings.Quality) sets how many crowd cards stand
+## further out.
+static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, stand := false, quality := 3) -> Gallery:
 	var g := Gallery.new()
 	g.name = "Gallery"
 	var lines := tee_lines(hole.terrain, hole.tee, toward)
 	lines.append_array(green_lines(hole.terrain, hole.pin, hole.tee))
 	g._build_ropes(hole.terrain, lines)
+	var people: Array = []
 	if crowd > 0:
-		g._build_crowd(hole, lines, crowd, seed_value)
+		people = g._build_crowd(hole, lines, crowd, seed_value)
+	var cards := CARDS_BY_QUALITY[clampi(quality, 0, CARDS_BY_QUALITY.size() - 1)]
+	if cards > 0:
+		g._build_cards(hole, lines, people, cards, seed_value)
 	if stand:
 		var at := grandstand_spot(hole)
 		if not at.is_empty():
@@ -232,8 +238,9 @@ static func crowd_spots(hole: HoleData, lines: Array[PackedVector3Array], count:
 			if out.dot(Vector3(mid.x - focus.x, 0.0, mid.z - focus.z)) < 0.0:
 				out = -out
 			for j in 3:
-				var p := a.lerp(b, rng.randf()) + out * rng.randf_range(CROWD_NEAR, CROWD_FAR)
-				candidates.append([p, focus, p.distance_to(focus)])
+				var back := rng.randf_range(CROWD_NEAR, CROWD_FAR)
+				var p := a.lerp(b, rng.randf()) + out * back
+				candidates.append([p, focus, p.distance_to(focus), back < CROUCH_ROW])
 	candidates.sort_custom(func(x: Array, y: Array) -> bool: return x[2] < y[2])
 	var spots: Array = []
 	for c: Array in candidates:
@@ -249,7 +256,7 @@ static func crowd_spots(hole: HoleData, lines: Array[PackedVector3Array], count:
 				free = false
 				break
 		if free:
-			spots.append([Vector3(p.x, hole.terrain.height_at(p.x, p.z), p.z), c[1]])
+			spots.append([Vector3(p.x, hole.terrain.height_at(p.x, p.z), p.z), c[1], c[3]])
 	return spots
 
 
@@ -260,11 +267,13 @@ const CONTACT_SHADOW := 0.9  ## metres across
 const CONTACT_STRENGTH := 0.45
 
 
-func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, seed_value: int) -> void:
+## Returns where the 3D people stand.
+func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, seed_value: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value + 1
 	var feet := PackedVector3Array()
-	for spot: Array in crowd_spots(hole, lines, count, seed_value):
+	var spots := crowd_spots(hole, lines, count, seed_value)
+	for spot: Array in spots:
 		var person := FreeGolfer.create(PlayerLook.random(rng.randi()))
 		if person == null:
 			break  # no golfer model or look pack: ropes only
@@ -284,13 +293,20 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		person.rotation.y = yaw
 		feet.append(at)
 		var player := person.find_child("AnimationPlayer", true, false) as AnimationPlayer
-		if player != null and player.has_animation(&"idle"):
-			player.get_animation(&"idle").loop_mode = Animation.LOOP_LINEAR
-			player.play(&"idle")
+		if player == null:
+			continue
+		# Not everyone stands the same way: on the rope, some crouch to see
+		# under the people behind, as the front row does on tour.
+		var clip := &"idle"
+		if spot[2] and rng.randf() < CROUCH_SHARE and player.has_animation(&"read"):
+			clip = &"read"
+		if player.has_animation(clip):
+			player.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
+			player.play(clip)
 			player.seek(rng.randf() * player.current_animation_length, true)
 			player.speed_scale = rng.randf_range(0.85, 1.1)
 	if feet.is_empty():
-		return
+		return spots
 	var quad := PlaneMesh.new()
 	quad.size = Vector2(CONTACT_SHADOW, CONTACT_SHADOW)
 	var mat := ShaderMaterial.new()
@@ -308,6 +324,115 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	shadows.multimesh = mm
 	shadows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(shadows)
+	return spots
+
+
+# --- Crowd cards -------------------------------------------------------------
+
+## Past the 3D people the gallery goes on as crowd cards
+## (shaders/crowd_card.gdshader): flat camera-facing figures, two or three
+## deep behind the ropes, hundreds in one draw call. From Low to Ultra.
+const CARDS_BY_QUALITY: Array[int] = [80, 160, 260, 360]
+const CARD_WIDTH := 0.62  ## metres, for a 1.8 m person
+const CARD_SPACING := 0.7
+const CARD_NEAR := 1.2
+const CARD_FAR := 5.0
+## Share of the front row that crouches (3D people on the rope).
+const CROUCH_SHARE := 0.3
+const CROUCH_ROW := 1.6  ## metres behind the rope that counts as the front row
+
+
+static func card_spots(hole: HoleData, lines: Array[PackedVector3Array], people: Array, count: int, seed_value: int) -> PackedVector3Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 5
+	var out := PackedVector3Array()
+	var taken: Array[Vector3] = []
+	for spot: Array in people:
+		taken.append(spot[0])
+	var total := 0.0
+	for line in lines:
+		for k in line.size() - 1:
+			total += line[k].distance_to(line[k + 1])
+	if total <= 0.0:
+		return out
+	var tries := count * 4
+	while out.size() < count and tries > 0:
+		tries -= 1
+		# A random point along all the ropes, then back from it.
+		var at := rng.randf() * total
+		var a := Vector3.INF
+		var b := Vector3.INF
+		for l in lines:
+			for j in l.size() - 1:
+				var span := l[j].distance_to(l[j + 1])
+				if at <= span and a == Vector3.INF:
+					a = l[j]
+					b = l[j + 1]
+				elif a == Vector3.INF:
+					at -= span
+		if a == Vector3.INF:
+			continue
+		var span_v := Vector3(b.x - a.x, 0.0, b.z - a.z)
+		if span_v.length() < 0.1:
+			continue
+		var focus := hole.pin if a.distance_to(hole.pin) < GREEN_SEARCH + GREEN_MARGIN + 5.0 else hole.tee
+		var outward := Vector3.UP.cross(span_v.normalized())
+		var mid := (a + b) * 0.5
+		if outward.dot(Vector3(mid.x - focus.x, 0.0, mid.z - focus.z)) < 0.0:
+			outward = -outward
+		var p := a.lerp(b, at / maxf(a.distance_to(b), 1e-3)) + outward * rng.randf_range(CARD_NEAR, CARD_FAR)
+		var s := hole.terrain.surface_at(p.x, p.z)
+		if s == Surface.Type.WATER or s == Surface.Type.SAND or s == Surface.Type.GREEN:
+			continue
+		var free := true
+		for q in taken:
+			if Vector2(q.x - p.x, q.z - p.z).length() < CARD_SPACING:
+				free = false
+				break
+		if not free:
+			continue
+		p.y = hole.terrain.height_at(p.x, p.z)
+		taken.append(p)
+		out.append(p)
+	return out
+
+
+func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Array, count: int, seed_value: int) -> void:
+	var spots := card_spots(hole, lines, people, count, seed_value)
+	if spots.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 9
+	var quad := QuadMesh.new()
+	quad.size = Vector2(CARD_WIDTH / 1.8, 1.0)  # scaled by each person's height
+	quad.center_offset = Vector3(0.0, 0.5, 0.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/crowd_card.gdshader")
+	quad.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	mm.mesh = quad
+	mm.instance_count = spots.size()
+	var trousers := [0, 2, 3, 4, 5, 6, 1]
+	for i in spots.size():
+		var h := clampf(rng.randfn(1.72, 0.09), 1.5, 1.98)
+		var w := rng.randf_range(0.9, 1.2)  # build: slim to broad
+		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(h * w, h, h)), spots[i]))
+		mm.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
+		var legs: Color = PlayerLook.CLOTH_COLOURS[trousers[rng.randi_range(0, trousers.size() - 1)]][1]
+		mm.set_instance_custom_data(i, Color(legs.r, legs.g, legs.b, rng.randf()))
+	var node := MultiMeshInstance3D.new()
+	node.name = "CrowdCards"
+	node.multimesh = mm
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)
+
+
+func card_count() -> int:
+	var node := get_node_or_null("CrowdCards") as MultiMeshInstance3D
+	return node.multimesh.instance_count if node != null else 0
 
 
 # --- Crowd reactions ------------------------------------------------------

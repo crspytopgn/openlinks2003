@@ -178,6 +178,8 @@ var _drive_touch := -1
 var _drive_touch_from := Vector2.ZERO
 var _drive_touch_moved := false
 var _drive_stick := Vector2.ZERO
+## The shot read-outs put away while driving, to show again after.
+var _drive_hidden: Array[CanvasItem] = []
 var _touch_from := Vector2.ZERO
 ## That finger's touch started the PowerStroke meter; dragging it back
 ## instead turns the meter off and swings with the swipe.
@@ -593,7 +595,7 @@ func start_hole(index: int) -> void:
 		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
 		# Grandstands go up where tournaments build them: at par 3s and the last green.
 		var stand := hole.par == 3 or hole_index == holes.size() - 1
-		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand)
+		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand, graphics.quality if graphics != null else 0)
 		hole_root.add_child(gallery)
 	else:
 		gallery = null
@@ -882,7 +884,7 @@ func _process(delta: float) -> void:
 	var paused := pause_menu.visible or settings_panel.visible
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
-	hud.meter.visible = state != State.DROP
+	hud.meter.visible = state != State.DROP and state != State.DRIVE
 	if state != State.AIM and hud.overlay != null:
 		hud.overlay.end_hole_card()  # the hole card must not sit over the shot
 	if online != null:
@@ -2051,9 +2053,17 @@ func _start_drive(next: int) -> bool:
 		return false
 	_drive_to = next
 	state = State.DRIVE
-	# The golfer (and caddie) are aboard.
+	# The golfer (and caddie) are aboard, the golfer at the wheel.
 	if golfer:
 		golfer.visible = false
+	var shooter := _shooter_of(next)
+	buggy.seat_driver(true, _looks[shooter] if shooter < _looks.size() else null)
+	# Nothing about the shot on screen while driving: just the hint and the wind.
+	_drive_hidden.clear()
+	for c: CanvasItem in [hud.meter, hud.info, hud.shot_panel, hud.windows, hud.tour, hud.mouse_swing]:
+		if c != null and c.visible:
+			c.visible = false
+			_drive_hidden.append(c)
 	if caddie != null:
 		caddie.step_aside()
 	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
@@ -2137,6 +2147,12 @@ func _end_drive() -> void:
 	_drive_to = -1
 	_drive_touch = -1
 	_drive_stick = Vector2.ZERO
+	if buggy != null:
+		buggy.seat_driver(false)
+	for c in _drive_hidden:
+		if is_instance_valid(c):
+			c.visible = true
+	_drive_hidden.clear()
 	state = State.SHOT_RESULT  # in between, until the turn begins
 	_take_turn(next)
 

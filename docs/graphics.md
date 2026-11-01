@@ -55,7 +55,9 @@ at Medium and grass at Low.
   colour ambient, tuned so the textures keep their own colours. Photoreal
   uses the AgX tone map (natural highlights, no lime greens), a strong,
   warm sun against fill about a fifth as bright (from the sky on Forward+,
-  a quarter stronger flat fill on Compatibility so shade isn't black),
+  a 60% stronger flat fill on Compatibility, as real shade is far lighter
+  than ours measured), turf toned to real course photos (`turf_tone.gdshaderinc`:
+  about 30% less saturated and nudged to olive; 50 photos measured in Lab),
   stronger aerial perspective, a lower 30 degree afternoon sun for long
   shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
   1.12, a slight warm balance; 2K25's greens are olive, not lime), glow only
@@ -146,6 +148,11 @@ at Medium and grass at Low.
   come from the course data, not the meshes. Leaf textures are sampled
   with gradients from the card's UV (the turned cells jump at their
   borders, which picks wild mip levels and sparkles in Compatibility).
+  Conifer needle cards draw photoscanned fir sprigs from Poly Haven's
+  fir_tree_01 twig atlas (colour and alpha maps, fetched by
+  tools/fetch_free_assets.py): two by three sprigs of 40 to 55 cm per card,
+  each one of four in the atlas. Poly Haven's whole scanned trees (2 to 17
+  million triangles, 50 to 960 MB each) are too heavy to ship.
 - **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
   hole starts, every tree, bush and rock billboard and every 3D model
   within 250 m of the tee, route and pin stamps a soft shadow (along
@@ -322,7 +329,17 @@ at Medium and grass at Low.
   calls from the tee.
   The spectators react to each shot as the crowd sounds do: everyone
   celebrates a roar, most a cheer, a few polite applause, and about half show
-  dismay at a groan or an "ooh".
+  dismay at a groan or an "ooh". About 30% of the front row (within 1.6 m
+  of the rope) crouch, as front rows do at real events, so the people
+  behind them can see.
+- **Crowd cards** (`Gallery`, `crowd_card.gdshader`): further back, 1.2 to
+  5 m behind the ropes, the crowd thickens into camera-facing cards. Each
+  card is one quad that turns about the vertical and draws a standing
+  person in its fragment shader: head and hair, shirt, arms and hands,
+  trousers and shoes, with a varied height (1.72 m, sd 9 cm), build, skin
+  tone, shirt and trousers. All the cards are one MultiMesh, so one draw
+  call: 80, 160, 260 or 360 cards from Low to Ultra (Low has cards and no
+  3D people). They keep off greens, bunkers and water and 0.7 m apart.
 - **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
   bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
   0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set
