@@ -129,6 +129,18 @@
 
   document.addEventListener("touchend", onTouchEnd, { capture: true, passive: true });
 
+  // While our input is open, nothing else on the page may take the focus.
+  // Godot focuses the canvas on every touch and, once a LineEdit has focus,
+  // keeps re-focusing its own hidden IME element on a timer; either one
+  // blurs our input and iOS drops the keyboard a moment after it opens.
+  if (typeof HTMLElement !== "undefined") {
+    const nativeFocus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (...args) {
+      if (activeId && input && this !== input) return undefined;
+      return nativeFocus.apply(this, args);
+    };
+  }
+
   window.olText = {
     setCallback(cb) {
       reply = cb;
