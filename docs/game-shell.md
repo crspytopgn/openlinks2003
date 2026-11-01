@@ -921,7 +921,11 @@ Nothing in the round needs to change.
   with a little random pitch and level. Courses with no ambient sounds of
   their own get `FreeAmbience`. Like a real course on TV it is mostly
   quiet: wind in the trees (always a little, more with the wind); a bed
-  picked from the course name (parkland, woodland, seaside, desert) kept
+  picked from where the course is in the world when that is known (a
+  course built from a map: deserts round Phoenix, the Gulf and inland
+  Australia; woodland far north or south) and otherwise from its name
+  (parkland, woodland, seaside, desert; a name that says links or bay
+  wins), kept
   low, with birdsong loudest at dawn and quietest at midday (cicadas the
   other way); now and then a single bird calling from a tree 25 to 90 m
   away (a 3D sound, fainter and duller with distance); a far-off road;
@@ -930,7 +934,9 @@ Nothing in the round needs to change.
   twice a second and faded smoothly: under the trees the birds and leaves
   are louder and the calls come from the hole's own trees; on an open
   fairway both drop away (on a seaside links the wind rises instead); water
-  rises as the camera nears it. The time of day comes from Settings (and moves
+  rises as the camera nears it. Somewhere warm (within 38 degrees of the
+  equator) cicadas sing in the trees under the birds, loudest at midday.
+  The time of day comes from Settings (and moves
   through the round with "Through the round"). In Broadcast and Tour the
   gallery murmurs from the tee and the green, and hushes while the player
   is over the ball. The road, mower and murmur are synthesised by

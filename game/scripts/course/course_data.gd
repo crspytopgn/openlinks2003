@@ -12,6 +12,9 @@ var horizon: Image
 ## The cloud sky the course asks for: skyNN.btc in PANSKY.LIB (1 to 12), or
 ## 0 for none (CourseBackdrop then uses its default).
 var sky := 0
+## Where in the world the course is, (latitude, longitude) in degrees, for
+## a course built from a real place; NAN when not known.
+var location := Vector2(NAN, NAN)
 ## Reads a named entry from the course file (for its ambient sounds); an
 ## empty Callable for courses without one.
 var read_entry: Callable
