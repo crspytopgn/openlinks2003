@@ -657,7 +657,7 @@ game/scripts/
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
     course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
                                 drawn per hole and turned into obstacles
-    placeholder_*.gd            The procedural nine-hole stand-in course
+    placeholder_course_loader.gd The built-in course, Kettle Hollow (docs/home-course.md)
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends

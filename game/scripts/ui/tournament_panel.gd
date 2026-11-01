@@ -178,7 +178,7 @@ func open(keys: PackedStringArray, titles: PackedStringArray) -> void:
 		var was := o.selected
 		o.clear()
 		if _course_names.is_empty():
-			o.add_item("Placeholder Nine")
+			o.add_item(PlaceholderCourseLoader.NAME)
 		for n in _course_names:
 			o.add_item(n)
 		o.select(clampi(was, 0, o.item_count - 1))
@@ -306,7 +306,7 @@ func _on_play() -> void:
 			var c := _courses[k].selected
 			if _course_keys.is_empty():
 				keys.append("")
-				titles.append("Placeholder Nine")
+				titles.append(PlaceholderCourseLoader.NAME)
 			else:
 				keys.append(_course_keys[clampi(c, 0, _course_keys.size() - 1)])
 				titles.append(_course_names[clampi(c, 0, _course_names.size() - 1)])

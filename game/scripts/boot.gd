@@ -400,7 +400,7 @@ func _play_placeholders() -> void:
 func _open_setup() -> void:
 	if _busy:
 		return
-	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	var names := PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"])
 	_setup_paths = _all_courses()
 	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))
@@ -422,7 +422,7 @@ func _open_setup() -> void:
 func _open_online() -> void:
 	if _busy:
 		return
-	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	var names := PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"])
 	_setup_paths = _all_courses()
 	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))

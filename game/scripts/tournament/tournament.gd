@@ -179,7 +179,7 @@ static func create(settings: Dictionary, keys: Array[String], titles: Array[Stri
 	t.course_names.assign(titles)
 	if t.course_keys.is_empty():
 		t.course_keys.assign([""])
-		t.course_names.assign(["Placeholder Nine"])
+		t.course_names.assign([PlaceholderCourseLoader.NAME])
 	var name_given := str(settings.get("title", "")).strip_edges()
 	t.title = name_given if not name_given.is_empty() else t._default_title()
 	t._make_field()

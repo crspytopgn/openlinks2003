@@ -32,6 +32,7 @@ constexpr double kCanopyKeep = 0.2;         // speed kept going into leaves
 constexpr double kCanopyBounce = 0.05;      // normal speed kept coming back out
 constexpr double kObstacleGap = 0.01;       // m; keeps the ball off the face it hit
 constexpr double kFlatTop = 0.7;            // normal y above which the ball can rest on a solid
+constexpr double kLandAtStart = 0.01;       // landing this early in a step: on the ground at its start
 
 bool is_hazard_stop(Surface s) { return s == Surface::Water || s == Surface::OutOfBounds; }
 
@@ -256,7 +257,11 @@ ShotResult simulate_shot(const BallState& start, const BallParams& p, const Terr
         ++r.bounces;
         s = BallState{pos, vel, spin};
         double vn = dot(vel, n);
-        if (vn < opt.roll_threshold) {
+        // A ball that meets the ground at the very start of a step (or a
+        // hair after it) was on it already (a bank ahead rising faster than
+        // it flies): it rolls from there. Bounced again it would land at
+        // almost the same instant, again and again, and never finish.
+        if (vn < opt.roll_threshold || frac < kLandAtStart) {
           rolling = true;
           s.velocity = vel - n * vn;
         }

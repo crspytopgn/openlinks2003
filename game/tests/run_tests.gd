@@ -1991,15 +1991,19 @@ func _test_course_marks() -> void:
 	# Footprints: find a bunker on the first hole and stand in it.
 	var sand := Vector3.INF
 	var h0 := course.holes[0]
-	for z in range(0, 400, 2):
+	# Along the hole from the tee towards the pin, and out to either side.
+	var down := Vector3(h0.pin.x - h0.tee.x, 0.0, h0.pin.z - h0.tee.z).normalized()
+	var across := down.cross(Vector3.UP)
+	for d in range(0, 420, 2):
 		for x in range(-60, 61, 2):
-			if t.surface_at(h0.tee.x + x, h0.tee.z + z) == Surface.Type.SAND \
-					and t.surface_at(h0.tee.x + x, h0.tee.z + z - 3) == Surface.Type.SAND:
-				sand = Vector3(h0.tee.x + x, 0.0, h0.tee.z + z)
+			var at := h0.tee + down * d + across * x
+			var back := at - down * 3.0
+			if t.surface_at(at.x, at.z) == Surface.Type.SAND and t.surface_at(back.x, back.z) == Surface.Type.SAND:
+				sand = Vector3(at.x, 0.0, at.z)
 				break
 		if sand != Vector3.INF:
 			break
-	_check(sand != Vector3.INF, "the placeholder course has a bunker")
+	_check(sand != Vector3.INF, "the built-in course has a bunker")
 	if sand != Vector3.INF:
 		var spots := CourseMarks.footprint_spots(t, sand, Vector3(0, 0, 1), Vector3(1, 0, 0))
 		_check(spots.size() >= 2, "footprints in the bunker (%d)" % spots.size())
@@ -2967,7 +2971,7 @@ func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
 	# The setup page reads the code and plays against it.
 	var panel := RoundSetupPanel.new()
 	root.add_child(panel)
-	panel.open(PackedStringArray(["Placeholder Nine (built in)"]), 0, RoundSetup.new())
+	panel.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), 0, RoundSetup.new())
 	panel._code.text = code
 	panel._open_code()
 	_check(panel.current_setup().challenge != null, "the setup page takes the code")
@@ -3070,7 +3074,7 @@ func _test_online_lobby() -> void:
 	for seat in 2:
 		var p := OnlinePanel.new()
 		root.add_child(p)
-		p.open(PackedStringArray(["Placeholder Nine (built in)"]), ["Ann", "Bo"][seat])
+		p.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), ["Ann", "Bo"][seat])
 		p.use_link(links[seat])
 		p.handle({"type": "welcome", "you": seat + 1, "seat": seat, "host": 1, "code": "ABCD"})
 		p.handle({"type": "members", "host": 1, "members": [{"id": 1, "name": "Ann", "seat": 0}, {"id": 2, "name": "Bo", "seat": 1}]})
@@ -3118,7 +3122,7 @@ func _test_free_sounds() -> void:
 		var s := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
 		_check(s != null and s.get_length() > 20.0, "%s is a long loop" % stem)
 	_check(load(MenuSounds.FREE_CLICK) is AudioStream, "free menu click")
-	_check(FreeAmbience.setting_for("Placeholder Nine") == FreeAmbience.Setting.PARKLAND, "parkland by default")
+	_check(FreeAmbience.setting_for(PlaceholderCourseLoader.NAME) == FreeAmbience.Setting.PARKLAND, "parkland by default")
 	_check(FreeAmbience.setting_for("Kiawah Island Ocean Course") == FreeAmbience.Setting.SEASIDE, "seaside")
 	_check(FreeAmbience.setting_for("Desert Mountain") == FreeAmbience.Setting.DESERT, "desert before mountain")
 	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
@@ -5224,7 +5228,7 @@ func _test_tournament_stroke_play() -> void:
 
 func _test_tournament_match_play() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.MATCH, "field_size": 8, "strength": 4,
 		"seed": 77}, keys, titles)
 	_check(t.names.size() == 8 and t.rounds == 3 and t.bracket.size() == 1 and t.bracket[0].size() == 4, "an 8-player draw")
@@ -5245,7 +5249,7 @@ func _test_tournament_match_play() -> void:
 
 func _test_tournament_skins() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.SKINS, "rounds": 1, "purse": 1000000,
 		"field_kind": Tournament.Field.WOMEN, "seed": 5}, keys, titles)
 	_check(t.names.size() == 4, "a skins game of four")
