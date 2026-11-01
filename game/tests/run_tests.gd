@@ -362,6 +362,61 @@ func _test_physics_matches_olcore() -> void:
 	_check_near(wedge.carry_m, 126.30, 1.0, "wedge carry")
 	_check_near(wedge.total_m, 126.28, 1.0, "wedge total")
 
+	# test_shots_off_a_bank: a 7 iron from a lie on a bunker face flies (it
+	# used to roll from the start at full club speed), and a fast roll takes
+	# off over the crest.
+	var bank := BankTerrain.new()
+	var start := Swing.launch_from_swing(_club("7i"), 0.6, 0.0, 0.0, Surface.Type.SAND)
+	start.position = Vector3(0.0, bank.height_at(0.0, 0.75), 0.75)
+	var off := BallPhysics.simulate_shot(start, bank)
+	print("  7i off the face: carry %.2f m, total %.2f m, %d bounces" % [off.carry_m, off.total_m, off.bounces])
+	_check_near(off.carry_m, 51.06, 1.0, "7i off the face carries")
+	_check_near(off.total_m, 59.44, 1.5, "7i off the face total")
+	var over := BallPhysics.simulate_shot(BallState.new(Vector3(0.0, 0.0, -5.0), Vector3(0.0, 0.0, 12.0)), bank)
+	print("  roll over the crest: rest z %.2f m, %d bounces" % [over.rest.z, over.bounces])
+	_check(over.bounces >= 1, "a fast roll takes off over the crest")
+	_check_near(over.rest.z, 3.50, 0.3, "and stops beyond it")
+
+	# test_ball_never_sticks_in_a_bunker: a ball that met the foot of a
+	# steep bunker face over and over without time moving on.
+	var stuck := BallPhysics.simulate_shot(BallState.new(Vector3(0.7364647710729153, -0.64522872109385476, 1.6250296890954929),
+			Vector3(-1.1399553273896588, -6.2406774597931687, -29.675503655483684)), LippedBunkerTerrain.new())
+	print("  out of the bunker: outcome %d after %.2f s, %.2f m" % [stuck.outcome, stuck.time_s, stuck.total_m])
+	_check(stuck.outcome == ShotResult.Outcome.REST and stuck.time_s < 30.0, "the ball never sticks in a bunker")
+
+
+## test_main.cpp's LippedBunkerTerrain: a bunker as PlaceholderTerrain
+## draws one.
+class LippedBunkerTerrain extends CourseTerrain:
+	const RADIUS := 3.0176012188928478
+	const SEED := 4.2016863217362372
+
+	func _distance(x: float, z: float) -> float:
+		var a := atan2(z, x)
+		var rim := 1.0 + 0.16 * sin(2.0 * a + SEED) + 0.08 * sin(3.0 * a + SEED * 1.7) + 0.04 * sin(5.0 * a + SEED * 2.3)
+		return Vector2(x, z).length() / rim
+
+	func height_at(x: float, z: float) -> float:
+		var h := 0.02 * x + 0.01 * z
+		var d := _distance(x, z)
+		if d < RADIUS + 3.0:
+			h -= 0.75 * (1.0 - smoothstep(RADIUS * 0.45, RADIUS + 0.8, d))
+			h += 0.15 * exp(-pow((d - RADIUS - 1.1) / 0.9, 2.0))
+		return h
+
+	func surface_at(x: float, z: float) -> int:
+		return Surface.Type.SAND if _distance(x, z) < RADIUS else Surface.Type.ROUGH
+
+
+## test_main.cpp's BankTerrain: flat sand up to z = 0, a 1 in 2 bank to a
+## sharp crest 0.75 m up at z = 1.5, and fairway on top.
+class BankTerrain extends CourseTerrain:
+	func height_at(_x: float, z: float) -> float:
+		return minf(maxf(0.5 * z, 0.0), 0.75)
+
+	func surface_at(_x: float, z: float) -> int:
+		return Surface.Type.SAND if z < 1.5 else Surface.Type.FAIRWAY
+
 
 func _test_club_table_matches_physics() -> void:
 	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
