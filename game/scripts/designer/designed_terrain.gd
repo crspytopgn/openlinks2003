@@ -17,7 +17,8 @@ const FRINGE_WIDTH := 1.8
 const TEE_RAISE := 0.25
 const TEE_BLEND := 3.0
 const BUNKER_DEPTH := 0.7
-const BUNKER_LIP := 2.0
+const BUNKER_LIP := 2.5  ## metres inside the outline the bunker reaches full depth
+const BUNKER_LIP_OUT := 1.5  ## metres outside it where the bank starts down
 const WATER_DROP := 0.3  ## water line below the lowest point of the bank
 const WATER_BANK := 5.0  ## metres outside a pond over which the bank runs down to it
 ## Water surfaces: grid spacing inside a pond, and how far out from the
@@ -765,8 +766,12 @@ func _derive(cells: Rect2i) -> void:
 					return lerpf(level / s.points.size() + TEE_RAISE, h, smoothstep(0.0, TEE_BLEND, d)))
 	for s in course.shapes:
 		if s.is_valid() and s.surface == Surface.Type.SAND:
-			_shape_heights(s, cells, 0.0, func(h: float, d: float) -> float:
-				return h - BUNKER_DEPTH * smoothstep(0.0, BUNKER_LIP, -d))
+			# The bank starts a little outside the outline: begun at it, the
+			# drop fell between whichever 2 m grid points happened to be
+			# inside, so the bank wandered up to a cell either side of the
+			# sand's edge and showed as a lumpy, notched lip.
+			_shape_heights(s, cells, BUNKER_LIP_OUT, func(h: float, d: float) -> float:
+				return h - BUNKER_DEPTH * smoothstep(-BUNKER_LIP_OUT, BUNKER_LIP, -d))
 	for s in course.shapes:
 		if s.is_valid() and s.surface == Surface.Type.WATER:
 			var lowest := INF

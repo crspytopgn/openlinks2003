@@ -117,7 +117,7 @@ void vertex() {
 
 // The raster's colour and weights at ground point p, blended over a
 // fraction of a texel with a ragged, natural line.
-void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut) {
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut, out vec3 turf_col, out float turf_rough, out vec3 sand_col) {
 	vec2 size = vec2(textureSize(splat_tex, 0));
 	// Two independent wobbles, so the edge wanders rather than steps.
 	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5
@@ -130,6 +130,15 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe
 	mown = 0.0;
 	stripe_m = 0.0;
 	cut = 0.0;
+	// The same blend without the sand texels (and the sand's own colour),
+	// so the bunker's edge can come from sand_edge() alone: blended here
+	// with the ragged wobble, sand colour and turf shade showed through as
+	// grey lumps along the lip.
+	turf_col = vec3(0.0);
+	turf_rough = 0.0;
+	sand_col = vec3(0.0);
+	float turf_a = 0.0;
+	float sand_a = 0.0;
 	for (int k = 0; k < 4; k++) {
 		ivec2 o = ivec2(k & 1, k >> 1);
 		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
@@ -140,8 +149,50 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe
 		mown += surface_mown[s] * a;
 		stripe_m += (surface_stripe_metres[s] > 0.0 ? surface_stripe_metres[s] : splat_stripe_metres) * a;
 		cut += surface_cut[s] * a;
+		if (surface_weights[s].y > 0.5) {
+			sand_col += surface_colors[s] * a;
+			sand_a += a;
+		} else {
+			turf_col += surface_colors[s] * a;
+			turf_rough += surface_weights[s].x * a;
+			turf_a += a;
+		}
 	}
+	if (turf_a > 1e-4) {
+		turf_col /= turf_a;
+		turf_rough /= turf_a;
+	} else {
+		turf_col = surface_colors[4]; // rough
+		turf_rough = surface_weights[4].x;
+	}
+	sand_col = sand_a > 1e-4 ? sand_col / sand_a : surface_colors[6];
 
+}
+
+// The raster's sand weight at raster position q (texels), bilinear.
+float sand_bilinear(vec2 q, vec2 size) {
+	vec2 i = floor(q);
+	vec2 f = q - i;
+	float w = 0.0;
+	for (int k = 0; k < 4; k++) {
+		ivec2 o = ivec2(k & 1, k >> 1);
+		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
+		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 9);
+		w += surface_weights[s].y * (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+	}
+	return w;
+}
+
+// How much of ground point p is bunker, for a trimmed edge: the raster's
+// sand blurred over about a texel each way (four bilinear taps, so its
+// 0.5 m steps melt into a smooth curve) and swung only slowly, every few
+// metres. The ragged wobble the other surfaces use gave sand a sawtooth.
+float sand_edge(vec2 p) {
+	vec2 size = vec2(textureSize(splat_tex, 0));
+	vec2 drift = vec2(value_noise(p * 0.35), value_noise(p * 0.35 + vec2(13.0, 7.0))) - 0.5;
+	vec2 q = (p - splat_origin) / splat_size * size - 0.5 + drift * 0.8;
+	return 0.25 * (sand_bilinear(q + vec2(-0.5, -0.5), size) + sand_bilinear(q + vec2(0.5, -0.5), size)
+		+ sand_bilinear(q + vec2(-0.5, 0.5), size) + sand_bilinear(q + vec2(0.5, 0.5), size));
 }
 
 // A texture sampled at two scales, so its repeat is hard to see.
@@ -172,6 +223,10 @@ void fragment() {
 	vec3 c = COLOR.rgb;
 	float w_rough_in = weights.x;
 	float cut = 0.0;
+	// Where the turf lip shading falls: the vertex weight, or on a splat
+	// the smooth sand field (the vertex weight follows the 2 m mesh's
+	// triangles, which drew the lip as a sawtooth along every bunker).
+	float lip_w = wy;
 	vec2 sq = (p - splat_origin) / splat_size;
 	bool on_splat = has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)));
 	if (on_splat) {
@@ -179,11 +234,17 @@ void fragment() {
 		vec2 w;
 		float mown;
 		float stripe_m;
-		splat_at(p, crisp, w, mown, stripe_m, cut);
-		c = max(c + crisp - vertex_palette, vec3(0.0));
+		vec3 turf_col;
+		float turf_rough;
+		vec3 sand_col;
+		splat_at(p, crisp, w, mown, stripe_m, cut, turf_col, turf_rough, sand_col);
 		// A bunker's edge is a trimmed line, not a blur or a torn one.
-		sand = smoothstep(0.3, 0.7, w.y);
-		w_rough_in = w.x;
+		float se = sand_edge(p);
+		float aa = max(fwidth(se), 0.02);
+		sand = smoothstep(0.5 - aa, 0.5 + aa, se);
+		lip_w = smoothstep(0.1, 0.5, se);
+		c = max(c + mix(turf_col, sand_col, sand) - vertex_palette, vec3(0.0));
+		w_rough_in = turf_rough;
 		// Mowing stripes cut with the surface, alternately lighter and
 		// darker: along each hole where the mesh says which way it runs
 		// (UV.x metres across it), else one way over the whole course.
@@ -194,7 +255,7 @@ void fragment() {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
 		c = mix(turf, sand_vertex, sand);
 	}
-	float lip = smoothstep(0.02, 0.4, wy) * (1.0 - sand);
+	float lip = smoothstep(0.02, 0.4, lip_w) * (1.0 - sand);
 	// The mesh colours are authored in sRGB; lighting works in linear.
 	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
 	vec3 col = base * (1.0 + patches * variation * 2.0);
