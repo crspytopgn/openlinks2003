@@ -298,6 +298,17 @@ at Medium and grass at Low.
 - **Birds** (`CourseLife`, `shaders/bird.gdshader`): every 25 to 70
   seconds a small flock (3 to 9 birds in a loose V) crosses the sky 30 to
   70 m up, flapping and gliding. Each flock is one MultiMesh draw call.
+- **Tournament gallery** (`Gallery`, Broadcast and Tour only): gallery
+  ropes on 1.1 m stakes 4 m apart, the rope hung at 0.85 m with a 6 cm sag.
+  They run 7 m either side of the tee from just behind the markers to 30 m
+  down the hole, and round the back of the green 5 m off the putting
+  surface. Behind them stands a crowd of the player creator's people (random
+  `PlayerLook`, no clubs, the idle clip), facing the play. The crowd is 0, 10, 18
+  or 28 people from Low to Ultra, nearest the tee and green first. Spectators
+  cast no sun shadows: a dozen meshes each, redrawn into every shadow
+  split, would cost more than the rest of the hole. Each gets a soft contact
+  shadow instead, all in one MultiMesh. The 28 people add about 260 draw
+  calls from the tee.
 
 ## Performance budget
 
