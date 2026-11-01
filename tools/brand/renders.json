@@ -1,0 +1,197 @@
+[
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-1024.png",
+		"w": 1024,
+		"h": 1024
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-512.png",
+		"w": 512,
+		"h": 512
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-256.png",
+		"w": 256,
+		"h": 256
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-180.png",
+		"w": 180,
+		"h": 180
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-128.png",
+		"w": 128,
+		"h": 128
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-64.png",
+		"w": 64,
+		"h": 64
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-32.png",
+		"w": 32,
+		"h": 32
+	},
+	{
+		"src": "../../docs/brand/app-icon.svg",
+		"out": "png/app-icon-16.png",
+		"w": 16,
+		"h": 16
+	},
+	{
+		"src": "../../docs/brand/wordmark-light.svg",
+		"out": "png/wordmark-light.png",
+		"w": 1177,
+		"h": 200,
+		"scale": 2
+	},
+	{
+		"src": "../../docs/brand/wordmark-dark.svg",
+		"out": "png/wordmark-dark.png",
+		"w": 1177,
+		"h": 200,
+		"scale": 2
+	},
+	{
+		"src": "templates/hero.html",
+		"query": "",
+		"out": "readme/hero-light.webp",
+		"w": 1760,
+		"h": 860
+	},
+	{
+		"src": "templates/screen.html",
+		"query": "",
+		"out": "readme/screen-light.webp",
+		"w": 1760,
+		"h": 1060,
+		"quality": 90
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=broadcast",
+		"out": "readme/tile-broadcast-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=tracer",
+		"out": "readme/tile-tracer-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=swing",
+		"out": "readme/tile-swing-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=designer",
+		"out": "readme/tile-designer-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/button.html",
+		"query": "b=play",
+		"out": "readme/button-play-light.png",
+		"w": 340,
+		"h": 84,
+		"scale": 2
+	},
+	{
+		"src": "templates/button.html",
+		"query": "b=download",
+		"out": "readme/button-download-light.png",
+		"w": 340,
+		"h": 84,
+		"scale": 2
+	},
+	{
+		"src": "templates/hero.html",
+		"query": "dark",
+		"out": "readme/hero-dark.webp",
+		"w": 1760,
+		"h": 860
+	},
+	{
+		"src": "templates/screen.html",
+		"query": "dark",
+		"out": "readme/screen-dark.webp",
+		"w": 1760,
+		"h": 1060,
+		"quality": 90
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=broadcast&dark",
+		"out": "readme/tile-broadcast-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=tracer&dark",
+		"out": "readme/tile-tracer-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=swing&dark",
+		"out": "readme/tile-swing-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=designer&dark",
+		"out": "readme/tile-designer-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/button.html",
+		"query": "b=play&dark",
+		"out": "readme/button-play-dark.png",
+		"w": 340,
+		"h": 84,
+		"scale": 2
+	},
+	{
+		"src": "templates/button.html",
+		"query": "b=download&dark",
+		"out": "readme/button-download-dark.png",
+		"w": 340,
+		"h": 84,
+		"scale": 2
+	},
+	{
+		"src": "templates/social.html",
+		"out": "social-preview.jpg",
+		"w": 1280,
+		"h": 640,
+		"quality": 90
+	}
+]

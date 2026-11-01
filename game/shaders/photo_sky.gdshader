@@ -12,6 +12,10 @@ uniform vec3 glow_color : source_color = vec3(1.0, 0.7, 0.4);
 uniform float glow = 0.0;
 // The horizon's own haze colour, which a low sun warms.
 uniform vec3 horizon_tint : source_color = vec3(1.0);
+// Saturation of the sky above the horizon band (1 as photographed).
+// Forward+ raises it: its tone map and haze leave the photo's blue pale
+// and milky (Lab b -14 against -26 in reference tee shots).
+uniform float sky_depth = 1.0;
 // The photo's own sun moved to where the game's sun is (Scenery reads it
 // from the photo: FreeAssets.sky_sun). The panorama turns so the two
 // bearings agree, and the sky between the horizon and the zenith is
@@ -54,6 +58,8 @@ void sky() {
 	c *= energy;
 	float low = 1.0 - smoothstep(0.0, 0.35, abs(EYEDIR.y));
 	c *= mix(tint, tint * horizon_tint, low);
+	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+	c = max(mix(vec3(luma), c, mix(sky_depth, 1.0, low)), vec3(0.0));
 	if (glow > 0.0 && LIGHT0_ENABLED) {
 		float toward = max(dot(EYEDIR, LIGHT0_DIRECTION), 0.0);
 		float halo = pow(toward, 8.0) * 0.6 + pow(toward, 64.0) * 1.5;

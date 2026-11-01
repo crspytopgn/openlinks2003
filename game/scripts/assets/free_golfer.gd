@@ -8,7 +8,8 @@ extends GolferRig
 ## (with a look at the target), swing, putt, walk and reactions. At each new
 ## ball the golfer walks up to it before settling over it; on the green they
 ## first crouch behind the ball to read the putt. GolferFeet plants the feet
-## on slopes and GolferLook turns the head to follow the ball. The body, clothes
+## on slopes, GolferLook turns the head to follow the ball and
+## GolferHands keeps the right hand on the club for any body shape. The body, clothes
 ## and hair come from the look pack (GolferParts), baked into plain meshes
 ## for the look.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if either file is
@@ -57,6 +58,7 @@ var _walk: Tween
 var _last_spot := Vector3.INF
 var _look: GolferLook
 var _feet: GolferFeet
+var _hands: GolferHands
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -82,6 +84,9 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 	golfer._skeleton.add_child(golfer._feet)
 	golfer._look = GolferLook.new()
 	golfer._skeleton.add_child(golfer._look)
+	golfer._hands = GolferHands.new()
+	golfer._skeleton.add_child(golfer._hands)
+	golfer._hands.read_grips(golfer._skeleton, player)
 	for i in golfer._skeleton.get_bone_count():
 		golfer._base_rests.append(golfer._skeleton.get_bone_rest(i))
 	for anim_name in LOOPING:
@@ -227,8 +232,8 @@ func _dress_clubs() -> void:
 		elif mi.name.ends_with("_grip"):
 			colour = look.grip
 		elif mi.name == "Driver_head":
-			colour = look.club_head
-			metal = 0.5
+			_paint_crown(mi, look.club_head)
+			continue
 		if colour.a == 0.0:
 			continue
 		var mat := StandardMaterial3D.new()
@@ -236,6 +241,20 @@ func _dress_clubs() -> void:
 		mat.metallic = metal
 		mat.roughness = 0.3 if metal > 0.0 else 0.9
 		mi.material_override = mat
+
+
+## The driver's crown takes the player's head colour; its face, sole and
+## ferrule keep their own materials (tools/golfer/clubs.py).
+static func _paint_crown(mi: MeshInstance3D, colour: Color) -> void:
+	for i in mi.mesh.get_surface_count():
+		var own := mi.mesh.surface_get_material(i)
+		if own == null or own.resource_name != "DriverHead":
+			continue
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = colour
+		mat.metallic = 0.4
+		mat.roughness = 0.22
+		mi.set_surface_override_material(i, mat)
 
 
 func has_animation(animation: StringName) -> bool:
@@ -279,7 +298,14 @@ func play(animation: StringName) -> void:
 			_walk_in(clip)
 			return
 	if _player.has_animation(clip):
-		_player.play(clip, BLEND_TIME)
+		_play(clip, BLEND_TIME)
+
+
+## Plays a clip, the right hand following onto the club or off it.
+func _play(clip: StringName, blend: float) -> void:
+	_player.play(clip, blend)
+	if _hands:
+		_hands.follow(clip, blend)
 
 
 func watch(target: Node3D, delay: float = 0.3) -> void:
@@ -302,20 +328,20 @@ func _walk_in(clip: StringName) -> void:
 	if clip == &"address_putt" and _player.has_animation(&"read"):
 		_model.position = _rest + READ_SPOT
 		_model.rotation.y = PI / 2.0  # facing the hole (-x)
-		_player.play(&"read", BLEND_TIME)
+		_play(&"read", BLEND_TIME)
 		_walk.tween_interval(_player.get_animation(&"read").length - WALK_SETTLE)
 		from = READ_SPOT
 		var heading := -from.normalized()
 		var yaw := atan2(-heading.x, -heading.z)
-		_walk.tween_callback(func() -> void: _player.play(&"walk", WALK_SETTLE))
+		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE))
 		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
 	else:
 		_model.position = _rest + from
-		_player.play(&"walk", BLEND_TIME)
+		_play(&"walk", BLEND_TIME)
 	_walk.tween_property(_model, "position", _rest, from.length() / WALK_SPEED)
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(clip):
-			_player.play(clip, WALK_SETTLE))
+			_play(clip, WALK_SETTLE))
 	_walk.tween_property(_model, "rotation:y", 0.0, WALK_SETTLE)
 
 

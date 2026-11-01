@@ -130,6 +130,31 @@ jobs:
           test -s export/web/index.html
           test -s export/web/index.wasm
 
+      # The desktop launcher (launcher/, docs/launcher.md): its own tests,
+      # then its three exports, stamped with launcher/'s git tree id so it
+      # can tell when a newer launcher is on main.
+      - name: Launcher tests
+        run: |
+          ~/godot/godot --headless --path launcher --import
+          ~/godot/godot --headless --path launcher -s res://tests/run_tests.gd 2>&1 | tee launcher-tests.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" launcher-tests.log; then exit 1; fi
+          grep -q "LAUNCHER TESTS PASSED" launcher-tests.log
+
+      - name: Export the launcher
+        run: |
+          tree=$(git rev-parse HEAD:launcher)
+          sed -i "s/^const LAUNCHER_TREE := \"dev\"/const LAUNCHER_TREE := \"$tree\"/" launcher/scripts/build_info.gd
+          grep -q "$tree" launcher/scripts/build_info.gd
+          cd launcher
+          mkdir -p export/linux export/windows export/macos
+          ~/godot/godot --headless --export-release "Linux" export/linux/OpenLinks2003-Launcher.x86_64
+          ~/godot/godot --headless --export-release "Windows" "export/windows/OpenLinks2003 Launcher.exe"
+          ~/godot/godot --headless --export-release "macOS" export/macos/OpenLinks2003-Launcher.zip
+          ls -lR export
+          test -s export/linux/OpenLinks2003-Launcher.x86_64
+          test -s "export/windows/OpenLinks2003 Launcher.exe"
+          test -s export/macos/OpenLinks2003-Launcher.zip
+
       # Download size per build and the biggest files in each pack, on the
       # job summary; fails when a build goes over tools/size_budget.json.
       - name: Size budget
@@ -151,6 +176,18 @@ jobs:
         with:
           name: OpenLinks2003-web
           path: game/export/web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLinks2003-launcher-linux
+          path: launcher/export/linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLinks2003-launcher-windows
+          path: launcher/export/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLinks2003-launcher-macos
+          path: launcher/export/macos
       - name: Upload web build for GitHub Pages
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private
         uses: actions/upload-pages-artifact@v3
@@ -159,12 +196,18 @@ jobs:
 
   # Publishes the desktop builds from main as the rolling "latest" release,
   # so there's a plain download link (artifacts need a GitHub login and
-  # expire). The builds contain no game data.
+  # expire), and the launcher updates the game from it. The builds contain
+  # no game data. One publish at a time, and only from the newest commit on
+  # main: runs can finish out of order, and an older one must not replace a
+  # newer build (the launcher would offer it as an "update").
   release:
     name: Publish latest release
     needs: export
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: publish-latest-release
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -180,6 +223,10 @@ jobs:
           (cd dist/OpenLinks2003-windows && zip -qr ../../out/OpenLinks2003-Windows.zip .)
           chmod +x dist/OpenLinks2003-linux/OpenLinks2003.x86_64
           tar -C dist/OpenLinks2003-linux -czf out/OpenLinks2003-Linux.tar.gz .
+          cp dist/OpenLinks2003-launcher-macos/OpenLinks2003-Launcher.zip out/OpenLinks2003-Launcher-macOS.zip
+          (cd dist/OpenLinks2003-launcher-windows && zip -qr ../../out/OpenLinks2003-Launcher-Windows.zip .)
+          chmod +x dist/OpenLinks2003-launcher-linux/OpenLinks2003-Launcher.x86_64
+          tar -C dist/OpenLinks2003-launcher-linux -czf out/OpenLinks2003-Launcher-Linux.tar.gz .
           ls -l out
       - name: Update the latest release
         env:
@@ -188,8 +235,15 @@ jobs:
           NOTES: |
             Built from main. No game data is included; the game loads your own Links 2003 files.
 
-            **macOS:** unzip, move OpenLinks2003.app to Applications, then right-click it and choose Open (the app is ad-hoc signed, not notarized). On macOS 15 or later, if it still won't open, go to System Settings > Privacy & Security and click Open Anyway.
+            **Launcher (recommended):** download OpenLinks2003-Launcher for your system. It installs the game, keeps it up to date, shows what's new, sets the options worth choosing before you play, and gets your Links 2003 discs, disc images or install ready.
+
+            **macOS:** unzip, move the app to Applications, then right-click it and choose Open (the apps are ad-hoc signed, not notarized). On macOS 15 or later, if it still won't open, go to System Settings > Privacy & Security and click Open Anyway.
         run: |
+          head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "main has moved on to $head; its own run publishes the release."
+            exit 0
+          fi
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest out/* --title "Latest build (${GITHUB_SHA::7})" --notes "$NOTES" --target "$GITHUB_SHA" --prerelease
 

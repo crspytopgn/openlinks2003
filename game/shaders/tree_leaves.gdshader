@@ -154,6 +154,10 @@ void fragment() {
 		vec2 dy = turn * dFdy(UV) * cells / leaf_grid;
 		vec3 photo = textureGrad(leaf_color, auv, dx, dy).rgb;
 		float o = textureGrad(leaf_opacity, auv, dx, dy).r;
+		// The leaf photo is black round each leaf, and filtering blends that
+		// in at the edges, which drew every leaf with a dark outline (the
+		// "cut-out" look). Undo it: divide by the filtered coverage.
+		photo /= max(o, 0.3);
 		// Smaller mips average the leaf with the gaps around it, so an alpha
 		// test eats the leaves away with distance; hold them up.
 		vec2 texels = vec2(textureSize(leaf_opacity, 0));
@@ -173,15 +177,15 @@ void fragment() {
 		}
 		// Each leaf faces its own way, so leaves next to each other catch
 		// the light differently; a few are yellower or bluer.
-		col *= mix(0.78, 1.12, h3);
+		col *= mix(0.68, 1.25, h3);
 		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
 	}
 	// Measured against 60 sunny golf-course photos (median foliage Lab
-	// L 29, a -10, b 16) our crowns were a little dark and too saturated:
-	// about a fifth less chroma and a touch lighter matches them.
-	col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.78) * 1.15;
+	// L 29, a -10, b 16): less chroma and a cooler lift brings our crowns
+	// (with the outline fix above) from 19/-9/14 to about 28/-12/19.
+	col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.7) * vec3(1.05, 1.13, 1.32);
 	// Inner leaves sit in the crown's own shade.
-	col *= core ? (needles ? 1.0 : 0.5) : mix(inner_shade, 1.0, info.g * info.g);
+	col *= core ? (needles ? 1.0 : 0.62) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col;
@@ -198,6 +202,12 @@ void fragment() {
 	SPECULAR = 0.15;  // leaves seen from afar: soft, no glints
 	// Godot flips the normal on back faces; keep the crown's normal.
 	NORMAL = FRONT_FACING ? NORMAL : -NORMAL;
+	// Each leaf (cell) tilts its own way off the crown's normal, so in
+	// sun the leaves catch it unevenly, bright and dim side by side, as in
+	// photos of sunlit trees, rather than shading as one smooth blob.
+	if (!core) {
+		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1);
+	}
 }
 
 // Soft foliage light instead of Godot's: wrapped diffuse (a crown is never
@@ -205,7 +215,11 @@ void fragment() {
 // behind them, and no specular highlights, which sparkled on the leaf
 // edges.
 void light() {
-	float wrap = clamp((dot(NORMAL, LIGHT) + 0.5) / 1.5, 0.0, 1.0);
-	float through = pow(clamp(dot(-VIEW, LIGHT), 0.0, 1.0), 3.0) * 0.35;
-	DIFFUSE_LIGHT += (wrap + through) * ATTENUATION * LIGHT_COLOR / PI;
+	float ndl = dot(NORMAL, LIGHT);
+	float wrap = clamp((ndl + 0.5) / 1.5, 0.0, 1.0);
+	// Sun through the leaves: thin leaves glow yellow-green when the sun is
+	// behind them, over a broad cone (a whole backlit crown edge lights up).
+	float through = pow(clamp(dot(-VIEW, LIGHT), 0.0, 1.0), 2.0) * 0.7 + clamp(-ndl, 0.0, 1.0) * 0.25;
+	vec3 glow = vec3(0.95, 1.05, 0.85);
+	DIFFUSE_LIGHT += (wrap + through * glow) * ATTENUATION * LIGHT_COLOR / PI;
 }
