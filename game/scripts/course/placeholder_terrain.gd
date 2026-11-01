@@ -413,6 +413,7 @@ func _splat_material() -> ShaderMaterial:
 	var cols := PackedVector3Array()
 	var wts := PackedVector2Array()
 	var mown := PackedFloat32Array()
+	var cut := PackedFloat32Array()
 	for s in 10:
 		var c: Color = FIRST_CUT_COLOR if s == FIRST_CUT_CODE else _colors[s]
 		if s == Surface.Type.WATER:
@@ -423,7 +424,9 @@ func _splat_material() -> ShaderMaterial:
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH if s == FIRST_CUT_CODE else s))
 		# The mesh's UV already carries the stripes along the hole.
 		mown.append(0.0)
+		cut.append(0.0 if s == FIRST_CUT_CODE else Materials.terrain_cut(s))
 	mat.set_shader_parameter("surface_colors", cols)
+	mat.set_shader_parameter("surface_cut", cut)
 	mat.set_shader_parameter("surface_weights", wts)
 	mat.set_shader_parameter("surface_mown", mown)
 	mat.set_shader_parameter("splat_tex", ImageTexture.create_from_image(img))

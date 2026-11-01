@@ -1980,6 +1980,8 @@ func _complete_flight() -> void:
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
 	if strokes >= _pickup_at():
+		# A penalty on the last shot can't take the card past the limit.
+		strokes = mini(strokes, _pickup_at())
 		_hole_out(true)
 		return
 	if players.size() > 1 and not msg.is_empty():
@@ -2643,6 +2645,8 @@ func _finish_drop() -> void:
 		what = "Unplayable: " + what.to_lower()
 	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
 	if strokes >= _pickup_at():
+		# A penalty on the last shot can't take the card past the limit.
+		strokes = mini(strokes, _pickup_at())
 		_hole_out(true)
 		return
 	var msg := what + "."
