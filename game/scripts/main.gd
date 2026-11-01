@@ -290,6 +290,10 @@ var _pip := false
 var _commentary_rng := RandomNumberGenerator.new()
 var _ball_base := Vector3.ZERO  ## bottom of the ball, as the physics sees it
 var _strike_sound := {}  ## the last shot's club, lie and power, for its replay
+## Seconds left before the ball leaves the club (GolferRig.impact_delay): the
+## flight or replay holds the ball and the strike sound until the club gets
+## there.
+var _launch_wait := 0.0
 ## Every random draw in the round comes from this (wind_seed, or a new seed).
 var round_seed := 1
 ## The round's shots and drops, so it can be played again and checked
@@ -804,7 +808,9 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	if gallery != null and is_instance_valid(gallery):
 		gallery.watch(ball)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
-	sounds.play_detail(&"hit", _strike_sound)
+	_launch_wait = golfer.impact_delay() if golfer and not club.is_putter else 0.0
+	if _launch_wait <= 0.0:
+		sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
 	_shot_from_pin = _flat_distance(ball_at, hole.pin)
 	var p := players[current]
@@ -1891,7 +1897,21 @@ static func _pad_held(button: JoyButton) -> bool:
 	return false
 
 
+## Counts down the club's way to the ball; true while the ball still waits.
+## The strike sounds as it ends.
+func _waiting_for_impact(delta: float) -> bool:
+	if _launch_wait <= 0.0:
+		return false
+	_launch_wait -= delta
+	if _launch_wait > 0.0:
+		return true
+	sounds.play_detail(&"hit", _strike_sound)
+	return false
+
+
 func _process_flight(delta: float) -> void:
+	if _waiting_for_impact(delta):
+		return
 	shot_time += delta
 	var p := shot.position_at(shot_time)
 	_place_ball(p)
@@ -1937,6 +1957,7 @@ func _play_heard(event: StringName, detail: Dictionary, at: Vector3) -> void:
 
 
 func _complete_flight() -> void:
+	_launch_wait = 0.0
 	shot_time = shot.time_s
 	_place_ball(shot.rest)
 	_draw_trail(shot.points.size() - 1, shot.rest)
@@ -3383,6 +3404,8 @@ func _make_golfers() -> void:
 				g = FreeGolfer.create(look)
 			if g == null:
 				g = AssetProviders.golfer_assets.create_golfer_for(look)
+			if graphics != null and graphics.photo_golfer:
+				g = PhotoGolfer.wrap(g, look)
 			g.visible = false
 			hole_root.add_child(g)
 			made[key] = g
@@ -3695,11 +3718,15 @@ func start_replay() -> bool:
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
 		golfer.watch(ball, 0.7 if putting else 0.3)
-	sounds.play_detail(&"hit", _strike_sound)
+	_launch_wait = golfer.impact_delay() if golfer and not putting else 0.0
+	if _launch_wait <= 0.0:
+		sounds.play_detail(&"hit", _strike_sound)
 	return true
 
 
 func _process_replay(delta: float) -> void:
+	if _waiting_for_impact(delta):
+		return
 	var t_land := RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else -100.0
 	var slow := absf(_replay_time - t_land) < REPLAY_SLOW_SPAN
 	slow = slow or (shot.outcome == ShotResult.Outcome.HOLED and _replay_time > shot.time_s - 1.2)
@@ -3715,6 +3742,7 @@ func _process_replay(delta: float) -> void:
 
 func _stop_replay() -> void:
 	_replay_delay = -1.0
+	_launch_wait = 0.0
 	if not _replaying:
 		return
 	_replaying = false

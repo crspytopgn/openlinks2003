@@ -8,7 +8,8 @@ shader_type spatial;
 // - folds: diagonal folds across the shirt as the shoulders turn against
 //   the hips, and creases at bent elbows and knees, as shading only.
 // COLOR is the mask GolferCloth.with_mask bakes: R looseness, G arm share,
-// B leg share, A 1 on the rig's left side. UV2 is the rest-pose x, y.
+// B leg share, A how far round to the front of the body. UV2 is the
+// rest-pose x, y (the rig's left is -x).
 // Every offset is a few centimetres at most, and off the arms none uses
 // the vertex normal, so the collar, placket and buttons move with the shirt.
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
@@ -70,8 +71,9 @@ void vertex() {
 		// The swing: arms, legs and torso trail their own springs.
 		float arm = COLOR.g;
 		float leg = COLOR.b;
+		float left = smoothstep(0.02, -0.02, UV2.x);
 		float body = clamp(1.0 - arm - leg, 0.0, 1.0);
-		vec3 lag = body * lag_torso + arm * mix(lag_arm_r, lag_arm_l, COLOR.a) + leg * mix(lag_leg_r, lag_leg_l, COLOR.a);
+		vec3 lag = body * lag_torso + arm * mix(lag_arm_r, lag_arm_l, left) + leg * mix(lag_leg_r, lag_leg_l, left);
 		vec3 r = VERTEX - spine;
 		lag += body * turn_lag * cross(spine_axis, r - spine_axis * dot(r, spine_axis));
 		vec3 move = loose * (d + lag);
@@ -117,21 +119,25 @@ void fragment() {
 		float along_fold = rest.x - sign(twist) * 0.9 * ty;
 		float x = (across + 0.025 * sin(along_fold * 21.0 + 0.7) + 0.6 * across * across) * (TAU / 0.11);
 		float patchy = smoothstep(-0.7, 0.7, sin(along_fold * 11.0 + across * 5.0 + 1.9));
-		h += 1.3 * folds(x) * abs(twist) * body * band * patchy * settle(x);
+		// Mostly on the front and sides, where the shirt bunches; across the
+		// back it is pulled taut by the turn.
+		float front = mask.a;
+		h += 1.1 * folds(x) * abs(twist) * body * band * patchy * mix(0.15, 1.0, front) * settle(x);
 		// Elbows: rings round the sleeve either side of the joint.
-		vec4 j = mask.a > 0.5 ? joints_l : joints_r;
+		bool on_left = rest.x < 0.0;
+		vec4 j = on_left ? joints_l : joints_r;
 		vec2 up_arm = j.zw - j.xy;
 		float upper = max(length(up_arm), 0.1);
 		float along = dot(rest - j.xy, up_arm / upper);
 		float e = along - upper;
 		float xe = along * (TAU / 0.032);
-		h += folds(xe) * exp(-e * e / 0.004) * (mask.a > 0.5 ? bends.x : bends.y) * arm * settle(xe);
+		h += folds(xe) * exp(-e * e / 0.004) * (on_left ? bends.x : bends.y) * arm * settle(xe);
 		// Knees: creases across the trouser leg at the knee.
-		float knee = mask.a > 0.5 ? knees.x : knees.y;
+		float knee = on_left ? knees.x : knees.y;
 		float k = rest.y - knee;
 		// Bowed and uneven round the leg, not ruled lines.
 		float xk = (rest.y + 0.012 * sin(rest.x * 60.0) + 0.6 * k * k) * (TAU / 0.04);
-		h += 0.8 * folds(xk) * exp(-k * k / 0.006) * (mask.a > 0.5 ? bends.z : bends.w) * leg * settle(xk);
+		h += 0.8 * folds(xk) * exp(-k * k / 0.006) * (on_left ? bends.z : bends.w) * leg * settle(xk);
 	}
 	// Bump the normal by the fold height (screen-space derivatives, so
 	// outside any branch that varies across the surface).

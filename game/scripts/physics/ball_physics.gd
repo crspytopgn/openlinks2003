@@ -27,6 +27,8 @@ const ROLL_THRESHOLD := 0.4
 ## the ground at its start (shot.cpp kLandAtStart).
 const LAND_AT_START := 0.01
 const STOP_SPEED := 0.03
+const LOFTED_LAUNCH := 0.1  ## launch v.y / speed above which a shot is in the air
+const TAKE_OFF_GAP := 0.005  ## m a step; a rolling ball this far above the ground has left it
 const MAX_CRATER_DEG := 30.0
 const SOLID_RESTITUTION := 0.35  ## normal speed kept off a trunk or wall
 const SOLID_FRICTION := 0.75  ## speed along the face kept
@@ -163,6 +165,18 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 	r.add_sample(0.0, s.position)
 
 	var n0 := terrain.normal_at(s.position.x, s.position.z)
+	var vn0 := s.velocity.dot(n0)
+	var speed0 := s.velocity.length()
+	if vn0 < 2.0 * ROLL_THRESHOLD and s.velocity.y > LOFTED_LAUNCH * speed0:
+		# A lofted shot from a lie on a bank (a bunker face) leaves the slope:
+		# the club follows the ground, so the launch is off the slope too.
+		var lifted := s.velocity + n0 * (maxf(absf(vn0), 2.0 * ROLL_THRESHOLD) - vn0)
+		s.velocity = lifted * (speed0 / lifted.length())
+	if s.velocity.dot(n0) < -ROLL_THRESHOLD:
+		# Struck into a bank steeper than its launch (a bunker face): it meets
+		# the ground at once, rather than rolling away at full speed.
+		bounce(s, n0, terrain.surface_at(s.position.x, s.position.z))
+		r.bounces += 1
 	var rolling := s.velocity.dot(n0) < ROLL_THRESHOLD
 	if rolling:
 		s.velocity -= n0 * s.velocity.dot(n0)
@@ -222,6 +236,11 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 					return _finish(r, ShotResult.Outcome.HOLED, cup, t, landed, start, terrain)
 
 				var n := terrain.normal_at(pos.x, pos.z)
+				# Already moving off the ground's plane yet under the ground: the
+				# slope ahead is steeper than the normal (the foot of a bunker
+				# face). It rolls up it, rather than meeting it again at once
+				# for ever.
+				var leaving := vel.dot(n) >= 0.0
 				var b := BallState.new(pos, vel, nxt.spin)
 				bounce(b, n, surf)
 				r.bounces += 1
@@ -232,7 +251,7 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 				# faster than it flies): it rolls from there. Bounced again it
 				# would land at almost the same instant, again and again, and
 				# never finish.
-				if vn < ROLL_THRESHOLD or frac < LAND_AT_START:
+				if vn < ROLL_THRESHOLD or frac < LAND_AT_START or leaving:
 					rolling = true
 					s.velocity = b.velocity - n * vn
 				continue
@@ -257,6 +276,16 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 				return _finish(r, ShotResult.Outcome.REST, pos, t, landed, start, terrain)
 			var npos := pos + nv * DT
 			npos.y = terrain.height_at(npos.x, npos.z)
+			# Over a crest (a bunker's lip) faster than gravity can hold it to
+			# the ground: it takes off, without the spin it rolled with.
+			var free_y := pos.y + nv.y * DT - 0.5 * GRAVITY * DT * DT
+			if free_y - npos.y > TAKE_OFF_GAP:
+				# The step is taken in the air, so time always moves on.
+				rolling = false
+				s = BallState.new(Vector3(npos.x, free_y, npos.z), nv + Vector3(0.0, -GRAVITY * DT, 0.0), Vector3.ZERO)
+				t += DT
+				step += 1
+				continue
 			var nn := terrain.normal_at(npos.x, npos.z)
 			nv -= nn * nv.dot(nn)
 			t += DT
