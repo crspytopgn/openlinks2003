@@ -79,6 +79,9 @@ void fragment() {
 	vec3 col;
 	float alpha;
 	bool core = info.a < 0.5;
+	// How far below a few pixels a leaf cell has shrunk (0 near, 1 when a
+	// cell is about 4 px): see the leaves below.
+	float far = 0.0;
 	if (core && needles) {
 		// Core cards: a solid, shaded mass inside the crown, so the gaps
 		// between needles show foliage rather than sky.
@@ -133,7 +136,7 @@ void fragment() {
 		// further off reads as solid, ragged foliage (the rim still thins out,
 		// or the cards show as squares).
 		float per_px = max(length(dFdx(UV)), length(dFdy(UV))) * cells;
-		float far = clamp(per_px * 7.0 - 0.6, 0.0, 1.0);
+		far = clamp(per_px * 7.0 - 0.6, 0.0, 1.0);
 		// Core cards (the crown's shaded middle) are packed full of leaves
 		// inside their round outline.
 		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * 0.95 + 0.06;
@@ -165,6 +168,16 @@ void fragment() {
 		o *= 1.0 + lod * 0.3;
 		// The shaded middle of the crown fills in solid with distance.
 		o = core ? max(o, far) : o;
+		// Further off, the gaps between a card's leaves (one per cell, on
+		// a regular grid) read as a halftone dot pattern once a cell is a
+		// few pixels: fill each kept cell instead, with the leaf's average
+		// colour, as a camera's pixel averages leaves and gaps. Which cells
+		// are kept is random, so the edge stays ragged without a grid.
+		vec2 mid = (slot + 0.5) / leaf_grid;
+		vec3 avg = textureLod(leaf_color, mid, 4.0).rgb / max(textureLod(leaf_opacity, mid, 4.0).r, 0.3);
+		photo = mix(photo, avg, far);
+		o = keep ? max(o, far) : o;
+		inside = inside || (keep && far > 0.5);
 		if (has_texture) {
 			// The photo is of single leaves in flat light; in a crown they
 			// read darker and greener.
@@ -177,8 +190,12 @@ void fragment() {
 		}
 		// Each leaf faces its own way, so leaves next to each other catch
 		// the light differently; a few are yellower or bluer.
-		col *= mix(0.68, 1.25, h3);
-		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
+		// That per-leaf variety is one value per cell, so once a cell is
+		// only a few pixels it beats with the pixel grid into a regular,
+		// halftone-like dot pattern: fade it to its average with distance,
+		// as a camera's pixel would average the leaves.
+		col *= mix(0.965, mix(0.68, 1.25, h3), 1.0 - far);
+		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)) * (1.0 - far));
 	}
 	// Measured against 60 sunny golf-course photos (median foliage Lab
 	// L 29, a -10, b 16): less chroma and a cooler lift brings our crowns
@@ -206,7 +223,8 @@ void fragment() {
 	// sun the leaves catch it unevenly, bright and dim side by side, as in
 	// photos of sunlit trees, rather than shading as one smooth blob.
 	if (!core) {
-		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1);
+		// Faded with distance like the leaf shading above (dot pattern).
+		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1 * (1.0 - far));
 	}
 }
 
