@@ -105,7 +105,7 @@ var outfit := "polo"
 var top := Color(0.13, 0.24, 0.45)
 var bottom := Color(0.85, 0.75, 0.59)
 var shoes := Color(1, 1, 1)
-var cap := false
+var cap := true  ## a golf cap (most tour players wear one)
 var cap_colour := Color(1, 1, 1)
 ## A white glove on the left hand.
 var glove := true
@@ -182,7 +182,7 @@ static func from_dict(d: Dictionary) -> PlayerLook:
 	l.top = _colour(d, "top", l.top)
 	l.bottom = _colour(d, "bottom", l.bottom)
 	l.shoes = _colour(d, "shoes", l.shoes)
-	l.cap = d.get("cap", false) == true
+	l.cap = d.get("cap", true) == true
 	l.cap_colour = _colour(d, "cap_colour", l.cap_colour)
 	l.glove = d.get("glove", true) != false
 	l.club_head = _colour(d, "club_head", l.club_head)
