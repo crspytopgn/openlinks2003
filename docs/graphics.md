@@ -148,6 +148,11 @@ at Medium and grass at Low.
   come from the course data, not the meshes. Leaf textures are sampled
   with gradients from the card's UV (the turned cells jump at their
   borders, which picks wild mip levels and sparkles in Compatibility).
+  Conifer needle cards draw photoscanned fir sprigs from Poly Haven's
+  fir_tree_01 twig atlas (colour and alpha maps, fetched by
+  tools/fetch_free_assets.py): two by three sprigs of 40 to 55 cm per card,
+  each one of four in the atlas. Poly Haven's whole scanned trees (2 to 17
+  million triangles, 50 to 960 MB each) are too heavy to ship.
 - **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
   hole starts, every tree, bush and rock billboard and every 3D model
   within 250 m of the tee, route and pin stamps a soft shadow (along

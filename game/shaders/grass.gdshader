@@ -23,6 +23,7 @@ uniform float blend_amount = 1.0;
 uniform float blade_relief = 0.0;
 
 #include "res://shaders/ground_shade.gdshaderinc"
+#include "res://shaders/turf_tone.gdshaderinc"
 
 varying vec3 base_color;
 varying vec2 blade;
@@ -58,11 +59,12 @@ void fragment() {
 	vec3 c = mix(base_color, straw, blade.y * 0.7) * mix(0.8, 1.15, blade.x);
 	// Capped well below white: pale disc rough lifted for Compatibility
 	// would otherwise pass the glow threshold and bloom into a white haze.
-	vec3 near = c * mix(0.7, 1.22, smoothstep(0.0, 1.0, height)) * vec3(0.97, 1.03, 0.9);
+	vec3 near = c * mix(0.85, 1.2, smoothstep(0.0, 1.0, height)) * vec3(0.97, 1.03, 0.9);
 	// Sun-bleached, slightly yellower tips catch the eye on top of the turf.
 	near *= mix(vec3(1.0), vec3(1.18, 1.14, 0.9), smoothstep(0.6, 1.0, height) * blade_relief);
 	vec3 far = base_color * mix(0.92, 1.05, blade.x);
-	ALBEDO = min(mix(near, far, blend) * brightness, vec3(0.6))
+	// Toned like the turf under it (turf_tone), or the blades stand out.
+	ALBEDO = min(tone_turf(mix(near, far, blend)) * brightness, vec3(0.6))
 		* ground_shading(root_xz, length(VERTEX));
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).
