@@ -344,6 +344,10 @@ def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
     return rots, root
 
 
+ROOT_SHARE = 0.3  # of the drop to the ball at impact taken through the knees
+BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
+
+
 def impact_weight(f, impact):
     u = max(0.0, 1.0 - abs(f - impact) / IMPACT_WINDOW)
     return u * u * (3 - 2 * u)
@@ -406,8 +410,16 @@ def retarget(glb, rig, clip, cache):
                 rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
                                             backswing_weight(f, clip))
             if "impact" in clip:
-                # Down into the shot at impact: the knees flex (the feet are pinned below).
-                root = root + impact_weight(f, clip["impact"]) * np.array([0.0, correct[1], 0.0])
+                # Down into the shot at impact: a little through the knees
+                # (the feet are pinned below), the rest bending over the ball,
+                # so the lead leg can still straighten into impact.
+                w = impact_weight(f, clip["impact"])
+                root = root + w * ROOT_SHARE * np.array([0.0, correct[1], 0.0])
+                if correct[1] != 0.0:
+                    bend = pose.rot([1.0, 0.0, 0.0], math.degrees(w * (1.0 - ROOT_SHARE) * correct[1] / BEND_LEVER))
+                    for j in descendants(rig, "spine_01"):
+                        if rots[j] is not None:
+                            rots[j] = bend @ rots[j]
             rots = fill(rig, rots, ref_local)
             _, poss = rig.world(rig.locals(rots), root)
             # Feet go where the actor's feet go.
@@ -438,9 +450,6 @@ def retarget(glb, rig, clip, cache):
                 rots = fill(rig, rots, ref_local, keep=True)
                 rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
-                head = club_head(rots, poss)
-                if f == clip["impact"]:
-                    impact_head[:] = head
                 w = impact_weight(f, clip["impact"])
                 if w > 0.0 and np.any(correct):
                     # Brings the club head in to the ball at impact: the lead
@@ -449,6 +458,8 @@ def retarget(glb, rig, clip, cache):
                              poss[hands_l] + w * correct * np.array([1.0, 0.0, 1.0]))
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
+                if f == clip["impact"]:
+                    impact_head[:] = club_head(rots, poss)
             if "impact" not in clip:
                 # Waggling over the ball, the club head stays above the
                 # ground: the wrists lift it a few degrees round the grip.
@@ -473,10 +484,17 @@ def retarget(glb, rig, clip, cache):
             out_root.append(root)
         return out_rots, out_root, impact_head
 
-    out_rots, out_root, head = run(np.zeros(3))
+    correct = np.zeros(3)
+    out_rots, out_root, head = run(correct)
     if not clip["putt"] and "impact" in clip and clip["impact"] in frames:
-        # The lowest point of the head on the ball at impact.
-        out_rots, out_root, _ = run(np.array(clip.get("strike", IMPACT_AT)) - head)
+        # The lowest point of the head on the ball at impact; the bend and
+        # the arm move the head in each other's way, so a few passes.
+        target = np.array(clip.get("strike", IMPACT_AT))
+        for _ in range(5):
+            if np.linalg.norm(target - head) < 0.002:
+                break
+            correct = correct + (target - head)
+            out_rots, out_root, head = run(correct)
 
     if clip.get("loop"):
         loop_blend(out_rots, out_root, clip["loop"])
