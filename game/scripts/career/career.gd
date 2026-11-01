@@ -129,7 +129,7 @@ static func create(player_name: String, start_tour: int, events: int, rounds: in
 	c.course_names.assign(course_titles)
 	if c.course_keys.is_empty():
 		c.course_keys.assign([""])
-		c.course_names.assign(["Placeholder Nine"])
+		c.course_names.assign([PlaceholderCourseLoader.NAME])
 	c.career_seed = maxi(1, seed_value & 0x7fffffff)
 	c.stats = {"events": 0, "wins": 0, "top10": 0, "cuts_made": 0, "cuts_missed": 0,
 		"earnings": 0, "best_pos": 0, "rounds": 0, "holes": 0, "to_par": 0}

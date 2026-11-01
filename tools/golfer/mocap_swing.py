@@ -856,11 +856,22 @@ STAND_CLIPS = {
     "fist_pump": dict(take="79_69", start=552, end=700, facing=(-0.7, 0.0, -0.7), carry=True, pump=True),
     # A short putt missed: the head drops and a hand goes to the face.
     "slump": dict(take="79_71", start=80, end=470, facing=(-0.7, 0.0, -0.7), carry=True),
-    # Standing at ease: weight shifts and breathing (the caddie).
-    "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5),
+    # Standing at ease: weight shifts and breathing (the caddie, the
+    # waiting golfers, the gallery). Upright (STAND_UPRIGHT).
+    "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5, upright=True),
     # Crouching behind the ball to read a putt, putter in hand.
     "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
 }
+# Standing upright, as photos of people waiting on a tee show: the actor's
+# feet come out 2.6 cm above the ground (his ankle joints sit higher than
+# the golfer's) and 30 cm apart, which bent the golfer's knees 22-28 deg and
+# splayed them. An upright stand keeps the soles on the ground, the ankles
+# a little wider than the hips (STAND_GAP between ankle joints), the
+# knees almost straight (the leg at STAND_REACH of its full length, about
+# 8 deg) and the eyes level, a touch down (STAND_GAZE).
+STAND_GAP = 0.24
+STAND_REACH = 0.9975
+STAND_GAZE = -6.0
 CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
 CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
@@ -935,6 +946,42 @@ def fist_pump(rig, rots, poss, root, t, hold_l, local0):
     rots[rig.index["hand_l"]] = rots[pel] @ rel_r if left is not None else left
     rots = fill(rig, rots, local0, keep=True)
     return rots
+
+
+def stand_upright(rig, poss, root, targets, narrow, lift, ankle_rest):
+    """Feet on the ground STAND_GAP apart and the hips at the height that
+    leaves the straighter leg at STAND_REACH of its length (STAND_GAP)."""
+    mid = (targets["l"] + targets["r"]) / 2
+    out = {}
+    for s, t in targets.items():
+        t = t.copy()
+        t[[0, 2]] = mid[[0, 2]] + (t[[0, 2]] - mid[[0, 2]]) * narrow
+        t[1] = max(ankle_rest, t[1] - lift)
+        out[s] = t
+    drop = -1e9
+    for s in ("l", "r"):
+        hip, knee, ankle = (poss[rig.index[n]] for n in (f"thigh_{s}", f"calf_{s}", f"foot_{s}"))
+        reach = STAND_REACH * (np.linalg.norm(knee - hip) + np.linalg.norm(ankle - knee))
+        d = hip - out[s]
+        flat = d[0] ** 2 + d[2] ** 2
+        drop = max(drop, d[1] - math.sqrt(max(reach * reach - flat, 0.0)))
+    root = np.array(root, dtype=float)
+    root[1] -= drop
+    return out, root
+
+
+def level_gaze(rig, rots, local0):
+    """Turns the neck and head so the face looks STAND_GAZE below level:
+    the neck takes half, the head the rest."""
+    rots = list(rots)
+    for name, share in (("neck_01", 0.5), ("head", 1.0)):
+        fwd = rots[rig.index["head"]] @ np.array([0.0, 0.0, -1.0])
+        pitch = math.degrees(math.atan2(fwd[1], math.hypot(fwd[0], fwd[2])))
+        turn = pose.rot(np.cross(fwd, [0.0, 1.0, 0.0]), (STAND_GAZE - pitch) * share)
+        rots[rig.index[name]] = turn @ rots[rig.index[name]]
+        if name == "neck_01":
+            rots[rig.index["head"]] = turn @ rots[rig.index["head"]]
+    return fill(rig, rots, local0, keep=True)
 
 
 def retarget_stand(glb, rig, clip, cache):
@@ -1020,11 +1067,20 @@ def retarget_stand(glb, rig, clip, cache):
         root = place(m_poss[bvh.index["Hips"]]) - rig.offsets[rig.index["pelvis"]]
         rots = fill(rig, rots, local0)
         _, poss = rig.world(rig.locals(rots), root)
-        for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
+        targets = {s: place(m_poss[bvh.index[actor]]) for s, actor in (("l", "LeftFoot"), ("r", "RightFoot"))}
+        if clip.get("upright"):
+            if i == 0:
+                gap0 = np.linalg.norm((targets["l"] - targets["r"])[[0, 2]])
+                lift0 = min(targets["l"][1], targets["r"][1]) - ankle_rest
+            targets, root = stand_upright(rig, poss, root, targets, STAND_GAP / gap0, lift0, ankle_rest)
+            _, poss = rig.world(rig.locals(rots), root)
+        for s in ("l", "r"):
             foot = rots[rig.index[f"foot_{s}"]]
-            two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", place(m_poss[bvh.index[actor]]))
+            two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s])
             rots[rig.index[f"foot_{s}"]] = foot
         rots = fill(rig, rots, local0, keep=True)
+        if clip.get("upright"):
+            rots = level_gaze(rig, rots, local0)
         if clip.get("pump"):
             rots, poss = rig.world(rig.locals(rots), root)
             if i == 0:

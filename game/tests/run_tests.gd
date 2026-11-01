@@ -119,6 +119,7 @@ func _process(_delta: float) -> bool:
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
 	_run("glass_ui", _test_glass_ui)
+	_run("web_text_input", _test_web_text_input)
 	_run("pick_up", _test_pick_up)
 	_run("round_conditions", _test_round_conditions)
 	_run("computer_opponents", _test_computer_opponents)
@@ -1991,15 +1992,19 @@ func _test_course_marks() -> void:
 	# Footprints: find a bunker on the first hole and stand in it.
 	var sand := Vector3.INF
 	var h0 := course.holes[0]
-	for z in range(0, 400, 2):
+	# Along the hole from the tee towards the pin, and out to either side.
+	var down := Vector3(h0.pin.x - h0.tee.x, 0.0, h0.pin.z - h0.tee.z).normalized()
+	var across := down.cross(Vector3.UP)
+	for d in range(0, 420, 2):
 		for x in range(-60, 61, 2):
-			if t.surface_at(h0.tee.x + x, h0.tee.z + z) == Surface.Type.SAND \
-					and t.surface_at(h0.tee.x + x, h0.tee.z + z - 3) == Surface.Type.SAND:
-				sand = Vector3(h0.tee.x + x, 0.0, h0.tee.z + z)
+			var at := h0.tee + down * d + across * x
+			var back := at - down * 3.0
+			if t.surface_at(at.x, at.z) == Surface.Type.SAND and t.surface_at(back.x, back.z) == Surface.Type.SAND:
+				sand = Vector3(at.x, 0.0, at.z)
 				break
 		if sand != Vector3.INF:
 			break
-	_check(sand != Vector3.INF, "the placeholder course has a bunker")
+	_check(sand != Vector3.INF, "the built-in course has a bunker")
 	if sand != Vector3.INF:
 		var spots := CourseMarks.footprint_spots(t, sand, Vector3(0, 0, 1), Vector3(1, 0, 0))
 		_check(spots.size() >= 2, "footprints in the bunker (%d)" % spots.size())
@@ -2974,7 +2979,7 @@ func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
 	# The setup page reads the code and plays against it.
 	var panel := RoundSetupPanel.new()
 	root.add_child(panel)
-	panel.open(PackedStringArray(["Placeholder Nine (built in)"]), 0, RoundSetup.new())
+	panel.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), 0, RoundSetup.new())
 	panel._code.text = code
 	panel._open_code()
 	_check(panel.current_setup().challenge != null, "the setup page takes the code")
@@ -3077,7 +3082,7 @@ func _test_online_lobby() -> void:
 	for seat in 2:
 		var p := OnlinePanel.new()
 		root.add_child(p)
-		p.open(PackedStringArray(["Placeholder Nine (built in)"]), ["Ann", "Bo"][seat])
+		p.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), ["Ann", "Bo"][seat])
 		p.use_link(links[seat])
 		p.handle({"type": "welcome", "you": seat + 1, "seat": seat, "host": 1, "code": "ABCD"})
 		p.handle({"type": "members", "host": 1, "members": [{"id": 1, "name": "Ann", "seat": 0}, {"id": 2, "name": "Bo", "seat": 1}]})
@@ -3125,7 +3130,7 @@ func _test_free_sounds() -> void:
 		var s := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
 		_check(s != null and s.get_length() > 20.0, "%s is a long loop" % stem)
 	_check(load(MenuSounds.FREE_CLICK) is AudioStream, "free menu click")
-	_check(FreeAmbience.setting_for("Placeholder Nine") == FreeAmbience.Setting.PARKLAND, "parkland by default")
+	_check(FreeAmbience.setting_for(PlaceholderCourseLoader.NAME) == FreeAmbience.Setting.PARKLAND, "parkland by default")
 	_check(FreeAmbience.setting_for("Kiawah Island Ocean Course") == FreeAmbience.Setting.SEASIDE, "seaside")
 	_check(FreeAmbience.setting_for("Desert Mountain") == FreeAmbience.Setting.DESERT, "desert before mountain")
 	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
@@ -3262,6 +3267,56 @@ func _test_club_heads(golfer: Node) -> void:
 ## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
 ## fit finds known sliders again from the golfer's own landmarks; colours are
 ## read from the right patches.
+func _test_web_text_input() -> void:
+	var box := Control.new()
+	box.position = Vector2(100, 200)
+	root.add_child(box)
+	var le := LineEdit.new()
+	le.position = Vector2(10, 20)
+	le.size = Vector2(300, 40)
+	le.max_length = 6
+	le.placeholder_text = "Course"
+	box.add_child(le)
+	var spin := SpinBox.new()
+	box.add_child(spin)
+	var spin_edit := spin.get_line_edit()
+	var fields: Array[LineEdit] = [le, spin_edit]
+	var listed := WebTextInput.describe_all(fields, null)
+	_check(listed.size() == 2, "both boxes are listed")
+	var d: Dictionary = listed[0] if listed.size() > 0 else {}
+	var scale := root.get_screen_transform().get_scale()
+	_check(is_equal_approx(float(d.get("x", -1)), roundf(110 * scale.x)) and is_equal_approx(float(d.get("w", -1)), roundf(300 * scale.x)), "box rectangle in window pixels (%s)" % str(d))
+	_check(d.get("id") == le.get_instance_id() and d.get("max") == 6 and d.get("hint") == "Course", "box details")
+	_check(listed.size() == 2 and listed[1].numeric, "a SpinBox gets the number keyboard")
+	# Typing goes into the box with the signals panels listen for.
+	var seen: Array[String] = []
+	le.text_changed.connect(func(t: String) -> void: seen.append("changed " + t))
+	le.text_submitted.connect(func(t: String) -> void: seen.append("submitted " + t))
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "change", "text": "Pebble Beach"})
+	_check(le.text == "Pebble", "the length limit holds")
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "submit", "text": "Pebble"})
+	_check(seen == ["changed Pebble", "submitted Pebble"], "change and submit signals (%s)" % str(seen))
+	le.editable = false
+	_check(WebTextInput.describe_all(fields, null).size() == 1, "read-only boxes are left out")
+	le.editable = true
+	# An open dialog takes the touches: boxes behind it are left out.
+	var dialog := AcceptDialog.new()
+	var inside := LineEdit.new()
+	dialog.add_child(inside)
+	root.add_child(dialog)
+	dialog.popup_centered(Vector2i(300, 120))
+	var windows: Array[Window] = [dialog]
+	var top := WebTextInput.top_window(windows, {})
+	_check(top == dialog, "an open dialog is on top")
+	var all_fields: Array[LineEdit] = [le, spin_edit, inside]
+	var on_top := WebTextInput.describe_all(all_fields, top)
+	_check(on_top.size() == 1 and on_top[0].id == inside.get_instance_id(), "only the dialog's box is listed")
+	dialog.hide()
+	_check(WebTextInput.top_window(windows, {}) == null, "a closed dialog isn't")
+	dialog.free()
+	box.free()
+
+
 func _test_face_from_photo() -> void:
 	var parts := GolferParts.shared()
 	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")
@@ -3397,7 +3452,28 @@ func _test_golfer_roster() -> void:
 		"the skin shader shows the pro's stubble")
 	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
+	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D
+	_check(lashes != null and lashes.material_override is ShaderMaterial, "lashes are soft fine hair, not a cut-out")
+	# Upright when waiting: the idle clip's knees nearly straight (PR #172
+	# had them bent 22-28 degrees, a squat).
+	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var player := golfer.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	root.add_child(golfer)
+	player.play(&"idle")
+	player.seek(0.5, true)
+	_check(player.current_animation == &"idle", "the idle clip plays")
+	for side in ["l", "r"]:
+		var hip := skel.get_bone_global_pose(skel.find_bone("thigh_" + side)).origin
+		var knee := skel.get_bone_global_pose(skel.find_bone("calf_" + side)).origin
+		var ankle := skel.get_bone_global_pose(skel.find_bone("foot_" + side)).origin
+		var bend := 180.0 - rad_to_deg((hip - knee).angle_to(ankle - knee))
+		_check(bend < 18.0, "standing %s knee nearly straight (%.0f deg)" % [side, bend])
+		print("  standing %s knee %.1f deg" % [side, bend])
 	golfer.free()
+	var luis: PlayerLook = GolferRoster.look_for("Luis Navarro")
+	var grace: PlayerLook = GolferRoster.look_for("Grace Mensah")
+	_check(is_equal_approx(luis.face_value("jaw"), 0.35 * GolferRoster.FACE_SCALE), "roster face sliders scaled up")
+	_check(grace.face_value("jaw") < -0.4, "women's faces get a softer jaw (%.2f)" % grace.face_value("jaw"))
 
 
 func _test_player_looks() -> void:
@@ -3975,16 +4051,21 @@ func _test_computer_opponents() -> void:
 	_check(game.state == GolfRound.State.COMPUTER, "a computer golfer is on the tee")
 	var started := Time.get_ticks_msec()
 	var steps := 0
-	var worst := 0
-	var worst_log := PackedStringArray()
+	var pro_log := PackedStringArray()
+	var was_done := false
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
-		if game.state == GolfRound.State.HOLE_DONE and game.players[0].strokes > worst:
-			worst = game.players[0].strokes
-			worst_log = game.shot_log.duplicate()
+		var done := game.state == GolfRound.State.HOLE_DONE or game.state == GolfRound.State.ROUND_DONE
+		if done and not was_done:
+			# Every shot the tour pro played, hole by hole.
+			pro_log.append("hole %d (par %d): %d" % [game.hole.number, game.hole.par, game.players[0].strokes])
+			for line in game.shot_log:
+				if line.begins_with("Pro"):
+					pro_log.append("  " + line)
+		was_done = done
 	_check(game.state == GolfRound.State.ROUND_DONE, "computer round finishes")
-	print("  the tour pro's worst hole:\n    " + "\n    ".join(worst_log))
+	print("  the tour pro's round:\n    " + "\n    ".join(pro_log))
 	var pro := game.scoring.cards[0]
 	var hacker := game.scoring.cards[1]
 	_check(pro.holes_played() == game.holes.size() and hacker.holes_played() == game.holes.size(), "both played every hole")
@@ -5124,6 +5205,8 @@ func _play_tournament_round(t: Tournament, pars: Array[int], mine: int) -> Strin
 func _test_tournament_stroke_play() -> void:
 	Tournament.path = "user://test_tournament.cfg"
 	Tournament.remove()
+	CourseDifficulty.path = "user://test_course_difficulty.cfg"
+	CourseDifficulty.remove()
 	var keys: Array[String] = ["", ""]
 	var titles: Array[String] = ["Kauri Cliffs Golf Club", "Kauri Cliffs Golf Club"]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.STROKE, "rounds": 4, "strength": 3,
@@ -5151,8 +5234,18 @@ func _test_tournament_stroke_play() -> void:
 	_check(late > early, "the field plays on while the person does (%d, %d holes)" % [early, late])
 	var rows := t.live_rows(9, {"Tester": [4, 4, 3, 4, 5, 4, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]})
 	_check(rows.size() == 72 and str(rows[0].pos) in ["1", "T1"], "live rows")
+	var group := t.partner_indexes()
 	var text := _play_tournament_round(t, pars, 0)
 	print("  " + text)
+	# The partners' real rounds (level par here) teach the field how the
+	# course plays.
+	var want := 0.0
+	for i in group:
+		want -= t.expected_to_par(i, pars, t.round_winds[0])
+	want /= group.size() + CourseDifficulty.PRIOR_ROUNDS
+	_check(CourseDifficulty.rounds("") == group.size(), "each partner's round is kept (%d)" % CourseDifficulty.rounds(""))
+	_check_near(CourseDifficulty.shift(""), want, 1e-4, "the course shift")
+	print("  course shift after round 1: %+.2f a round" % CourseDifficulty.shift(""))
 	_check(text.begins_with("Kauri Cliffs Open, round 1: 72 (E)"), "round 1 text (%s)" % text)
 	text = _play_tournament_round(t, pars, -1)
 	print("  " + text)
@@ -5182,11 +5275,12 @@ func _test_tournament_stroke_play() -> void:
 	var board := t2.leaderboard_lines(5)
 	_check(board.size() >= 5 and board[0].contains("pts"), "a Stableford board (%s)" % board[0])
 	Tournament.remove()
+	CourseDifficulty.remove()
 
 
 func _test_tournament_match_play() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.MATCH, "field_size": 8, "strength": 4,
 		"seed": 77}, keys, titles)
 	_check(t.names.size() == 8 and t.rounds == 3 and t.bracket.size() == 1 and t.bracket[0].size() == 4, "an 8-player draw")
@@ -5207,7 +5301,7 @@ func _test_tournament_match_play() -> void:
 
 func _test_tournament_skins() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.SKINS, "rounds": 1, "purse": 1000000,
 		"field_kind": Tournament.Field.WOMEN, "seed": 5}, keys, titles)
 	_check(t.names.size() == 4, "a skins game of four")

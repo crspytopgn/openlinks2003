@@ -601,6 +601,16 @@ better golfers make more birdies and fewer bogeys, weak ones more doubles. A
 tour-average golfer's simulated rounds average 0.6 under par 72 with a
 round-to-round spread of about 2.8 strokes.
 
+Real courses don't all play like that average, and under our physics a
+course can play harder or easier for computer golfers than tour odds say.
+So the computer golfers in the person's group teach the simulation
+(`CourseDifficulty`): after each real round, the strokes each took beyond what
+the simulation expected for it (`Tournament.expected_to_par`) are kept for
+that course, and the rest of the field plays that much harder or easier
+there from then on. The shift is per 18 holes and starts as if three rounds
+had shown no difference, so one wild round moves it only a little. It is
+kept across tournaments in `user://course_difficulty.cfg`.
+
 Field golfers start before and after the person's group (groups 10 minutes
 apart, about 0.7 holes), so while the person plays, the live leaderboard
 moves: the Tour presentation's rail shows the top five and the person's
@@ -662,7 +672,7 @@ game/scripts/
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
     course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
                                 drawn per hole and turned into obstacles
-    placeholder_*.gd            The procedural nine-hole stand-in course
+    placeholder_course_loader.gd The built-in course, Kettle Hollow (docs/home-course.md)
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends

@@ -102,6 +102,7 @@ product lead builds it.
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
+- [x] Built-in course rebuilt as Kettle Hollow: a routed parkland nine on real lidar ground with organic shapes and contoured greens ([docs/home-course.md](docs/home-course.md))
 - [x] Stand-in ball physics: published flight, bounce and roll model behind a `ShotModel` interface
 - [x] Swing controls: classic three-click power meter
 - [x] Swing controls: real-time mouse swing (Links 2003's PowerStroke mouse swing, the default; irons, chips, putts and the swing help option as the game does them)

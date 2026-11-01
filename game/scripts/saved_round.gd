@@ -108,6 +108,6 @@ static func describe() -> String:
 	var state := load_state()
 	if s == null or state.is_empty():
 		return ""
-	var where := s.course_name if not s.course_name.is_empty() else "Placeholder Nine"
+	var where := s.course_name if not s.course_name.is_empty() else PlaceholderCourseLoader.NAME
 	var number := int(state.get("number", int(state.get("hole", 0)) + 1))
 	return "%s, hole %d, %s" % [where, number, " & ".join(s.names)]

@@ -179,7 +179,7 @@ static func create(settings: Dictionary, keys: Array[String], titles: Array[Stri
 	t.course_names.assign(titles)
 	if t.course_keys.is_empty():
 		t.course_keys.assign([""])
-		t.course_names.assign(["Placeholder Nine"])
+		t.course_names.assign([PlaceholderCourseLoader.NAME])
 	var name_given := str(settings.get("title", "")).strip_edges()
 	t.title = name_given if not name_given.is_empty() else t._default_title()
 	t._make_field()
@@ -501,6 +501,8 @@ func begin_round(id: String, pars: Array[int], stroke_index: Array[int] = []) ->
 	var r := _rng(["round", round_no])
 	var wind_level := wind_for(round_no)
 	var day := r.randfn(0.0, 0.8)  # pins, firmness: the same for everyone
+	# How the course really plays for computer golfers (their real rounds).
+	day += CourseDifficulty.shift(course_keys[course_index(round_no)])
 	_live.clear()
 	_start.clear()
 	var waves := _tee_times(round_no)
@@ -509,12 +511,46 @@ func begin_round(id: String, pars: Array[int], stroke_index: Array[int] = []) ->
 		var streaky := p.streaky if p != null else 0.4
 		var form := r.randfn(0.0, 0.7 + 1.0 * streaky)
 		var avg := averages[i]
-		var wind_cost: float = WIND_STROKES[wind_level] * (1.0 + clampf(avg / 12.0, 0.0, 1.5))
+		var wind_cost := _wind_cost(wind_level, avg)
 		var afternoon := waves[i] >= WAVE_GAP_HOLES - 0.01
 		var wave_cost := (0.35 if afternoon else -0.15) * float(wind_level) / 2.0
 		_live.append(simulate_round(pars, avg, day + form + wind_cost + wave_cost, r, stroke_index))
 		_start.append(waves[i])
 	return true
+
+
+## Strokes per 18 holes the wind costs a golfer averaging `avg`.
+static func _wind_cost(wind_level: int, avg: float) -> float:
+	return float(WIND_STROKES[clampi(wind_level, 0, WIND_STROKES.size() - 1)]) * (1.0 + clampf(avg / 12.0, 0.0, 1.5))
+
+
+## Over par the simulation expects golfer `i` to score on `pars` in this
+## wind, before the day's luck and form.
+func expected_to_par(i: int, pars: Array[int], wind_level: int) -> float:
+	var e := (averages[i] + _wind_cost(wind_level, averages[i]) - TourPro.TOUR_TO_PAR) * pars.size() / 18.0
+	for par in pars:
+		e += base_mean(par)
+	return e
+
+
+## The computer golfers who played the round for real with the person teach
+## CourseDifficulty how this course plays.
+func _learn_course(played: Dictionary, pars: Array[int], round_no: int) -> void:
+	if pars.is_empty():
+		return
+	var key := course_keys[course_index(round_no)]
+	for n: String in played:
+		var i := names.find(n)
+		if n == player or i < 0:
+			continue
+		var card: Array = played[n]
+		if card.size() != pars.size() or card.has(0):
+			continue  # unfinished or picked up
+		var to_par := 0
+		for h in pars.size():
+			to_par += int(card[h]) - pars[h]
+		var delta := (float(to_par) - expected_to_par(i, pars, wind_for(round_no))) * 18.0 / pars.size()
+		CourseDifficulty.add(key, delta)
 
 
 ## Each golfer's tee time in holes from the first group of the day: two
@@ -731,6 +767,7 @@ func record_round(id: String, played: Dictionary, pars: Array[int], stroke_index
 	if _live_round != rounds_played():
 		begin_round(id, pars, stroke_index)
 	var round_no := rounds_played()
+	_learn_course(played, pars, round_no)
 	match format:
 		Format.MATCH:
 			return _record_match(played, pars)
