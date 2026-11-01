@@ -1537,6 +1537,26 @@ func _test_graphics_settings() -> void:
 	_check(is_equal_approx(PostProcess.horizon_screen_y(0.0, 0.7), 0.5), "shimmer: level camera, horizon mid-screen")
 	_check(PostProcess.horizon_screen_y(-0.1, 0.7) < 0.5, "shimmer: camera tipped down, horizon higher")
 	_check(is_equal_approx(PostProcess.horizon_screen_y(-0.35, 0.7), 0.0), "shimmer: horizon at the top edge")
+	# The sun found in a sky photo: a bright spot a quarter of the way
+	# across, a quarter of the way down (45 degrees up).
+	var sky_img := Image.create(64, 32, false, Image.FORMAT_RGBF)
+	sky_img.fill(Color(0.3, 0.4, 0.6))
+	sky_img.set_pixel(16, 8, Color(500.0, 500.0, 480.0))
+	var found := FreeAssets.sun_in_image(sky_img)
+	_check(absf(found.x - 16.5 / 64.0) < 0.01 and absf(found.y - PI * (0.5 - 8.5 / 32.0)) < 0.01, "sky sun: found in the photo (%s)" % found)
+	sky_img.set_pixel(16, 8, Color(0.5, 0.5, 0.6))
+	_check(FreeAssets.sun_in_image(sky_img).x < 0.0, "sky sun: none in a grey sky")
+	var mapped := Scenery.sky_sun_mapping(Vector3(0.0, 0.5, 0.866), deg_to_rad(48.0))
+	_check(absf(mapped.y - deg_to_rad(30.0)) < 0.001, "sky sun: the photo's sun is moved down to a 30 degree sun")
+	_check(absf(Scenery.sky_sun_mapping(Vector3(0.0, 0.156, 0.988), deg_to_rad(48.0)).y - deg_to_rad(28.8)) < 0.001, "sky sun: a low sun stretches the sky at most 40%")
+	# The TV cameraman's drift stays tiny, and grows while panning.
+	var most := 0.0
+	var most_pan := 0.0
+	for i in 600:
+		most = maxf(most, RoundCamera.operator_offset(i * 0.1, 0.0).length())
+		most_pan = maxf(most_pan, RoundCamera.operator_offset(i * 0.1, 1.0).length())
+	_check(most > 0.0 and most < deg_to_rad(0.1), "camera operator: resting drift under 0.1 degree")
+	_check(most_pan > most and most_pan < deg_to_rad(0.3), "camera operator: more drift while panning, under 0.3 degree")
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")

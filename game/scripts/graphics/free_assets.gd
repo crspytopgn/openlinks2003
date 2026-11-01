@@ -42,6 +42,7 @@ static func tree_texture(file: String) -> Texture2D:
 
 static var _sky: Texture2D
 static var _sky_loaded := false
+static var _sky_sun := Vector2(-2.0, 0.0)  ## sky_sun() of the sky, once read
 
 
 ## The equirectangular HDR sky panorama, or null. Read once from
@@ -53,6 +54,13 @@ static func sky() -> Texture2D:
 		_sky_loaded = true
 		_sky = _load_packed_sky(DIR + "sky_panorama.olsky")
 	return _sky
+
+
+## sky_sun() of the free sky, worked out once.
+static func free_sky_sun() -> Vector2:
+	if _sky_sun.x < -1.5:
+		_sky_sun = sky_sun(sky())
+	return _sky_sun
 
 
 static func _load_packed_sky(path: String) -> Texture2D:
@@ -70,6 +78,45 @@ static func _load_packed_sky(path: String) -> Texture2D:
 	if data.size() != size:
 		return null
 	return ImageTexture.create_from_image(Image.create_from_data(width, height, false, Image.FORMAT_RGBE9995, data))
+
+
+## Where the sun is in a sky panorama: (across 0 to 1, height in radians),
+## from its brightest patch after box-filtering it down (so a cloud edge
+## can't win over the sun's disc). (-1, 0) when nothing stands out enough
+## to be a sun, as under a grey sky.
+static func sky_sun(tex: Texture2D) -> Vector2:
+	if tex == null:
+		return Vector2(-1.0, 0.0)
+	var img := tex.get_image()
+	if img == null or img.is_empty():
+		return Vector2(-1.0, 0.0)
+	return sun_in_image(img)
+
+
+static func sun_in_image(source: Image) -> Vector2:
+	var img := source.duplicate() as Image
+	if img.is_compressed():
+		img.decompress()
+	img.clear_mipmaps()
+	img.convert(Image.FORMAT_RGBF)
+	while img.get_width() > 256:
+		img.shrink_x2()
+	var w := img.get_width()
+	var h := img.get_height()
+	var best := 0.0
+	var at := Vector2i.ZERO
+	var sum := 0.0
+	for y in h:
+		for x in w:
+			var c := img.get_pixel(x, y)
+			var l := 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+			sum += l
+			if l > best:
+				best = l
+				at = Vector2i(x, y)
+	if best < 20.0 * sum / float(w * h):
+		return Vector2(-1.0, 0.0)
+	return Vector2((at.x + 0.5) / w, PI * (0.5 - (at.y + 0.5) / h))
 
 
 ## Average colour of a texture: halved with a box filter down to a few
