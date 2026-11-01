@@ -6,9 +6,10 @@
 <picture><source media="(prefers-color-scheme: dark)" srcset="wordmark-dark.svg"><img src="wordmark-light.svg" height="64" alt="OpenLinks2003 wordmark"></picture>
 </p>
 
-An app icon in the iOS style: a continuous-corner squircle, sky over a
-mown green, a white pin in the cup, a ball, and a red Liquid Glass pennant
-that frosts and tints whatever is behind it. Everything here is our own
+An app icon in the iOS style: a studio-lit golf ball, with all 362 of its
+dimples, hovering over a glow of turf on a dark backdrop, inside a
+continuous-corner squircle. The ball is rendered in code
+(`tools/brand/ball.py`) and embedded in the SVG. Everything here is our own
 artwork. None of it comes from Links 2003 or its discs.
 
 ## Files
@@ -16,6 +17,7 @@ artwork. None of it comes from Links 2003 or its discs.
 | File | Use |
 | --- | --- |
 | `app-icon.svg` | Master icon, 1024 x 1024 |
+| `ball.png` | The rendered ball on its own, with transparency |
 | `png/app-icon-{16..1024}.png` | Icon at 16, 32, 64, 128, 180 (Apple touch), 256, 512, 1024 |
 | `wordmark-light.svg`, `wordmark-dark.svg` | Icon and name, for light and dark backgrounds (text outlined) |
 | `png/wordmark-*.png` | The same as PNG |
@@ -32,7 +34,7 @@ desktop builds and the web page's favicon.
 - The wordmark is **OpenLinks** in Inter Display SemiBold with **2003** in
   Inter Display Light, in Apple's greys (`#1D1D1F` / `#6E6E73` on light,
   `#F5F5F7` / `#A1A1A6` on dark).
-- Accent colours: green `#30B94D`, blue `#0071E3`, flag red `#FF3B30`.
+- Accent colours: green `#30B94D`, blue `#0071E3`.
 
 ## Social preview
 
@@ -43,6 +45,7 @@ GitHub doesn't take the social preview from the repository: upload
 
 ```bash
 pip install fonttools
+python3 tools/brand/ball.py         # the golf ball (numpy, Pillow)
 python3 tools/brand/make_brand.py   # SVG icon and wordmarks
 node tools/brand/render.js          # PNGs, README images, social card
 ```
