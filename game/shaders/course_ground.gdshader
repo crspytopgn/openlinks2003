@@ -103,7 +103,7 @@ vec3 layer_color(vec3 raw, vec3 mean, vec3 far, float hue, float gain, float var
 	col *= 1.0 + (fbm(p * 0.02) - 0.5) * vary * 2.0 + (value_noise(p * 0.3) - 0.5) * vary * 0.6;
 	if (stripe > 0.0) {
 		vec2 dir = vec2(cos(stripe_angle), sin(stripe_angle));
-		float band = step(0.5, fract(dot(p, dir) / (width * 2.0)));
+		float band = mow_band(dot(p, dir) / width, MOW_SOFT);
 		// The bands run across dir, so the mower drove along (-dir.y, dir.x).
 		col *= 1.0 + (band - 0.5) * stripe * mow_sheen(vec2(-dir.y, dir.x), from_eye);
 	}

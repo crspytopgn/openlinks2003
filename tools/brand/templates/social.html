@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="brand.css">
+<style>
+/* GitHub social preview: 1280 x 640, with the important part inside a
+   40 px safe border. */
+body { width: 1280px; height: 640px; }
+.card { position: absolute; inset: 0; overflow: hidden; background: #000; }
+.bg { position: absolute; inset: 0; background: url(../shots/pin-cam.jpg) -75px -150px / 2000px auto no-repeat; filter: saturate(1.1); }
+.shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.25) 55%, rgba(0,0,0,0.0) 100%); }
+.panel { position: absolute; left: 64px; top: 64px; bottom: 64px; width: 640px; border-radius: 48px;
+	display: flex; flex-direction: column; justify-content: center; padding: 0 56px; }
+.icon { width: 132px; height: 132px; filter: drop-shadow(0 14px 24px rgba(0,0,0,0.35)); margin-bottom: 30px; }
+h1 { font-size: 76px; font-weight: 600; letter-spacing: -0.035em; line-height: 1; color: #fff; }
+h1 span { font-weight: 300; color: rgba(255,255,255,0.72); }
+.tag { margin-top: 18px; font-size: 34px; font-weight: 500; letter-spacing: -0.015em; color: rgba(255,255,255,0.95); }
+.sub { margin-top: 26px; font-size: 22px; color: rgba(255,255,255,0.75); letter-spacing: 0; }
+</style></head>
+<body>
+<div class="card">
+	<div class="bg"></div><div class="shade"></div>
+	<div class="panel glass">
+		<img class="icon" src="../../../docs/brand/app-icon.svg">
+		<h1>OpenLinks<span>2003</span></h1>
+		<div class="tag">The classic golf game, rebuilt.</div>
+		<div class="sub">Open source · Mac · Windows · Linux · Web</div>
+	</div>
+</div>
+</body></html>

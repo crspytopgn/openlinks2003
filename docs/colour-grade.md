@@ -54,6 +54,17 @@ region's mean lands within about 2 (turf, trees) to 8 (sky) Lab units of
 the photos. The sky can't go all the way, because lifting it further would
 also lift every dark blue in the frame.
 
+All eight lookups were last refitted on 2026-11-01 after the sunlit trees
+(#166), the disc-course turf and new golden-hour light (#158) and the
+Forward+ sky (#161). Distance to the photos after the lookup, in Lab units:
+
+| | Sky | Turf | Trees |
+|---|---|---|---|
+| Afternoon, Compatibility | 4 | 7 | 2.5 |
+| Afternoon, Forward+ | 5 | 2 | 1 |
+| Golden, Compatibility | 10 | 22 | 7 |
+| Golden, Forward+ | 9 | 11 | 7 |
+
 ## Refitting
 
 Refit after any change to the light, sky, exposure or surface colours.

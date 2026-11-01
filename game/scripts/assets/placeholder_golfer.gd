@@ -151,6 +151,8 @@ func play(animation: StringName) -> void:
 	if _tween:
 		_tween.kill()
 	_tween = create_tween().set_parallel(true)
+	if animation == &"fist_pump":
+		animation = &"celebrate"
 	_putting = animation == &"putt" or (_putting and animation == &"celebrate")
 	_club_head.visible = not _putting
 	_putter_head.visible = _putting

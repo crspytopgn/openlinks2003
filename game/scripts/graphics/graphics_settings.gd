@@ -27,6 +27,13 @@ enum Grade { NEUTRAL, VIVID, WARM, COOL, FILM }
 enum ComputerPlay { REALISTIC, CLASSIC }
 const COMPUTER_PLAY_NAMES := ["Realistic (tour statistics)", "Classic Links"]
 enum TimeOfDay { AFTERNOON, MORNING, MIDDAY, GOLDEN, ROUND }
+## Fullscreen as a borderless window the size of the screen (quick to switch
+## away from) or exclusive fullscreen (can be a little faster on Windows).
+enum DisplayMode { BORDERLESS, EXCLUSIVE }
+const DISPLAY_MODE_NAMES := ["Borderless fullscreen", "Exclusive fullscreen"]
+## Section of user://settings.cfg where the desktop launcher leaves requests
+## for the next start (see apply_launcher_requests()).
+const LAUNCHER_SECTION := "launcher"
 
 const PATH := "user://settings.cfg"
 ## Raised when the looks change, so saved preset settings are redone.
@@ -57,9 +64,17 @@ const GRAIN_LEVELS := [0.0, 0.025, 0.05, 0.1]
 
 ## Tests and the CI render check set this to fix the look (-1: as saved).
 static var force_look := -1
+## The launcher's window size has been applied this run.
+static var _sized := false
 
 var quality: int = Quality.HIGH
 var fullscreen := false
+## How fullscreen is done when `fullscreen` is on (an index into
+## DISPLAY_MODE_NAMES); the launcher offers it. Windowed when it's off.
+var display_mode: int = DisplayMode.BORDERLESS
+## The window's size when windowed, from the launcher; zero leaves the
+## project's default size (or whatever the player last dragged it to).
+var window_size := Vector2i.ZERO
 ## Size of the menus and HUD (an index into UI_SCALES): bigger for phones and
 ## TVs, smaller for a big monitor up close.
 var ui_scale := 1
@@ -278,11 +293,43 @@ func _set_look(q: int, light: int, up: int, samples: int, scale: float, post: Ar
 
 
 static func load_saved(path := PATH) -> GraphicsSettings:
+	var s := _load_saved(path)
+	if force_look < 0:
+		s.apply_launcher_requests(path)
+	return s
+
+
+## The desktop launcher (launcher/) can't run this class, so it leaves its
+## picks under [launcher] in the settings file: "look" (a Look preset to
+## apply) and "quality" (a Quality to use, after the look). They're applied
+## once, saved like any change, and the section is removed.
+func apply_launcher_requests(path := PATH) -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(path) != OK or not cfg.has_section(LAUNCHER_SECTION):
+		return
+	var which := int(cfg.get_value(LAUNCHER_SECTION, "look", -1))
+	if which >= Look.PHOTOREAL and which < Look.CUSTOM:
+		apply_look(which)
+	var q := int(cfg.get_value(LAUNCHER_SECTION, "quality", -1))
+	if q >= Quality.LOW and q <= Quality.ULTRA and q != quality:
+		quality = q
+		look = Look.CUSTOM
+	save(path)
+	cfg.load(path)
+	cfg.erase_section(LAUNCHER_SECTION)
+	cfg.save(path)
+
+
+static func _load_saved(path: String) -> GraphicsSettings:
 	var s := GraphicsSettings.new()
 	var cfg := ConfigFile.new()
 	cfg.load(path)  # a missing file (first run) leaves it empty
 	s.quality = clampi(int(cfg.get_value(SECTION, "quality", s.quality)), Quality.LOW, Quality.ULTRA)
 	s.fullscreen = bool(cfg.get_value(SECTION, "fullscreen", s.fullscreen))
+	s.display_mode = clampi(int(cfg.get_value(SECTION, "display_mode", s.display_mode)), DisplayMode.BORDERLESS, DisplayMode.EXCLUSIVE)
+	var w := int(cfg.get_value(SECTION, "window_width", 0))
+	var h := int(cfg.get_value(SECTION, "window_height", 0))
+	s.window_size = Vector2i(w, h) if w >= 640 and h >= 360 else Vector2i.ZERO
 	s.colour_safe = bool(cfg.get_value(SECTION, "colour_safe", s.colour_safe))
 	s.ui_scale = clampi(int(cfg.get_value(SECTION, "ui_scale", s.ui_scale)), 0, UI_SCALES.size() - 1)
 	s.vsync = bool(cfg.get_value(SECTION, "vsync", s.vsync))
@@ -352,6 +399,9 @@ func save(path := PATH) -> void:
 	cfg.load(path)  # keep the other sections; a missing file is fine
 	cfg.set_value(SECTION, "quality", quality)
 	cfg.set_value(SECTION, "fullscreen", fullscreen)
+	cfg.set_value(SECTION, "display_mode", display_mode)
+	cfg.set_value(SECTION, "window_width", window_size.x)
+	cfg.set_value(SECTION, "window_height", window_size.y)
 	cfg.set_value(SECTION, "ui_scale", ui_scale)
 	cfg.set_value(SECTION, "colour_safe", colour_safe)
 	cfg.set_value(SECTION, "vsync", vsync)
@@ -436,7 +486,20 @@ func apply_display(viewport: Viewport) -> void:
 	if viewport is Window:
 		(viewport as Window).content_scale_factor = UI_SCALES[ui_scale]
 	SwingMeter.colour_safe = colour_safe
-	if DisplayServer.get_name() != "headless":
+	if DisplayServer.get_name() != "headless" and not OS.has_feature("web"):
+		var mode := DisplayServer.WINDOW_MODE_WINDOWED
+		if fullscreen:
+			mode = DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN if display_mode == DisplayMode.EXCLUSIVE else DisplayServer.WINDOW_MODE_FULLSCREEN
+		if DisplayServer.window_get_mode() != mode:
+			DisplayServer.window_set_mode(mode)
+		if mode == DisplayServer.WINDOW_MODE_WINDOWED and window_size != Vector2i.ZERO and not _sized:
+			# Once per run, so dragging the window bigger sticks.
+			_sized = true
+			var screen := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+			var size := Vector2i(mini(window_size.x, screen.size.x), mini(window_size.y, screen.size.y))
+			DisplayServer.window_set_size(size)
+			DisplayServer.window_set_position(screen.position + (screen.size - size) / 2)
+	elif DisplayServer.get_name() != "headless":
 		var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 		if DisplayServer.window_get_mode() != mode:
 			DisplayServer.window_set_mode(mode)

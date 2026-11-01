@@ -34,11 +34,17 @@ var _course_paths: PackedStringArray = []
 var _setup_paths: PackedStringArray = []
 var _stored := {}  ## browser build: picked relative path -> size
 var _busy := false
+## Coming back to the menu from the designer doesn't open it again.
+static var _opened_from_launcher := false
 
 
 func _ready() -> void:
 	_graphics = GraphicsSettings.load_saved()
 	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
+	if not OS.has_feature("web"):
+		# The display mode, window size and volumes the launcher may have set.
+		_graphics.apply_display(get_viewport())
+		AudioSettings.apply()
 	_build_ui()
 	var menu_sounds := MenuSounds.from_game_folder(true)
 	if menu_sounds != null:
@@ -51,6 +57,10 @@ func _ready() -> void:
 		_show_ready(CourseFiles.in_folder(GameFolder.configured_path()), [["Change game folder...", _choose_folder]])
 	else:
 		_show_desktop_choice()
+	# The launcher's Course builder button starts the game with --designer.
+	if OS.get_cmdline_user_args().has("--designer") and not _opened_from_launcher:
+		_opened_from_launcher = true
+		_open_designer.call_deferred()
 
 
 func _build_ui() -> void:

@@ -11,6 +11,8 @@ out/
 # Godot
 game/.godot/
 game/export/
+launcher/.godot/
+launcher/export/
 *.import
 
 # Original game data - NEVER commit (see docs/clean-room.md)
