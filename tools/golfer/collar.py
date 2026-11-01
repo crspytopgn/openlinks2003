@@ -103,7 +103,7 @@ def on_circle(axis, th, r, y):
 def build_collar(line, axis, top):
     """Stand and fall as a strip of quads, open at the front."""
     pos, nrm, tris = [], [], []
-    ths = np.linspace(math.pi + FRONT_GAP, 3 * math.pi - FRONT_GAP, 72)
+    ths = np.linspace(math.pi + FRONT_GAP, 3 * math.pi - FRONT_GAP, 48)
 
     def at(th):
         k = (th % (2 * math.pi)) / (2 * math.pi) * SAMPLES

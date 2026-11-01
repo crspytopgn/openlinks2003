@@ -4,7 +4,7 @@ way real skin varies instead of tinting it one flat colour.
 
     python3 tools/golfer/skin_regions.py [--pack game/assets/golfer/free_golfer_parts.olg] [--preview out.png]
 
-Channels of the map (in the body's UV layout, 512 px):
+Channels of the map (in the body's UV layout, 256 px: the regions are soft):
 - R, flush: where blood shows through: the cheeks, the nose, the ears and
   the knuckles are redder than the forehead and jaw.
 - G, beard: the jaw, chin, upper lip and lower cheeks, where stubble and
@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import golf_shoes  # noqa: E402
 from cap import part_arrays, span  # noqa: E402
 
-SIZE = 512
+SIZE = 256
 
 
 def smooth_step(e0, e1, x):
