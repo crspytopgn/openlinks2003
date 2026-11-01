@@ -19,6 +19,10 @@ const WEAVE_TILES := 90.0
 const GLOVE_COLOUR := Color(0.86, 0.85, 0.82)
 
 static var _weave: Texture2D
+static var _pores: Texture2D
+static var _stubble: Texture2D
+const SKIN_SHADER := preload("res://shaders/golfer_skin.gdshader")
+const HAIR_SHADER := preload("res://shaders/golfer_hair.gdshader")
 
 
 static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -31,6 +35,43 @@ static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
 	mat.rim = 0.12
 	mat.rim_tint = 0.6
 	return mat
+
+
+## The skin as golfer_skin.gdshader: `mat`'s texture and tone, varied by
+## the look pack's region map (flushed cheeks and nose, lips, the T-zone,
+## and a man's beard shadow and stubble from PlayerLook.stubble), with
+## pores. Null without a region map (an older pack), so the caller can
+## keep skin() instead.
+static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D) -> ShaderMaterial:
+	if regions == null:
+		return null
+	var m := ShaderMaterial.new()
+	m.resource_name = "Skin"
+	m.shader = SKIN_SHADER
+	m.set_shader_parameter("albedo", mat.albedo_color)
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("regions", regions)
+	m.set_shader_parameter("pores", pores())
+	m.set_shader_parameter("stubble_dots", stubble_dots())
+	var man := look.sex < 0.5
+	# Stubble grows in darker than the hair often looks; grey hair greys it.
+	m.set_shader_parameter("beard_colour", look.hair_colour.darkened(0.5))
+	m.set_shader_parameter("stubble", look.stubble if man else 0.0)
+	m.set_shader_parameter("shave_shadow", (0.35 + 0.65 * look.stubble) if man else 0.0)
+	m.set_shader_parameter("lip_strength", 1.15 if not man else 0.8)
+	m.set_shader_parameter("flush_strength", 1.0)
+	return m
+
+
+## Hair cards as golfer_hair.gdshader, from the pack's hair material.
+static func hair(mat: StandardMaterial3D) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.resource_name = mat.resource_name
+	m.shader = HAIR_SHADER
+	m.set_shader_parameter("albedo", mat.albedo_color)
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
+	return m
 
 
 static func cloth(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -83,3 +124,72 @@ static func weave() -> Texture2D:
 	img.generate_mipmaps()
 	_weave = ImageTexture.create_from_image(img)
 	return _weave
+
+
+## A 128 px tile of skin pores as a normal map: small pits scattered
+## over a faint fine grain.
+static func pores() -> Texture2D:
+	if _pores != null:
+		return _pores
+	const N := 128
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1337
+	var height := PackedFloat32Array()
+	height.resize(N * N)
+	for i in N * N:
+		height[i] = rng.randf() * 0.15
+	for _k in 260:
+		var cx := rng.randi_range(0, N - 1)
+		var cy := rng.randi_range(0, N - 1)
+		var r := rng.randf_range(0.8, 1.8)
+		for dy in range(-2, 3):
+			for dx in range(-2, 3):
+				var d := sqrt(float(dx * dx + dy * dy)) / r
+				if d < 1.0:
+					var i := ((cy + dy + N) % N) * N + (cx + dx + N) % N
+					height[i] -= (1.0 - d * d) * 0.8
+	_pores = _normal_map(height, N, 1.0)
+	return _pores
+
+
+## A 128 px tile of stubble: dark dots about every 9 px, jittered.
+static func stubble_dots() -> Texture2D:
+	if _stubble != null:
+		return _stubble
+	const N := 128
+	const CELL := 9.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var img := Image.create_empty(N, N, false, Image.FORMAT_L8)
+	var cells := int(N / CELL)
+	var step := float(N) / cells
+	for gy in cells:
+		for gx in cells:
+			var cx := (gx + rng.randf_range(0.2, 0.8)) * step
+			var cy := (gy + rng.randf_range(0.2, 0.8)) * step
+			var r := rng.randf_range(1.0, 1.8)
+			for dy in range(-2, 3):
+				for dx in range(-2, 3):
+					var px := int(cx) + dx
+					var py := int(cy) + dy
+					var d := Vector2(px + 0.5 - cx, py + 0.5 - cy).length() / r
+					if d < 1.0:
+						var x := (px + N) % N
+						var y := (py + N) % N
+						var v := maxf(img.get_pixel(x, y).r, 1.0 - d * d)
+						img.set_pixel(x, y, Color(v, v, v))
+	img.generate_mipmaps()
+	_stubble = ImageTexture.create_from_image(img)
+	return _stubble
+
+
+static func _normal_map(height: PackedFloat32Array, n: int, strength: float) -> Texture2D:
+	var img := Image.create_empty(n, n, false, Image.FORMAT_RGB8)
+	for y in n:
+		for x in n:
+			var dx := height[y * n + (x + 1) % n] - height[y * n + (x + n - 1) % n]
+			var dy := height[((y + 1) % n) * n + x] - height[((y + n - 1) % n) * n + x]
+			var nv := Vector3(-dx * strength, dy * strength, 1.0).normalized()
+			img.set_pixel(x, y, Color(nv.x * 0.5 + 0.5, nv.y * 0.5 + 0.5, nv.z * 0.5 + 0.5))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
