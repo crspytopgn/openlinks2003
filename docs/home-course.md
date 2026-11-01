@@ -132,3 +132,18 @@ every designed and real-world course.
 
 Ground: Terrarium elevation tiles (Mapzen, AWS Open Data), from USGS 3DEP
 lidar, which is public domain. The course file carries the credit line.
+
+## Bunker edges
+
+Bunkers, greens and ponds use `geom.smooth_blob`: an ellipse whose radius
+changes only with small 2- and 3-lobe harmonics, drawn through 20 or more
+points. Greenside bunkers curl a little round the green. The old 12-point
+blobs with large wobble made arrowheads and notches; the sharpest turn
+between outline segments is now 15 degrees (it was 61).
+
+In the terrain shader (all designer courses), the sand's edge and colour
+come from `sand_edge()`: the raster's sand weight blurred over about a
+texel and swung only every few metres. The turf colour beside it leaves
+the sand texels out. A bunker's bank in `DesignedTerrain` starts 1.5 m
+outside the outline (`BUNKER_LIP_OUT`) and reaches full depth 2.5 m inside,
+so the drop no longer follows whichever 2 m grid points fell inside.
