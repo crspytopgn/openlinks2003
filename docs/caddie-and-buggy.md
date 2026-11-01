@@ -47,6 +47,10 @@ buggy parked beside the ball, so a round with the buggy on is no slower
 than without it. Computer golfers never drive, and on a new hole the buggy
 waits beside the tee.
 
+While driving, the golfer sits at the wheel (the free golfer, posed seated
+from its rest positions, hands on the wheel), and the swing meter, shot
+info and wind panels hide until the drive ends.
+
 Handling (`BuggyDrive`) is a planar rigid-body vehicle model stepped at
 120 Hz, with the published figures of a current two-seat electric fleet
 cart (448 kg kerb weight, 1.635 m wheelbase, 3.3 kW 48 V AC motor, 24 km/h):
@@ -65,14 +69,25 @@ cart (448 kg kerb weight, 1.635 m wheelbase, 3.3 kW 48 V AC motor, 24 km/h):
   slows at speed, as a game pad or keyboard needs.
 - Weight moves back under acceleration and forward under braking, which
   changes the grip at each axle.
+- Brakes on the rear wheels only (the real cart has self-adjusting rear
+  drums), so it stops at about 0.3 g, in 8 m from full speed on grass,
+  and the rear can slide if you stamp on it on wet-feeling turf.
 - Rolling resistance by ground (0.015 on paths, 0.045 on grass, 0.14 in the
   rough, 0.22 in deep rough), air drag, and gravity along and across the
   slope.
 
 What comes out of that, checked in the tests: about 15 mph on grass and
-paths, 11 mph in the rough, 6.5 mph in deep rough, 8.5 mph up a 15% hill,
-held at the governor coming down, half a g of cornering grip, and a stop
-from full speed in about 1.4 s.
+paths (0 to 13 mph in 4 to 5 s), 10 mph in the rough, 6.5 mph in deep
+rough, 8.5 mph up a 15% hill, held at the governor coming down, half a g of
+cornering grip, and a stop from full speed in about 2.2 s.
+
+Sound (`BuggySound`) is made in code as looping clips whose pitch and
+volume follow the cart, so it works on the web build too: the AC motor's
+whine rising with speed (silent at a standstill, as electric carts are),
+tyre noise that hisses on paths and rumbles in the rough, and the clack of
+the automatic park brake letting go and setting. The body lags the ground
+over crests and dips before its springs settle it, and small bumps in the
+turf jiggle it, more in the rough and at speed.
 
 It stops at the edge of greens, bunkers and water, as real course rules
 ask.

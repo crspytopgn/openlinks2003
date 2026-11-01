@@ -248,6 +248,13 @@ func _test_caddie_and_buggy_in_round() -> void:
 			print("  caddie: " + game.caddie.advice.text)
 		if game.state == GolfRound.State.DRIVE and not drove:
 			drove = true
+			_check(not game.hud.meter.visible and not game.hud.info.visible, "the swing meter and shot info hide while driving")
+			var rider := game.buggy.rider
+			if rider != null:  # only with the free golfer model
+				var sk := rider.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+				var thigh := sk.find_bone("thigh_l")
+				var bent := sk.get_bone_global_pose(thigh).basis.get_rotation_quaternion().angle_to(Quaternion.IDENTITY)
+				_check(rider.is_visible_in_tree() and bent > 1.0, "the golfer sits at the wheel, thighs along the seat")
 			var from := game.buggy.drive.position
 			for i in 60:
 				game.buggy.step(1.0 / 30.0, 1.0, 0.0, game.hole.terrain)
@@ -275,6 +282,7 @@ func _test_caddie_and_buggy_in_round() -> void:
 			game._drive_touch_input(down)
 			game._drive_touch_input(up)
 			_check(game.state != GolfRound.State.DRIVE, "a tap skips to the ball")
+			_check(game._drive_hidden.is_empty() and (rider == null or not rider.visible), "after the drive the HUD is back and the seat is empty")
 		game.auto_play_step()
 		steps += 1
 	_check(game.state == GolfRound.State.ROUND_DONE, "the round finishes with the caddie and buggy")
@@ -1409,7 +1417,9 @@ func _test_buggy_drive() -> void:
 		d.step(dt, -1.0, 0.0, fairway)
 		t += 1
 	print("  stops from top speed in %.1f s, %.1f m" % [t * dt, d.position.z - from])
-	_check(t * dt < 2.5 and d.position.z - from < 8.0, "brakes hard")
+	# Rear drum brakes only, as on real fleet carts: about 0.3 g on grass,
+	# held back by the grip of the rear tyres.
+	_check(t * dt < 2.6 and d.position.z - from < 9.0 and d.position.z - from > 4.0, "rear brakes stop it in a few metres")
 	for i in 150:
 		d.step(dt, -1.0, 0.0, fairway)
 	_check(d.speed < 0.0 and d.speed >= -BuggyDrive.GOVERNED_REVERSE - 0.1, "backs up slowly (%.2f)" % d.speed)
@@ -1442,6 +1452,12 @@ func _test_buggy_drive() -> void:
 	_check(spot.z < 0.0 and spot.length() > 5.0, "parks back from the ball, off the line (%s)" % spot)
 	var b := GolfBuggy.new()
 	_check(b.get_child_count() == 5, "body (with the bag) and four wheels")
+	var noise := BuggySound.whine_clip()
+	_check(noise.loop_mode == AudioStreamWAV.LOOP_FORWARD and noise.data.size() == BuggySound.RATE * 2, "a second of motor whine, looping")
+	b.sound.update(BuggyDrive.GOVERNED, 1.0, 1.0)
+	var loud: float = (b.sound.get_child(0) as AudioStreamPlayer3D).volume_db
+	b.sound.update(0.0, 0.0, 0.0)
+	_check(loud > -20.0 and (b.sound.get_child(0) as AudioStreamPlayer3D).volume_db < -60.0, "the motor whines at speed and is silent stopped")
 	b.park(Vector3(5.0, 0.0, 5.0), 90.0, fairway)
 	for i in 30:
 		b.step(dt, 1.0, 0.0, fairway)
