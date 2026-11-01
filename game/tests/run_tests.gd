@@ -3054,7 +3054,35 @@ func _test_free_golfer() -> void:
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	_test_club_heads(golfer)
 	golfer.free()
+
+
+## The clubs are modelled to real sizes (tools/golfer/clubs.py): each head's
+## widest span, hosel and ferrule included, and the driver's crown, face and
+## sole as separate surfaces so only the crown takes the player's colour.
+func _test_club_heads(golfer: Node) -> void:
+	var spans := {"Driver_head": [0.15, 0.19], "Iron_head": [0.12, 0.16], "Putter_head": [0.13, 0.17]}
+	for node in golfer.find_children("*_head", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if not spans.has(String(mi.name)):
+			continue
+		var pts := PackedVector3Array()
+		var names: Array[String] = []
+		for i in mi.mesh.get_surface_count():
+			pts.append_array(mi.mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX])
+			names.append(mi.mesh.surface_get_material(i).resource_name)
+		var span := 0.0
+		for i in range(0, pts.size(), 3):
+			for j in range(i + 3, pts.size(), 3):
+				span = maxf(span, pts[i].distance_to(pts[j]))
+		var want: Array = spans[String(mi.name)]
+		_check(span > want[0] and span < want[1], "%s spans %.3f m" % [mi.name, span])
+		_check(names.has("Ferrule"), "%s has a ferrule" % mi.name)
+		if mi.name == "Driver_head":
+			_check(names.has("DriverHead") and names.has("DriverFace") and names.has("DriverSole"), "driver crown, face and sole: %s" % [names])
+		spans.erase(String(mi.name))
+	_check(spans.is_empty(), "every club head found: %s left" % [spans.keys()])
 
 
 ## The player creator's looks: saved and read back, mapped to blend shapes,
