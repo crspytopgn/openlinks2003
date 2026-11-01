@@ -132,6 +132,16 @@ static func check(record: RoundRecord, course_path: String) -> Dictionary:
 ## and `clubs`. Returns {ok: bool, checked: shots replayed, errors: [String],
 ## cards_checked: bool}.
 static func verify(record: RoundRecord, model: ShotModel, clubs: Array[Club], holes: Array[HoleData]) -> Dictionary:
+	# On the greens the round was played on; the game's own come back after.
+	var greens := LinksGround.greens
+	if record != null:
+		LinksGround.set_greens(record.green_firmness, record.green_speed)
+	var out := _verify(record, model, clubs, holes)
+	LinksGround.greens = greens
+	return out
+
+
+static func _verify(record: RoundRecord, model: ShotModel, clubs: Array[Club], holes: Array[HoleData]) -> Dictionary:
 	var errors: Array[String] = []
 	if record == null:
 		return {"ok": false, "checked": 0, "errors": ["no record"], "cards_checked": false}

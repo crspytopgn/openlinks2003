@@ -120,6 +120,7 @@ func _process(_delta: float) -> bool:
 	_run("click_aim", _test_click_aim)
 	_run("glass_ui", _test_glass_ui)
 	_run("pick_up", _test_pick_up)
+	_run("round_conditions", _test_round_conditions)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2940,6 +2941,13 @@ func _test_round_replay() -> void:
 		tampered = RoundRecord.from_json(rec.to_json())
 		tampered.round_seed = 777
 		_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a different wind seed is caught")
+	# Faster greens than the round was played on.
+	tampered = RoundRecord.from_json(rec.to_json())
+	_check(tampered.green_firmness == rec.green_firmness and tampered.green_speed == rec.green_speed, "the record keeps the greens")
+	tampered.green_speed = LinksGround.GreenSpeed.SLOW if rec.green_speed == LinksGround.GreenSpeed.FAST else LinksGround.GreenSpeed.FAST
+	# Only Links 2003's own ground (LinksGround) has the green options.
+	if rec.model == "links":
+		_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "other greens are caught")
 	tampered = RoundRecord.from_json(rec.to_json())
 	tampered.resumed = true
 	_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a resumed round can't be checked")
@@ -3804,6 +3812,50 @@ func _test_click_aim() -> void:
 	tg.set_map(map, [], game.ball_at, false)
 	_check(tg.map_spot(r.get_center()) == null, "nor is one while the map is hidden")
 	tg.free()
+	GolfRound.setup = null
+
+
+## Round setup's conditions: the wind and greens hold for the round, are
+## recorded, and the round replays on them whatever the player's settings.
+func _test_round_conditions() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("round", "green_firmness", 2)
+	cfg.set_value("round", "green_speed", 0)
+	cfg.set_value("round", "wind_level", 3)
+	var path := "user://conditions_test.cfg"
+	cfg.save(path)
+	var saved := RoundSetup.load_saved(path)
+	_check(saved.green_firmness == 2 and saved.green_speed == 0 and saved.wind_level == 3, "the setup's conditions are saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	var msg := OnlineRound.setup_message(saved, 5, 3, [0], "")
+	var back := OnlineRound.setup_from(msg)
+	_check(back != null and back.green_firmness == 2 and back.green_speed == 0, "an online round sends its greens")
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var setup := RoundSetup.new()
+	setup.green_firmness = LinksGround.GreenFirmness.FIRM
+	setup.green_speed = LinksGround.GreenSpeed.FAST
+	setup.wind_level = Wind.Level.OFF
+	GolfRound.setup = setup
+	game.start_round()
+	_check(game.record.green_firmness == LinksGround.GreenFirmness.FIRM and game.record.green_speed == LinksGround.GreenSpeed.FAST
+			and game.wind.level == Wind.Level.OFF, "the round plays the setup's conditions")
+	var firm_fast := LinksGround.green_for(LinksGround.GreenFirmness.FIRM, LinksGround.GreenSpeed.FAST)
+	_check(LinksGround.greens != null and is_equal_approx(LinksGround.greens.restitution, firm_fast.restitution)
+			and is_equal_approx(LinksGround.greens.roll_resistance, firm_fast.roll_resistance), "on firm, fast greens")
+	# Changing the settings mid-round doesn't change the round's greens.
+	game._apply_graphics()
+	_check(is_equal_approx(LinksGround.greens.roll_resistance, firm_fast.roll_resistance), "and they hold for the round")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		game.auto_play_step()
+		steps += 1
+	LinksGround.set_greens(LinksGround.GreenFirmness.SOFT, LinksGround.GreenSpeed.SLOW)
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok, "the round replays on its own greens: %s" % [ok.errors])
+	_check(is_equal_approx(LinksGround.greens.roll_resistance, LinksGround.green_for(0, 0).roll_resistance), "and the game's greens come back after")
+	LinksGround.set_greens(game.graphics.green_firmness, game.graphics.green_speed)
 	GolfRound.setup = null
 
 

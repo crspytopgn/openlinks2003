@@ -71,9 +71,10 @@ product lead builds it.
 13. [x] **Pick-up limit**: an option to pick up at double par or net double
    bogey, like real stableford and casual rounds, to keep rounds moving.
    Done: Settings > Pick up (double par or triple bogey).
-14. [ ] **Conditions**: firm or soft greens and fairways and the day's wind
-   strength chosen in round setup, so the same course plays differently.
-   Needs the original's conditions options read first. Owner: physics.
+14. [x] **Conditions**: firm or soft greens and the day's wind strength
+   chosen in round setup, so the same course plays differently. The
+   original's Conditions screen offers wind, green hardness and green speed
+   (no fairway firmness), so that's what round setup offers.
 15. [x] **Captions**: on-screen text for the commentary and caddie lines
    (part of accessibility). Done: Settings > Captions for the golfer's voice
    and the crowd; commentary and caddie lines were already text.

@@ -154,6 +154,21 @@ resumed round play the same positions. What the three groups stand for
 over all of them. Courses with one position (the placeholder and designed
 courses) keep it.
 
+### Conditions
+
+Round setup > Wind and Greens set the round's conditions, as Links 2003's
+own Conditions screen does: the wind strength, and the greens' firmness
+(soft, moderate, firm) and speed (slow, normal, fast), which are the game's
+own green records ([physics.md](formats/physics.md#green-firmness-and-speed)).
+"My setting", "My firmness" and "My speed" play the player's Settings choices. Like the Settings ones, the
+green options change Links 2003's own ground (`LinksGround`, with the game's
+files); the free physics has one green. The original offers no
+fairway firmness, so neither do we. The greens hold for the whole round
+(a change in Settings applies from the next), are kept in the round's
+record (`RoundRecord.green_firmness`, `green_speed`) and replayed on when a
+round is checked, travel with an online round's setup, and a friend's round
+from a result code plays theirs.
+
 ### Practice range
 
 Round setup > Play > Driving range plays the built-in practice ground's

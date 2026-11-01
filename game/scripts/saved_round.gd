@@ -32,6 +32,9 @@ static func save(setup: RoundSetup, state: Dictionary) -> void:
 	cfg.set_value("setup", "tees", setup.tees)
 	cfg.set_value("setup", "pins", setup.pins)
 	cfg.set_value("setup", "pin_seed", setup.pin_seed)
+	cfg.set_value("setup", "wind_level", setup.wind_level)
+	cfg.set_value("setup", "green_firmness", setup.green_firmness)
+	cfg.set_value("setup", "green_speed", setup.green_speed)
 	cfg.set_value("setup", "names", PackedStringArray(setup.names))
 	cfg.set_value("setup", "teams", PackedInt32Array(setup.teams))
 	cfg.set_value("setup", "computer", PackedInt32Array(setup.computer))
@@ -65,6 +68,9 @@ static func load_setup() -> RoundSetup:
 	s.pros = saved_pros if saved_pros is Dictionary else {}
 	s.pins = clampi(int(cfg.get_value("setup", "pins", 0)), 0, RoundSetup.PINS_NAMES.size() - 1)
 	s.pin_seed = int(cfg.get_value("setup", "pin_seed", 0))
+	s.wind_level = clampi(int(cfg.get_value("setup", "wind_level", -1)), -1, Wind.Level.STRONG)
+	s.green_firmness = clampi(int(cfg.get_value("setup", "green_firmness", -1)), -1, LinksGround.GreenFirmness.FIRM)
+	s.green_speed = clampi(int(cfg.get_value("setup", "green_speed", -1)), -1, LinksGround.GreenSpeed.FAST)
 	var saved_names: PackedStringArray = cfg.get_value("setup", "names", PackedStringArray())
 	if saved_names.is_empty() or saved_names.size() > RoundSetup.MAX_PLAYERS:
 		return null
