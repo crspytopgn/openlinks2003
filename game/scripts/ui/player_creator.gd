@@ -228,6 +228,8 @@ func _build_face_tab() -> void:
 		var key: String = entry[0]
 		_slider_row(box, entry[1], entry[2], entry[3], -1.0, 1.0,
 			func() -> float: return look.face_value(key), func(v: float) -> void: look.face[key] = v)
+	_slider_row(box, "Stubble", "clean-shaven", "a few days", 0.0, 1.0,
+		func() -> float: return look.stubble, func(v: float) -> void: look.stubble = v)
 	var reset := MenuStyle.button("Average face")
 	reset.pressed.connect(func() -> void:
 		look.face.clear()

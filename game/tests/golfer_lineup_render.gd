@@ -38,7 +38,10 @@ func _initialize() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	# The game's Photoreal light (Scenery): sun 3.0, sky fill 0.5, AgX.
+	env.ambient_light_energy = 0.5
+	env.ambient_light_sky_contribution = 0.6
+	env.tonemap_white = 6.0
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	env.tonemap_exposure = 1.0
@@ -47,8 +50,10 @@ func _initialize() -> void:
 	we.environment = env
 	scene.add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-38, -35, 0)
-	sun.light_energy = 1.6
+	# Mid-morning sun from in front and to one side of the golfers.
+	sun.rotation_degrees = Vector3(-40, -30, 0)
+	sun.light_energy = 3.0
+	sun.light_color = Color(1.0, 0.94, 0.84)
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 30.0
 	scene.add_child(sun)
@@ -134,7 +139,7 @@ func _face(k: int) -> void:
 	var head := skel.find_bone("head")
 	var pos := golfer.global_position + Vector3(0, _looks[k].height_cm / 100.0 * 0.93, 0)
 	if head >= 0:
-		pos = (skel.global_transform * skel.get_bone_global_pose(head)).origin + Vector3(0, 0.07, 0)
+		pos = (skel.global_transform * skel.get_bone_global_pose(head)).origin + Vector3(0, 0.03, 0)
 	_cam.fov = 22.0
-	_cam.position = pos + Vector3(0.3, 0.0, 0.85)
+	_cam.position = pos + Vector3(0.3, 0.0, 1.0)
 	_cam.look_at(pos)

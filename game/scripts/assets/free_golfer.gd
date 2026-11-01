@@ -128,8 +128,16 @@ func apply_look(p_look: PlayerLook) -> void:
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
 		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
 		mi.skin = skin
-		var mat := _material(parts, mat_name)
-		mat = GolferSurface.skin(mat) if is_skin else (GolferSurface.cloth(mat) if _is_cloth(parts, mat_name) else _matt(mat))
+		var std := _material(parts, mat_name)
+		var mat: Material = null
+		if is_skin:
+			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name))
+			if mat == null:
+				mat = GolferSurface.skin(std)
+		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
+			mat = GolferSurface.hair(std)
+		else:
+			mat = GolferSurface.cloth(std) if _is_cloth(parts, mat_name) else _matt(std)
 		if mi.mesh.get_surface_count() > 1:
 			mi.set_surface_override_material(0, mat)
 			mi.set_surface_override_material(1, GolferSurface.glove())
@@ -155,6 +163,10 @@ static func parts_for(p_look: PlayerLook, info: Dictionary) -> PackedStringArray
 		if part_name == "Body" or (part_name.begins_with("Body_") and not (chunks.get(part_name, []) as Array).has(p_look.outfit)):
 			out.append(part_name)
 	out.append_array(["Top_" + p_look.outfit, "Bottom_" + p_look.outfit, "Shoes", "Eyes", "Eyebrows", "Eyelashes"])
+	# Polo collars, plackets and buttons (tools/golfer/collar.py).
+	for extra: String in ["Collar_", "Placket_", "Buttons_"]:
+		if (info.get("parts", {}) as Dictionary).has(extra + p_look.outfit):
+			out.append(extra + p_look.outfit)
 	if p_look.hair != "bald":
 		out.append("Hair_" + p_look.hair)
 	if p_look.wears_cap():
@@ -184,6 +196,12 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 		var eyes: Dictionary = parts.info.get("eyes", {})
 		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
 	return parts.make_material(material_name)
+
+
+## The look pack's map of the face's regions for the skin shader, or null.
+static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2D:
+	var index := int(parts.info.materials[material_name].get("regions", -1))
+	return parts.texture(index) if index >= 0 else null
 
 
 static func _is_cloth(parts: GolferParts, material_name: String) -> bool:

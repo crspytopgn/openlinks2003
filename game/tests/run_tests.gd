@@ -77,6 +77,7 @@ func _initialize() -> void:
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
 	_run("player_looks", _test_player_looks)
+	_run("golfer_roster", _test_golfer_roster)
 	_run("face_from_photo", _test_face_from_photo)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
@@ -3175,6 +3176,74 @@ func _test_face_from_photo() -> void:
 	_check(skin.is_equal_approx(Color(0.8, 0.6, 0.5)) or skin.r > 0.78, "skin colour from the cheeks and forehead")
 	var hair := PlayerFaceFit.hair_colour(img, pts)
 	_check(hair.r < 0.15, "hair colour from above the forehead")
+
+
+func _test_golfer_roster() -> void:
+	var pros := GolferRoster.golfers()
+	_check(pros.size() == 16, "sixteen tour pros on the roster")
+	var seen := {}
+	var women := 0
+	var tones := {}
+	for g in pros:
+		var look: PlayerLook = g["look"]
+		seen[str(g["name"]).to_lower()] = true
+		women += 1 if look.sex >= 0.5 else 0
+		tones[look.skin.to_html()] = true
+		_check(look.outfit == "polo", "%s wears a polo" % g["name"])
+		_check(look.height_cm >= 150.0 and look.height_cm <= 200.0, "%s is a real height" % g["name"])
+		_check(look.sex < 0.5 or look.stubble == 0.0, "%s has no stubble" % g["name"])
+	_check(seen.size() == pros.size(), "every pro has their own name")
+	_check(women >= 5 and women <= 8, "men and women on the roster (%d women)" % women)
+	_check(tones.size() >= 6, "skin tones vary across the roster (%d)" % tones.size())
+	var callum := GolferRoster.find(" callum REID ")
+	_check(not callum.is_empty() and callum["country"] == "SCO", "pros are found by name in any case")
+	_check(GolferRoster.look_for("Callum Reid").key() == (callum["look"] as PlayerLook).key(), "a pro's own look")
+	var a := GolferRoster.look_for("Somebody Else")
+	_check(a.key() == GolferRoster.look_for("somebody else").key(), "an unknown name always gets the same look")
+	_check(a.key() != GolferRoster.look_for("Another Golfer").key(), "unknown names look different")
+	_check(is_equal_approx(GolferRoster.age_slider(25.0), 0.0) and GolferRoster.age_slider(54.0) > 0.4,
+		"ages in years map to the age slider")
+	# Random golfers follow real odds: red hair is rare, women don't wear
+	# the short shorts, men have some stubble.
+	var red := 0
+	var shorts_women := 0
+	var stubbled := 0
+	for k in 400:
+		var l := PlayerLook.random(k)
+		if l.hair_colour == PlayerLook.HAIR_COLOURS[4][1]:
+			red += 1
+		if l.sex >= 0.5 and l.outfit == "shorts":
+			shorts_women += 1
+		if l.sex < 0.5 and l.stubble > 0.1:
+			stubbled += 1
+	_check(red < 20, "red hair is rare (%d of 400)" % red)
+	_check(shorts_women == 0, "women golfers wear trousers")
+	_check(stubbled > 60, "some men have stubble (%d)" % stubbled)
+	var l2 := PlayerLook.new()
+	l2.stubble = 0.6
+	_check(is_equal_approx(PlayerLook.from_dict(l2.to_dict()).stubble, 0.6), "stubble is saved with the look")
+	var parts := GolferParts.shared()
+	if parts == null:
+		return
+	var shown := FreeGolfer.parts_for(PlayerLook.new(), parts.info)
+	_check(shown.has("Collar_polo") and shown.has("Placket_polo") and shown.has("Buttons_polo"),
+		"a polo has its collar, placket and buttons")
+	var sleeves := PlayerLook.new()
+	sleeves.outfit = "sleeves"
+	_check(not FreeGolfer.parts_for(sleeves, parts.info).has("Collar_polo"), "collars only on polos")
+	_check(int(parts.info.materials.Cap.texture) >= 0 and parts.texture(int(parts.info.materials.Cap.texture)) != null,
+		"the cap has its stitched texture")
+	_check(int(parts.info.materials.Skin.get("regions", -1)) >= 0, "the skin has its region map")
+	var golfer := FreeGolfer.create(GolferRoster.look_for("Luis Navarro"))
+	if golfer == null:
+		return
+	var body := golfer.find_child("Body", true, false) as MeshInstance3D
+	var mat: Material = body.get_surface_override_material(0) if body.mesh.get_surface_count() > 1 else body.material_override
+	_check(mat is ShaderMaterial and is_equal_approx(float((mat as ShaderMaterial).get_shader_parameter("stubble")), 0.7),
+		"the skin shader shows the pro's stubble")
+	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
+	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
+	golfer.free()
 
 
 func _test_player_looks() -> void:
