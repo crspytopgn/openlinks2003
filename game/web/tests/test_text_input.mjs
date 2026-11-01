@@ -8,9 +8,17 @@ import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+// Stands in for the page's HTMLElement, so the focus guard can wrap focus().
+class FakeElement {
+  focus() {
+    this.focused = true;
+  }
+}
+globalThis.HTMLElement = FakeElement;
+
 function fakeElement(tag) {
   const listeners = {};
-  return {
+  return Object.assign(Object.create(FakeElement.prototype), {
     tag,
     style: {},
     attrs: {},
@@ -28,9 +36,6 @@ function fakeElement(tag) {
     removeAttribute(k) {
       delete this.attrs[k];
     },
-    focus() {
-      this.focused = true;
-    },
     blur() {
       if (!this.focused) return;
       this.focused = false;
@@ -41,7 +46,7 @@ function fakeElement(tag) {
       // A 1280x720 game window drawn at half size, 10px down the page.
       return { left: 0, top: 10, width: 640, height: 360 };
     },
-  };
+  });
 }
 
 const canvas = fakeElement("canvas");
@@ -90,6 +95,12 @@ assert.equal(created.value, "Pebble");
 assert.equal(created.style.display, "block");
 assert.ok(parseInt(created.style.fontSize) >= 16, "big enough that iOS doesn't zoom");
 
+// Godot re-focusing its canvas or IME element mustn't take the focus away.
+const imeDiv = fakeElement("div");
+imeDiv.focus();
+canvas.focus();
+assert.ok(created.focused && !imeDiv.focused && !canvas.focused, "nothing else takes the focus while typing");
+
 created.value = "Pebble Beach";
 created.fire("input");
 assert.deepEqual(replies.at(-1), { id: 7, kind: "change", text: "Pebble Beach" });
@@ -98,6 +109,8 @@ assert.equal(replies.at(-2).kind, "submit");
 assert.equal(replies.at(-1).kind, "done");
 assert.equal(window.olText._active(), 0);
 assert.equal(created.style.display, "none");
+imeDiv.focus();
+assert.ok(imeDiv.focused, "focus works normally once the input is closed");
 
 // A touch elsewhere closes it; a box that goes away closes it too.
 touch(200, 120);

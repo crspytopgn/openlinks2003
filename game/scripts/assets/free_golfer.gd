@@ -59,6 +59,7 @@ var _last_spot := Vector3.INF
 var _look: GolferLook
 var _feet: GolferFeet
 var _hands: GolferHands
+var _cloth: GolferCloth
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -87,6 +88,8 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 	golfer._hands = GolferHands.new()
 	golfer._skeleton.add_child(golfer._hands)
 	golfer._hands.read_grips(golfer._skeleton, player)
+	golfer._cloth = GolferCloth.new()
+	golfer._skeleton.add_child(golfer._cloth)
 	for i in golfer._skeleton.get_bone_count():
 		golfer._base_rests.append(golfer._skeleton.get_bone_rest(i))
 	for anim_name in LOOPING:
@@ -112,6 +115,7 @@ func apply_look(p_look: PlayerLook) -> void:
 	for node in _look_nodes:
 		node.queue_free()
 	_look_nodes.clear()
+	_cloth.clear_materials()
 	var weights := look.shape_weights()
 	_fit_skeleton(parts.joint_offsets(weights))
 	var skin := Skin.new()
@@ -147,6 +151,15 @@ func apply_look(p_look: PlayerLook) -> void:
 			mat = GolferSurface.eye(std)
 		elif mat_name == "Eyelashes" or mat_name == "Eyebrows":
 			mat = GolferSurface.fine_hair(std, mat_name == "Eyelashes", look.hair_colour, look.sex >= 0.5)
+		elif _moves(parts, part_name, mat_name):
+			# Shirt, trousers, shorts and the polo's collar, placket and
+			# buttons: moving in the wind and the swing (GolferCloth).
+			mi.mesh = GolferCloth.with_mask(mi.mesh, names, _skeleton)
+			var cloth := GolferCloth.material(std)
+			if part_name.begins_with("Buttons_"):
+				cloth.set_shader_parameter("roughness", std.roughness)
+			_cloth.add_material(cloth)
+			mat = cloth
 		else:
 			mat = GolferSurface.cloth(std) if _is_cloth(parts, mat_name) else _matt(std)
 		if mi.mesh.get_surface_count() > 1:
@@ -271,6 +284,12 @@ static func under_cap(hair: ArrayMesh, parts: GolferParts, weights: Dictionary) 
 static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2D:
 	var index := int(parts.info.materials[material_name].get("regions", -1))
 	return parts.texture(index) if index >= 0 else null
+
+
+## Whether a part is clothing that moves (the cap stays put on the head).
+static func _moves(parts: GolferParts, part_name: String, material_name: String) -> bool:
+	var tint := str(parts.info.materials[material_name].get("tint", ""))
+	return tint in ["top", "bottom"] or part_name.begins_with("Collar_") or part_name.begins_with("Placket_") or part_name.begins_with("Buttons_")
 
 
 static func _is_cloth(parts: GolferParts, material_name: String) -> bool:

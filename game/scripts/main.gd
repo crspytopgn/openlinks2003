@@ -453,6 +453,14 @@ func start_round() -> void:
 	wind = Wind.new(wind_level, round_seed)
 	_holes_started = 0
 	record = RoundRecord.begin(round_setup, round_seed, "links" if shot_model is LinksShotModel else "standard", wind_level)
+	# The greens: the round's own conditions, else the player's settings. A
+	# friend's round plays theirs. They hold for the whole round.
+	record.green_firmness = graphics.green_firmness if round_setup.green_firmness < 0 else round_setup.green_firmness
+	record.green_speed = graphics.green_speed if round_setup.green_speed < 0 else round_setup.green_speed
+	if versus != null:
+		record.green_firmness = versus.green_firmness
+		record.green_speed = versus.green_speed
+	LinksGround.set_greens(record.green_firmness, record.green_speed)
 	record.course_hash = RoundRecord.file_hash(course_path)
 	record.course_file = course_path.get_file()
 	hud.scorecard.visible = false
@@ -3011,7 +3019,10 @@ func _on_pause_restart() -> void:
 
 func _apply_graphics() -> void:
 	graphics.apply_display(get_viewport())
-	LinksGround.set_greens(graphics.green_firmness, graphics.green_speed)
+	# A round keeps the greens it started on (so its record replays); the
+	# settings apply from the next round.
+	if record == null:
+		LinksGround.set_greens(graphics.green_firmness, graphics.green_speed)
 	scenery.apply(graphics)
 	post.apply(graphics)
 	dynamic_resolution.setup(get_viewport(), graphics)
@@ -3020,6 +3031,7 @@ func _apply_graphics() -> void:
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
 	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
+	GolferCloth.detail = graphics.quality
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	RenderingServer.global_shader_parameter_set("billboard_photo", 1.0 if CrzTerrain.photo_ground else 0.0)
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)

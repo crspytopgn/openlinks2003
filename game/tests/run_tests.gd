@@ -81,6 +81,7 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("golfer_cloth", _test_golfer_cloth)
 	_run("player_looks", _test_player_looks)
 	_run("golfer_roster", _test_golfer_roster)
 	_run("face_from_photo", _test_face_from_photo)
@@ -121,6 +122,7 @@ func _process(_delta: float) -> bool:
 	_run("glass_ui", _test_glass_ui)
 	_run("web_text_input", _test_web_text_input)
 	_run("pick_up", _test_pick_up)
+	_run("round_conditions", _test_round_conditions)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
 	_run("team_drops", _test_team_drops)
@@ -2062,6 +2064,17 @@ func _test_gallery() -> void:
 	var g := Gallery.build(hole, hole.pin, 3, 7, true)
 	root.add_child(g)
 	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	var shares := 0.0
+	for share: float in Gallery.ARM_SHARES.values():
+		shares += share
+	_check_near(shares, 1.0, 1e-6, "the crowd's arm poses share out the whole gallery")
+	_check(Gallery.arm_pose(0.0) == CrowdArms.Pose.FOLDED and Gallery.arm_pose(0.9999) == CrowdArms.Pose.POCKETS, "arms folded is the commonest pose, pockets the rarest")
+	var arm_mods := 0
+	for m in g.find_children("*", "SkeletonModifier3D", true, false):
+		if m is CrowdArms:
+			arm_mods += 1
+	var arms_ok := arm_mods == g.crowd_count()
+	_check(arms_ok, "each spectator holds their arms like a spectator, not round a club")
 	var spot := Gallery.grandstand_spot(hole)
 	if not spot.is_empty():
 		var capacity := Gallery.STAND_ROWS * (int(Gallery.STAND_WIDTH / Gallery.STAND_SEAT) - 1)
@@ -2945,6 +2958,13 @@ func _test_round_replay() -> void:
 		tampered = RoundRecord.from_json(rec.to_json())
 		tampered.round_seed = 777
 		_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a different wind seed is caught")
+	# Faster greens than the round was played on.
+	tampered = RoundRecord.from_json(rec.to_json())
+	_check(tampered.green_firmness == rec.green_firmness and tampered.green_speed == rec.green_speed, "the record keeps the greens")
+	tampered.green_speed = LinksGround.GreenSpeed.SLOW if rec.green_speed == LinksGround.GreenSpeed.FAST else LinksGround.GreenSpeed.FAST
+	# Only Links 2003's own ground (LinksGround) has the green options.
+	if rec.model == "links":
+		_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "other greens are caught")
 	tampered = RoundRecord.from_json(rec.to_json())
 	tampered.resumed = true
 	_check(not RoundReplay.verify(tampered, game.shot_model, game.clubs, game.holes).ok, "a resumed round can't be checked")
@@ -3224,6 +3244,51 @@ func _test_free_golfer() -> void:
 	hands.follow(&"walk", 0.0)
 	_check(not hands.holding and hands.influence == 0.0, "the hands swing free on the walk")
 	_test_club_heads(golfer)
+	golfer.free()
+
+
+## GolferCloth: the clothes' mask (loose at a sleeve's hem and down the
+## shin, held at the collar, waist and thigh), the swing-lag spring, and the
+## look's clothes wearing the moving cloth material with the mask baked in.
+func _test_golfer_cloth() -> void:
+	var joints := {"pelvis": Vector3(0, 0.95, 0), "neck_01": Vector3(0, 1.45, 0),
+		"upperarm_l": Vector3(-0.2, 1.4, 0), "lowerarm_l": Vector3(-0.37, 1.21, 0),
+		"upperarm_r": Vector3(0.2, 1.4, 0), "lowerarm_r": Vector3(0.37, 1.21, 0),
+		"thigh_l": Vector3(-0.11, 0.94, 0), "foot_l": Vector3(-0.19, 0.07, 0),
+		"thigh_r": Vector3(0.11, 0.94, 0), "foot_r": Vector3(0.19, 0.07, 0)}
+	var collar := GolferCloth.looseness(Vector3(0, 1.43, -0.1), 0.0, 0.0, joints)
+	var waist := GolferCloth.looseness(Vector3(0, 0.96, -0.1), 0.0, 0.0, joints)
+	var chest := GolferCloth.looseness(Vector3(0, 1.2, -0.1), 0.0, 0.0, joints)
+	_check(chest > collar + 0.2 and chest > waist + 0.2, "the shirt blouses mid-torso (%.2f) and is held at collar %.2f and waist %.2f" % [chest, collar, waist])
+	var seam := GolferCloth.looseness(Vector3(-0.2, 1.4, 0), 1.0, 0.0, joints)
+	var hem := GolferCloth.looseness(Vector3(-0.27, 1.32, 0), 1.0, 0.0, joints)
+	_check(hem > 0.7 and seam < 0.25, "a short sleeve flaps at its hem (%.2f), not the shoulder (%.2f)" % [hem, seam])
+	var thigh := GolferCloth.looseness(Vector3(0.12, 0.8, 0), 0.0, 1.0, joints)
+	var shin := GolferCloth.looseness(Vector3(0.16, 0.35, 0), 0.0, 1.0, joints)
+	var cuff := GolferCloth.looseness(Vector3(0.19, 0.08, 0), 0.0, 1.0, joints)
+	_check(shin > thigh + 0.4 and cuff < shin, "trousers swing at the shin (%.2f), held at the thigh (%.2f) and settled on the shoe (%.2f)" % [shin, thigh, cuff])
+	# The spring trails an acceleration, stays within its limit and settles.
+	var r := GolferCloth.step_spring(Vector3.ZERO, Vector3.ZERO, Vector3(0, -400, 0), 1.0 / 60.0, GolferCloth.MAX_LAG)
+	var off: Vector3 = r[0]
+	_check(off.y > 0.0 and off.length() <= GolferCloth.MAX_LAG + 1e-6, "a sleeve trails an arm speeding down (%.4f m up)" % off.y)
+	for i in 120:
+		r = GolferCloth.step_spring(r[0], r[1], Vector3.ZERO, 1.0 / 60.0, GolferCloth.MAX_LAG)
+	_check((r[0] as Vector3).length() < 0.002, "and settles back once the arm moves steadily")
+	var golfer := FreeGolfer.create()
+	if golfer == null:
+		return
+	var moving := 0
+	for node in golfer.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		var n := String(mi.name)
+		if n.begins_with("Top_") or n.begins_with("Bottom_") or n.begins_with("Collar_"):
+			moving += 1
+			_check(mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER, "%s wears the moving cloth" % n)
+			var arrays := mi.mesh.surface_get_arrays(0)
+			_check(arrays[Mesh.ARRAY_COLOR] != null and arrays[Mesh.ARRAY_TEX_UV2] != null, "%s has its cloth mask" % n)
+		if n == "Cap":
+			_check(not (mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER), "the cap stays put")
+	_check(moving >= 3 and golfer._cloth.materials.size() >= moving, "shirt, trousers and collar move (%d)" % moving)
 	golfer.free()
 
 
@@ -3893,6 +3958,50 @@ func _test_click_aim() -> void:
 	tg.set_map(map, [], game.ball_at, false)
 	_check(tg.map_spot(r.get_center()) == null, "nor is one while the map is hidden")
 	tg.free()
+	GolfRound.setup = null
+
+
+## Round setup's conditions: the wind and greens hold for the round, are
+## recorded, and the round replays on them whatever the player's settings.
+func _test_round_conditions() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("round", "green_firmness", 2)
+	cfg.set_value("round", "green_speed", 0)
+	cfg.set_value("round", "wind_level", 3)
+	var path := "user://conditions_test.cfg"
+	cfg.save(path)
+	var saved := RoundSetup.load_saved(path)
+	_check(saved.green_firmness == 2 and saved.green_speed == 0 and saved.wind_level == 3, "the setup's conditions are saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	var msg := OnlineRound.setup_message(saved, 5, 3, [0], "")
+	var back := OnlineRound.setup_from(msg)
+	_check(back != null and back.green_firmness == 2 and back.green_speed == 0, "an online round sends its greens")
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var setup := RoundSetup.new()
+	setup.green_firmness = LinksGround.GreenFirmness.FIRM
+	setup.green_speed = LinksGround.GreenSpeed.FAST
+	setup.wind_level = Wind.Level.OFF
+	GolfRound.setup = setup
+	game.start_round()
+	_check(game.record.green_firmness == LinksGround.GreenFirmness.FIRM and game.record.green_speed == LinksGround.GreenSpeed.FAST
+			and game.wind.level == Wind.Level.OFF, "the round plays the setup's conditions")
+	var firm_fast := LinksGround.green_for(LinksGround.GreenFirmness.FIRM, LinksGround.GreenSpeed.FAST)
+	_check(LinksGround.greens != null and is_equal_approx(LinksGround.greens.restitution, firm_fast.restitution)
+			and is_equal_approx(LinksGround.greens.roll_resistance, firm_fast.roll_resistance), "on firm, fast greens")
+	# Changing the settings mid-round doesn't change the round's greens.
+	game._apply_graphics()
+	_check(is_equal_approx(LinksGround.greens.roll_resistance, firm_fast.roll_resistance), "and they hold for the round")
+	var steps := 0
+	while game.state != GolfRound.State.ROUND_DONE and steps < 800:
+		game.auto_play_step()
+		steps += 1
+	LinksGround.set_greens(LinksGround.GreenFirmness.SOFT, LinksGround.GreenSpeed.SLOW)
+	var ok := RoundReplay.verify(game.record, game.shot_model, game.clubs, game.holes)
+	_check(ok.ok, "the round replays on its own greens: %s" % [ok.errors])
+	_check(is_equal_approx(LinksGround.greens.roll_resistance, LinksGround.green_for(0, 0).roll_resistance), "and the game's greens come back after")
+	LinksGround.set_greens(game.graphics.green_firmness, game.graphics.green_speed)
 	GolfRound.setup = null
 
 

@@ -106,6 +106,7 @@ static func setup_message(setup: RoundSetup, round_seed: int, wind_level: int, p
 		"course_file": setup.course_path.get_file(), "course_name": setup.course_name, "course_hash": course_hash,
 		"mode": setup.mode, "holes": setup.holes, "tees": setup.tees, "pins": setup.pins, "names": setup.names,
 		"teams": setup.teams, "computer": setup.computer, "handicaps": setup.handicaps, "indexes": setup.indexes,
+		"green_firmness": setup.green_firmness, "green_speed": setup.green_speed,
 	}
 
 
@@ -135,6 +136,8 @@ static func setup_from(msg: Dictionary) -> RoundSetup:
 	s.handicaps = bool(msg.get("handicaps", false))
 	s.round_seed = int(msg.get("seed", 0))
 	s.wind_level = int(msg.get("wind_level", -1))
+	s.green_firmness = clampi(int(msg.get("green_firmness", -1)), -1, 2)
+	s.green_speed = clampi(int(msg.get("green_speed", -1)), -1, 2)
 	if s.names.is_empty() or s.problem() != "":
 		return null
 	return s

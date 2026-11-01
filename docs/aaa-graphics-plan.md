@@ -37,6 +37,8 @@ with verdicts) are in `unusual-graphics-ideas.md`.
    skin with subsurface tint and pores, a cap or visor, a glove on the lead
    hand, real golf shoes, and hands that actually close on the grip (IK to
    the club). Fix the hands first, since Michael noticed them.
+   Done 2026-11-01: clothes move (GolferCloth and golfer_cloth.gdshader:
+   wind ripple, swing lag springs, twist/elbow/knee folds, by quality tier).
 4. **Trees (trees, grass and water thread).** 2K25's trees are dense,
    photoscanned and layered; ours read as clumps. Plan: higher-quality CC0
    tree models with more leaf-card layers, light passing through the leaves,

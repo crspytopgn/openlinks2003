@@ -163,6 +163,9 @@ static func material() -> ShaderMaterial:
 		var fwd := GraphicsSettings.is_forward_plus()
 		_mat.set_shader_parameter("blend_amount", 0.35 if fwd else 1.0)
 		_mat.set_shader_parameter("blade_relief", 0.7 if fwd else 0.0)
+		# The lift over-saturates: real tee turf measures about Lab
+		# 56/-16/31, the lifted blades took the tee to 51/-17/40.
+		_mat.set_shader_parameter("saturation", 1.0 if fwd else 0.8)
 	return _mat
 
 

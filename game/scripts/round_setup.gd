@@ -10,6 +10,12 @@ enum Tees { BACK, MIDDLE, FORWARD }
 const HOLES_NAMES := ["All holes", "Front nine", "Back nine"]
 const TEES_NAMES := ["Back tees", "Middle tees", "Forward tees"]
 const PINS_NAMES := ["Usual hole positions", "Random hole positions"]
+## The round's conditions, as Links 2003's Conditions screen offers them
+## (wind, green hardness and green speed); the first choice of each is the
+## player's own setting.
+const WIND_NAMES := ["My setting", "No wind", "Light wind", "Moderate wind", "Strong wind"]
+const GREEN_FIRMNESS_NAMES := ["My firmness", "Soft", "Moderate", "Firm"]
+const GREEN_SPEED_NAMES := ["My speed", "Slow", "Normal", "Fast"]
 const MAX_PLAYERS := 4
 const DEFAULT_NAMES := ["Player 1", "Player 2", "Player 3", "Player 4"]
 const HUMAN := -1
@@ -42,6 +48,10 @@ var handicaps := false
 var round_seed := 0
 ## Wind strength (Wind.Level) for this round, or -1 for the player's setting.
 var wind_level := -1
+## Green firmness and speed (LinksGround.GreenFirmness, GreenSpeed) for this
+## round, or -1 for the player's settings.
+var green_firmness := -1
+var green_speed := -1
 ## Putting practice (PuttingPractice): the first player on a practice green
 ## with several cups on each chosen hole's green. Not saved with the setup.
 var putting := false
@@ -211,6 +221,9 @@ func save(path := GameFolder.SETTINGS_PATH) -> void:
 	cfg.set_value("round", "teams", PackedInt32Array(teams))
 	cfg.set_value("round", "computer", PackedInt32Array(computer))
 	cfg.set_value("round", "handicaps", handicaps)
+	cfg.set_value("round", "wind_level", wind_level)
+	cfg.set_value("round", "green_firmness", green_firmness)
+	cfg.set_value("round", "green_speed", green_speed)
 	cfg.save(path)
 
 
@@ -225,6 +238,9 @@ static func load_saved(path := GameFolder.SETTINGS_PATH) -> RoundSetup:
 	s.tees = clampi(cfg.get_value("round", "tees", 0), 0, TEES_NAMES.size() - 1) as Tees
 	s.handicaps = cfg.get_value("round", "handicaps", false) == true
 	s.pins = clampi(int(cfg.get_value("round", "pins", 0)), 0, PINS_NAMES.size() - 1)
+	s.wind_level = clampi(int(cfg.get_value("round", "wind_level", -1)), -1, Wind.Level.STRONG)
+	s.green_firmness = clampi(int(cfg.get_value("round", "green_firmness", -1)), -1, LinksGround.GreenFirmness.FIRM)
+	s.green_speed = clampi(int(cfg.get_value("round", "green_speed", -1)), -1, LinksGround.GreenSpeed.FAST)
 	var saved_names: PackedStringArray = cfg.get_value("round", "names", PackedStringArray())
 	var saved_teams: PackedInt32Array = cfg.get_value("round", "teams", PackedInt32Array())
 	var saved_computer: PackedInt32Array = cfg.get_value("round", "computer", PackedInt32Array())
