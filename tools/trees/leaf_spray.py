@@ -165,12 +165,11 @@ def _bleed(img: Image.Image) -> Image.Image:
     filled = rgb
     mask = alpha.point(lambda v: 255 if v > 8 else 0)
     for radius in (2, 4, 8, 16, 32, 64):
-        blur = Image.composite(rgb, Image.new("RGB", rgb.size), mask).filter(ImageFilter.GaussianBlur(radius))
+        # Blur the filled colour (not normalised by coverage: the gaps just
+        # need a leafy green, not an exact one).
+        blur = filled.filter(ImageFilter.GaussianBlur(radius))
         cover = mask.filter(ImageFilter.GaussianBlur(radius))
-        # Normalise the blurred colour by the blurred coverage.
-        cb = cover.point(lambda v: max(v, 1))
-        norm = Image.merge("RGB", [ImageChops.divide(c, cb, scale=1.0 / 255.0) if False else c for c in blur.split()])
-        filled = Image.composite(filled, norm, mask)
+        filled = Image.composite(filled, blur, mask)
         mask = ImageChops.lighter(mask, cover.point(lambda v: 255 if v > 20 else 0))
     out = filled.convert("RGBA")
     out.putalpha(alpha)
