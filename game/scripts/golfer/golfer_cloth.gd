@@ -10,8 +10,8 @@ extends Node
 ## What each vertex may do is baked once per mesh into its vertex colour
 ## (with_mask): R how loose the cloth is there (a short sleeve's hem flaps,
 ## the collar and a tucked-in waist hardly move), G and B how much of it
-## follows the arms and the legs, A which side. UV2 keeps its rest-pose
-## x and y, for the fold patterns. The collar, placket and buttons get the
+## follows the arms and the legs, A how far round to the front.
+## UV2 keeps its rest-pose x and y, for the fold patterns. The collar, placket and buttons get the
 ## same mask from the same rules, so they move with the shirt under them.
 ##
 ## This node, a child of the skeleton, runs the cheap part each frame:
@@ -236,6 +236,9 @@ static func with_mask(mesh: ArrayMesh, bone_names: PackedStringArray, skeleton: 
 	for b in ["pelvis", "neck_01", "upperarm_l", "lowerarm_l", "upperarm_r", "lowerarm_r", "thigh_l", "foot_l", "thigh_r", "foot_r"]:
 		var i := skeleton.find_bone(b)
 		joints[b] = skeleton.get_bone_global_rest(i).origin if i >= 0 else Vector3.ZERO
+	# The body's front-to-back middle: a little in front of the spine.
+	var spine_bone := skeleton.find_bone("spine_03")
+	var mid_z := (skeleton.get_bone_global_rest(spine_bone).origin.z if spine_bone >= 0 else 0.03) - 0.06
 	var kinds := PackedInt32Array()  # 0 torso, 1 arm, 2 leg
 	for n in bone_names:
 		var stem := n.split("_")[0]
@@ -262,7 +265,12 @@ static func with_mask(mesh: ArrayMesh, bone_names: PackedStringArray, skeleton: 
 				elif kind == 2:
 					leg += weights[v * per + k]
 			var p := verts[v]
-			colours[v] = Color(looseness(p, arm, leg, joints), arm, leg, 1.0 if p.x < 0.0 else 0.0)
+			# A: how far round to the front of the body the point is (the
+			# front folds most). The side comes from UV2's x in the shader:
+			# a flag here would flip halfway across the triangles on the
+			# body's middle and draw a dotted line down the spine.
+			var front := clampf(0.5 - (p.z - mid_z) / 0.1, 0.0, 1.0)
+			colours[v] = Color(looseness(p, arm, leg, joints), arm, leg, front)
 			uv2[v] = Vector2(p.x, p.y)
 		arrays[Mesh.ARRAY_COLOR] = colours
 		arrays[Mesh.ARRAY_TEX_UV2] = uv2
@@ -275,7 +283,8 @@ static func with_mask(mesh: ArrayMesh, bone_names: PackedStringArray, skeleton: 
 
 
 ## How freely the cloth at rest point `p` moves, 0..1, from how much of it
-## follows the arms (`arm`) and legs (`leg`). The rig's left is -x.
+## follows the arms (`arm`) and legs (`leg`). The rig's left is -x and it
+## faces -z.
 ##
 ## - Torso: held at the collar and shoulders and at a tucked-in waist,
 ##   loosest across the middle of the back and chest where a polo blouses.
