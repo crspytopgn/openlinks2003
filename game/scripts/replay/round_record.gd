@@ -35,6 +35,9 @@ var pins := 0
 var names: Array[String] = []
 var computer: Array[int] = []
 var wind_level := 0
+## The greens the round played (LinksGround.GreenFirmness, GreenSpeed).
+var green_firmness := LinksGround.GreenFirmness.MEDIUM
+var green_speed := LinksGround.GreenSpeed.NORMAL
 ## Set when the round was carried on from a SavedRound: the wind before the
 ## resume can't be drawn again, so it can't be checked.
 var resumed := false
@@ -98,7 +101,7 @@ func to_dict() -> Dictionary:
 		"version": version, "seed": round_seed, "model": model, "course_key": course_key,
 		"course_name": course_name, "course_file": course_file, "course_hash": course_hash, "mode": mode, "holes": holes,
 		"tees": tees, "names": names, "computer": computer, "wind_level": wind_level,
-		"resumed": resumed, "started_at": started_at, "shots": list, "drops": drops,
+		"green_firmness": green_firmness, "green_speed": green_speed, "resumed": resumed, "started_at": started_at, "shots": list, "drops": drops,
 		"cards": cards, "finished": finished, "pins": pins,
 	}
 
@@ -121,6 +124,8 @@ static func from_dict(d: Dictionary) -> RoundRecord:
 	for c: Variant in d.get("computer", []):
 		r.computer.append(int(c))
 	r.wind_level = int(d.get("wind_level", 0))
+	r.green_firmness = clampi(int(d.get("green_firmness", LinksGround.GreenFirmness.MEDIUM)), 0, 2)
+	r.green_speed = clampi(int(d.get("green_speed", LinksGround.GreenSpeed.NORMAL)), 0, 2)
 	r.resumed = bool(d.get("resumed", false))
 	r.started_at = str(d.get("started_at", ""))
 	for s: Variant in d.get("shots", []):

@@ -154,7 +154,9 @@ the ends by the same step again:
 | Hard | 0.25 | 0.10 | 0.2025 | 0.461 | 1.3 | 0.1054 | 0.09 | 0.0746 |
 
 (the last three columns are the rolling resistance). The other values match
-the default green. A "course settings" choice keeps the course's own records
+the default green. The options sit on the game's Conditions screen with the wind (none, breezy,
+windy), and the tournament screen sets the same three per round; there is
+no fairway firmness option. A "course settings" choice keeps the course's own records
 instead, which the game warns "could produce unexpected results". The code
 also has a second set of three records and three more speeds, with their own
 formulas, that the options screen does not offer; they are not ported.

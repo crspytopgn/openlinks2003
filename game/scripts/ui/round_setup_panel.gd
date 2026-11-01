@@ -26,6 +26,9 @@ var _who: Array[OptionButton] = []
 var _handicaps: OptionButton
 var _play: OptionButton
 var _pins: OptionButton
+var _wind: OptionButton
+var _firmness: OptionButton
+var _speed: OptionButton
 var _indexes: Array[LineEdit] = []
 var _records: Array[Label] = []
 var _profiles := PlayerProfiles.new()
@@ -60,6 +63,22 @@ func _ready() -> void:
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
 	_pins = _row(grid, "Pins", RoundSetup.PINS_NAMES)
+	_wind = _row(grid, "Wind", RoundSetup.WIND_NAMES)
+	# Green hardness and speed side by side, on one row.
+	_firmness = _row(grid, "Greens", RoundSetup.GREEN_FIRMNESS_NAMES)
+	var greens := HBoxContainer.new()
+	greens.add_theme_constant_override("separation", 8)
+	grid.remove_child(_firmness)
+	grid.add_child(greens)
+	greens.add_child(_firmness)
+	_firmness.custom_minimum_size = Vector2(186, 36)
+	_firmness.tooltip_text = "How firm the greens are: firm greens bounce higher and grip spin harder"
+	_speed = OptionButton.new()
+	_speed.custom_minimum_size = Vector2(186, 36)
+	_speed.tooltip_text = "How fast the greens roll"
+	for item in RoundSetup.GREEN_SPEED_NAMES:
+		_speed.add_item(str(item))
+	greens.add_child(_speed)
 	_play = _row(grid, "Play", PLAY_NAMES)
 	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
@@ -169,6 +188,9 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_tees.select(saved.tees)
 	_holes.select(saved.holes)
 	_pins.select(saved.pins)
+	_wind.select(saved.wind_level + 1)
+	_firmness.select(saved.green_firmness + 1)
+	_speed.select(saved.green_speed + 1)
 	_mode.select(saved.mode)
 	_handicaps.select(1 if saved.handicaps else 0)
 	_play.select(0)
@@ -192,6 +214,9 @@ func current_setup() -> RoundSetup:
 	s.tees = _tees.selected as RoundSetup.Tees
 	s.holes = _holes.selected as RoundSetup.Holes
 	s.pins = _pins.selected
+	s.wind_level = _wind.selected - 1
+	s.green_firmness = _firmness.selected - 1
+	s.green_speed = _speed.selected - 1
 	s.mode = _mode.selected as GameModes.Mode
 	s.handicaps = _handicaps.selected == 1
 	s.practice = _play.selected in [PLAY_RANGE, PLAY_TARGETS, PLAY_COURSE_TEES]
