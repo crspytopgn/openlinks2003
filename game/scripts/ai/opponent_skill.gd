@@ -42,6 +42,8 @@ const LINKS_ERROR_SCALE: Array[float] = [1.0, 0.9, 1.0, 0.9]
 const _LONGEST_DRIVE_YD := 320.0
 
 # (x, y) pairs, measured with tools/olcalibrate.
+const _DRIVE_POWER := [86.8, 0.300, 108.2, 0.350, 128.5, 0.400, 147.3, 0.450, 165.5, 0.500,
+	182.4, 0.550, 198.1, 0.600, 212.5, 0.650, 226.1, 0.700, 238.7, 0.750, 250.0, 0.800, 261.2, 0.850, 271.1, 0.900, 280.6, 0.950, 289.1, 1.000]
 const _FAIRWAYS := [21.6, 0.750, 22.7, 0.700, 24.1, 0.650, 26.0, 0.600, 28.0, 0.550, 30.8, 0.500, 34.0, 0.450,
 	37.6, 0.400, 42.2, 0.350, 48.5, 0.300, 56.2, 0.250, 65.5, 0.200, 78.2, 0.150, 94.0, 0.100]
 const _APPROACH := [16.8, 0.600, 21.7, 0.800, 26.4, 1.000, 31.2, 1.200, 35.9, 1.400, 40.5, 1.600, 44.9, 1.800,
@@ -105,7 +107,8 @@ func level_name() -> String:
 ## Mirrors olcore::golfer_profile.
 func _make_profile() -> void:
 	var reach := clampf(stats[STAT_DRIVE_YD] / _LONGEST_DRIVE_YD, 0.3, 1.0)
-	var drive := _interpolate(_FAIRWAYS, stats[STAT_FAIRWAYS], 0.0) / pow(reach, 1.7)
+	var power := clampf(_interpolate(_DRIVE_POWER, stats[STAT_DRIVE_YD], 0.0), 0.2, 1.0)
+	var drive := _interpolate(_FAIRWAYS, stats[STAT_FAIRWAYS], 0.0) / power
 	var mishit := clampf(stats[STAT_MISHIT] / 100.0, 0.0, 0.5)
 	var approach := _interpolate(_APPROACH, maxf(5.0, stats[STAT_APPROACH_FT] - 150.0 * mishit), 0.0)
 	var chip := _interpolate(_CHIP, stats[STAT_CHIP_FT], 0.0)
@@ -117,7 +120,7 @@ func _make_profile() -> void:
 		PackedFloat64Array([0.025 * line, 0.0, line]),
 	]
 	mishit_chance = mishit
-	strength = clampf(pow(reach, 1.45), 0.2, 1.0)
+	strength = power
 	links_strength = reach
 	links_tee = _rating(_LINKS_TEE, stats[STAT_FAIRWAYS])
 	links_irons = _rating(_LINKS_APPROACH, stats[STAT_APPROACH_FT])

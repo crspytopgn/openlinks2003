@@ -227,11 +227,17 @@ void report_levels(const Hitter& h, const char* physics) {
 
 int main(int argc, char** argv) {
   Hitter standard;
-  std::vector<std::pair<double, double>> fw, ap, ch, pt;
+  std::vector<std::pair<double, double>> dr, fw, ap, ch, pt;
+  for (double s = 0.30; s < 1.001; s += 0.05) {
+    GolferProfile g = raw(0, 0, 0, 0);
+    g.strength = s;
+    dr.push_back({drive(standard, g).yards, s});
+  }
   for (double a = 0.10; a < 0.80; a += 0.05) fw.push_back({drive(standard, raw(a, 1, 1, 1)).fairways_pct, a});
   for (double s = 0.6; s < 3.5; s += 0.2) ap.push_back({approach(standard, raw(0.2, s, 1, 1), 150), s});
   for (double s = 0.6; s < 3.5; s += 0.2) ch.push_back({approach(standard, raw(0.2, 1, s, 1), 20), s});
   for (double l = 1.2; l < 4.0; l += 0.2) pt.push_back({holed(standard, raw(0.2, 1, 1, l), 8), l});
+  print_table("kDrivePower", dr);
   print_table("kFairways", fw);
   print_table("kApproach", ap);
   print_table("kChip", ch);

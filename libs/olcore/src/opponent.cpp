@@ -44,6 +44,9 @@ double interpolate(const Point* table, std::size_t n, double x, double slope_pas
 
 // Calibration tables, measured with tools/olcalibrate through the standard
 // physics on flat ground (see docs/game-shell.md#computer-golfers).
+// Average drive (yd) against the power, with no errors: a full swing is
+// about 290 yards, so a longer hitter swings at full power.
+const Point kDrivePower[] = {{86.8, 0.300}, {108.2, 0.350}, {128.5, 0.400}, {147.3, 0.450}, {165.5, 0.500}, {182.4, 0.550}, {198.1, 0.600}, {212.5, 0.650}, {226.1, 0.700}, {238.7, 0.750}, {250.0, 0.800}, {261.2, 0.850}, {271.1, 0.900}, {280.6, 0.950}, {289.1, 1.000}};
 // Fairways hit (%) against the drive's timing error; the aim error is 3.5
 // times it and the power error 0.17 times it.
 const Point kFairways[] = {{21.6, 0.750}, {22.7, 0.700}, {24.1, 0.650}, {26.0, 0.600}, {28.0, 0.550}, {30.8, 0.500}, {34.0, 0.450}, {37.6, 0.400}, {42.2, 0.350}, {48.5, 0.300}, {56.2, 0.250}, {65.5, 0.200}, {78.2, 0.150}, {94.0, 0.100}};
@@ -91,10 +94,12 @@ const char* skill_name(SkillLevel level) {
 
 GolferProfile golfer_profile(const GolferStats& st) {
   GolferProfile g;
-  // The table is for the longest drivers; a shorter, slower drive curves
-  // less, so it needs a bigger timing error to miss the fairway as often.
+  // The power that drives it as far with the standard physics. The table is
+  // for a full swing; a slower one curves less, so it needs a bigger timing
+  // error to miss the fairway as often.
   double reach = std::clamp(st.drive_yd / kLongestDriveYd, 0.3, 1.0);
-  double drive = interpolate(kFairways, std::size(kFairways), st.fairways_pct, 0.0) / std::pow(reach, 1.7);
+  double strength = std::clamp(interpolate(kDrivePower, std::size(kDrivePower), st.drive_yd, 0.0), 0.2, 1.0);
+  double drive = interpolate(kFairways, std::size(kFairways), st.fairways_pct, 0.0) / strength;
   g.shots[0] = {0.17 * drive, drive, 3.5 * drive};
   // The tables leave out mishits; a duffed approach from 150 yards adds
   // about 150 ft to the average.
@@ -106,10 +111,8 @@ GolferProfile golfer_profile(const GolferStats& st) {
   double line = interpolate(kPutt8, std::size(kPutt8), st.putt8_pct, 0.0);
   g.shots[3] = {0.025 * line, 0.0, line};
   g.mishit_chance = mishit;
-  // A drive goes about as the power to the 0.69 with the standard physics,
-  // so the power is the distance to the 1.45; with Links 2003's it is close
-  // to in proportion.
-  g.strength = std::clamp(std::pow(reach, 1.45), 0.2, 1.0);
+  g.strength = strength;
+  // With Links 2003's physics the distance is close to in proportion.
   g.links_strength = reach;
   auto rating = [](const Point* t, std::size_t n, double x) {
     return static_cast<int>(std::lround(std::clamp(interpolate(t, n, x, 0.0), 0.0, 100.0)));

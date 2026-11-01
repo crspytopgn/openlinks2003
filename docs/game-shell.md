@@ -292,11 +292,12 @@ Tour's averages hits the PGA Tour's averages, and the C++ test
 
 The tour column is the PGA Tour's ShotLink averages (about 2015 to 2024); the
 amateurs are rounded from Broadie's *Every Shot Counts* and Arccos amateur
-data. Measured with `olcalibrate`, the tour pro hits 58% of 30-yard fairways,
+data. Measured with `olcalibrate`, the tour pro hits 59% of 30-yard fairways,
 finishes 27.6 ft from 150 yards, 6.5 ft from a 20-yard chip, and holes 94%
 from 3 ft, 50% from 8 ft and 18% from 20 ft (Broadie's tour make rates are
-96%, 50% and 15%). Drives are measured against the longest hitters (320
-yards), who swing at full power.
+96%, 50% and 15%). A golfer swings at the power that drives the ball its
+average drive with the standard physics. A full swing there goes about 290
+yards, so the tour pro drives 285 and the weekend golfer 211.
 
 With the Links 2003 physics a timing error turns the face (4.5 degrees at full
 error) and each kind of error is scaled (`links_error_scale`) so the same
