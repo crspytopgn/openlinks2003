@@ -169,6 +169,8 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## What the computer golfer planned, added to its next shot_log line.
+var _cpu_plan_note := ""
 ## F1: keep the key hints up in the Broadcast and Tour presentations.
 var _show_controls := false
 ## What is driving the mouse swing: the mouse, a finger or a thumbstick.
@@ -1931,7 +1933,8 @@ func _complete_flight() -> void:
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
-		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
+		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))] + _cpu_plan_note)
+	_cpu_plan_note = ""
 	if voice != null:
 		var rest_pin := _flat_distance(shot.rest, hole.pin)
 		var past := Vector2(shot.rest.x - hole.pin.x, shot.rest.z - hole.pin.z).dot(Vector2(hole.pin.x - shot_from.x, hole.pin.z - shot_from.z)) > 0.0
@@ -2794,6 +2797,7 @@ func _computer_swing() -> void:
 	var cpu := opponents[shooter]
 	cpu.pressure = _pressure_on(shooter)
 	var made := cpu.swing()
+	_cpu_plan_note = " (planned %.1f m, errors x%.2f)" % [cpu.planned_left, cpu.last_error_scale]
 	if _classic_computer(shooter):
 		# Links 2003's own computer misses (play_shot); the plan keeps its shape.
 		made = PackedFloat64Array([cpu.power, cpu.accuracy, cpu.aim_deg])
