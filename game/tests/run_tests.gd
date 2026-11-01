@@ -3887,16 +3887,21 @@ func _test_computer_opponents() -> void:
 	_check(game.state == GolfRound.State.COMPUTER, "a computer golfer is on the tee")
 	var started := Time.get_ticks_msec()
 	var steps := 0
-	var worst := 0
-	var worst_log := PackedStringArray()
+	var pro_log := PackedStringArray()
+	var was_done := false
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
-		if game.state == GolfRound.State.HOLE_DONE and game.players[0].strokes > worst:
-			worst = game.players[0].strokes
-			worst_log = game.shot_log.duplicate()
+		var done := game.state == GolfRound.State.HOLE_DONE or game.state == GolfRound.State.ROUND_DONE
+		if done and not was_done:
+			# Every shot the tour pro played, hole by hole.
+			pro_log.append("hole %d (par %d): %d" % [game.hole.number, game.hole.par, game.players[0].strokes])
+			for line in game.shot_log:
+				if line.begins_with("Pro"):
+					pro_log.append("  " + line)
+		was_done = done
 	_check(game.state == GolfRound.State.ROUND_DONE, "computer round finishes")
-	print("  the tour pro's worst hole:\n    " + "\n    ".join(worst_log))
+	print("  the tour pro's round:\n    " + "\n    ".join(pro_log))
 	var pro := game.scoring.cards[0]
 	var hacker := game.scoring.cards[1]
 	_check(pro.holes_played() == game.holes.size() and hacker.holes_played() == game.holes.size(), "both played every hole")
@@ -5036,6 +5041,8 @@ func _play_tournament_round(t: Tournament, pars: Array[int], mine: int) -> Strin
 func _test_tournament_stroke_play() -> void:
 	Tournament.path = "user://test_tournament.cfg"
 	Tournament.remove()
+	CourseDifficulty.path = "user://test_course_difficulty.cfg"
+	CourseDifficulty.remove()
 	var keys: Array[String] = ["", ""]
 	var titles: Array[String] = ["Kauri Cliffs Golf Club", "Kauri Cliffs Golf Club"]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.STROKE, "rounds": 4, "strength": 3,
@@ -5063,8 +5070,18 @@ func _test_tournament_stroke_play() -> void:
 	_check(late > early, "the field plays on while the person does (%d, %d holes)" % [early, late])
 	var rows := t.live_rows(9, {"Tester": [4, 4, 3, 4, 5, 4, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]})
 	_check(rows.size() == 72 and str(rows[0].pos) in ["1", "T1"], "live rows")
+	var group := t.partner_indexes()
 	var text := _play_tournament_round(t, pars, 0)
 	print("  " + text)
+	# The partners' real rounds (level par here) teach the field how the
+	# course plays.
+	var want := 0.0
+	for i in group:
+		want -= t.expected_to_par(i, pars, t.round_winds[0])
+	want /= group.size() + CourseDifficulty.PRIOR_ROUNDS
+	_check(CourseDifficulty.rounds("") == group.size(), "each partner's round is kept (%d)" % CourseDifficulty.rounds(""))
+	_check_near(CourseDifficulty.shift(""), want, 1e-4, "the course shift")
+	print("  course shift after round 1: %+.2f a round" % CourseDifficulty.shift(""))
 	_check(text.begins_with("Kauri Cliffs Open, round 1: 72 (E)"), "round 1 text (%s)" % text)
 	text = _play_tournament_round(t, pars, -1)
 	print("  " + text)
@@ -5094,6 +5111,7 @@ func _test_tournament_stroke_play() -> void:
 	var board := t2.leaderboard_lines(5)
 	_check(board.size() >= 5 and board[0].contains("pts"), "a Stableford board (%s)" % board[0])
 	Tournament.remove()
+	CourseDifficulty.remove()
 
 
 func _test_tournament_match_play() -> void:
