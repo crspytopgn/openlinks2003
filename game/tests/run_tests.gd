@@ -119,6 +119,7 @@ func _process(_delta: float) -> bool:
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
 	_run("glass_ui", _test_glass_ui)
+	_run("web_text_input", _test_web_text_input)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -3254,6 +3255,56 @@ func _test_club_heads(golfer: Node) -> void:
 ## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
 ## fit finds known sliders again from the golfer's own landmarks; colours are
 ## read from the right patches.
+func _test_web_text_input() -> void:
+	var box := Control.new()
+	box.position = Vector2(100, 200)
+	root.add_child(box)
+	var le := LineEdit.new()
+	le.position = Vector2(10, 20)
+	le.size = Vector2(300, 40)
+	le.max_length = 6
+	le.placeholder_text = "Course"
+	box.add_child(le)
+	var spin := SpinBox.new()
+	box.add_child(spin)
+	var spin_edit := spin.get_line_edit()
+	var fields: Array[LineEdit] = [le, spin_edit]
+	var listed := WebTextInput.describe_all(fields, null)
+	_check(listed.size() == 2, "both boxes are listed")
+	var d: Dictionary = listed[0] if listed.size() > 0 else {}
+	var scale := root.get_screen_transform().get_scale()
+	_check(is_equal_approx(float(d.get("x", -1)), roundf(110 * scale.x)) and is_equal_approx(float(d.get("w", -1)), roundf(300 * scale.x)), "box rectangle in window pixels (%s)" % str(d))
+	_check(d.get("id") == le.get_instance_id() and d.get("max") == 6 and d.get("hint") == "Course", "box details")
+	_check(listed.size() == 2 and listed[1].numeric, "a SpinBox gets the number keyboard")
+	# Typing goes into the box with the signals panels listen for.
+	var seen: Array[String] = []
+	le.text_changed.connect(func(t: String) -> void: seen.append("changed " + t))
+	le.text_submitted.connect(func(t: String) -> void: seen.append("submitted " + t))
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "change", "text": "Pebble Beach"})
+	_check(le.text == "Pebble", "the length limit holds")
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "submit", "text": "Pebble"})
+	_check(seen == ["changed Pebble", "submitted Pebble"], "change and submit signals (%s)" % str(seen))
+	le.editable = false
+	_check(WebTextInput.describe_all(fields, null).size() == 1, "read-only boxes are left out")
+	le.editable = true
+	# An open dialog takes the touches: boxes behind it are left out.
+	var dialog := AcceptDialog.new()
+	var inside := LineEdit.new()
+	dialog.add_child(inside)
+	root.add_child(dialog)
+	dialog.popup_centered(Vector2i(300, 120))
+	var windows: Array[Window] = [dialog]
+	var top := WebTextInput.top_window(windows, {})
+	_check(top == dialog, "an open dialog is on top")
+	var all_fields: Array[LineEdit] = [le, spin_edit, inside]
+	var on_top := WebTextInput.describe_all(all_fields, top)
+	_check(on_top.size() == 1 and on_top[0].id == inside.get_instance_id(), "only the dialog's box is listed")
+	dialog.hide()
+	_check(WebTextInput.top_window(windows, {}) == null, "a closed dialog isn't")
+	dialog.free()
+	box.free()
+
+
 func _test_face_from_photo() -> void:
 	var parts := GolferParts.shared()
 	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")

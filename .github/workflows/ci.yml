@@ -28,6 +28,9 @@ jobs:
       - name: Browser file import tests
         if: runner.os == 'Linux'
         run: node game/web/tests/test_game_files.mjs
+      - name: Browser text input tests
+        if: runner.os == 'Linux'
+        run: node game/web/tests/test_text_input.mjs
       - name: Online server tests
         if: runner.os == 'Linux'
         run: node --test "server/test/*.test.js"
