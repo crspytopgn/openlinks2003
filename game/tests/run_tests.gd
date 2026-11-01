@@ -3622,6 +3622,16 @@ func _test_golfer_roster() -> void:
 	var mat: Material = body.get_surface_override_material(0) if body.mesh.get_surface_count() > 1 else body.material_override
 	_check(mat is ShaderMaterial and is_equal_approx(float((mat as ShaderMaterial).get_shader_parameter("stubble")), 0.7),
 		"the skin shader shows the pro's stubble")
+	var fd: Variant = parts.info.materials.Skin.get("face_detail")
+	_check(fd is Dictionary and parts.texture(int(fd.normal)) != null and parts.texture(int(fd.albedo), 512).get_width() == 512,
+		"the skin has the scanned face detail, and a half-size copy for the web")
+	_check(mat is ShaderMaterial and (mat as ShaderMaterial).get_shader_parameter("face_normal") is Texture2D
+		and float((mat as ShaderMaterial).get_shader_parameter("face_relief")) > 0.5,
+		"the face shows the scan's pores and lines")
+	var tier := GolferSurface.face_detail
+	GolferSurface.face_detail = 0
+	_check(FreeGolfer._face_detail(parts, "Skin").is_empty(), "Low quality leaves the face detail out")
+	GolferSurface.face_detail = tier
 	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
 	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D
