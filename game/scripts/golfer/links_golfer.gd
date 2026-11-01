@@ -204,7 +204,7 @@ func play(animation: StringName) -> void:
 		&"putt":
 			if not swing.is_empty():
 				_start(swing[0]["clip"], 0, -1, [section.get("FinishBreath", "")])
-		&"celebrate":
+		&"celebrate", &"fist_pump":
 			for r in parse_clip_list(section.get("PostFlightReactions", "")):
 				if "InHole" in r["clip"]:
 					_start(r["clip"], 0, -1, [section.get("NeutralBreath", "")])
