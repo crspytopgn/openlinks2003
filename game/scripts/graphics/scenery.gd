@@ -247,13 +247,16 @@ func _choose_sky() -> void:
 		environment.sky.sky_material = _free_sky if _free_sky != null else environment.sky.sky_material
 		environment.fog_light_color = _time.haze if real else HORIZON
 		environment.fog_density = 0.0006 if not real else 0.00035 * float(_time.fog)
-		# A little haze over the sky too, so the far land melts into it.
-		environment.fog_sky_affect = 0.25 if real else 0.0
+		# A little haze over the sky too, so the far land melts into it;
+		# less in Forward+, where it turned the whole sky milky (most of all
+		# from the flyover's height).
+		environment.fog_sky_affect = (0.08 if GraphicsSettings.is_forward_plus() else 0.25) if real else 0.0
 		if _free_sky is ShaderMaterial:
 			# Brighter in Compatibility, which has no sky fill light.
 			var sky_mat := _free_sky as ShaderMaterial
 			# Brighter in Compatibility, which has no sky fill light.
 			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else 1.5)
+			sky_mat.set_shader_parameter("sky_depth", 1.4 if GraphicsSettings.is_forward_plus() else 1.0)
 			sky_mat.set_shader_parameter("tint", _time.sky)
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
 			sky_mat.set_shader_parameter("glow", _time.glow)
