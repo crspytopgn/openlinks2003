@@ -12,6 +12,6 @@ vec3 tone_turf(vec3 c) {
 	}
 	float green = smoothstep(0.0, 0.04, c.g - max(c.r, c.b));
 	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-	vec3 t = mix(vec3(luma), c, 0.72) * vec3(1.05, 1.0, 1.04);
+	vec3 t = mix(vec3(luma), c, 0.62) * vec3(1.05, 1.0, 1.04);
 	return mix(c, t, green * turf_tone);
 }
