@@ -617,6 +617,8 @@ func start_hole(index: int) -> void:
 	_update_wind_shaders()
 	if free_ambience != null:
 		free_ambience.start_hole(hole, wind.velocity().length())
+		if graphics != null:
+			free_ambience.set_time(graphics.time_of_day, float(index) / maxf(holes.size() - 1, 1))
 	for i in players.size():
 		var p := players[i]
 		p.at = hole.tee if practice == null else practice_spot
@@ -756,6 +758,8 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
 		golfer.play(&"putt" if club.is_putter else &"swing")
 		golfer.watch(ball, 0.7 if club.is_putter else 0.3)
+	if gallery != null and is_instance_valid(gallery):
+		gallery.watch(ball)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
 	sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
@@ -1716,6 +1720,8 @@ func _prepare_shot(snap_camera: bool) -> void:
 		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
+	if gallery != null and is_instance_valid(gallery):
+		gallery.watch_point(ball_at + Vector3.UP * 1.2)
 	read_view = GreenRead.View.PLAY
 	if lie == Surface.Type.SAND and marks != null and ball_at.distance_to(_footprints_at) > 0.01:
 		_footprints_at = ball_at

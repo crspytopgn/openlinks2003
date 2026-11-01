@@ -4,6 +4,8 @@ The sounds the game plays when the original Links 2003 files are not
 loaded. None of them comes from Links 2003: they are cut and mixed from
 these field recordings on [freesound.org](https://freesound.org), by
 `tools/audio/build_free_sounds.py` from `tools/audio/free_sounds.json`.
+`amb_traffic`, `amb_mower` and `amb_murmur` are not recordings: they are
+synthesised from noise by `tools/audio/synth_ambience.py`.
 
 CC0 recordings need no credit, but every recording is credited anyway.
 Those under CC BY are used under that licence; the files here are

@@ -1986,6 +1986,11 @@ func _test_gallery() -> void:
 	root.add_child(low)
 	_check(low.crowd_count() == 0 and low.card_count() <= Gallery.CARDS_BY_QUALITY[0], "Low quality: cards only, no 3D people")
 	low.free()
+	var yaw := Gallery.facing_yaw(Vector3.ZERO, Vector3(3, 0, 4))
+	var facing := Basis(Vector3.UP, yaw) * Vector3.FORWARD
+	_check(facing.distance_to(Vector3(0.6, 0, 0.8)) < 1e-4, "spectators face what they watch")
+	g.watch_point(hole.tee + Vector3.UP)
+	_check(g.murmur_db() == Gallery.MURMUR_DB, "the gallery murmurs")
 	g.react(Commentary.Crowd.ROAR)
 	g.free()
 	_check_near(Gallery.stand_depth(), 6.8, 1e-4, "eight bleacher rows of 0.85 m")
@@ -2800,7 +2805,7 @@ func _test_full_round() -> void:
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
 	# Without game files the round plays the free recordings.
 	_check(game.sounds is FreeSoundBank, "free sound bank without game files")
-	_check(game.free_ambience != null and game.free_ambience.get_child_count() == 3, "free ambience beds")
+	_check(game.free_ambience != null and game.free_ambience.get_child_count() == 6, "free ambience beds, road, mower and birdcalls")
 	var before := game.sounds.get_child_count()
 	game.sounds.play_detail(&"hit", {"club": _club("Dr"), "lie": Surface.Type.ROUGH, "power": 1.0})
 	game.sounds.play_detail(&"land", {"surface": Surface.Type.SAND, "speed": 15.0})
@@ -3022,6 +3027,19 @@ func _test_free_sounds() -> void:
 	_check(FreeAmbience.setting_for("Kiawah Island Ocean Course") == FreeAmbience.Setting.SEASIDE, "seaside")
 	_check(FreeAmbience.setting_for("Desert Mountain") == FreeAmbience.Setting.DESERT, "desert before mountain")
 	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
+	for stem: String in ["amb_traffic", "amb_murmur", "amb_mower"]:
+		var layer := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
+		_check(layer != null and layer.get_length() > 25.0, "%s is there" % stem)
+	var park := FreeAmbience.Setting.PARKLAND
+	_check(FreeAmbience.bed_db(park, "morning") > FreeAmbience.bed_db(park, "afternoon") + 6.0, "the dawn chorus is louder than the afternoon")
+	_check(FreeAmbience.bed_db(park, "midday") <= FreeAmbience.bed_db(park, "afternoon"), "birds are quietest at midday")
+	_check(FreeAmbience.bed_db(park, "afternoon") <= -28.0, "birdsong stays in the background")
+	_check(FreeAmbience.bed_db(FreeAmbience.Setting.DESERT, "midday") > FreeAmbience.bed_db(FreeAmbience.Setting.DESERT, "morning"), "cicadas loudest in the heat")
+	_check(FreeAmbience.has_calls(park) and not FreeAmbience.has_calls(FreeAmbience.Setting.SEASIDE), "birdcalls in parkland, not over the waves")
+	_check(FreeAmbience.breeze_db(0.0) == FreeAmbience.BREEZE_FLOOR_DB, "leaves stir on a still day")
+	_check(FreeAmbience.breeze_db(12.0) > FreeAmbience.breeze_db(3.0), "louder trees in a stronger wind")
+	_check(Scenery.time_name(GraphicsSettings.TimeOfDay.ROUND, 0.0) == "morning" and Scenery.time_name(GraphicsSettings.TimeOfDay.ROUND, 1.0) == "golden", "the round runs from morning to evening")
+	_check(Scenery.time_name(GraphicsSettings.TimeOfDay.AFTERNOON, 0.0) == "afternoon", "afternoon by default")
 
 
 ## An unplayable lie and a water drop through the real round.

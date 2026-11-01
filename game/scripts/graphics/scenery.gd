@@ -311,6 +311,26 @@ func set_round_progress(f: float) -> void:
 		_choose_sky()
 
 
+## The time of day as one of "morning", "midday", "afternoon" or "golden"
+## (for the course's sound): the setting's own, or for "Through the round"
+## the stretch of ROUND_TIMES the round has reached.
+static func time_name(setting: int, progress: float) -> String:
+	match setting:
+		GraphicsSettings.TimeOfDay.MORNING:
+			return "morning"
+		GraphicsSettings.TimeOfDay.MIDDAY:
+			return "midday"
+		GraphicsSettings.TimeOfDay.GOLDEN:
+			return "golden"
+		GraphicsSettings.TimeOfDay.ROUND:
+			var name: String = ROUND_TIMES[0][1]
+			for r: Array in ROUND_TIMES:
+				if progress + 0.12 >= r[0]:
+					name = r[1]
+			return name
+	return "afternoon"
+
+
 ## The light of the time of day: TIMES for one setting, or a blend of
 ## them through the round.
 static func time_light(setting: int, progress: float) -> Dictionary:

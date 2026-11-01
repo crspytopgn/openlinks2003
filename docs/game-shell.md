@@ -799,9 +799,18 @@ Nothing in the round needs to change.
   (driver, fairway wood or hybrid, iron, wedge) with turf, grass or sand
   layered in by lie, landings by surface and the crowd takes, each played
   with a little random pitch and level. Courses with no ambient sounds of
-  their own get `FreeAmbience`: a looping bed picked from the course name
-  (parkland, woodland, seaside, desert), wind in the trees that follows the
-  wind, and running water on holes with water near the tee. Menu buttons
+  their own get `FreeAmbience`. Like a real course on TV it is mostly
+  quiet: wind in the trees (always a little, more with the wind); a bed
+  picked from the course name (parkland, woodland, seaside, desert) kept
+  low, with birdsong loudest at dawn and quietest at midday (cicadas the
+  other way); now and then a single bird calling from a tree 25 to 90 m
+  away (a 3D sound, fainter and duller with distance); a far-off road;
+  some mornings and afternoons a distant mower; and running water on holes
+  with water near the tee. The time of day comes from Settings (and moves
+  through the round with "Through the round"). In Broadcast and Tour the
+  gallery murmurs from the tee and the green, and hushes while the player
+  is over the ball. The road, mower and murmur are synthesised by
+  `tools/audio/synth_ambience.py`. Menu buttons
   click with `ui_click.ogg`.
 - **Physics:** subclass `ShotModel` (`launch(...)`, `simulate(...)`) and set
   `AssetProviders.shot_model`. This is where a model tuned against the
