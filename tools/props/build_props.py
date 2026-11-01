@@ -694,6 +694,42 @@ def build_course_sign(out):
     pr.save(out)
 
 
+# --- Tee peg -----------------------------------------------------------------------------------
+#
+# A white wooden tee, 2 3/4 in (70 mm) long: a 4.8 mm shank tapering to
+# the point, flaring over the top 12 mm to an 11 mm head with a shallow
+# cup. Its origin is where a ball's bottom rests in the cup, so the game
+# sets it at the ball's foot and lets the rest sink into the ground.
+
+def build_tee_peg(out):
+    pr = Prop("tee_peg")
+    pr.material("wood", (0.93, 0.92, 0.88, 1), 0.6)
+    lathe_y(pr.parts["wood"], [(-0.0697, 0.0), (-0.064, 0.0012), (-0.055, 0.0021), (-0.012, 0.0024),
+                               (-0.006, 0.0031), (-0.002, 0.0045), (0.0, 0.0054), (0.0006, 0.0055),
+                               (0.0008, 0.0051), (0.0004, 0.0042), (-0.0012, 0.0024), (-0.0018, 0.0)], 12)
+    pr.save(out)
+
+
+# --- Flagstick -----------------------------------------------------------------------------------
+#
+# A tournament flagstick: white fibreglass 3/4 in (19 mm) thick and 7 ft
+# (2.13 m) above the green, tapering a little to its top, where a chrome
+# cap holds the flag's top grommet. Its foot carries on 4 in down into the
+# cup to the chrome ferrule that seats it in the cup's bottom, so the stick
+# shows when looking into the hole. Origin: the middle of the hole at the
+# surface of the green.
+
+def build_flagstick(out):
+    pr = Prop("flagstick")
+    pr.material("fibreglass", (0.95, 0.95, 0.93, 1), 0.28, clearcoat=0.6)
+    pr.material("chrome", (0.8, 0.8, 0.82, 1), 0.2, metal=1.0)
+    lathe_y(pr.parts["fibreglass"], [(-0.078, 0.0), (-0.078, 0.0092), (1.4, 0.0095), (2.105, 0.0086), (2.105, 0.0)], 16)
+    lathe_y(pr.parts["chrome"], [(-0.106, 0.0), (-0.106, 0.004), (-0.1, 0.0075), (-0.078, 0.0098),
+                                 (-0.072, 0.0098), (-0.072, 0.0)], 16)
+    lathe_y(pr.parts["chrome"], [(2.1, 0.0), (2.1, 0.0094), (2.124, 0.0094), (2.13, 0.006), (2.1315, 0.0)], 16)
+    pr.save(out)
+
+
 def lathe_y(part, profile, segs):
     """Revolves (y, radius) points round the y axis."""
     th = np.linspace(0, 2 * math.pi, segs, endpoint=False)
@@ -706,7 +742,8 @@ BUILDERS = {"golf_bag": build_bag, "tee_marker": build_tee_marker, "ball_washer"
             "tee_sign": build_tee_sign, "tee_bench": build_bench, "bunker_rake": build_rake,
             "yardage_plate": build_yardage_plate, "yardage_pole": build_yardage_pole,
             "sponsor_sign": build_sponsor_sign, "water_station": build_water_station,
-            "practice_flag": build_practice_flag, "course_sign": build_course_sign}
+            "practice_flag": build_practice_flag, "course_sign": build_course_sign,
+            "tee_peg": build_tee_peg, "flagstick": build_flagstick}
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else OUT
