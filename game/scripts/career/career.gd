@@ -302,6 +302,14 @@ func partner_level(i: int) -> int:
 	return OpponentSkill.Level.BEGINNER
 
 
+## Field golfer `i` as a computer golfer: their own strengths, weaknesses and
+## style, with numbers that average about their scoring average.
+func partner_pro(i: int) -> TourPro:
+	var r := RandomNumberGenerator.new()
+	r.seed = hash([career_seed, tour, "pro", names[i]])
+	return TourPro.generate(names[i], TourPro.level_for_average(skills[i]), false, r)
+
+
 ## The round the person plays next, or null if they have none to play.
 func next_setup() -> RoundSetup:
 	if not playing_event():
@@ -321,6 +329,7 @@ func next_setup() -> RoundSetup:
 		s.names.append(names[i])
 		s.teams.append(s.teams.size() % 2)
 		s.computer.append(partner_level(i))
+		s.pros[names[i]] = partner_pro(i).to_dict()
 	s.career = round_id()
 	return s
 

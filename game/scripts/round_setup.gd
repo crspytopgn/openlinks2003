@@ -49,12 +49,26 @@ var putting := false
 ## the ball comes back, and a launch monitor shows each shot. No scores.
 ## Not saved with the setup.
 var practice := false
+## Practice on the built-in practice ground (PracticeGround: its range for
+## `practice`, its putting green for `putting`) instead of the course's own
+## tees and greens. Not saved with the setup.
+var facility := false
+## The range's target game (RangeGame), on the practice ground's range. Not
+## saved with the setup.
+var target_game := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null
 ## A Career round: the id of the career round it plays (Career.round_id),
 ## or "". Kept with a saved round but not with the setup.
 var career := ""
+## A tournament round: the id of the tournament round it plays
+## (Tournament.round_id), or "". Kept with a saved round.
+var tournament := ""
+## Computer golfers who aren't plain skill levels: name -> TourPro.to_dict()
+## (tournament and career field golfers). A Tour pro seat named after a
+## roster pro plays as that pro without an entry. Kept with a saved round.
+var pros := {}
 ## Each player's handicap index in tenths (Handicap.NONE plays off scratch),
 ## from their profile. Not saved with the setup.
 var indexes: Array[int] = []
@@ -73,6 +87,17 @@ func player_count() -> int:
 ## The computer golfer's level for player `i`, or HUMAN.
 func computer_level(i: int) -> int:
 	return computer[i] if i < computer.size() else HUMAN
+
+
+## Who computer player `i` is, or null for a typical golfer of its level.
+func pro_for(i: int) -> TourPro:
+	if not is_computer(i) or i >= names.size():
+		return null
+	if pros.has(names[i]):
+		return TourPro.from_dict(pros[names[i]])
+	if computer_level(i) == OpponentSkill.Level.TOUR:
+		return TourPro.find(names[i])
+	return null
 
 
 func is_computer(i: int) -> bool:

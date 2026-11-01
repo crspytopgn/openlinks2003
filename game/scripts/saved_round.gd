@@ -38,6 +38,8 @@ static func save(setup: RoundSetup, state: Dictionary) -> void:
 	cfg.set_value("setup", "handicaps", setup.handicaps)
 	cfg.set_value("setup", "indexes", PackedInt32Array(setup.indexes))
 	cfg.set_value("setup", "career", setup.career)
+	cfg.set_value("setup", "tournament", setup.tournament)
+	cfg.set_value("setup", "pros", setup.pros)
 	cfg.set_value("setup", "saved_at", Time.get_datetime_string_from_system(false, true))
 	for key: String in state:
 		cfg.set_value("round", key, state[key])
@@ -58,6 +60,9 @@ static func load_setup() -> RoundSetup:
 	s.tees = clampi(cfg.get_value("setup", "tees", 0), 0, RoundSetup.TEES_NAMES.size() - 1) as RoundSetup.Tees
 	s.handicaps = cfg.get_value("setup", "handicaps", false) == true
 	s.career = str(cfg.get_value("setup", "career", ""))
+	s.tournament = str(cfg.get_value("setup", "tournament", ""))
+	var saved_pros: Variant = cfg.get_value("setup", "pros", {})
+	s.pros = saved_pros if saved_pros is Dictionary else {}
 	s.pins = clampi(int(cfg.get_value("setup", "pins", 0)), 0, RoundSetup.PINS_NAMES.size() - 1)
 	s.pin_seed = int(cfg.get_value("setup", "pin_seed", 0))
 	var saved_names: PackedStringArray = cfg.get_value("setup", "names", PackedStringArray())

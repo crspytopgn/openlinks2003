@@ -21,7 +21,8 @@ const DRILL_HELP := [
 	"Lag putts of 20, 30, 40 and 50 ft. Each one that stops within 3 ft scores.",
 ]
 const SLOPE_NAMES := ["Any slope", "Uphill", "Downhill", "Left to right", "Right to left"]
-const SETUP_HELP := "Putting practice: the first player on a practice green with several cups on each chosen hole's green. Drills: free putting, around the clock and a lag ladder. Nothing is scored or saved."
+const DRILLS_HELP := "Drills: free putting, around the clock and a lag ladder. Nothing is scored or saved."
+const SETUP_HELP := "Putting practice: the first player on a practice green with several cups on each chosen hole's green. " + DRILLS_HELP
 const DISTANCES_FT: Array[int] = [3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60]
 const DEFAULT_DISTANCE := 4  ## index of 10 ft
 const CLOCK_FT := 3.0

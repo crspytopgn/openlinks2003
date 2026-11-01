@@ -65,16 +65,16 @@ CLIPS = {
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
                          glance=(0.9, 0.45, 0.8, 75.0)),
-    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=329, putt=False),
-    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=329,
+    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=327, putt=False),
+    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=327,
                   downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
                          frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
-    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=329,
+    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
                            putt=False),
-    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=329,
+    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=327,
                        downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
@@ -288,6 +288,41 @@ HEAD_RISE_KEEP = 0.15  # of the actor's head rise
 EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 
 
+# Tour putters keep the lower body and the head still; the shoulders rock
+# the arms and putter like a pendulum. The actor's hips turn ~15 deg and his
+# head drifts 12 cm towards the hole through the stroke. These keep a share
+# of that: the legs and pelvis hold the address, and the upper body leans
+# back about the base of the spine so the head stays over the ball.
+LEAD_HEEL = 0.2  # of the actor's lead heel lift kept in full swings
+PUTT_STILL = 0.1  # of the actor's hip slide, foot moves and head drift kept
+LOWER_BODY = ("pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r")
+
+
+def still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss):
+    root = ref_root + PUTT_STILL * (root - ref_root)
+    for name in LOWER_BODY:
+        j = rig.index.get(name)
+        if j is not None:
+            rots[j] = ref_rots[j]
+    rots = fill(rig, rots, ref_local)
+    _, poss = rig.world(rig.locals(rots), root)
+    # Leaning back over the ball sideways (about the line to the ball) and
+    # then fore and aft (about the target line), so the shoulders don't turn.
+    for axis, (u, v) in (([0.0, 0.0, 1.0], (0, 1)), ([1.0, 0.0, 0.0], (2, 1))):
+        _, poss = rig.world(rig.locals(rots), root)
+        pivot = poss[rig.index["spine_01"]]
+        head = poss[rig.index["head"]] - pivot
+        want = ref_poss[rig.index["head"]] + PUTT_STILL * (poss[rig.index["head"]] - ref_poss[rig.index["head"]]) - pivot
+        turn = math.degrees(math.atan2(head[u], head[v]) - math.atan2(want[u], want[v]))
+        sign = 1.0 if axis[2] else -1.0  # right-handed: +z turns +x into +y, +x turns +y into +z
+        back = pose.rot(axis, sign * turn)
+        for j in descendants(rig, "spine_01"):
+            if rots[j] is not None:
+                rots[j] = back @ rots[j]
+        rots = fill(rig, rots, ref_local, keep=True)
+    return rots, root
+
+
 def backswing_weight(f, clip):
     """1 through the backswing, easing to 0 at impact; 0 after."""
     if "top" not in clip:
@@ -346,8 +381,13 @@ def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
 
 
 IMPACT_OPEN = 15.0  # degrees more shoulder turn toward the target at impact
-RELEASE_SHARE = 0.3  # of the drop to the ball at impact taken by a steeper shaft
-ROOT_SHARE = 0.3  # of the drop to the ball at impact taken through the knees
+# Forward shaft lean at impact, degrees (hands ahead of the club head along
+# the target line): tour irons strike with ~8-10 deg, the driver about level
+# (the ball is forward in the stance). The actor flips the wrists (head past
+# the hands); the lead wrist bows to fix it.
+SHAFT_LEAN = {"Driver": 1.0, "Iron": 8.0}
+RELEASE_SHARE = 0.7  # of the drop to the ball at impact taken by a steeper shaft
+ROOT_SHARE = 0.6  # of the drop to the ball at impact taken through the knees
 BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
 
 
@@ -418,10 +458,17 @@ def retarget(glb, rig, clip, cache):
         w = (rots[club_j] @ (head_verts - rest[club_j]).T).T + poss[club_j]
         return np.array([*w.mean(axis=0)[[0]], w[:, 1].min(), w.mean(axis=0)[2]])
 
+    lean_fix, impact_lean = [0.0], [0.0]  # degrees added at impact, refined pass by pass
+
+    def lean_of(rots):
+        shaft = rots[club_j] @ club_dir
+        return math.degrees(math.atan2(shaft[0], -shaft[1]))
+
     def run(correct):
         nonlocal arm_angle
         arm_angle = 0.0
         impact_head = np.zeros(3)
+        impact_lean[0] = 0.0
         out_rots, out_root = [], []
         for i, f in enumerate(frames):
             m_rots, m_poss = bvh.frame(f)
@@ -437,13 +484,16 @@ def retarget(glb, rig, clip, cache):
             if not clip["putt"]:
                 rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
                                             backswing_weight(f, clip))
+            elif "impact" in clip:
+                rots, root = still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss)
             if "impact" in clip:
                 # Down into the shot at impact: a little through the knees
                 # (the feet are pinned below), the rest bending over the ball,
-                # so the lead leg can still straighten into impact.
+                # so the lead leg can still straighten into impact. The hips
+                # stay back from the ball (the actor's thrust towards it).
                 w = impact_weight(f, clip["impact"])
                 body = (1.0 - RELEASE_SHARE) * correct[1]
-                root = root + w * ROOT_SHARE * np.array([0.0, body, 0.0])
+                root = root + w * np.array([0.0, ROOT_SHARE * body, correct[2]])
                 if body != 0.0:
                     bend = pose.rot([1.0, 0.0, 0.0], math.degrees(w * (1.0 - ROOT_SHARE) * body / BEND_LEVER))
                     for j in descendants(rig, "spine_01"):
@@ -455,8 +505,22 @@ def retarget(glb, rig, clip, cache):
             targets = {}
             for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
                 k = bvh.index[actor]
-                target = ref_poss[rig.index[f"foot_{s}"]] + scale * (g @ (m_poss[k] - m_poss0[k]))
+                keep = PUTT_STILL if clip["putt"] and "impact" in clip else 1.0
+                target = ref_poss[rig.index[f"foot_{s}"]] + keep * scale * (g @ (m_poss[k] - m_poss0[k]))
                 foot = rots[rig.index[f"foot_{s}"]]
+                if s == "l" and not clip["putt"] and "impact" in clip:
+                    # The lead foot stays planted (the actor's heel comes up
+                    # 7 cm at the top and 5 cm at the finish): only a little
+                    # of its rise is kept, and the sole lies flat as at
+                    # address, still turning as the actor's does.
+                    rise = target[1] - ref_poss[rig.index["foot_l"]][1]
+                    target[1] = ref_poss[rig.index["foot_l"]][1] + LEAD_HEEL * rise
+                    to_toe = rest[rig.index["ball_l"]] - rest[rig.index["foot_l"]]
+                    v, v0 = foot @ to_toe, ref_rots[rig.index["foot_l"]] @ to_toe
+                    flat = np.array([v[0], 0.0, v[2]])
+                    if np.linalg.norm(flat) > 1e-6:
+                        want = pose.unit(flat) * math.hypot(v0[0], v0[2]) + np.array([0.0, v0[1], 0.0])
+                        foot = between(v, want) @ foot
                 # Up on the toes, not through the ground.
                 toe = target + foot @ (rest[rig.index[f"ball_{s}"]] - rest[rig.index[f"foot_{s}"]])
                 target = target + np.array([0.0, max(0.0, ref_poss[rig.index[f"ball_{s}"]][1] - toe[1],
@@ -533,6 +597,13 @@ def retarget(glb, rig, clip, cache):
                     rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
                 w = impact_weight(f, clip["impact"])
+                if w > 0.0 and lean_fix[0] != 0.0:
+                    # The hands ahead of the head at impact: the lead wrist
+                    # bows, laying the head back about the hands (the arm
+                    # then swings the hands forward to the ball, below).
+                    rots[hands_l] = pose.rot([0.0, 0.0, 1.0], w * lean_fix[0]) @ rots[hands_l]
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
                 if w > 0.0 and correct[1] != 0.0:
                     # Most of the way down to the ball: the shaft comes up
                     # steeper at impact than at address (the hands higher,
@@ -549,12 +620,15 @@ def retarget(glb, rig, clip, cache):
                 if w > 0.0 and np.any(correct):
                     # Brings the club head in to the ball at impact: the lead
                     # arm swings in (its length kept), the club turning with it.
+                    shoulder = poss[rig.index["upperarm_l"]]
+                    reach = poss[hands_l] + w * correct * np.array([1.0, 0.0, 0.0]) - shoulder
                     two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l",
-                             poss[hands_l] + w * correct * np.array([1.0, 0.0, 1.0]))
+                             shoulder + pose.unit(reach) * np.linalg.norm(poss[hands_l] - shoulder))
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
                 if f == clip["impact"]:
                     impact_head[:] = club_head(rots, poss)
+                    impact_lean[0] = lean_of(rots)
             if "impact" not in clip:
                 # Waggling over the ball, the club head stays above the
                 # ground: the wrists lift it a few degrees round the grip.
@@ -582,13 +656,16 @@ def retarget(glb, rig, clip, cache):
     correct = np.zeros(3)
     out_rots, out_root, head = run(correct)
     if not clip["putt"] and "impact" in clip and clip["impact"] in frames:
-        # The lowest point of the head on the ball at impact; the bend and
-        # the arm move the head in each other's way, so a few passes.
+        # The lowest point of the head on the ball at impact, the shaft
+        # leaning forward; the bend, the wrist and the arm move the head in
+        # each other's way, so a few passes.
         target = np.array(clip.get("strike", IMPACT_AT))
-        for _ in range(5):
-            if np.linalg.norm(target - head) < 0.002:
+        lean = SHAFT_LEAN[clip.get("club", "Driver")]
+        for _ in range(8):
+            if np.linalg.norm(target - head) < 0.002 and abs(lean - impact_lean[0]) < 0.5:
                 break
             correct = correct + (target - head)
+            lean_fix[0] += lean - impact_lean[0]
             out_rots, out_root, head = run(correct)
 
     if clip.get("loop"):
@@ -597,6 +674,9 @@ def retarget(glb, rig, clip, cache):
     keep = list(range(0, len(frames), STEP))
     if keep[-1] != len(frames) - 1:
         keep.append(len(frames) - 1)
+    if clip.get("impact") in frames:
+        # A key on the strike itself, so the head meets the ball.
+        keep = sorted(set(keep) | {frames.index(clip["impact"])})
     times = [times[i] for i in keep]
     out_rots = [out_rots[i] for i in keep]
     out_root = [out_root[i] for i in keep]
@@ -988,6 +1068,7 @@ def main():
     iron.ensure_iron(glb, rig)
     grip.fit(glb, rig, club_direction(glb, rig))
     grip.straighten(glb, rig)
+    grip.narrow(glb, rig)
     # The clubs modelled from real ones, before the swings are measured
     # against their heads.
     clubs.swap(glb, rig)

@@ -39,7 +39,9 @@ product lead builds it.
 5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).
-   Still to do: a built-in range course with yardage targets.
+   Done too: a built-in practice ground with a dressed range, target greens
+   and yardage boards, a target-scoring game, and a big practice putting
+   green (Play > Driving range, Range target game, Practice putting green).
 6. [x] **Launch monitor input** (desktop): take real swings from home
    simulators through the open GSPro-style connect API, the golf version of
    a sim-racing wheel. Done: Settings > Launch monitor
@@ -50,7 +52,8 @@ product lead builds it.
    Career ([game-shell.md](docs/game-shell.md#career)): three tours, cuts,
    tour-style prize money, playoffs, promotion. Still to do: playing a
    playoff hole for real, and tuning the field against measured computer
-   golfer scores.
+   golfer scores. Career partners now play as made-up pros with styles of
+   their own.
 8. [ ] **Menu polish**: a live course flyover behind the menus. (The round
    setup panel and the key hints were fixed in #101.) Owner: lead.
 9. [ ] **Accessibility**: remappable keys, a colour-blind-safe meter and aim
@@ -153,6 +156,10 @@ product lead builds it.
   - [x] Scramble and alternate shot, with people and computer golfers on either team ([game-shell.md](docs/game-shell.md#menus-and-game-modes))
   - [ ] The other original modes
 - [x] AI opponents: computer golfers at four levels (weekend, club, scratch, tour pro) that plan through the real physics and play every mode ([game-shell.md](docs/game-shell.md#computer-opponents))
+  - [x] Calibrated to real statistics: driving, fairways, approach and chip proximity and putting make rates measured through the physics against PGA Tour and amateur numbers (`tools/olcalibrate`), for both physics models; Classic Links misses as a setting
+  - [x] Sixteen named pros and made-up field golfers with their own strengths and weaknesses, shot shape, aggression, course management, nerve, form and pre-shot routine
+  - [x] Tournament creator: courses, rounds, field size, strength and gender, cut, stroke play, Stableford, knockout match play or skins, purse, weather, tee times, with a live leaderboard and broadcast captions ([game-shell.md](docs/game-shell.md#tournaments))
+  - [ ] Measure real computer-golfer rounds on the disc courses and tune the simulated field against them; play tied playoffs and level matches for real
 - [ ] Menus and HUD: setup, club picker, wind and lie display, aim line
   - [x] Main menu, round setup (course, tees, holes, mode, players), pause menu, multi-player scorecard
 - [ ] Course designer

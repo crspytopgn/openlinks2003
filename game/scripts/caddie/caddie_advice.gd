@@ -61,7 +61,7 @@ func start(model: ShotModel, clubs: Array[Club], hole: HoleData, from: Vector3, 
 		_ready = true
 		text = "That's a tap-in. Knock it in."
 		return
-	_cpu = ComputerGolfer.new(OpponentSkill.Level.TOUR, PLANNER_SEED)
+	_cpu = ComputerGolfer.new(OpponentSkill.Level.TOUR, PLANNER_SEED, TourPro.new())  # a neutral golfer: no shape or bias
 	_cpu.plan(model, clubs, hole, from, lie, wind)
 
 

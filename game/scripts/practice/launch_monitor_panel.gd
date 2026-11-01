@@ -6,6 +6,7 @@ extends PanelContainer
 var _title: Label
 var _grid: GridContainer
 var _summary: Label
+var _note: Label
 
 
 func _init() -> void:
@@ -32,6 +33,13 @@ func _init() -> void:
 	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_summary.custom_minimum_size.x = 220
 	box.add_child(_summary)
+	_note = Label.new()
+	_note.add_theme_font_size_override("font_size", 16)
+	_note.add_theme_color_override("font_color", Color(0.98, 0.84, 0.35))
+	_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_note.custom_minimum_size.x = 220
+	_note.visible = false
+	box.add_child(_note)
 	show_waiting("")
 
 
@@ -46,6 +54,12 @@ func show_reading(r: LaunchMonitor.Reading, summary: String) -> void:
 	_title.text = "LAUNCH MONITOR  ·  %s" % r.club.to_upper()
 	_fill(LaunchMonitor.rows(r))
 	_summary.text = summary
+
+
+## A line under the numbers, such as the target game's score ("" hides it).
+func show_note(text: String) -> void:
+	_note.text = text
+	_note.visible = not text.is_empty()
 
 
 func _fill(rows: Array) -> void:
