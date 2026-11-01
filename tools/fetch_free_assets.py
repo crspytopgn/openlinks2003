@@ -228,10 +228,17 @@ def make_leaf_spray(out_dir):
         import leaf_spray  # noqa: E402 - needs Pillow, so only imported here
         print("  leaves: building the spray atlas")
         leaf_spray.build(os.path.join(out_dir, "leaf_albedo.png"), os.path.join(out_dir, "leaf_opacity.png"), out)
-    # Lossless (as the leaves), at 1024: half a metre of spray per 256 px,
-    # so a leaf is still 20 to 30 px across.
+    # At 1024: half a metre of spray per 256 px, so a leaf is still 20 to
+    # 30 px across. Lossy is fine here (unlike the single leaves): the
+    # atlas fills the gaps round the leaves with green, so no bright
+    # fringes show.
     with open(out + ".import", "w") as f:
-        f.write(TEXTURE_IMPORT.format(mode=0, limit=1024, mipmaps="true"))
+        f.write(TEXTURE_IMPORT.format(mode=1, limit=1024, mipmaps="true"))
+    # The single leaves are now only the fallback (the sprays are drawn
+    # from them above), so they ship small to keep the download in budget.
+    for name in LEAF_MAPS:
+        with open(os.path.join(out_dir, name) + ".import", "w") as f:
+            f.write(TEXTURE_IMPORT.format(mode=0, limit=256, mipmaps="true"))
 
 
 def fetch_twigs(out_dir):
