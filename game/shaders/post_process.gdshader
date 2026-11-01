@@ -25,6 +25,12 @@ uniform float shimmer = 0.0; // displacement in pixels at 1080p, 0 = off
 uniform float horizon_y = 0.5; // screen y (0 top, 1 bottom) of the level horizon
 uniform float fov_radians = 0.7; // the camera's vertical field of view
 uniform float eye_height = 2.0; // metres above the ground
+// The learned grade (tools/grade/fit_grade.py): a 32x32x32 colour lookup
+// fitted so the sky, turf, trees and sand of our renders land on the
+// colours measured in real golf photos. Laid out as 32 slices of 32x32
+// side by side (1024x32): red across a slice, green down, blue by slice.
+uniform sampler2D grade_lut : filter_linear, repeat_disable;
+uniform float lut_mix = 0.0; // 0 = off
 
 float hash(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -37,6 +43,18 @@ float value_noise(vec2 p) {
 	vec2 f = fract(p);
 	vec2 u = f * f * (3.0 - 2.0 * f);
 	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+vec3 lut_lookup(vec3 c) {
+	const float N = 32.0;
+	c = clamp(c, 0.0, 1.0);
+	float b = c.b * (N - 1.0);
+	float b0 = floor(b);
+	float b1 = min(b0 + 1.0, N - 1.0);
+	vec2 at = vec2((c.r * (N - 1.0) + 0.5) / (N * N), (c.g * (N - 1.0) + 0.5) / N);
+	vec3 lo = texture(grade_lut, at + vec2(b0 / N, 0.0)).rgb;
+	vec3 hi = texture(grade_lut, at + vec2(b1 / N, 0.0)).rgb;
+	return mix(lo, hi, b - b0);
 }
 
 void fragment() {
@@ -82,6 +100,9 @@ void fragment() {
 		float lc = clamp(l, 0.0, 1.0);
 		float s_curve = lc * lc * (3.0 - 2.0 * lc);
 		c *= mix(l, s_curve, curve) / l;
+	}
+	if (lut_mix > 0.0) {
+		c = mix(c, lut_lookup(c), lut_mix);
 	}
 	vec2 d = uv - 0.5;
 	c *= 1.0 - vignette * smoothstep(0.15, 0.75, dot(d, d) * 2.0);

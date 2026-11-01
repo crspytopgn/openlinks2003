@@ -47,3 +47,6 @@ Thumbs.db
 game/free_assets/
 __pycache__/
 tools/audio/.cache/
+
+# The learned colour grade lookups must import losslessly (docs/colour-grade.md)
+!game/grade/*.png.import
