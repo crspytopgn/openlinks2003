@@ -151,7 +151,18 @@ at Medium and grass at Low.
   Conifer needle cards draw photoscanned fir sprigs from Poly Haven's
   fir_tree_01 twig atlas (colour and alpha maps, fetched by
   tools/fetch_free_assets.py): two by three sprigs of 40 to 55 cm per card,
-  each one of four in the atlas. Poly Haven's whole scanned trees (2 to 17
+  each one of four in the atlas. Broadleaf cards draw a whole photo
+  branch spray when the spray atlas is there: `tools/trees/leaf_spray.py`
+  (run by fetch_free_assets.py, needs Pillow) lays the photo leaves out
+  along twigs at real size (7 to 11 cm on a 2 m card), tilted, overlapping,
+  darker behind and each shadowing the leaves under it, as 2 x 2 sprays.
+  A card shows one of them, mirrored at random, and fades out when seen
+  edge-on (a card on edge smears its leaves into streaks); the crown's
+  core is solid inside a ragged outline from the same sprays. The leaves
+  are no longer on a grid, so the dot and checkerboard patterns at a
+  distance are gone, and the impostors are baked from the same cards.
+  Without the atlas the cards fall back to the grid of single leaves
+  above. Poly Haven's whole scanned trees (2 to 17
   million triangles, 50 to 960 MB each) are too heavy to ship.
 - **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
   hole starts, every tree, bush and rock billboard and every 3D model

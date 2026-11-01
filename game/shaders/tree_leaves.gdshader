@@ -13,6 +13,12 @@ render_mode cull_disabled;
 uniform sampler2D leaf_color : source_color, filter_linear_mipmap, repeat_disable;
 uniform sampler2D leaf_opacity : filter_linear_mipmap, repeat_disable;
 uniform bool has_texture = false;
+// Photo leaf sprays (tools/trees/leaf_spray.py, built from the leaf set):
+// 2 x 2 branch sprays with twigs and leaves of real size, overlapping and
+// self-shaded. A broadleaf card shows one of them whole (picked and
+// mirrored at random) in place of the grid of single leaves below.
+uniform sampler2D leaf_spray : source_color, filter_linear_mipmap, repeat_disable;
+uniform bool has_spray = false;
 // Photoscanned fir sprigs (Poly Haven's fir_tree_01 twig atlas, with its
 // alpha map) for the needle cards.
 uniform sampler2D twig_color : source_color, filter_linear_mipmap, repeat_disable;
@@ -82,7 +88,14 @@ void fragment() {
 	// How far below a few pixels a leaf cell has shrunk (0 near, 1 when a
 	// cell is about 4 px): see the leaves below.
 	float far = 0.0;
-	if (core && needles) {
+	if (core && has_spray && !needles) {
+		// The crown's shaded middle: solid inside a round outline that the
+		// spray's leaves make ragged.
+		vec4 sp = texture(leaf_spray, UV * 0.5 + floor(fract(info.r * 7.31) * 2.0) * 0.5);
+		float r = length(UV - 0.5);
+		alpha = r < 0.3 || (r < 0.5 && sp.a > 0.4) ? 1.0 : 0.0;
+		col = sp.rgb * leaf_tint * 2.0;
+	} else if (core && needles) {
 		// Core cards: a solid, shaded mass inside the crown, so the gaps
 		// between needles show foliage rather than sky.
 		vec2 q = UV - 0.5;
@@ -125,6 +138,31 @@ void fragment() {
 		float needle = fract(p.y * 30.0 + across * 2.2 + step(0.5, p.x) * 0.5);
 		alpha = (needle < 0.6 && across < envelope) || across < 0.05 ? 1.0 : 0.0;
 		col = mix(needle_dark, needle_light, fract(info.r * 7.0 + p.y * 0.6));
+	} else if (has_spray && !core) {
+		// One whole spray from the atlas: its leaves sit where a twig
+		// carries them, so there is no grid to beat into dots, and the
+		// mipmaps average leaves and gaps as a camera does.
+		float pick = floor(fract(info.r * 7.31) * 4.0);
+		vec2 q = vec2(UV.x, UV.y);
+		q.x = fract(info.r * 13.7) > 0.5 ? 1.0 - q.x : q.x;
+		vec2 suv = (vec2(mod(pick, 2.0), floor(pick / 2.0)) + clamp(q, vec2(0.004), vec2(0.996))) * 0.5;
+		vec4 sp = texture(leaf_spray, suv);
+		// Smaller mips thin the leaves out under the alpha test: hold the
+		// coverage up with distance, as for the single leaves.
+		vec2 texels = vec2(textureSize(leaf_spray, 0)) * 0.5;
+		float lod = log2(max(max(length(dFdx(UV) * texels), length(dFdy(UV) * texels)), 1.0));
+		alpha = sp.a * (1.0 + lod * 0.22);
+		// The spray's light and dark leaves give the crown its texture;
+		// keep a slow per-card shift so neighbouring cards differ.
+		// The hazel photo leaves are yellow-green; crowns in sun read a
+		// deeper, bluer green (as the 2K25 and golf-course references).
+		col = sp.rgb * leaf_tint * mix(0.8, 1.1, info.r) * vec3(0.84, 1.0, 0.95);
+		// A card seen edge-on smears its leaves into streaks (the painted
+		// look): fade it out, the cards behind it fill in.
+		vec3 card_n = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+		float facing = abs(dot(card_n, normalize(VERTEX)));
+		alpha *= smoothstep(0.12, 0.45, facing);
+		far = clamp(lod * 0.25 - 0.5, 0.0, 1.0);
 	} else {
 		// A clump of leaves: one per cell, nudged off the cell's middle
 		// and dropped more often towards the card's rim, so a card reads
@@ -222,7 +260,9 @@ void fragment() {
 	// Each leaf (cell) tilts its own way off the crown's normal, so in
 	// sun the leaves catch it unevenly, bright and dim side by side, as in
 	// photos of sunlit trees, rather than shading as one smooth blob.
-	if (!core) {
+	// (Not on the sprays: their leaves are not on the cell grid, and their
+	// photo already holds the light and dark leaves.)
+	if (!core && !(has_spray && !needles)) {
 		// Faded with distance like the leaf shading above (dot pattern).
 		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1 * (1.0 - far));
 	}
