@@ -9,9 +9,10 @@ extends GolferRig
 ## ball the golfer walks up to it before settling over it; on the green they
 ## first crouch behind the ball to read the putt. GolferFeet plants the feet
 ## on slopes, GolferLook turns the head to follow the ball and
-## GolferHands keeps the right hand on the club for any body shape. The body, clothes
-## and hair come from the look pack (GolferParts), baked into plain meshes
-## for the look.
+## GolferHands keeps the right hand on the club for any body shape;
+## GolferArms keeps the arms out of a deeper chest than the mocap actor's.
+## The body, clothes and hair come from the look pack (GolferParts), baked
+## into plain meshes for the look.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if either file is
 ## missing.
 
@@ -60,6 +61,7 @@ var _look: GolferLook
 var _feet: GolferFeet
 var _hands: GolferHands
 var _cloth: GolferCloth
+var _arms: GolferArms
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -85,6 +87,8 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 	golfer._skeleton.add_child(golfer._feet)
 	golfer._look = GolferLook.new()
 	golfer._skeleton.add_child(golfer._look)
+	golfer._arms = GolferArms.new()
+	golfer._skeleton.add_child(golfer._arms)
 	golfer._hands = GolferHands.new()
 	golfer._skeleton.add_child(golfer._hands)
 	golfer._hands.read_grips(golfer._skeleton, player)
@@ -153,6 +157,8 @@ func apply_look(p_look: PlayerLook) -> void:
 			# Shirt, trousers, shorts and the polo's collar, placket and
 			# buttons: moving in the wind and the swing (GolferCloth).
 			mi.mesh = GolferCloth.with_mask(mi.mesh, names, _skeleton)
+			if part_name.begins_with("Top_"):
+				_arms.set_torso(mi.mesh, _skeleton)
 			var cloth := GolferCloth.material(std)
 			if part_name.begins_with("Buttons_"):
 				cloth.set_shader_parameter("roughness", std.roughness)

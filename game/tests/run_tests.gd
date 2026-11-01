@@ -82,6 +82,7 @@ func _initialize() -> void:
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
 	_run("golfer_cloth", _test_golfer_cloth)
+	_run("golfer_arms", _test_golfer_arms)
 	_run("player_looks", _test_player_looks)
 	_run("golfer_roster", _test_golfer_roster)
 	_run("face_from_photo", _test_face_from_photo)
@@ -3289,6 +3290,27 @@ func _test_golfer_cloth() -> void:
 		if n == "Cap":
 			_check(not (mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER), "the cap stays put")
 	_check(moving >= 3 and golfer._cloth.materials.size() >= moving, "shirt, trousers and collar move (%d)" % moving)
+	golfer.free()
+
+
+## GolferArms: an arm point inside the chest is moved out to its surface,
+## one outside (or above or below the chest) is left alone, and the free
+## golfer runs it before GolferHands with the chest sized from the shirt.
+func _test_golfer_arms() -> void:
+	var band := GolferArms.BAND
+	var out := GolferArms.depth_out(Vector3(0.05, 0.1, -0.1), 0.2, 0.15, 0.0, band)
+	var moved := Vector3(0.05, 0.1, -0.1) + out
+	var q := sqrt(pow(moved.x / 0.2, 2) + pow(moved.z / 0.15, 2))
+	_check(out.z < 0.0 and absf(q - 1.0) < 0.01, "a point inside the chest comes out to its surface (q %.3f)" % q)
+	_check(GolferArms.depth_out(Vector3(0.0, 0.1, -0.3), 0.2, 0.15, 0.0, band) == Vector3.ZERO, "a point in front of the chest is left alone")
+	_check(GolferArms.depth_out(Vector3(0.0, 0.6, 0.0), 0.2, 0.15, 0.0, band) == Vector3.ZERO, "and so is one above it")
+	var golfer := FreeGolfer.create()
+	if golfer == null:
+		return
+	var arms: GolferArms = golfer._arms
+	_check(arms.get_index() < golfer._hands.get_index(), "the arms are cleared before the right hand takes the grip")
+	_check(arms.half_width > 0.1 and arms.half_width < 0.25 and arms.half_depth > 0.08 and arms.half_depth < 0.2,
+		"the chest is sized from the shirt (%.3f by %.3f)" % [arms.half_width, arms.half_depth])
 	golfer.free()
 
 
