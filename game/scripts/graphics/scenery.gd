@@ -25,24 +25,28 @@ const PHOTO_EXPOSURE := 1.0
 const CLASSIC_SUN_ELEVATION := 38.0
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
-## height and bearing (degrees), its colour and strength, the fill light,
+## height and bearing (degrees), its colour and strength, the fill light
+## (`fill` in Compatibility, before its 1.6 lift; `fill_fwd` in Forward+),
 ## the photographed sky's tint (overall and at the horizon), the glow round
 ## a low sun, the haze colour and thickness and an exposure that makes up
 ## for a low sun. Afternoon sits lower and warmer than Classic's sun
-## (CLASSIC_SUN_ELEVATION), for long shadows as in TV golf.
+## (CLASSIC_SUN_ELEVATION), for long shadows as in TV golf. Golden hour
+## was fitted to 37 real low-sun golf photos: a near-neutral sky, green
+## turf, and only the sunlit patches warm, so its shade needs a strong,
+## cool fill (Forward+ shade is darker, hence its own fill).
 const TIMES := {
-	"morning": {elevation = 17.0, bearing = 100.0, sun = Color(1.0, 0.86, 0.7), energy = 0.85, fill = 0.95,
+	"morning": {elevation = 17.0, bearing = 100.0, sun = Color(1.0, 0.86, 0.7), energy = 0.85, fill = 0.95, fill_fwd = 0.95,
 		ambient = Color(0.62, 0.69, 0.8), sky = Color(0.92, 0.96, 1.04), horizon = Color(1.05, 1.0, 0.95), glow = 0.25,
 		haze = Color(0.76, 0.8, 0.86), fog = 2.2, exposure = 1.15},
-	"midday": {elevation = 62.0, bearing = 160.0, sun = Color(1.0, 0.97, 0.93), energy = 1.0, fill = 1.0,
+	"midday": {elevation = 62.0, bearing = 160.0, sun = Color(1.0, 0.97, 0.93), energy = 1.0, fill = 1.0, fill_fwd = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.02), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
 		haze = Color(0.70, 0.78, 0.88), fog = 0.9, exposure = 0.95},
-	"afternoon": {elevation = 30.0, bearing = 145.0, sun = Color(1.0, 0.92, 0.8), energy = 1.0, fill = 1.0,
+	"afternoon": {elevation = 30.0, bearing = 145.0, sun = Color(1.0, 0.92, 0.8), energy = 1.0, fill = 1.0, fill_fwd = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.0), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
 		haze = HORIZON, fog = 1.2, exposure = 1.0},
-	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.66, 0.38), energy = 0.95, fill = 1.0,
-		ambient = Color(0.72, 0.66, 0.64), sky = Color(1.02, 0.86, 0.74), horizon = Color(1.15, 0.92, 0.72), glow = 0.8,
-		haze = Color(0.9, 0.74, 0.58), fog = 1.6, exposure = 1.35},
+	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.74, 0.5), energy = 1.3, fill = 1.3, fill_fwd = 4.2,
+		ambient = Color(0.68, 0.7, 0.74), sky = Color(1.0, 0.96, 0.92), horizon = Color(1.08, 0.98, 0.88), glow = 0.5,
+		haze = Color(0.82, 0.78, 0.72), fog = 1.6, exposure = 1.6},
 }
 ## "Through the round": the light at these points of the round, blended.
 const ROUND_TIMES := [[0.0, "morning"], [0.35, "midday"], [0.7, "afternoon"], [1.0, "golden"]]
@@ -358,7 +362,8 @@ func _apply_time() -> void:
 	# or shade goes near black.
 	# (Measured against real course photos: our shade was far darker than
 	# real shade, and the whole frame about a stop under.)
-	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.6)
+	var fill: float = _time.fill_fwd if GraphicsSettings.is_forward_plus() else _time.fill * 1.6
+	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * fill
 	if _gi:
 		# The bounced light does much of the fill's work.
 		environment.ambient_light_energy *= 0.6

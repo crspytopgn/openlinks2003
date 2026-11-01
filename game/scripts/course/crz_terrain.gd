@@ -667,17 +667,17 @@ static func realistic_class(c: Color, ground: int) -> Color:
 static func realistic(c: Color, surface: Surface.Type) -> Color:
 	# (Lighter than they would be with a sheen: the ground is matt, so the
 	# sun's glare no longer brightens it.)
-	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.8)
+	var out := Color.from_hsv(c.h, clampf(c.s * 1.15, 0.0, 0.85), c.v * 0.9)
 	if surface == Surface.Type.ROUGH or surface == Surface.Type.DEEP_ROUGH:
 		# Pale disc rough reads as bare ground; real rough and fescue are
 		# olive and straw, with more colour and less light.
-		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.7)
+		out = Color.from_hsv(c.h, clampf(maxf(c.s * 1.6, 0.3), 0.0, 0.7), c.v * 0.76)
 	elif surface == Surface.Type.SAND:
 		out = Color.from_hsv(c.h, clampf(c.s * 0.9, 0.0, 0.5), minf(c.v * 0.92, 0.85))
 	elif c.h > 0.12 and c.h < 0.45:
 		# Mown grass: the disc's yellowish greens pulled towards the deep
 		# green of watered turf.
-		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s * 0.92, c.v * 0.72)
+		out = Color.from_hsv(lerpf(c.h, MOWN_HUE, 0.5), out.s * 0.92, c.v * 0.9)
 	return out
 
 

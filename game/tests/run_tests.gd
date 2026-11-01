@@ -1515,6 +1515,9 @@ func _test_props_real_size() -> void:
 		"yardage_plate": [Vector3(0.304, 0.034, 0.204), 0.01],
 		"yardage_pole": [Vector3(0.09, 2.04, 0.09), 0.02],
 		"sponsor_sign": [Vector3(0.61, 0.985, 0.075), 0.02],
+		"water_station": [Vector3(0.76, 1.38, 0.745), 0.03],
+		"practice_flag": [Vector3(0.228, 0.718, 0.043), 0.01],
+		"course_sign": [Vector3(0.3, 0.195, 0.012), 0.01],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
@@ -1966,6 +1969,23 @@ func _test_gallery() -> void:
 		_check(g.seated_count() > capacity / 2 and g.seated_count() <= capacity, "a grandstand full of people (%d)" % g.seated_count())
 		var front: Vector3 = spot[0]
 		_check(front.distance_to(hole.pin) > Gallery.GREEN_MARGIN + Gallery.STAND_BACK, "the grandstand stands back from the green")
+	_check(g.card_count() > 0 and g.card_count() <= Gallery.CARDS_BY_QUALITY[3], "crowd cards fill in behind the 3D people (%d)" % g.card_count())
+	var cards := Gallery.card_spots(hole, lines, spots, 120, 7)
+	var spaced := cards.size() > 0
+	for i in cards.size():
+		var c := cards[i]
+		var cs := t.surface_at(c.x, c.z)
+		spaced = spaced and cs != Surface.Type.GREEN and cs != Surface.Type.SAND and cs != Surface.Type.WATER
+		for spot_i: Array in spots:
+			var q: Vector3 = spot_i[0]
+			spaced = spaced and Vector2(q.x - c.x, q.z - c.z).length() >= Gallery.CARD_SPACING - 1e-3
+		for j in i:
+			spaced = spaced and Vector2(cards[j].x - c.x, cards[j].z - c.z).length() >= Gallery.CARD_SPACING - 1e-3
+	_check(spaced, "crowd cards off greens, bunkers and water, clear of people and each other")
+	var low := Gallery.build(hole, hole.pin, 0, 7, false, 0)
+	root.add_child(low)
+	_check(low.crowd_count() == 0 and low.card_count() <= Gallery.CARDS_BY_QUALITY[0], "Low quality: cards only, no 3D people")
+	low.free()
 	g.react(Commentary.Crowd.ROAR)
 	g.free()
 	_check_near(Gallery.stand_depth(), 6.8, 1e-4, "eight bleacher rows of 0.85 m")
