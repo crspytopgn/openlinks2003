@@ -22,6 +22,12 @@ const PUTT_PAST_MAX_M := 0.55
 const MAX_RISK_CANDIDATES := 4  ## best plans re-tried with likely misses
 const SHORT_GAME_M := 45.0  ## inside this, wedges also try lines either side
 const SHORT_GAME_OFFSETS_DEG := [-25.0, -10.0, 10.0, 25.0]
+## From a bad lie in the short game, wedges also try going this much past the
+## flag, so the risk check can choose to make sure of getting out and on.
+const SHORT_GAME_PAST_M := [2.5, 5.0]
+## Plans re-tried with likely misses from a bad lie in the short game, on top
+## of the golfer's own number.
+const SHORT_GAME_EXTRA_RISK := 3
 ## Timing (OpponentSkill accuracy) of a full shape (TourPro.shape = +/-1):
 ## positive fades, negative draws.
 const SHAPE_ACCURACY := 0.1
@@ -68,6 +74,8 @@ class Candidate:
 	var accuracy := 0.0  ## the shot's shape
 	var score := INF  ## expected strokes after the shot
 	var nominal := INF
+	var sure := false  ## played past the pin to make sure of getting out
+	var checked := false  ## re-tried with likely misses
 
 
 ## `seed_value` 0 picks a random seed. Without `p_pro` it is a typical
@@ -145,6 +153,9 @@ func plan(model: ShotModel, clubs: Array[Club], hole: HoleData, from: Vector3, l
 		if lofted and to_pin < SHORT_GAME_M:
 			for offset: float in SHORT_GAME_OFFSETS_DEG:
 				_jobs.append(_job_club.bind(i, offset, false))
+			if _bad_lie():
+				for past: float in SHORT_GAME_PAST_M:
+					_jobs.append(_job_club.bind(i, 0.0, false, past))
 		# A careful golfer also looks at the safe side of the flag.
 		elif pro.aggression < SAFE_LINE_BELOW and to_pin < reach * 1.05 and to_pin > SHORT_GAME_M:
 			_jobs.append(_job_club.bind(i, 0.0, true))
@@ -191,8 +202,9 @@ func swing() -> PackedFloat64Array:
 ## A club: aim at the pin if it is in range (with the power to get there) or
 ## down the hole's route, then correct for wind, curve and slopes. A nonzero
 ## `offset_deg` starts the line that far off the target (short game only) and
-## corrects only the power, to find a way round trees or up a bank.
-func _job_club(i: int, offset_deg: float, safe: bool) -> void:
+## corrects only the power, to find a way round trees or up a bank. A
+## nonzero `past_m` plays to stop that far beyond the pin.
+func _job_club(i: int, offset_deg: float, safe: bool, past_m := 0.0) -> void:
 	var reach := _reach(i)
 	var target := _hole.aim_point(_from, reach)
 	var at_pin := target.is_equal_approx(_hole.pin)
@@ -203,10 +215,15 @@ func _job_club(i: int, offset_deg: float, safe: bool) -> void:
 		if _flat(centre, _hole.pin) < 3.0:
 			return
 		target = _hole.pin.lerp(centre, 0.5)
+	if past_m > 0.0 and at_pin:
+		var line := Vector3(target.x - _from.x, 0.0, target.z - _from.z)
+		if line.length() > 0.5:
+			target += line.normalized() * past_m
 	var to_target := _flat(_from, target)
 	var top := _strength()
 	var c := Candidate.new()
 	c.club = i
+	c.sure = past_m > 0.0
 	c.accuracy = _shape(i)
 	c.aim_deg = _heading(_from, target) + offset_deg
 	c.power = top
@@ -244,8 +261,14 @@ func _job_rank() -> void:
 		return
 	_candidates.sort_custom(func(a: Candidate, b: Candidate) -> bool: return a.nominal < b.nominal)
 	if _manages():
-		for k in mini(_risk_candidates(), _candidates.size()):
-			_jobs.append(_job_risk.bind(_candidates[k]))
+		var n := _risk_candidates()
+		for k in _candidates.size():
+			var c := _candidates[k]
+			# The sure plans always get a fair look, even if a perfect strike
+			# of another one would finish closer.
+			if k < n or c.sure:
+				c.checked = true
+				_jobs.append(_job_risk.bind(c))
 	_jobs.append(_job_choose)
 
 
@@ -270,10 +293,11 @@ func _job_risk(c: Candidate) -> void:
 ## The best of the plans weighed alike: only the re-tried ones when there
 ## was a risk check, since a single try flatters a plan.
 func _job_choose() -> void:
-	var count := mini(_risk_candidates(), _candidates.size()) if _manages() else _candidates.size()
+	var managed := _manages()
 	var best: Candidate = null
-	for k in count:
-		var c := _candidates[k]
+	for c in _candidates:
+		if managed and not c.checked:
+			continue
 		if best == null or c.score < best.score:
 			best = c
 	_use(best)
@@ -320,7 +344,15 @@ func _manages() -> bool:
 
 
 func _risk_candidates() -> int:
-	return clampi(roundi(1.0 + 3.0 * pro.management), 1, MAX_RISK_CANDIDATES)
+	var n := clampi(roundi(1.0 + 3.0 * pro.management), 1, MAX_RISK_CANDIDATES)
+	if _bad_lie() and _flat(_from, _hole.pin) < SHORT_GAME_M:
+		n += SHORT_GAME_EXTRA_RISK
+	return n
+
+
+## Sand or rough, where a short shot comes off the face less predictably.
+func _bad_lie() -> bool:
+	return _lie == Surface.Type.SAND or _lie == Surface.Type.ROUGH or _lie == Surface.Type.DEEP_ROUGH
 
 
 func _putt_past() -> float:
