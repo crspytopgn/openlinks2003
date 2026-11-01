@@ -31,6 +31,7 @@ SPREAD_LIMITS = (0.6, 1.6)
 # how strongly colours like none of the regions keep their own colour.
 WIDTH = 2.0
 NEUTRAL = 3.0
+LOW_SUN = False  # --low-sun: golden hour region rules (classify)
 OTHER = 0.03
 
 
@@ -88,6 +89,14 @@ def classify(lab, rows):
     sky = (rows < 0.65) & (((hue > 200) & (hue < 290) & (L > 35)) | ((L > 78) & (chroma < 10)))
     trees = green & (L < 42) & (rows < 0.85)
     turf = green & (L >= 38) & (rows > 0.3)
+    if LOW_SUN:
+        # A low sun: the sky near the sun goes warm, the turf falls into
+        # long shade, and green alone can't tell turf from trees. Tell
+        # them apart by height instead: trees stand above the horizon.
+        green = (hue > 85) & (hue < 175) & (chroma > 6)
+        sky = sky | ((rows < 0.5) & (L > 50) & (chroma < 40) & ((hue < 100) | (hue > 290)))
+        trees = green & (L < 45) & (rows < 0.55)
+        turf = green & (rows > 0.55)
     sand = (L > 62) & (chroma > 4) & (chroma < 30) & (hue > 55) & (hue < 100) & (rows > 0.35)
     return {"sky": sky, "turf": turf, "trees": trees, "sand": sand}
 
@@ -237,9 +246,12 @@ def main():
     ap.add_argument("--report", help="write the measurements as JSON")
     ap.add_argument("--min-turf", type=float, default=0.15, help="skip photos with less turf than this (fraction of the frame)")
     ap.add_argument("--tone", type=float, default=0.4, help="how far to match the photos' light and dark overall (0 = not at all)")
+    ap.add_argument("--low-sun", action="store_true", help="golden-hour photos and renders: warm skies, turf in long shade")
     ap.add_argument("--blue-sky", type=float, help="keep only photos whose sky is at least this blue (Lab b, e.g. -12)")
     ap.add_argument("--list-kept", help="write the photos used, one per line")
     args = ap.parse_args()
+    global LOW_SUN
+    LOW_SUN = args.low_sun
 
     def files(spec):
         if os.path.isdir(spec):
