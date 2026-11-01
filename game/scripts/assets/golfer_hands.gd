@@ -31,6 +31,10 @@ var _bones := {}
 var _fade: Tween
 
 
+func _init() -> void:
+	influence = 0.0  # off until a clip holding the club plays
+
+
 ## Reads the reference grips from the clips, through the stock skeleton's
 ## rests (call before the look reshapes the skeleton).
 func read_grips(sk: Skeleton3D, player: AnimationPlayer) -> void:

@@ -3031,6 +3031,9 @@ func _test_free_golfer() -> void:
 	# GolferHands: a grip for the driver, iron and putter, the right hand a
 	# hand's width or so from the left; on for swings, off for the walk.
 	var hands: GolferHands = golfer._hands
+	var fresh := GolferHands.new()
+	_check(fresh.influence == 0.0 and not fresh.holding, "the hands start free (a walk before any swing keeps them apart)")
+	fresh.free()
 	for ref: StringName in [&"ref_address", &"ref_address_iron", &"ref_address_putt"]:
 		var gap := hands.grips.get(ref, Transform3D.IDENTITY).origin.length() as float
 		_check(gap > 0.03 and gap < 0.2, "the %s grip has the right hand %.3f m from the left" % [ref, gap])
