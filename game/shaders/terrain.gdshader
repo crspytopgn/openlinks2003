@@ -15,6 +15,7 @@ uniform float grain_fade_end = 70.0;
 uniform float bump = 0.35; // strength of the close-up normal detail
 
 #include "res://shaders/ground_shade.gdshaderinc"
+#include "res://shaders/turf_tone.gdshaderinc"
 #include "res://shaders/mow_sheen.gdshaderinc"
 
 uniform bool textured = false;
@@ -239,5 +240,5 @@ void fragment() {
 	// bunker reads as a hollow, not a white decal.
 	float damp = sand * (1.0 - smoothstep(0.55, 0.98, sand + edge_noise * 0.2));
 	col *= mix(1.0, 0.9 - 0.22 * damp, sand);
-	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
+	ALBEDO = clamp(tone_turf(col), vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
 }

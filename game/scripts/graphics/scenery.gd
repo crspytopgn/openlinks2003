@@ -252,6 +252,7 @@ func _choose_sky() -> void:
 		if _free_sky is ShaderMaterial:
 			# Brighter in Compatibility, which has no sky fill light.
 			var sky_mat := _free_sky as ShaderMaterial
+			# Brighter in Compatibility, which has no sky fill light.
 			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else 1.5)
 			sky_mat.set_shader_parameter("tint", _time.sky)
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
@@ -314,6 +315,7 @@ func _apply_time() -> void:
 	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
 	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
+	RenderingServer.global_shader_parameter_set("turf_tone", 1.0 if _photo else 0.0)
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
 		return
@@ -322,13 +324,15 @@ func _apply_time() -> void:
 	sun.light_energy = PHOTO_SUN_ENERGY * float(_time.energy)
 	# Compatibility has no sky light, so its flat fill is a little stronger,
 	# or shade goes near black.
-	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.25)
+	# (Measured against real course photos: our shade was far darker than
+	# real shade, and the whole frame about a stop under.)
+	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.6)
 	if _gi:
 		# The bounced light does much of the fill's work.
 		environment.ambient_light_energy *= 0.6
 	environment.ambient_light_color = _time.ambient
 	var fwd := GraphicsSettings.is_forward_plus()
-	environment.tonemap_exposure = (PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8) * float(_time.exposure)
+	environment.tonemap_exposure = PHOTO_EXPOSURE * float(_time.exposure)
 	var sky: Color = _time.sky
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(sky.r, sky.g, sky.b))
 
