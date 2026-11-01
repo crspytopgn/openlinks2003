@@ -384,7 +384,8 @@ def main():
         albedo.save(args.preview)
     img_a = len(info["images"])
     info["images"].append({"kind": "jpg", "data": put(np.frombuffer(encode(albedo, "jpg"), np.uint8), np.uint8)})
-    info["images"].append({"kind": "png", "data": put(np.frombuffer(encode(normal, "png"), np.uint8), np.uint8)})
+    # The normal map as a JPEG: a PNG of it is 230 KB, this about 40 KB.
+    info["images"].append({"kind": "jpg", "data": put(np.frombuffer(encode(normal, "jpg"), np.uint8), np.uint8)})
     info["materials"]["Cap"].update({"texture": img_a, "normal": img_a + 1, "roughness": 0.9})
     # Blend shapes: the crown moves with the head under it (an average of
     # the nearest head vertices, so it stays smooth) and the peak moves
