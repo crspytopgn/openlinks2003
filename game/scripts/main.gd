@@ -247,6 +247,7 @@ var grass: GrassField
 var _trail_mesh := ImmediateMesh.new()
 ## Broadcast presentation pieces (GraphicsSettings.presentation).
 var broadcast := false
+var gallery: Gallery  ## the ropes, crowd and grandstand (Broadcast only)
 var tracer: BallTracer
 var green_grid: GreenGrid
 ## The Tour presentation (GraphicsSettings.Presentation.TOUR): the tour
@@ -590,7 +591,12 @@ func start_hole(index: int) -> void:
 	if broadcast and practice == null:
 		# Tournament dressing: gallery ropes, and a crowd at the tee and green.
 		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
-		hole_root.add_child(Gallery.build(hole, _first_leg(), crowd, hole.number * 7919))
+		# Grandstands go up where tournaments build them: at par 3s and the last green.
+		var stand := hole.par == 3 or hole_index == holes.size() - 1
+		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand)
+		hole_root.add_child(gallery)
+	else:
+		gallery = null
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
@@ -3385,6 +3391,8 @@ func _report_shot() -> void:
 	hud.overlay.show_pip(false)
 	var line: Array = Commentary.pick(shot, surface, putting, to_pin, _shot_from_pin, _commentary_rng)
 	_caption_crowd(line[1])
+	if gallery != null and is_instance_valid(gallery):
+		gallery.react(line[1])
 	match line[1]:
 		Commentary.Crowd.POLITE:
 			sounds.play(&"applause")
