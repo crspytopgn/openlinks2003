@@ -344,6 +344,7 @@ def tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss, w):
     return rots, root
 
 
+IMPACT_OPEN = 15.0  # degrees more shoulder turn toward the target at impact
 ROOT_SHARE = 0.3  # of the drop to the ball at impact taken through the knees
 BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
 
@@ -449,6 +450,26 @@ def retarget(glb, rig, clip, cache):
                 rots[hands_l] = between(rots[club_j] @ club_dir, want) @ rots[hands_l]
                 rots = fill(rig, rots, ref_local, keep=True)
                 rots, poss = rig.world(rig.locals(rots), root)
+            if not clip["putt"] and "impact" in clip:
+                # Shoulders open to the target at impact (the actor's are
+                # nearly square): the chest turns under the arms, the hands
+                # and club staying where they were, the head on the ball.
+                w = impact_weight(f, clip["impact"]) * IMPACT_OPEN
+                if w > 0.0:
+                    hand_p, hand_r = poss[hands_l].copy(), rots[hands_l].copy()
+                    # About the spine, so the head stays put.
+                    axis = poss[rig.index["neck_01"]] - poss[rig.index["spine_02"]]
+                    spin, back = pose.rot(axis, w), pose.rot(axis, -w)
+                    neck = set(descendants(rig, "neck_01"))
+                    for j in descendants(rig, "spine_02"):
+                        if rots[j] is not None:
+                            rots[j] = (back @ spin if j in neck else spin) @ rots[j]
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
+                    two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l", hand_p)
+                    rots[hands_l] = hand_r
+                    rots = fill(rig, rots, ref_local, keep=True)
+                    rots, poss = rig.world(rig.locals(rots), root)
             if correct is not None and not clip["putt"] and "impact" in clip:
                 w = impact_weight(f, clip["impact"])
                 if w > 0.0 and np.any(correct):
