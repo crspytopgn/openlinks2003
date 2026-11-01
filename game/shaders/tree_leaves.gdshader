@@ -13,6 +13,12 @@ render_mode cull_disabled;
 uniform sampler2D leaf_color : source_color, filter_linear_mipmap, repeat_disable;
 uniform sampler2D leaf_opacity : filter_linear_mipmap, repeat_disable;
 uniform bool has_texture = false;
+// Photoscanned fir sprigs (Poly Haven's fir_tree_01 twig atlas, with its
+// alpha map) for the needle cards.
+uniform sampler2D twig_color : source_color, filter_linear_mipmap, repeat_disable;
+uniform sampler2D twig_opacity : filter_linear_mipmap, repeat_disable;
+uniform bool has_twig = false;
+uniform vec3 twig_tint = vec3(0.62, 0.72, 0.6);
 uniform bool needles = false;
 uniform bool bake = false;
 // Drawn in a MultiMesh of a course's trees: beyond tree_impostor_distance
@@ -78,7 +84,35 @@ void fragment() {
 		// between needles show foliage rather than sky.
 		vec2 q = UV - 0.5;
 		alpha = length(q) < 0.47 - 0.06 * hash(floor(UV * 6.0) + h) ? 1.0 : 0.0;
-		col = needle_dark * (0.55 + 0.2 * h);
+		// With the photo sprigs, the shaded inside takes their (darkened) green.
+		col = has_twig ? textureLod(twig_color, vec2(0.6, 0.3), 9.0).rgb * twig_tint * (0.42 + 0.12 * h) : needle_dark * (0.55 + 0.2 * h);
+	} else if (needles && has_twig) {
+		// Sprigs from the photo atlas, two across and three along the card
+		// (a sprig 40 to 55 cm long on a pine's cards), each one of four
+		// sprigs, tip towards v = 0 as on the branch.
+		vec2 grid = vec2(2.0, 3.0);
+		vec2 gc = UV * grid;
+		vec2 sc = floor(gc);
+		vec2 sf = fract(gc);
+		float pick = hash(sc + info.r * 11.0);
+		// The sprigs' boxes in the 1024 px atlas (x, y, w, h, in pixels).
+		vec4 box = pick < 0.25 ? vec4(192.0, 48.0, 256.0, 272.0)
+			: pick < 0.5 ? vec4(656.0, 32.0, 304.0, 352.0)
+			: pick < 0.75 ? vec4(304.0, 300.0, 368.0, 500.0)
+			: vec4(640.0, 448.0, 352.0, 384.0);
+		// Overlap the neighbours a little, so the sprigs knit together.
+		vec2 q = (sf - 0.5) * vec2(0.85, 0.8) + 0.5;
+		bool flip = hash(sc.yx + info.r * 3.1) > 0.5;
+		q.x = flip ? 1.0 - q.x : q.x;
+		vec2 tuv = (box.xy + q * box.zw) / 1024.0;
+		vec2 dx = dFdx(UV) * grid * box.zw / 1024.0;
+		vec2 dy = dFdy(UV) * grid * box.zw / 1024.0;
+		float o = textureGrad(twig_opacity, tuv, dx, dy).r;
+		vec2 texels = vec2(textureSize(twig_opacity, 0));
+		float lod = log2(max(max(length(dx * texels), length(dy * texels)), 1.0));
+		o *= 1.0 + lod * 0.35;
+		alpha = o;
+		col = textureGrad(twig_color, tuv, dx, dy).rgb * twig_tint * mix(0.8, 1.1, info.r);
 	} else if (needles) {
 		// A sprig along v: a stem with needles slanting towards the tip,
 		// shortening towards it.

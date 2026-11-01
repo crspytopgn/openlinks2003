@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Downloads the free (CC0) textures and sky that the public build uses in
 place of the original game's art, from Poly Haven (https://polyhaven.com),
-and the leaf texture of the 3D trees from ambientCG (https://ambientcg.com).
+and the leaf texture of the 3D trees from ambientCG (https://ambientcg.com)
+and photoscanned fir sprigs for the conifers from Poly Haven.
 
     python3 tools/fetch_free_assets.py [--out game/free_assets] [--strict]
 
@@ -35,6 +36,10 @@ AMBIENTCG = "https://ambientcg.com"
 # preference: 3 x 2 leaves each. {out name: map suffix in the zip}.
 LEAF_SETS = ["LeafSet009", "LeafSet010"]
 LEAF_MAPS = {"leaf_albedo.png": "_Color.png", "leaf_opacity.png": "_Opacity.png"}
+# Poly Haven photoscanned fir sprigs (the twig atlas of its fir_tree_01
+# model) for the needle cards of the 3D conifers: {out name: (map, format)}.
+TWIG_ASSET = "fir_tree_01"
+TWIG_MAPS = {"twig_albedo.jpg": ("twig_diff", "jpg"), "twig_opacity.png": ("twig_alpha", "png")}
 USER_AGENT = "OpenLinks2003-asset-fetch (https://github.com/crspytopgn/openlinks2003)"
 
 
@@ -214,6 +219,22 @@ def fetch_leaves(out_dir):
     raise RuntimeError("no leaf set could be fetched")
 
 
+def fetch_twigs(out_dir):
+    """The photoscanned fir sprigs for the conifers' needle cards."""
+    paths = {name: os.path.join(out_dir, name) for name in TWIG_MAPS}
+    if not all(os.path.exists(p) for p in paths.values()):
+        files = json.loads(get(f"{API}/files/{TWIG_ASSET}"))
+        for name, (key, fmt) in TWIG_MAPS.items():
+            print(f"  twigs: {TWIG_ASSET} {key} 1k")
+            with open(paths[name], "wb") as f:
+                f.write(get(files[key]["1k"][fmt]["url"]))
+    # Lossless, as for the leaves: lossy compression shows as bright fringes.
+    for p in paths.values():
+        with open(p + ".import", "w") as f:
+            f.write(TEXTURE_IMPORT.format(mode=0, limit=0, mipmaps="true"))
+    return f"- **twigs**: [Fir Tree 01](https://polyhaven.com/a/{TWIG_ASSET}) twig atlas by Poly Haven, CC0"
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -235,10 +256,15 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"WARNING: couldn't fetch leaves: {e}")
         failed.append("leaves")
+    try:
+        credits.append(fetch_twigs(args.out))
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: couldn't fetch twigs: {e}")
+        failed.append("twigs")
     with open(os.path.join(args.out, "CREDITS.md"), "w") as f:
         f.write("# Free assets\n\nDownloaded by tools/fetch_free_assets.py from Poly Haven and ambientCG (CC0).\n\n")
         f.write("\n".join(credits) + "\n")
-    print(f"fetched {len(credits)} of {len(SLOTS) + 1} slots")
+    print(f"fetched {len(credits)} of {len(SLOTS) + 2} slots")
     if failed and args.strict:
         sys.exit(1)
 

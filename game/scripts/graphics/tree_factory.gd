@@ -489,6 +489,12 @@ static func material(which: String) -> ShaderMaterial:
 		mat.set_shader_parameter("inner_shade", 0.36 if fwd else 0.58)
 		if fwd:
 			mat.set_shader_parameter("leaf_tint", Vector3(0.36, 0.5, 0.3))
+		var twig := FreeAssets.tree_texture("twig_albedo.jpg")
+		var twig_alpha := FreeAssets.tree_texture("twig_opacity.png")
+		if twig != null and twig_alpha != null and kind == "needles":
+			mat.set_shader_parameter("twig_color", twig)
+			mat.set_shader_parameter("twig_opacity", twig_alpha)
+			mat.set_shader_parameter("has_twig", true)
 		var leaf := FreeAssets.tree_texture("leaf_albedo.png")
 		var opacity := FreeAssets.tree_texture("leaf_opacity.png")
 		if leaf != null and opacity != null and kind == "leaves":
