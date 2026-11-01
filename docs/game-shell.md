@@ -155,7 +155,28 @@ courses) keep it.
 
 ### Practice range
 
-Round setup > Play > Practice range: one person hits from the tee of the
+Round setup > Play > Driving range plays the built-in practice ground's
+range (`scripts/practice/practice_ground.gd`, `PracticeGround`), laid out
+from photos of real club and tour ranges: a 80 m grass tee line with
+hitting stations, each with a 55-ball pyramid and blue tee-line markers, a
+rope on stakes behind and old divots along the line; a striped field
+110 m wide with range balls lying out on it; and flagged target greens at
+50, 75, 100, 125, 150, 175, 200 and 250 yards, staggered left and right,
+each with a yardage board facing the tee (`RangeDressing`; all the balls
+are one MultiMesh). Auto-aim picks the furthest target the club reaches.
+
+Play > Range target game is the same range with a bucket of 20 balls
+(`RangeGame`): a ball that lands or finishes on a target green scores its
+points (10 at 50 yards up to 50 at 250), double inside the bullseye (35 %
+of the radius round the flag), and the last two balls score double. The
+launch monitor panel keeps the score and the session's best bucket.
+
+Play > Practice putting green is the practice ground's big rolling green
+(about 38 m across, up to 2 to 3 % of slope) with the putting practice
+below. Play > Putting on this course's greens and Hitting from this
+course's tees are the earlier ways, on the chosen course.
+
+Hitting from this course's tees: one person hits from the tee of the
 chosen course as often as they like. The ball comes back after each shot,
 nothing is scored or saved, and N and B move to the next or previous hole
 for other targets. A launch monitor (`LaunchMonitor`, `LaunchMonitorPanel`)

@@ -43,10 +43,19 @@ var bunkers: Array[Vector3] = []  ## x, z, radius
 var ponds: Array[Vector3] = []  ## x, z, radius
 var bounds := Rect2()  ## in-bounds area, x and z
 var phase := Vector3.ZERO  ## varies the undulations between holes
+## Half the teeing ground's size (across, along); a range's tee line is wide.
+var tee_half := Vector2(5.0, 7.0)
+## Target greens (x, z, radius), as on a driving range: each a low crowned
+## circle of green with a collar.
+var targets: Array[Vector3] = []
+## Rolls in the green (metres up and down), for a practice green with more to
+## read than a plain tilt.
+var green_undulation := 0.0
 
 var _tee_level := 0.0
 var _green_level := 0.0
 var _pond_levels: Array[float] = []
+var _target_levels: Array[float] = []
 var _route_lengths: Array[float] = []
 
 
@@ -55,6 +64,9 @@ func finalize() -> void:
 	_tee_level = _base(tee.x, tee.y) + 0.3
 	var g := green_center()
 	_green_level = _base(g.x, g.y) + 0.5
+	_target_levels.clear()
+	for t in targets:
+		_target_levels.append(_base(t.x, t.y) + 0.2)
 	_pond_levels.clear()
 	for p in ponds:
 		_pond_levels.append(_base(p.x, p.y) - 0.6)
@@ -79,7 +91,9 @@ func height_at(x: float, z: float) -> float:
 	var p := Vector2(x, z)
 	var h := _base(x, z)
 
-	var d_tee := p.distance_to(tee)
+	# Flat within the tee's box less 1 m, blending out over the next 6 m
+	# (a plain tee's 5 x 7 m box comes to a 4 m circle).
+	var d_tee := (Vector2(absf(p.x - tee.x), absf(p.y - tee.y)) - tee_half + Vector2(5.0, 7.0)).max(Vector2.ZERO).length()
 	if d_tee < 10.0:
 		h = lerpf(_tee_level, h, smoothstep(4.0, 10.0, d_tee))
 
@@ -87,7 +101,19 @@ func height_at(x: float, z: float) -> float:
 	var d_green := _blob_distance(p, g, green_radius, phase.x)
 	if d_green < green_radius + 9.0:
 		var green_h := _green_level + green_slope.dot(p - g)
+		if green_undulation != 0.0:
+			var q := p - g
+			# Rolls about 20 to 40 m long: up to 2 to 3 % with the tilt.
+			green_h += green_undulation * (sin(q.x * 0.16 + phase.x) * cos(q.y * 0.13 + phase.y) + 0.5 * sin((q.x - q.y) * 0.1 + phase.z))
 		h = lerpf(green_h, h, smoothstep(green_radius, green_radius + 9.0, d_green))
+
+	for i in targets.size():
+		var t := targets[i]
+		var d := p.distance_to(Vector2(t.x, t.y))
+		if d < t.z + 6.0:
+			# A gentle crown, 15 cm higher in the middle than at the edge.
+			var crown := 0.15 * (1.0 - minf(d / t.z, 1.0) * minf(d / t.z, 1.0))
+			h = lerpf(_target_levels[i] + crown, h, smoothstep(t.z, t.z + 6.0, d))
 
 	for b in bunkers:
 		var d := _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11)
@@ -117,6 +143,12 @@ func surface_at(x: float, z: float) -> int:
 		return Surface.Type.GREEN
 	if d_green < green_radius + 2.0:
 		return Surface.Type.FRINGE
+	for t in targets:
+		var d := p.distance_to(Vector2(t.x, t.y))
+		if d < t.z:
+			return Surface.Type.GREEN
+		if d < t.z + 1.5:
+			return Surface.Type.FRINGE
 	if _in_tee(p):
 		return Surface.Type.TEE
 	var r := _route_distance(p)
@@ -157,17 +189,17 @@ func _in_fairway(r: Vector2, extra: float) -> bool:
 	return r.y > fairway_start + 9.0 * (1.0 - sqrt(1.0 - f * f))
 
 
-## Inside the tee box: a 10 by 14 m box along the hole's first leg with
-## well-rounded corners.
+## Inside the tee box: a box of tee_half (10 by 14 m unless set) along the
+## hole's first leg with well-rounded corners.
 func _in_tee(p: Vector2) -> bool:
 	var ahead := Vector2(0.0, 1.0)
 	if route.size() > 1 and route[1] != tee:
 		ahead = (route[1] - tee).normalized()
 	var d := p - tee
 	var q := Vector2(absf(d.dot(Vector2(ahead.y, -ahead.x))), absf(d.dot(ahead)))
-	# A rounded rectangle: half sizes 5 and 7 m, corners of 3 m radius.
+	# A rounded rectangle of half sizes tee_half, corners of 3 m radius.
 	var corner := 3.0
-	var inner := Vector2(5.0 - corner, 7.0 - corner)
+	var inner := tee_half - Vector2(corner, corner)
 	return (q - inner).max(Vector2.ZERO).length() < corner
 
 

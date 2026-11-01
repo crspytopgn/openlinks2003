@@ -49,6 +49,13 @@ var putting := false
 ## the ball comes back, and a launch monitor shows each shot. No scores.
 ## Not saved with the setup.
 var practice := false
+## Practice on the built-in practice ground (PracticeGround: its range for
+## `practice`, its putting green for `putting`) instead of the course's own
+## tees and greens. Not saved with the setup.
+var facility := false
+## The range's target game (RangeGame), on the practice ground's range. Not
+## saved with the setup.
+var target_game := false
 ## A friend's round (from their result code) whose course, tees and wind
 ## this round plays. Not saved with the setup.
 var challenge: RoundRecord = null

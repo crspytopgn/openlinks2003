@@ -39,7 +39,9 @@ product lead builds it.
 5. [x] **Driving range with launch-monitor numbers**: ball speed, launch,
    spin, carry, total and dispersion per club. Done: Play > Practice range
    on any course ([game-shell.md](docs/game-shell.md#practice-range)).
-   Still to do: a built-in range course with yardage targets.
+   Done too: a built-in practice ground with a dressed range, target greens
+   and yardage boards, a target-scoring game, and a big practice putting
+   green (Play > Driving range, Range target game, Practice putting green).
 6. [x] **Launch monitor input** (desktop): take real swings from home
    simulators through the open GSPro-style connect API, the golf version of
    a sim-racing wheel. Done: Settings > Launch monitor

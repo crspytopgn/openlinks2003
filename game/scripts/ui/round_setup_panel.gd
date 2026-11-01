@@ -10,6 +10,10 @@ extends PanelContainer
 signal start_pressed(setup: RoundSetup, course_index: int)
 signal back_pressed
 
+enum { PLAY_ROUND, PLAY_RANGE, PLAY_TARGETS, PLAY_PUTTING_GREEN, PLAY_COURSE_GREENS, PLAY_COURSE_TEES }
+const PLAY_NAMES: Array[String] = ["A round", "Driving range", "Range target game", "Practice putting green",
+	"Putting on this course's greens", "Hitting from this course's tees"]
+
 var _course: OptionButton
 var _tees: OptionButton
 var _holes: OptionButton
@@ -56,7 +60,7 @@ func _ready() -> void:
 	_tees = _row(grid, "Tees", RoundSetup.TEES_NAMES)
 	_holes = _row(grid, "Holes", RoundSetup.HOLES_NAMES)
 	_pins = _row(grid, "Pins", RoundSetup.PINS_NAMES)
-	_play = _row(grid, "Play", ["A round", "Practice range", "Putting practice"])
+	_play = _row(grid, "Play", PLAY_NAMES)
 	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
 	_mode.item_selected.connect(_on_mode_selected.unbind(1))
@@ -190,8 +194,10 @@ func current_setup() -> RoundSetup:
 	s.pins = _pins.selected
 	s.mode = _mode.selected as GameModes.Mode
 	s.handicaps = _handicaps.selected == 1
-	s.practice = _play.selected == 1
-	s.putting = _play.selected == 2
+	s.practice = _play.selected in [PLAY_RANGE, PLAY_TARGETS, PLAY_COURSE_TEES]
+	s.putting = _play.selected in [PLAY_PUTTING_GREEN, PLAY_COURSE_GREENS]
+	s.facility = _play.selected in [PLAY_RANGE, PLAY_TARGETS, PLAY_PUTTING_GREEN]
+	s.target_game = _play.selected == PLAY_TARGETS
 	s.names.clear()
 	s.teams.clear()
 	s.computer.clear()
@@ -270,10 +276,8 @@ func _on_count_selected() -> void:
 func _refresh() -> void:
 	var best_ball := GameModes.is_team(_mode.selected as GameModes.Mode)
 	_mode_help.text = GameModes.MODE_HELP[_mode.selected]
-	if _play.selected == 1:
-		_mode_help.text = "Hit from the tee as often as you like: the ball comes back and a launch monitor shows each shot. N and B change hole."
-	if _play.selected == 2:
-		_mode_help.text = PuttingPractice.SETUP_HELP
+	if _play.selected > 0:
+		_mode_help.text = play_help(_play.selected)
 	_start.text = "Start round" if _play.selected == 0 else "Start practice"
 	for i in RoundSetup.MAX_PLAYERS:
 		_rows[i].visible = i <= _count.selected
@@ -294,6 +298,22 @@ func _refresh() -> void:
 	_problem.text = problem
 	_problem.visible = not problem.is_empty()
 	_start.disabled = not problem.is_empty()
+
+
+## What each Play choice is.
+static func play_help(play: int) -> String:
+	match play:
+		PLAY_RANGE:
+			return "The practice ground's driving range: target greens from 50 to 250 yards. The ball comes back after each shot and a launch monitor shows its numbers."
+		PLAY_TARGETS:
+			return "A bucket of %d balls at the range's target greens: more points for longer targets, double in the bullseye and for the last %d balls." % [RangeGame.BALLS, RangeGame.FINAL_BALLS]
+		PLAY_PUTTING_GREEN:
+			return "The practice ground's big rolling putting green. " + PuttingPractice.DRILLS_HELP
+		PLAY_COURSE_GREENS:
+			return PuttingPractice.SETUP_HELP
+		PLAY_COURSE_TEES:
+			return "Hit from this course's tees as often as you like: the ball comes back and a launch monitor shows each shot. N and B change hole."
+	return ""
 
 
 func _on_start() -> void:
