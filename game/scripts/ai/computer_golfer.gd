@@ -28,6 +28,12 @@ const SHORT_GAME_PAST_M := [2.5, 5.0]
 ## Plans re-tried with likely misses from a bad lie in the short game, on top
 ## of the golfer's own number.
 const SHORT_GAME_EXTRA_RISK := 3
+## A short-game plan that still finishes this far from the pin also tries
+## these multiples of its power, then these aim changes, and keeps the best:
+## a slope or a bank can make the finish jump as the power changes.
+const SHORT_GAME_SCAN_FROM_M := 1.5
+const SHORT_GAME_POWER_SCAN := [0.7, 0.8, 0.9, 1.1, 1.2, 1.35, 1.5]
+const SHORT_GAME_AIM_SCAN_DEG := [-6.0, -3.0, 3.0, 6.0]
 ## Timing (OpponentSkill accuracy) of a full shape (TourPro.shape = +/-1):
 ## positive fades, negative draws.
 const SHAPE_ACCURACY := 0.1
@@ -54,6 +60,10 @@ var power := 1.0
 var aim_deg := 0.0
 var accuracy := 0.0  ## the shape it means to play
 var expected := 0.0  ## strokes still to play after the planned shot
+## Where the planned shot finishes if struck perfectly: metres from the pin
+## (for the shot log, next to where it really went).
+var planned_left := 0.0
+var last_error_scale := 1.0  ## the error scale of the last swing()
 
 var _model: ShotModel
 var _clubs: Array[Club] = []
@@ -80,6 +90,7 @@ class Candidate:
 	var accuracy := 0.0  ## the shot's shape
 	var score := INF  ## expected strokes after the shot
 	var nominal := INF
+	var left := 0.0  ## metres from the pin, struck perfectly
 	var sure := false  ## played past the pin to make sure of getting out
 	var checked := false  ## re-tried with likely misses
 
@@ -222,6 +233,7 @@ func swing() -> PackedFloat64Array:
 	var scale := error_scale()
 	if _model is LinksShotModel:
 		scale *= OpponentSkill.LINKS_ERROR_SCALE[k]
+	last_error_scale = scale
 	return skill.execute(power, accuracy, aim_deg, k, scale, rng)
 
 
@@ -258,6 +270,9 @@ func _job_club(i: int, offset_deg: float, safe: bool, past_m := 0.0) -> void:
 	if at_pin:
 		c.power = clampf(top * to_target / reach, MIN_POWER, top)
 	var r := _simulate(c.club, c.power, c.aim_deg, c.accuracy)
+	var best_r := r
+	var best_power := c.power
+	var best_aim := c.aim_deg
 	for attempt in (3 if at_pin else 2):
 		var rest := r.rest if r.outcome != ShotResult.Outcome.HOLED else _hole.pin
 		if r.outcome == ShotResult.Outcome.HOLED:
@@ -275,9 +290,36 @@ func _job_club(i: int, offset_deg: float, safe: bool, past_m := 0.0) -> void:
 		else:
 			c.power = minf(c.power * 2.0, top)
 		r = _simulate(c.club, c.power, c.aim_deg, c.accuracy)
-	c.nominal = _value(r)
+		# Keep the best try: a correction can overshoot.
+		if _value(r) < _value(best_r):
+			best_r = r
+			best_power = c.power
+			best_aim = c.aim_deg
+	if at_pin and offset_deg == 0.0 and _flat(_from, _hole.pin) < SHORT_GAME_M and _left(best_r) > SHORT_GAME_SCAN_FROM_M:
+		var base := best_power
+		for f: float in SHORT_GAME_POWER_SCAN:
+			var p := clampf(base * f, MIN_POWER, top)
+			var t := _simulate(c.club, p, best_aim, c.accuracy)
+			if _value(t) < _value(best_r):
+				best_r = t
+				best_power = p
+		var aim0 := best_aim
+		for d: float in SHORT_GAME_AIM_SCAN_DEG:
+			var t := _simulate(c.club, best_power, aim0 + d, c.accuracy)
+			if _value(t) < _value(best_r):
+				best_r = t
+				best_aim = aim0 + d
+	c.power = best_power
+	c.aim_deg = best_aim
+	c.nominal = _value(best_r)
 	c.score = c.nominal
+	c.left = _left(best_r)
 	_candidates.append(c)
+
+
+## Metres from the pin a result finishes (0 when holed).
+func _left(r: ShotResult) -> float:
+	return 0.0 if r.outcome == ShotResult.Outcome.HOLED else _flat(r.rest, _hole.pin)
 
 
 ## Picks the best plan. A golfer with course management first re-plays the
@@ -352,6 +394,7 @@ func _job_putt(c: Candidate, attempt: int) -> void:
 		_best_putt.power = c.power
 		_best_putt.aim_deg = c.aim_deg
 		_best_putt.score = c.score
+		_best_putt.left = 0.0 if r.outcome == ShotResult.Outcome.HOLED else _flat(r.rest, _hole.pin)
 	if r.outcome == ShotResult.Outcome.HOLED or attempt + 1 >= PUTT_TRIES:
 		_use(_best_putt)
 		return
@@ -375,6 +418,7 @@ func _use(c: Candidate) -> void:
 	aim_deg = c.aim_deg
 	accuracy = c.accuracy
 	expected = c.score
+	planned_left = c.left
 
 
 func _manages() -> bool:

@@ -15,6 +15,6 @@ vec3 tone_turf(vec3 c) {
 	// Above 1 (Compatibility, whose lifted turf read yellower): greyer
 	// still and cooler, taking out the excess yellow (Lab b).
 	float extra = max(turf_tone - 1.0, 0.0);
-	vec3 t = mix(vec3(luma), c, 0.72 - 0.15 * extra) * vec3(1.05, 1.0, 1.04 + 0.3 * extra);
+	vec3 t = mix(vec3(luma), c, 0.62 - 0.15 * extra) * vec3(1.05, 1.0, 1.04 + 0.3 * extra);
 	return mix(c, t, green * min(turf_tone, 1.0));
 }
