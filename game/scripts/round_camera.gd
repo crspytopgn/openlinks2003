@@ -50,6 +50,19 @@ var _fly_t := 0.0
 var _fly_length := 0.0
 var _fly_pin := Vector3.ZERO
 
+## The TV cameraman (Broadcast only). A long lens on a tripod is never
+## quite still: the operator's hand drifts it a few hundredths of a degree,
+## more while panning after the ball, and the pan itself lags the ball
+## a little and settles with the faintest overshoot when it stops. The
+## Classic Links camera stays locked off, as in the original.
+const OPERATOR_DRIFT_DEG := 0.05  ## resting on the tripod
+const OPERATOR_PAN_DEG := 0.14  ## extra while following a ball in the air
+const OPERATOR_FOLLOW := 13.5  ## pan spring, radians per second
+const OPERATOR_DAMPING := 0.85  ## below 1: a slight overshoot as the pan stops
+var _look_vel := Vector3.ZERO
+var _operator_t := 0.0
+var _operator_pan := 0.0  ## 0 resting to 1 panning, eased so the drift never jumps
+
 const FLYOVER_SPEED := 55.0  ## metres per second along the path
 const FLYOVER_MIN_S := 4.5
 const FLYOVER_MAX_S := 9.0
@@ -179,10 +192,38 @@ func update(delta: float, t: float, ball: Vector3) -> void:
 			_place_for_landing()
 			_look_now = ball
 		_look = ball
-	_look_now = _look_now.lerp(_look, 1.0 - exp(-delta * 8.0))
+	var snapped := _look_now == _look
+	if broadcast:
+		# A damped spring rather than an ease, so the pan trails the ball
+		# and settles the way a person's does.
+		if snapped:
+			_look_vel = Vector3.ZERO
+		var dt := minf(delta, 0.05)
+		var acc := (_look - _look_now) * OPERATOR_FOLLOW * OPERATOR_FOLLOW - _look_vel * 2.0 * OPERATOR_DAMPING * OPERATOR_FOLLOW
+		_look_vel += acc * dt
+		_look_now += _look_vel * dt
+	else:
+		_look_now = _look_now.lerp(_look, 1.0 - exp(-delta * 8.0))
 	var to_look := _look_now - position
 	if to_look.length() > 0.1 and absf(to_look.normalized().y) < 0.99:
 		look_at(_look_now)
+		if broadcast:
+			_operator_t += delta
+			var panning := 1.0 if _shot != null and director != null else 0.0
+			_operator_pan = move_toward(_operator_pan, panning, delta * 0.8)
+			var off := operator_offset(_operator_t, _operator_pan)
+			rotate_object_local(Vector3.UP, off.x)
+			rotate_object_local(Vector3.RIGHT, off.y)
+
+
+## The operator's drift at time `t` seconds, `panning` 0 to 1, as (yaw,
+## pitch) in radians:
+## a few incommensurate slow sways, so it never visibly repeats.
+static func operator_offset(t: float, panning: float) -> Vector2:
+	var amp := deg_to_rad(OPERATOR_DRIFT_DEG + OPERATOR_PAN_DEG * panning)
+	var yaw := sin(t * 0.71) + 0.6 * sin(t * 1.93 + 1.3) + 0.3 * sin(t * 4.1 + 0.4)
+	var pitch := sin(t * 0.53 + 2.1) + 0.6 * sin(t * 1.61 + 0.7) + 0.3 * sin(t * 3.7 + 2.9)
+	return Vector2(yaw, pitch * 0.7) * amp / 1.9
 
 
 ## Flies over the hole from behind the tee, along its route, down to the

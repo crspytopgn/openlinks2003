@@ -254,11 +254,40 @@ func _choose_sky() -> void:
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
 			sky_mat.set_shader_parameter("glow", _time.glow)
 			sky_mat.set_shader_parameter("glow_color", _time.sun)
+			_align_sky_sun(sky_mat)
 		return
 	environment.sky.sky_material = _backdrop_sky
 	environment.fog_sky_affect = 0.0
 	environment.fog_light_color = backdrop.sky_haze.lerp(backdrop.ground, 0.35)
 	environment.fog_density = 0.00035
+
+
+## Turns and stretches the photographed sky so the sun in the photo sits
+## where the game's sun is (photo_sky.gdshader). Without it the clouds are
+## lit from one side and the course's shadows fall from another, the
+## commonest giveaway of a pasted-on sky.
+func _align_sky_sun(sky_mat: ShaderMaterial) -> void:
+	var photo_sun := FreeAssets.free_sky_sun()
+	sky_mat.set_shader_parameter("align_sun", photo_sun.x >= 0.0)
+	if photo_sun.x < 0.0:
+		return
+	var to_sun := sun.basis.z
+	var a := sky_sun_mapping(to_sun, photo_sun.y)
+	sky_mat.set_shader_parameter("photo_sun_u", photo_sun.x)
+	sky_mat.set_shader_parameter("photo_sun_elevation", photo_sun.y)
+	sky_mat.set_shader_parameter("sun_u", a.x)
+	sky_mat.set_shader_parameter("sun_elevation", a.y)
+
+
+## For the direction to the game's sun: its place across the panorama in
+## photo_sky.gdshader's mapping, and the height the photo's sun (at
+## `photo_elevation` radians) is stretched to: the sun's own height, but
+## no more than 40% lower or higher than the photo's, beyond which the
+## clouds would visibly squash or smear.
+static func sky_sun_mapping(to_sun: Vector3, photo_elevation: float) -> Vector2:
+	var u := atan2(to_sun.x, -to_sun.z) / TAU + 0.5
+	var e := asin(clampf(to_sun.normalized().y, -1.0, 1.0))
+	return Vector2(u, clampf(e, photo_elevation * 0.6, minf(photo_elevation * 1.4, deg_to_rad(80.0))))
 
 
 ## How far through the round the player is (0 the first hole, 1 the last),
