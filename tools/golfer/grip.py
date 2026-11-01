@@ -290,6 +290,41 @@ def straighten(glb, rig):
     return True
 
 
+# Ankle to ankle at address, metres: a mid iron is played from about
+# shoulder width, narrower than the driver's (whose stance the iron's
+# address was built from).
+IRON_STANCE = 0.41
+
+
+def narrow(glb, rig):
+    """Brings the iron address's feet in to IRON_STANCE, the hips and the
+    hands where they were (the knees flex a touch more). Marks the .glb;
+    returns False if already done."""
+    from mocap_swing import two_bone, write_clip
+
+    cj = rig.index["club"]
+    club_node = glb.doc["nodes"][rig.joints[cj]]
+    if club_node.get("extras", {}).get("iron_stance") or not glb.animation("ref_address_iron"):
+        return False
+    local, root = rig.sample(glb, "ref_address_iron")
+    R0, P0 = rig.world(local, root)
+    fl, fr = P0[rig.index["foot_l"]], P0[rig.index["foot_r"]]
+    centre, half = (fl + fr) / 2, (fr - fl) / np.linalg.norm(fr - fl) * IRON_STANCE / 2
+    R, P = list(R0), list(P0)
+    for s, target in (("l", centre - half), ("r", centre + half)):
+        foot = R0[rig.index[f"foot_{s}"]]
+        two_bone(rig, R, P, f"thigh_{s}", f"calf_{s}", f"foot_{s}", np.array([target[0], P0[rig.index[f"foot_{s}"]][1], target[2]]))
+        R[rig.index[f"foot_{s}"]] = foot
+    R, P = rig.world(rig.locals(R), root)
+    write_clip(glb, rig, "ref_address_iron", np.zeros(1, np.float32), [rig.locals(R)], np.array([root], np.float32),
+               filtered=False)
+    print(f"ref_address_iron: stance {np.linalg.norm(fr - fl) * 100:.0f} -> "
+          f"{np.linalg.norm(P[rig.index['foot_r']] - P[rig.index['foot_l']]) * 100:.0f} cm, "
+          f"knees {knee_flex(rig, P0):.0f} -> {knee_flex(rig, P):.0f}")
+    club_node.setdefault("extras", {})["iron_stance"] = 1
+    return True
+
+
 def between(a, b):
     a, b = pose.unit(a), pose.unit(b)
     axis = np.cross(a, b)

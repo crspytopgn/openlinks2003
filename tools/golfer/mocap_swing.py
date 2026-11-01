@@ -293,6 +293,7 @@ EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 # head drifts 12 cm towards the hole through the stroke. These keep a share
 # of that: the legs and pelvis hold the address, and the upper body leans
 # back about the base of the spine so the head stays over the ball.
+LEAD_HEEL = 0.2  # of the actor's lead heel lift kept in full swings
 PUTT_STILL = 0.1  # of the actor's hip slide, foot moves and head drift kept
 LOWER_BODY = ("pelvis", "thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r")
 
@@ -507,6 +508,19 @@ def retarget(glb, rig, clip, cache):
                 keep = PUTT_STILL if clip["putt"] and "impact" in clip else 1.0
                 target = ref_poss[rig.index[f"foot_{s}"]] + keep * scale * (g @ (m_poss[k] - m_poss0[k]))
                 foot = rots[rig.index[f"foot_{s}"]]
+                if s == "l" and not clip["putt"] and "impact" in clip:
+                    # The lead foot stays planted (the actor's heel comes up
+                    # 7 cm at the top and 5 cm at the finish): only a little
+                    # of its rise is kept, and the sole lies flat as at
+                    # address, still turning as the actor's does.
+                    rise = target[1] - ref_poss[rig.index["foot_l"]][1]
+                    target[1] = ref_poss[rig.index["foot_l"]][1] + LEAD_HEEL * rise
+                    to_toe = rest[rig.index["ball_l"]] - rest[rig.index["foot_l"]]
+                    v, v0 = foot @ to_toe, ref_rots[rig.index["foot_l"]] @ to_toe
+                    flat = np.array([v[0], 0.0, v[2]])
+                    if np.linalg.norm(flat) > 1e-6:
+                        want = pose.unit(flat) * math.hypot(v0[0], v0[2]) + np.array([0.0, v0[1], 0.0])
+                        foot = between(v, want) @ foot
                 # Up on the toes, not through the ground.
                 toe = target + foot @ (rest[rig.index[f"ball_{s}"]] - rest[rig.index[f"foot_{s}"]])
                 target = target + np.array([0.0, max(0.0, ref_poss[rig.index[f"ball_{s}"]][1] - toe[1],
@@ -1054,6 +1068,7 @@ def main():
     iron.ensure_iron(glb, rig)
     grip.fit(glb, rig, club_direction(glb, rig))
     grip.straighten(glb, rig)
+    grip.narrow(glb, rig)
     # The clubs modelled from real ones, before the swings are measured
     # against their heads.
     clubs.swap(glb, rig)
