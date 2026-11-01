@@ -3029,7 +3029,7 @@ func _test_free_sounds() -> void:
 	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
 	for stem: String in ["amb_traffic", "amb_murmur", "amb_mower"]:
 		var layer := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
-		_check(layer != null and layer.get_length() > 25.0, "%s is there" % stem)
+		_check(layer != null and layer.get_length() > 15.0, "%s is there" % stem)
 	var park := FreeAmbience.Setting.PARKLAND
 	_check(FreeAmbience.bed_db(park, "morning") > FreeAmbience.bed_db(park, "afternoon") + 6.0, "the dawn chorus is louder than the afternoon")
 	_check(FreeAmbience.bed_db(park, "midday") <= FreeAmbience.bed_db(park, "afternoon"), "birds are quietest at midday")

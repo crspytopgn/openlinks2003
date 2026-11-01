@@ -105,7 +105,7 @@ def mower(seconds=34.0):
     # Far off: the air and the ground take the top.
     sound = filt(sound, lambda f: 1.0 / np.sqrt(1.0 + (f / 900.0) ** 4))
     # Comes nearer, works a stripe, goes away.
-    env = np.interp(t, [0, 9, 14, 22, 28, seconds], [0.0, 0.55, 1.0, 0.9, 0.4, 0.0]) ** 1.5
+    env = np.interp(t, np.array([0.0, 0.26, 0.41, 0.65, 0.82, 1.0]) * seconds, [0.0, 0.55, 1.0, 0.9, 0.4, 0.0]) ** 1.5
     return norm(sound * env, -26.0)
 
 
@@ -149,18 +149,20 @@ def murmur(seconds=30.0, voices=30):
     return norm(mix, -28.0)
 
 
-def encode(x, name):
+def encode(x, name, rate):
+    """Encodes at `rate` Hz: the far road and mower have nothing above a
+    few kilohertz, so they keep small for the web download."""
     path = os.path.join(OUT, name + ".ogg")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
-                    "-c:a", "libvorbis", "-q:a", "0", "-map_metadata", "-1", path],
+                    "-ar", str(rate), "-c:a", "libvorbis", "-q:a", "0", "-map_metadata", "-1", path],
                    input=x.astype(np.float32).tobytes(), check=True)
     print(f"{name:12s} {len(x) / SR:5.1f} s {os.path.getsize(path) / 1024:6.1f} KB")
 
 
 def main():
-    encode(traffic(), "amb_traffic")
-    encode(mower(), "amb_mower")
-    encode(murmur(), "amb_murmur")
+    encode(traffic(20.0), "amb_traffic", 8000)
+    encode(mower(28.0), "amb_mower", 8000)
+    encode(murmur(20.0), "amb_murmur", 12000)
 
 
 if __name__ == "__main__":
