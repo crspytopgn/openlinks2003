@@ -2062,6 +2062,17 @@ func _test_gallery() -> void:
 	var g := Gallery.build(hole, hole.pin, 3, 7, true)
 	root.add_child(g)
 	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	var shares := 0.0
+	for share: float in Gallery.ARM_SHARES.values():
+		shares += share
+	_check_near(shares, 1.0, 1e-6, "the crowd's arm poses share out the whole gallery")
+	_check(Gallery.arm_pose(0.0) == CrowdArms.Pose.FOLDED and Gallery.arm_pose(0.9999) == CrowdArms.Pose.POCKETS, "arms folded is the commonest pose, pockets the rarest")
+	var arm_mods := 0
+	for m in g.find_children("*", "SkeletonModifier3D", true, false):
+		if m is CrowdArms:
+			arm_mods += 1
+	var arms_ok := arm_mods == g.crowd_count()
+	_check(arms_ok, "each spectator holds their arms like a spectator, not round a club")
 	var spot := Gallery.grandstand_spot(hole)
 	if not spot.is_empty():
 		var capacity := Gallery.STAND_ROWS * (int(Gallery.STAND_WIDTH / Gallery.STAND_SEAT) - 1)
