@@ -3234,6 +3234,17 @@ func _test_free_sounds() -> void:
 	_check(FreeAmbience.setting_for_place("Augusta National", Vector2(33.50, -82.02)) == FreeAmbience.Setting.PARKLAND, "Augusta is parkland")
 	_check(FreeAmbience.setting_for_place("St Andrews Links", Vector2(56.34, -2.80)) == FreeAmbience.Setting.SEASIDE, "a links by name wins")
 	_check(FreeAmbience.setting_for_place("Gleneagles", Vector2(56.28, -3.75)) == FreeAmbience.Setting.WOODLAND, "Scottish highlands are woodland")
+	var sea := FreeAmbience.Setting.SEASIDE
+	_check(FreeAmbience.calls_for(Vector2(51.43, -0.6), park) == "calls_uk", "Wentworth: robins and blackbirds")
+	_check(FreeAmbience.calls_for(Vector2(56.34, -2.80), sea) == "calls_links", "St Andrews links: skylarks, oystercatchers, gulls")
+	_check(FreeAmbience.calls_for(Vector2(33.50, -82.02), park) == "calls_us_se", "Augusta: cardinals and mockingbirds")
+	_check(FreeAmbience.calls_for(Vector2(47.6, -122.3), park) == "calls_pnw", "Seattle: American robins and sparrows")
+	_check(FreeAmbience.calls_for(Vector2(-37.97, 145.03), park) == "calls_aus", "Royal Melbourne: magpies and kookaburras")
+	_check(FreeAmbience.calls_for(nowhere, park) == "" and FreeAmbience.calls_for(Vector2(35.7, 139.7), park) == "", "unknown or other places: snatches of the bed")
+	_check(FreeAmbience.has_calls(sea, "calls_links") and not FreeAmbience.has_calls(sea, ""), "shore birds only on a links with its own set")
+	for stem: String in ["calls_uk", "calls_links", "calls_us_se", "calls_pnw", "calls_aus"]:
+		var calls_stream := load("res://assets/sounds/%s.ogg" % stem) as AudioStream
+		_check(calls_stream != null and calls_stream.get_length() >= 5.0 * FreeAmbience.CALL_SLOT - 0.1, "%s holds a run of whole calls" % stem)
 	_check(FreeAmbience.is_warm(Vector2(33.5, -82.0)) and not FreeAmbience.is_warm(Vector2(51.4, -0.6)) and not FreeAmbience.is_warm(nowhere), "cicadas in Georgia, not Surrey")
 	_check(FreeAmbience.insects_db(park, true, "midday", 1.0) > FreeAmbience.insects_db(park, true, "morning", 1.0), "cicadas loudest at midday")
 	_check(FreeAmbience.insects_db(park, false, "midday", 1.0) == FreeAmbience.SILENT_DB, "no cicadas somewhere cool")

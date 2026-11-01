@@ -114,10 +114,12 @@ def render(spec, sources, cache):
     return mix
 
 
-def encode(mix, path, quality):
+def encode(mix, path, quality, rate=SR):
+    """Encodes at `rate` Hz ("sr" in a sound's spec): birdcalls heard from
+    a distance have little above 10 kHz, so they keep small for the web."""
     ch = mix.shape[1]
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", str(ch), "-i", "-",
-                    "-c:a", "libvorbis", "-q:a", str(quality), "-map_metadata", "-1", path],
+                    "-ar", str(rate), "-c:a", "libvorbis", "-q:a", str(quality), "-map_metadata", "-1", path],
                    input=mix.astype(np.float32).tobytes(), check=True)
 
 
@@ -168,7 +170,7 @@ def main():
             continue
         mix = render(spec, data["sources"], args.cache)
         path = os.path.join(OUT, spec["name"] + ".ogg")
-        encode(mix, path, spec.get("q", 3))
+        encode(mix, path, spec.get("q", 3), spec.get("sr", SR))
         print(f"{spec['name']:24s} {len(mix) / SR:6.2f} s {os.path.getsize(path) / 1024:7.1f} KB", flush=True)
     with open(os.path.join(OUT, "CREDITS.md"), "w") as f:
         f.write(credits(data))
