@@ -56,6 +56,18 @@ const PROS := [
 		"Purple", "Grey", "White", "White", {"face_width": 0.15, "face_full": 0.2, "chin": 0.15, "nose_length": -0.15}],
 ]
 
+## The face sliders above are written small; at that size every face came
+## out alike next to photos of a real field, so they are scaled up.
+const FACE_SCALE := 1.7
+## Added to each woman's face: the average differences between women's and
+## men's faces in photos (a softer, narrower jaw and smaller chin, higher
+## brows, larger eyes, a narrower nose, fuller lips), which the body's
+## "female" shape alone leaves too square, worst under a cap.
+const FEMININE := {
+	"jaw": -0.45, "chin": -0.3, "chin_height": -0.2, "brows": 0.3, "eye_size": 0.25,
+	"nose_width": -0.3, "nose_length": -0.15, "lips": 0.3, "face_width": -0.15, "cheekbones": 0.2,
+}
+
 static var _golfers: Array[Dictionary] = []
 
 
@@ -121,7 +133,11 @@ static func _make(row: Array) -> PlayerLook:
 	l.shoes = _named(PlayerLook.CLOTH_COLOURS, row[15], l.shoes)
 	var f: Dictionary = row[16]
 	for entry: Array in PlayerLook.FACE:
-		l.face[entry[0]] = float(f.get(entry[0], 0.0))
+		var key: String = entry[0]
+		var v := float(f.get(key, 0.0)) * FACE_SCALE
+		if l.sex >= 0.5:
+			v += float(FEMININE.get(key, 0.0))
+		l.face[key] = clampf(v, -1.0, 1.0)
 	# Tour bags and clubs: mostly black heads, graphite in the woods.
 	l.shaft = "graphite" if hash(row[0]) % 3 == 0 else "steel"
 	return l

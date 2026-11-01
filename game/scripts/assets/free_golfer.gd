@@ -59,6 +59,7 @@ var _last_spot := Vector3.INF
 var _look: GolferLook
 var _feet: GolferFeet
 var _hands: GolferHands
+var _cloth: GolferCloth
 
 
 ## Null if the model or the look pack is missing, or the model has no
@@ -87,6 +88,8 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 	golfer._hands = GolferHands.new()
 	golfer._skeleton.add_child(golfer._hands)
 	golfer._hands.read_grips(golfer._skeleton, player)
+	golfer._cloth = GolferCloth.new()
+	golfer._skeleton.add_child(golfer._cloth)
 	for i in golfer._skeleton.get_bone_count():
 		golfer._base_rests.append(golfer._skeleton.get_bone_rest(i))
 	for anim_name in LOOPING:
@@ -112,6 +115,7 @@ func apply_look(p_look: PlayerLook) -> void:
 	for node in _look_nodes:
 		node.queue_free()
 	_look_nodes.clear()
+	_cloth.clear_materials()
 	var weights := look.shape_weights()
 	_fit_skeleton(parts.joint_offsets(weights))
 	var skin := Skin.new()
@@ -132,6 +136,8 @@ func apply_look(p_look: PlayerLook) -> void:
 		var mat_name := parts.part_material(part_name)
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
 		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
+		if part_name.begins_with("Hair_") and look.wears_cap():
+			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
 		var std := _material(parts, mat_name)
 		var mat: Material = null
@@ -141,6 +147,17 @@ func apply_look(p_look: PlayerLook) -> void:
 				mat = GolferSurface.skin(std)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
 			mat = GolferSurface.hair(std)
+		elif mat_name == "Eyelashes" or mat_name == "Eyebrows":
+			mat = GolferSurface.fine_hair(std, mat_name == "Eyelashes", look.hair_colour)
+		elif _moves(parts, part_name, mat_name):
+			# Shirt, trousers, shorts and the polo's collar, placket and
+			# buttons: moving in the wind and the swing (GolferCloth).
+			mi.mesh = GolferCloth.with_mask(mi.mesh, names, _skeleton)
+			var cloth := GolferCloth.material(std)
+			if part_name.begins_with("Buttons_"):
+				cloth.set_shader_parameter("roughness", std.roughness)
+			_cloth.add_material(cloth)
+			mat = cloth
 		else:
 			mat = GolferSurface.cloth(std) if _is_cloth(parts, mat_name) else _matt(std)
 		if mi.mesh.get_surface_count() > 1:
@@ -203,10 +220,74 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 	return parts.make_material(material_name)
 
 
+## The hair without the part the cap covers: the cap fits the skull with
+## room for flattened hair (tools/golfer/cap.py), as a real one presses
+## the hair down, so the full hair would poke through it. Triangles whose
+## middle is above the crown's lower edge ("cap_band", the band ring of
+## the cap shaped like this golfer) are dropped, short of a ponytail.
+## How far below the band at the front the hair is cut (the fringe).
+const FRINGE_TUCK := 0.05
+
+
+static func under_cap(hair: ArrayMesh, parts: GolferParts, weights: Dictionary) -> ArrayMesh:
+	var band_ids: Array = parts.info.get("cap_band", [])
+	var cap := parts.bake("Cap", weights)
+	if band_ids.is_empty() or cap == null or hair == null:
+		return hair
+	var cap_verts: PackedVector3Array = cap.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var ring := PackedVector3Array()
+	var centre := Vector3.ZERO
+	for i: int in band_ids:
+		ring.append(cap_verts[i])
+		centre += cap_verts[i]
+	centre /= ring.size()
+	# The band point nearest each degree round the head.
+	var nearest := PackedInt32Array()
+	nearest.resize(360)
+	for deg in 360:
+		var ang := deg_to_rad(deg - 180.0)
+		var best_d := TAU
+		for k in ring.size():
+			var d := absf(wrapf(ang - atan2(ring[k].x - centre.x, ring[k].z - centre.z), -PI, PI))
+			if d < best_d:
+				best_d = d
+				nearest[deg] = k
+	var arrays := hair.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var kept := PackedInt32Array()
+	for t in range(0, idx.size(), 3):
+		var m := (verts[idx[t]] + verts[idx[t + 1]] + verts[idx[t + 2]]) / 3.0
+		var deg := clampi(int(rad_to_deg(atan2(m.x - centre.x, m.z - centre.z)) + 180.0), 0, 359)
+		var best := nearest[deg]
+		var edge := ring[best]
+		var reach := Vector2(edge.x - centre.x, edge.z - centre.z).length()
+		var out := Vector2(m.x - centre.x, m.z - centre.z).length()
+		# Above the band and no further out than a ponytail's root; at the
+		# front a fringe tucks up under the peak, so from a little lower.
+		var front := maxf(0.0, -(m.z - centre.z) / maxf(out, 0.001))
+		if m.y > edge.y - FRINGE_TUCK * front and out < reach + 0.03:
+			continue
+		kept.append_array([idx[t], idx[t + 1], idx[t + 2]])
+	if kept.size() == idx.size():
+		return hair
+	arrays[Mesh.ARRAY_INDEX] = kept
+	var mesh := ArrayMesh.new()
+	if not kept.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
 ## The look pack's map of the face's regions for the skin shader, or null.
 static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2D:
 	var index := int(parts.info.materials[material_name].get("regions", -1))
 	return parts.texture(index) if index >= 0 else null
+
+
+## Whether a part is clothing that moves (the cap stays put on the head).
+static func _moves(parts: GolferParts, part_name: String, material_name: String) -> bool:
+	var tint := str(parts.info.materials[material_name].get("tint", ""))
+	return tint in ["top", "bottom"] or part_name.begins_with("Collar_") or part_name.begins_with("Placket_") or part_name.begins_with("Buttons_")
 
 
 static func _is_cloth(parts: GolferParts, material_name: String) -> bool:

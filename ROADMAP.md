@@ -67,7 +67,7 @@ product lead builds it.
    (picked by the round seed, so a friend's round plays the same ones).
 12. [x] **Click to aim**: click a spot on the hole map (or the course) to aim
    there and get the club for that distance, as modern sims do. Done:
-   right-click on the course. Still to do: clicking the hole map.
+   right-click on the course, or a click on the Tour hole map.
 13. [x] **Pick-up limit**: an option to pick up at double par or net double
    bogey, like real stableford and casual rounds, to keep rounds moving.
    Done: Settings > Pick up (double par or triple bogey).
@@ -101,6 +101,7 @@ product lead builds it.
 - [x] Wind: per-hole wind with a HUD arrow; the Links flight halves it ([physics.md](docs/formats/physics.md))
 - [ ] Clubs and club selection **(needs data: club distances; `GRAPHICS.LS` has a `CLUBDIST` entry worth checking first)**
 - [x] Game shell: hole flow, HUD, scorecard, placeholder course and loader interfaces ([docs/game-shell.md](docs/game-shell.md))
+- [x] Built-in course rebuilt as Kettle Hollow: a routed parkland nine on real lidar ground with organic shapes and contoured greens ([docs/home-course.md](docs/home-course.md))
 - [x] Stand-in ball physics: published flight, bounce and roll model behind a `ShotModel` interface
 - [x] Swing controls: classic three-click power meter
 - [x] Swing controls: real-time mouse swing (Links 2003's PowerStroke mouse swing, the default; irons, chips, putts and the swing help option as the game does them)
@@ -205,6 +206,7 @@ product lead builds it.
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
   - [x] Player creator: body, height, skin, face, hair, clothes and equipment looks, saved with the profile and played in rounds ([game-shell.md](docs/game-shell.md#player-creator))
   - [x] Face from a photo, processed on the player's own device (found automatically in the browser; tapped on desktop)
+  - [x] Clothes that move: shirts, trousers and shorts ripple in the course wind, trail the body through the swing and fold as the shoulders turn and the knees and elbows bend (GolferCloth; still on Low, no folds on Medium)
   - [ ] Find the face automatically on desktop too (MediaPipe or similar through GDExtension)
 - [ ] Settings, controller support, performance
   - [x] Touch swipe swing and on-screen aim and club buttons for phones and tablets; game pad play with an analog-stick mouse swing ([game-shell.md](docs/game-shell.md#touch-screens-and-game-pads))

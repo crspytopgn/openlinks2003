@@ -23,6 +23,8 @@ const PHOTO_AMBIENT_ENERGY := 0.5
 const PHOTO_EXPOSURE := 1.0
 ## Links 2003's afternoon sun height, which Classic lighting keeps.
 const CLASSIC_SUN_ELEVATION := 38.0
+## Photoreal exposure in Compatibility relative to Forward+ (see _apply_time).
+const COMPAT_EXPOSURE_LIFT := 1.3
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light
@@ -44,7 +46,7 @@ const TIMES := {
 	"afternoon": {elevation = 30.0, bearing = 145.0, sun = Color(1.0, 0.92, 0.8), energy = 1.0, fill = 1.0, fill_fwd = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.0), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
 		haze = HORIZON, fog = 1.2, exposure = 1.0},
-	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.74, 0.5), energy = 1.3, fill = 1.3, fill_fwd = 4.2,
+	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.74, 0.5), energy = 1.3, fill = 0.55, fill_fwd = 4.2,
 		ambient = Color(0.68, 0.7, 0.74), sky = Color(1.0, 0.96, 0.92), horizon = Color(1.08, 0.98, 0.88), glow = 0.5,
 		haze = Color(0.82, 0.78, 0.72), fog = 1.6, exposure = 1.6},
 }
@@ -378,7 +380,7 @@ func _apply_time() -> void:
 	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
 	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
-	RenderingServer.global_shader_parameter_set("turf_tone", 1.0 if _photo else 0.0)
+	RenderingServer.global_shader_parameter_set("turf_tone", (1.0 if GraphicsSettings.is_forward_plus() else 1.35) if _photo else 0.0)
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
 		return
@@ -396,7 +398,9 @@ func _apply_time() -> void:
 		environment.ambient_light_energy *= 0.6
 	environment.ambient_light_color = _time.ambient
 	var fwd := GraphicsSettings.is_forward_plus()
-	environment.tonemap_exposure = PHOTO_EXPOSURE * float(_time.exposure)
+	# Compatibility's turf measured about a stop's third darker than real
+	# course photos once its colour matched them (Lab L* 51 against 56).
+	environment.tonemap_exposure = PHOTO_EXPOSURE * float(_time.exposure) * (1.0 if fwd else COMPAT_EXPOSURE_LIFT)
 	var sky: Color = _time.sky
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(sky.r, sky.g, sky.b))
 

@@ -8,7 +8,11 @@ shader_type spatial;
 // - A shine: an oilier T-zone that catches the sun.
 // Pores are a fine tiled normal map. Light scatters under the skin on
 // Forward+ (Compatibility ignores it).
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx, sss_mode_skin;
+// light() wraps the sun round the shadow side, red furthest, as light
+// scattered under real skin does, so the shade side of a face stays warm
+// instead of turning grey. The sky's fill is warmed the same way: the
+// albedo is warmed by `warmth` and the sun's light divided by it again.
+render_mode blend_mix, depth_draw_opaque, cull_back, sss_mode_skin;
 
 uniform vec4 albedo : source_color = vec4(1.0);
 uniform sampler2D texture_albedo : source_color, filter_linear_mipmap, repeat_enable;
@@ -30,6 +34,9 @@ uniform float specular : hint_range(0.0, 1.0) = 0.38;
 uniform float sss_strength : hint_range(0.0, 1.0) = 0.35;
 uniform float rim : hint_range(0.0, 1.0) = 0.12;
 uniform float rim_tint : hint_range(0.0, 1.0) = 0.6;
+// How far each colour wraps past the terminator (red, green, blue).
+uniform vec3 wrap = vec3(0.5, 0.24, 0.18);
+uniform vec3 warmth = vec3(1.12, 0.96, 0.84);
 
 void fragment() {
 	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb;
@@ -43,12 +50,32 @@ void fragment() {
 	float dots = texture(stubble_dots, UV * stubble_scale).r;
 	float hairs = clamp(beard * stubble * (0.9 + dots * 1.5), 0.0, 0.95);
 	c = mix(c, beard_colour.rgb, hairs);
-	ALBEDO = c;
+	ALBEDO = c * warmth;
 	ROUGHNESS = clamp(roughness - r.a * 0.16 - r.b * 0.14 + hairs * 0.25, 0.2, 1.0);
 	SPECULAR = specular + r.a * 0.08;
 	NORMAL_MAP = texture(pores, UV * pore_scale).rgb;
 	NORMAL_MAP_DEPTH = pore_strength * (1.0 - r.b) * (1.0 - hairs);
 	SSS_STRENGTH = sss_strength;
-	RIM = rim;
-	RIM_TINT = rim_tint;
+}
+
+void light() {
+	float ndl = dot(NORMAL, LIGHT);
+	vec3 d = clamp((vec3(ndl) + wrap) / (1.0 + wrap), 0.0, 1.0);
+	DIFFUSE_LIGHT += d / warmth * ATTENUATION * LIGHT_COLOR / PI;
+	// The skin's sheen (GGX, Schlick Fresnel) and a faint rim at grazing light.
+	float nl = max(ndl, 0.0);
+	float nv = max(dot(NORMAL, VIEW), 1e-3);
+	vec3 h = normalize(VIEW + LIGHT);
+	float nh = max(dot(NORMAL, h), 0.0);
+	float a = ROUGHNESS * ROUGHNESS;
+	float a2 = a * a;
+	float den = nh * nh * (a2 - 1.0) + 1.0;
+	float dist = a2 / (PI * den * den);
+	float k = a * 0.5;
+	float vis = 0.25 / ((nl * (1.0 - k) + k) * (nv * (1.0 - k) + k));
+	float f0 = 0.08 * specular;
+	float fres = f0 + (1.0 - f0) * pow(1.0 - max(dot(LIGHT, h), 0.0), 5.0);
+	SPECULAR_LIGHT += nl * dist * vis * fres * ATTENUATION * LIGHT_COLOR;
+	float r = pow(1.0 - nv, 4.0) * rim * clamp(ndl + 0.3, 0.0, 1.0);
+	DIFFUSE_LIGHT += r * mix(vec3(1.0), ALBEDO, rim_tint) / max(ALBEDO, vec3(0.05)) * ATTENUATION * LIGHT_COLOR / PI;
 }

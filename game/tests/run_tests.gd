@@ -82,6 +82,7 @@ func _initialize() -> void:
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
 	_run("photo_golfer", _test_photo_golfer)
+	_run("golfer_cloth", _test_golfer_cloth)
 	_run("player_looks", _test_player_looks)
 	_run("golfer_roster", _test_golfer_roster)
 	_run("face_from_photo", _test_face_from_photo)
@@ -120,6 +121,7 @@ func _process(_delta: float) -> bool:
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
 	_run("glass_ui", _test_glass_ui)
+	_run("web_text_input", _test_web_text_input)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -1991,15 +1993,19 @@ func _test_course_marks() -> void:
 	# Footprints: find a bunker on the first hole and stand in it.
 	var sand := Vector3.INF
 	var h0 := course.holes[0]
-	for z in range(0, 400, 2):
+	# Along the hole from the tee towards the pin, and out to either side.
+	var down := Vector3(h0.pin.x - h0.tee.x, 0.0, h0.pin.z - h0.tee.z).normalized()
+	var across := down.cross(Vector3.UP)
+	for d in range(0, 420, 2):
 		for x in range(-60, 61, 2):
-			if t.surface_at(h0.tee.x + x, h0.tee.z + z) == Surface.Type.SAND \
-					and t.surface_at(h0.tee.x + x, h0.tee.z + z - 3) == Surface.Type.SAND:
-				sand = Vector3(h0.tee.x + x, 0.0, h0.tee.z + z)
+			var at := h0.tee + down * d + across * x
+			var back := at - down * 3.0
+			if t.surface_at(at.x, at.z) == Surface.Type.SAND and t.surface_at(back.x, back.z) == Surface.Type.SAND:
+				sand = Vector3(at.x, 0.0, at.z)
 				break
 		if sand != Vector3.INF:
 			break
-	_check(sand != Vector3.INF, "the placeholder course has a bunker")
+	_check(sand != Vector3.INF, "the built-in course has a bunker")
 	if sand != Vector3.INF:
 		var spots := CourseMarks.footprint_spots(t, sand, Vector3(0, 0, 1), Vector3(1, 0, 0))
 		_check(spots.size() >= 2, "footprints in the bunker (%d)" % spots.size())
@@ -2058,6 +2064,17 @@ func _test_gallery() -> void:
 	var g := Gallery.build(hole, hole.pin, 3, 7, true)
 	root.add_child(g)
 	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	var shares := 0.0
+	for share: float in Gallery.ARM_SHARES.values():
+		shares += share
+	_check_near(shares, 1.0, 1e-6, "the crowd's arm poses share out the whole gallery")
+	_check(Gallery.arm_pose(0.0) == CrowdArms.Pose.FOLDED and Gallery.arm_pose(0.9999) == CrowdArms.Pose.POCKETS, "arms folded is the commonest pose, pockets the rarest")
+	var arm_mods := 0
+	for m in g.find_children("*", "SkeletonModifier3D", true, false):
+		if m is CrowdArms:
+			arm_mods += 1
+	var arms_ok := arm_mods == g.crowd_count()
+	_check(arms_ok, "each spectator holds their arms like a spectator, not round a club")
 	var spot := Gallery.grandstand_spot(hole)
 	if not spot.is_empty():
 		var capacity := Gallery.STAND_ROWS * (int(Gallery.STAND_WIDTH / Gallery.STAND_SEAT) - 1)
@@ -2967,7 +2984,7 @@ func _test_result_codes(game: GolfRound, rec: RoundRecord) -> void:
 	# The setup page reads the code and plays against it.
 	var panel := RoundSetupPanel.new()
 	root.add_child(panel)
-	panel.open(PackedStringArray(["Placeholder Nine (built in)"]), 0, RoundSetup.new())
+	panel.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), 0, RoundSetup.new())
 	panel._code.text = code
 	panel._open_code()
 	_check(panel.current_setup().challenge != null, "the setup page takes the code")
@@ -3070,7 +3087,7 @@ func _test_online_lobby() -> void:
 	for seat in 2:
 		var p := OnlinePanel.new()
 		root.add_child(p)
-		p.open(PackedStringArray(["Placeholder Nine (built in)"]), ["Ann", "Bo"][seat])
+		p.open(PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"]), ["Ann", "Bo"][seat])
 		p.use_link(links[seat])
 		p.handle({"type": "welcome", "you": seat + 1, "seat": seat, "host": 1, "code": "ABCD"})
 		p.handle({"type": "members", "host": 1, "members": [{"id": 1, "name": "Ann", "seat": 0}, {"id": 2, "name": "Bo", "seat": 1}]})
@@ -3118,7 +3135,7 @@ func _test_free_sounds() -> void:
 		var s := load("res://assets/sounds/%s.ogg" % stem) as AudioStreamOggVorbis
 		_check(s != null and s.get_length() > 20.0, "%s is a long loop" % stem)
 	_check(load(MenuSounds.FREE_CLICK) is AudioStream, "free menu click")
-	_check(FreeAmbience.setting_for("Placeholder Nine") == FreeAmbience.Setting.PARKLAND, "parkland by default")
+	_check(FreeAmbience.setting_for(PlaceholderCourseLoader.NAME) == FreeAmbience.Setting.PARKLAND, "parkland by default")
 	_check(FreeAmbience.setting_for("Kiawah Island Ocean Course") == FreeAmbience.Setting.SEASIDE, "seaside")
 	_check(FreeAmbience.setting_for("Desert Mountain") == FreeAmbience.Setting.DESERT, "desert before mountain")
 	_check(FreeAmbience.setting_for("Pine Valley") == FreeAmbience.Setting.WOODLAND, "woodland")
@@ -3258,6 +3275,51 @@ func _test_free_golfer() -> void:
 	golfer.free()
 
 
+## GolferCloth: the clothes' mask (loose at a sleeve's hem and down the
+## shin, held at the collar, waist and thigh), the swing-lag spring, and the
+## look's clothes wearing the moving cloth material with the mask baked in.
+func _test_golfer_cloth() -> void:
+	var joints := {"pelvis": Vector3(0, 0.95, 0), "neck_01": Vector3(0, 1.45, 0),
+		"upperarm_l": Vector3(-0.2, 1.4, 0), "lowerarm_l": Vector3(-0.37, 1.21, 0),
+		"upperarm_r": Vector3(0.2, 1.4, 0), "lowerarm_r": Vector3(0.37, 1.21, 0),
+		"thigh_l": Vector3(-0.11, 0.94, 0), "foot_l": Vector3(-0.19, 0.07, 0),
+		"thigh_r": Vector3(0.11, 0.94, 0), "foot_r": Vector3(0.19, 0.07, 0)}
+	var collar := GolferCloth.looseness(Vector3(0, 1.43, -0.1), 0.0, 0.0, joints)
+	var waist := GolferCloth.looseness(Vector3(0, 0.96, -0.1), 0.0, 0.0, joints)
+	var chest := GolferCloth.looseness(Vector3(0, 1.2, -0.1), 0.0, 0.0, joints)
+	_check(chest > collar + 0.2 and chest > waist + 0.2, "the shirt blouses mid-torso (%.2f) and is held at collar %.2f and waist %.2f" % [chest, collar, waist])
+	var seam := GolferCloth.looseness(Vector3(-0.2, 1.4, 0), 1.0, 0.0, joints)
+	var hem := GolferCloth.looseness(Vector3(-0.27, 1.32, 0), 1.0, 0.0, joints)
+	_check(hem > 0.7 and seam < 0.25, "a short sleeve flaps at its hem (%.2f), not the shoulder (%.2f)" % [hem, seam])
+	var thigh := GolferCloth.looseness(Vector3(0.12, 0.8, 0), 0.0, 1.0, joints)
+	var shin := GolferCloth.looseness(Vector3(0.16, 0.35, 0), 0.0, 1.0, joints)
+	var cuff := GolferCloth.looseness(Vector3(0.19, 0.08, 0), 0.0, 1.0, joints)
+	_check(shin > thigh + 0.4 and cuff < shin, "trousers swing at the shin (%.2f), held at the thigh (%.2f) and settled on the shoe (%.2f)" % [shin, thigh, cuff])
+	# The spring trails an acceleration, stays within its limit and settles.
+	var r := GolferCloth.step_spring(Vector3.ZERO, Vector3.ZERO, Vector3(0, -400, 0), 1.0 / 60.0, GolferCloth.MAX_LAG)
+	var off: Vector3 = r[0]
+	_check(off.y > 0.0 and off.length() <= GolferCloth.MAX_LAG + 1e-6, "a sleeve trails an arm speeding down (%.4f m up)" % off.y)
+	for i in 120:
+		r = GolferCloth.step_spring(r[0], r[1], Vector3.ZERO, 1.0 / 60.0, GolferCloth.MAX_LAG)
+	_check((r[0] as Vector3).length() < 0.002, "and settles back once the arm moves steadily")
+	var golfer := FreeGolfer.create()
+	if golfer == null:
+		return
+	var moving := 0
+	for node in golfer.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		var n := String(mi.name)
+		if n.begins_with("Top_") or n.begins_with("Bottom_") or n.begins_with("Collar_"):
+			moving += 1
+			_check(mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER, "%s wears the moving cloth" % n)
+			var arrays := mi.mesh.surface_get_arrays(0)
+			_check(arrays[Mesh.ARRAY_COLOR] != null and arrays[Mesh.ARRAY_TEX_UV2] != null, "%s has its cloth mask" % n)
+		if n == "Cap":
+			_check(not (mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER), "the cap stays put")
+	_check(moving >= 3 and golfer._cloth.materials.size() >= moving, "shirt, trousers and collar move (%d)" % moving)
+	golfer.free()
+
+
 ## The clubs are modelled to real sizes (tools/golfer/clubs.py): each head's
 ## widest span, hosel and ferrule included, and the driver's crown, face and
 ## sole as separate surfaces so only the crown takes the player's colour.
@@ -3290,6 +3352,56 @@ func _test_club_heads(golfer: Node) -> void:
 ## PlayerFaceFit: measurements ignore a photo's size, position and tilt; the
 ## fit finds known sliders again from the golfer's own landmarks; colours are
 ## read from the right patches.
+func _test_web_text_input() -> void:
+	var box := Control.new()
+	box.position = Vector2(100, 200)
+	root.add_child(box)
+	var le := LineEdit.new()
+	le.position = Vector2(10, 20)
+	le.size = Vector2(300, 40)
+	le.max_length = 6
+	le.placeholder_text = "Course"
+	box.add_child(le)
+	var spin := SpinBox.new()
+	box.add_child(spin)
+	var spin_edit := spin.get_line_edit()
+	var fields: Array[LineEdit] = [le, spin_edit]
+	var listed := WebTextInput.describe_all(fields, null)
+	_check(listed.size() == 2, "both boxes are listed")
+	var d: Dictionary = listed[0] if listed.size() > 0 else {}
+	var scale := root.get_screen_transform().get_scale()
+	_check(is_equal_approx(float(d.get("x", -1)), roundf(110 * scale.x)) and is_equal_approx(float(d.get("w", -1)), roundf(300 * scale.x)), "box rectangle in window pixels (%s)" % str(d))
+	_check(d.get("id") == le.get_instance_id() and d.get("max") == 6 and d.get("hint") == "Course", "box details")
+	_check(listed.size() == 2 and listed[1].numeric, "a SpinBox gets the number keyboard")
+	# Typing goes into the box with the signals panels listen for.
+	var seen: Array[String] = []
+	le.text_changed.connect(func(t: String) -> void: seen.append("changed " + t))
+	le.text_submitted.connect(func(t: String) -> void: seen.append("submitted " + t))
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "change", "text": "Pebble Beach"})
+	_check(le.text == "Pebble", "the length limit holds")
+	WebTextInput.apply({"id": le.get_instance_id(), "kind": "submit", "text": "Pebble"})
+	_check(seen == ["changed Pebble", "submitted Pebble"], "change and submit signals (%s)" % str(seen))
+	le.editable = false
+	_check(WebTextInput.describe_all(fields, null).size() == 1, "read-only boxes are left out")
+	le.editable = true
+	# An open dialog takes the touches: boxes behind it are left out.
+	var dialog := AcceptDialog.new()
+	var inside := LineEdit.new()
+	dialog.add_child(inside)
+	root.add_child(dialog)
+	dialog.popup_centered(Vector2i(300, 120))
+	var windows: Array[Window] = [dialog]
+	var top := WebTextInput.top_window(windows, {})
+	_check(top == dialog, "an open dialog is on top")
+	var all_fields: Array[LineEdit] = [le, spin_edit, inside]
+	var on_top := WebTextInput.describe_all(all_fields, top)
+	_check(on_top.size() == 1 and on_top[0].id == inside.get_instance_id(), "only the dialog's box is listed")
+	dialog.hide()
+	_check(WebTextInput.top_window(windows, {}) == null, "a closed dialog isn't")
+	dialog.free()
+	box.free()
+
+
 func _test_face_from_photo() -> void:
 	var parts := GolferParts.shared()
 	_check(parts != null and parts.info.has("face_fit"), "the look pack has face points")
@@ -3425,7 +3537,39 @@ func _test_golfer_roster() -> void:
 		"the skin shader shows the pro's stubble")
 	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
+	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D
+	_check(lashes != null and lashes.material_override is ShaderMaterial, "lashes are soft fine hair, not a cut-out")
+	# Upright when waiting: the idle clip's knees nearly straight (PR #172
+	# had them bent 22-28 degrees, a squat).
+	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var player := golfer.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	root.add_child(golfer)
+	player.play(&"idle")
+	player.seek(0.5, true)
+	_check(player.current_animation == &"idle", "the idle clip plays")
+	for side in ["l", "r"]:
+		var hip := skel.get_bone_global_pose(skel.find_bone("thigh_" + side)).origin
+		var knee := skel.get_bone_global_pose(skel.find_bone("calf_" + side)).origin
+		var ankle := skel.get_bone_global_pose(skel.find_bone("foot_" + side)).origin
+		var bend := 180.0 - rad_to_deg((hip - knee).angle_to(ankle - knee))
+		_check(bend < 18.0, "standing %s knee nearly straight (%.0f deg)" % [side, bend])
+		print("  standing %s knee %.1f deg" % [side, bend])
 	golfer.free()
+	# The cap fits the skull (as a real one presses the hair flat), and the
+	# hair it covers is cut away rather than poking through.
+	var capped := FreeGolfer.create(GolferRoster.look_for("Callum Reid"))
+	var cut := capped.find_child("Hair_short", true, false) as MeshInstance3D
+	var full := parts.bake("Hair_short", GolferRoster.look_for("Callum Reid").shape_weights())
+	_check(cut != null and cut.mesh.get_surface_count() == 1, "the hair under the cap is kept below the band")
+	if cut != null and cut.mesh.get_surface_count() == 1:
+		var kept: int = (cut.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX] as PackedInt32Array).size()
+		var all: int = (full.surface_get_arrays(0)[Mesh.ARRAY_INDEX] as PackedInt32Array).size()
+		_check(kept < all * 0.8 and kept > 0, "the cap hides the hair above its band (%d of %d)" % [kept, all])
+	capped.free()
+	var luis: PlayerLook = GolferRoster.look_for("Luis Navarro")
+	var grace: PlayerLook = GolferRoster.look_for("Grace Mensah")
+	_check(is_equal_approx(luis.face_value("jaw"), 0.35 * GolferRoster.FACE_SCALE), "roster face sliders scaled up")
+	_check(grace.face_value("jaw") < -0.4, "women's faces get a softer jaw (%.2f)" % grace.face_value("jaw"))
 
 
 func _test_player_looks() -> void:
@@ -3826,6 +3970,20 @@ func _test_click_aim() -> void:
 	if game.club_index + 1 < game.clubs.size() and not game.clubs[game.club_index + 1].is_putter:
 		game.club_index += 1
 		_check(game._club_reach() < 134.0, "and the shortest one")
+	# The Tour hole map: a click on it is a spot on the course.
+	var map := HoleMap.build(game.hole)
+	var pin := Vector2(game.hole.pin.x, game.hole.pin.z)
+	_check(map.from_px(map.to_px_2d(pin)).distance_to(pin) < 0.01, "map pixels turn back into the same course spot")
+	var tg := TourGraphics.new()
+	tg.size = Vector2(1280, 720)
+	tg.set_map(map, [], game.ball_at, true)
+	var r := tg.map_rect()
+	var at_pin: Variant = tg.map_spot(r.position + map.to_px_2d(pin) * TourGraphics.MAP_SCALE)
+	_check(at_pin is Vector2 and (at_pin as Vector2).distance_to(pin) < 0.5, "a click on the map's pin aims at the pin: %s" % [at_pin])
+	_check(tg.map_spot(r.position - Vector2(10, 10)) == null, "a click beside the map isn't on it")
+	tg.set_map(map, [], game.ball_at, false)
+	_check(tg.map_spot(r.get_center()) == null, "nor is one while the map is hidden")
+	tg.free()
 	GolfRound.setup = null
 
 
@@ -5174,7 +5332,7 @@ func _test_tournament_stroke_play() -> void:
 
 func _test_tournament_match_play() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.MATCH, "field_size": 8, "strength": 4,
 		"seed": 77}, keys, titles)
 	_check(t.names.size() == 8 and t.rounds == 3 and t.bracket.size() == 1 and t.bracket[0].size() == 4, "an 8-player draw")
@@ -5195,7 +5353,7 @@ func _test_tournament_match_play() -> void:
 
 func _test_tournament_skins() -> void:
 	var keys: Array[String] = [""]
-	var titles: Array[String] = ["Placeholder Nine"]
+	var titles: Array[String] = [PlaceholderCourseLoader.NAME]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.SKINS, "rounds": 1, "purse": 1000000,
 		"field_kind": Tournament.Field.WOMEN, "seed": 5}, keys, titles)
 	_check(t.names.size() == 4, "a skins game of four")

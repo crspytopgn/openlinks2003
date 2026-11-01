@@ -347,6 +347,12 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		if player == null:
 			continue
 		player.set_meta(&"stand", STAND_FRAMES[rng.randi() % STAND_FRAMES.size()])
+		var skeletons := person.find_children("*", "Skeleton3D", true, false)
+		if not skeletons.is_empty():
+			var skeleton := skeletons[0] as Skeleton3D
+			var arms := CrowdArms.new(arm_pose(rng.randf()))
+			skeleton.add_child(arms)
+			player.set_meta(&"arms", arms)
 		_stand(player)
 	if feet.is_empty():
 		return spots
@@ -420,9 +426,12 @@ const CARD_WIDTH := 0.62  ## metres, for a 1.8 m person
 const CARD_SPACING := 0.7
 const CARD_NEAR := 1.2
 const CARD_FAR := 5.0
-## Seconds into the walk clip where the feet pass under the body: an
-## upright standing pose, the left or the right foot a little forward.
+## Fallback for rigs with no idle clip: seconds into the walk where the
+## feet pass under the body, an upright pose, the left or the right foot a little forward.
 const STAND_FRAMES: Array[float] = [1.0, 0.35]
+## How often each arm pose turns up in a gallery, from photos of tour
+## galleries: arms folded most, then hanging, behind the back, in pockets.
+const ARM_SHARES := {CrowdArms.Pose.FOLDED: 0.35, CrowdArms.Pose.HANGING: 0.25, CrowdArms.Pose.BEHIND: 0.22, CrowdArms.Pose.POCKETS: 0.18}
 const CROUCH_ROW := 1.6  ## metres behind the rope that counts as the front row
 
 
@@ -552,6 +561,8 @@ func react(crowd: int) -> void:
 static func _react_one(player: AnimationPlayer, clip: StringName) -> void:
 	if not is_instance_valid(player):
 		return
+	if player.has_meta(&"arms"):
+		(player.get_meta(&"arms") as CrowdArms).set_on(false)  # the clip has its own
 	player.speed_scale = 1.0
 	player.play(clip, 0.25)
 	if not player.animation_finished.is_connected(_on_reacted):
@@ -562,10 +573,31 @@ static func _on_reacted(_clip: StringName, player: AnimationPlayer) -> void:
 	_stand(player)
 
 
-## Stands a spectator upright and still, weight on both feet: a frame of
-## the walk where the feet pass. The golfer's own idle is a golfer's
-## stance (knees flexed, feet wide), which looks odd on someone watching.
+## Stands a spectator upright: the rig's standing idle (weight shifts and
+## breathing), or, for a rig without one, a still frame of the walk where
+## the feet pass.
+## The arm pose for a draw `u` in [0, 1), by ARM_SHARES.
+static func arm_pose(u: float) -> CrowdArms.Pose:
+	var total := 0.0
+	for p: CrowdArms.Pose in ARM_SHARES:
+		total += ARM_SHARES[p]
+		if u < total:
+			return p
+	return CrowdArms.Pose.HANGING
+
+
 static func _stand(player: AnimationPlayer) -> void:
+	if player.has_meta(&"arms"):
+		(player.get_meta(&"arms") as CrowdArms).set_on(true)
+	# The rig's own standing clip (upright, weight shifts, breathing), each
+	# spectator at their own point in it and pace, so the crowd doesn't
+	# sway in step.
+	if player.has_animation(&"idle"):
+		player.get_animation(&"idle").loop_mode = Animation.LOOP_LINEAR
+		player.play(&"idle", 0.3)
+		player.seek(randf() * player.current_animation_length, true)
+		player.speed_scale = randf_range(0.85, 1.15)
+		return
 	if not player.has_animation(&"walk"):
 		return
 	# Held still with a zero speed rather than paused, so the pose still

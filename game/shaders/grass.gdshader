@@ -15,6 +15,9 @@ uniform vec3 camera_pos;
 uniform float fade_start = 20.0;
 uniform float fade_end = 30.0;
 uniform float brightness = 1.0; // GrassField lifts it for Compatibility
+// Below 1 greys the blades towards their own luminance: the Compatibility
+// lift above also lifts the colour, which read as acid yellow-green.
+uniform float saturation = 1.0;
 // How far blades a few metres out take the turf's tone (1 all the way).
 // Forward+ keeps more of their own shading, since its sky fill and GI light
 // each blade differently from the ground.
@@ -64,7 +67,9 @@ void fragment() {
 	near *= mix(vec3(1.0), vec3(1.18, 1.14, 0.9), smoothstep(0.6, 1.0, height) * blade_relief);
 	vec3 far = base_color * mix(0.92, 1.05, blade.x);
 	// Toned like the turf under it (turf_tone), or the blades stand out.
-	ALBEDO = min(tone_turf(mix(near, far, blend)) * brightness, vec3(0.6))
+	vec3 turf = tone_turf(mix(near, far, blend));
+	turf = mix(vec3(dot(turf, vec3(0.2126, 0.7152, 0.0722))), turf, saturation);
+	ALBEDO = min(turf * brightness, vec3(0.6))
 		* ground_shading(root_xz, length(VERTEX));
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).

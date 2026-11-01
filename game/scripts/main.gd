@@ -1193,15 +1193,27 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 	return false
 
 
-## Right-click on the course: aim at that spot and take the club that
-## reaches it (ClickAim). Putts only turn the aim.
+## Right-click on the course, or a click on the Tour hole map: aim at that
+## spot and take the club that reaches it (ClickAim). Putts only turn the
+## aim.
 func _click_aim_input(event: InputEvent) -> bool:
 	if not event is InputEventMouseButton:
 		return false
 	var mb := event as InputEventMouseButton
-	if mb.button_index != MOUSE_BUTTON_RIGHT or not mb.pressed or mb.device == InputEvent.DEVICE_ID_EMULATION:
+	if not mb.pressed or mb.device == InputEvent.DEVICE_ID_EMULATION:
+		return false
+	if mb.button_index != MOUSE_BUTTON_RIGHT and mb.button_index != MOUSE_BUTTON_LEFT:
 		return false
 	if state != State.AIM or _replaying or camera.flying() or opponents[shooter] != null:
+		return false
+	if tour:
+		var local := hud.tour.make_input_local(mb) as InputEventMouseButton
+		var on_map: Variant = hud.tour.map_spot(local.position)
+		if on_map != null:
+			var xz := on_map as Vector2
+			aim_at(Vector3(xz.x, hole.terrain.height_at(xz.x, xz.y), xz.y))
+			return true
+	if mb.button_index != MOUSE_BUTTON_RIGHT:
 		return false
 	var cam := get_viewport().get_camera_3d()
 	if cam == null:
@@ -3008,6 +3020,7 @@ func _apply_graphics() -> void:
 	RenderingServer.global_shader_parameter_set("foliage_sway", 1.0 if graphics.foliage_wind else 0.0)
 	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
+	GolferCloth.detail = graphics.quality
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	RenderingServer.global_shader_parameter_set("billboard_photo", 1.0 if CrzTerrain.photo_ground else 0.0)
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)

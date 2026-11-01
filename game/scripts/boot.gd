@@ -43,6 +43,8 @@ func _ready() -> void:
 	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
 	Glass.allow_blur = _graphics.quality != GraphicsSettings.Quality.LOW
 	GlassTheme.install()
+	# Browser on a phone or tablet: lets every text box open the keyboard.
+	WebTextInput.install(get_tree())
 	if not OS.has_feature("web"):
 		# The display mode, window size and volumes the launcher may have set.
 		_graphics.apply_display(get_viewport())
@@ -398,7 +400,7 @@ func _play_placeholders() -> void:
 func _open_setup() -> void:
 	if _busy:
 		return
-	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	var names := PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"])
 	_setup_paths = _all_courses()
 	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))
@@ -420,7 +422,7 @@ func _open_setup() -> void:
 func _open_online() -> void:
 	if _busy:
 		return
-	var names := PackedStringArray(["Placeholder Nine (built in)"])
+	var names := PackedStringArray([PlaceholderCourseLoader.NAME + " (built in)"])
 	_setup_paths = _all_courses()
 	for path in _setup_paths:
 		names.append(CourseFiles.display_name(path))

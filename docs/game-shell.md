@@ -29,7 +29,8 @@ Right-click on the course while aiming to aim at that spot (`ClickAim`: a
 ray from the camera to the ground). Away from the green the round also takes
 the shortest club whose full swing reaches it, as in modern sims; chips and
 putts only turn the aim. A click on the sky does nothing. Left-click stays
-the swing.
+the swing, except on the Tour presentation's hole map, where either button
+aims at the spot under it (`HoleMap.from_px`).
 
 ### Touch screens and game pads
 
@@ -656,7 +657,7 @@ game/scripts/
     course_terrain.gd           CourseTerrain: height, surface and mesh for a hole
     course_objects.gd           CourseObjects: a .CRZ's plants, 3D objects and spectators,
                                 drawn per hole and turned into obstacles
-    placeholder_*.gd            The procedural nine-hole stand-in course
+    placeholder_course_loader.gd The built-in course, Kettle Hollow (docs/home-course.md)
   assets/
     asset_providers.gd          AssetProviders: where real decoders get registered
     object_library.gd           ObjectLibrary: interface for OBJECT.LIB and friends
