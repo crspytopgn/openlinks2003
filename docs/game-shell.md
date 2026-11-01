@@ -16,6 +16,7 @@ the browser and on desktop today.
 | Space or left click | Swing meter: start, set power, set accuracy |
 | Space or left click | Skip the ball flight, continue after a shot |
 | Tab | Show or hide the scorecard |
+| F1 | Broadcast and Tour: bring back the key hints, folded away from the second hole |
 | Esc | Menu: resume, scorecard, settings (quality, fullscreen, v-sync, anti-aliasing, 3D resolution, field of view), restart, main menu |
 | M | Back to the main menu once the round is over |
 | F11 | Toggle fullscreen |
@@ -639,7 +640,13 @@ the physics, the swing and the scoring are the same in both.
 - `RoundCamera.start_flyover()`: each hole opens with a flight from behind
   the tee, along the hole's route, down to the green. A click skips it.
 - `scripts/broadcast/ball_tracer.gd`: the shot tracer, a camera-facing
-  glowing ribbon.
+  ribbon with a soft halo, a hot core and a flare at the ball, widened
+  across the camera's view so it stays solid where the ball flies at the
+  lens.
+- `scripts/ui/frosted_glass.gd`: the Broadcast and Tour panels are frosted
+  glass, the picture under them blurred, under a see-through tint.
+- From the second hole the key hints fold away to a small "F1: controls";
+  F1 brings them back.
 - Replays: R between shots (and automatically after a holed approach, a
   long holed putt or a shot to tap-in range) plays the shot again from new
   camera angles, in slow motion round the landing and the cup.

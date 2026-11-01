@@ -164,6 +164,8 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## F1: keep the key hints up in the Broadcast and Tour presentations.
+var _show_controls := false
 ## What is driving the mouse swing: the mouse, a finger or a thumbstick.
 enum SwingInput { MOUSE, TOUCH, STICK }
 var _swing_input := SwingInput.MOUSE
@@ -541,6 +543,7 @@ func _round_name() -> String:
 
 func start_hole(index: int) -> void:
 	hole_index = index
+	_fold_hints()
 	shot_log.clear()
 	_undo = {}
 	_drop_pending = false
@@ -932,6 +935,11 @@ func _unhandled_input(event: InputEvent) -> void:
 					_escape()
 					get_viewport().set_input_as_handled()
 					return
+				KEY_F1:
+					_show_controls = not _show_controls
+					_fold_hints()
+					get_viewport().set_input_as_handled()
+					return
 				KEY_F11:
 					graphics.fullscreen = not graphics.fullscreen
 					graphics.save()
@@ -1173,6 +1181,13 @@ func aim_at(spot: Vector3) -> void:
 	_aim_camera(false)
 	_update_green_grid()
 	_update_green_aids()
+
+
+## The Broadcast and Tour presentations fold the key hints away from the
+## second hole on, unless F1 brings them back.
+func _fold_hints() -> void:
+	if hud != null and hud.is_node_ready():
+		hud.fold_hints(graphics.broadcast() and hole_index > 0 and not _show_controls)
 
 
 ## Settings > Captions: the golfer's spoken line.
@@ -2781,6 +2796,7 @@ func _apply_graphics() -> void:
 	tour = broadcast and graphics.tour()
 	camera.broadcast = broadcast
 	hud.set_broadcast(broadcast, tour)
+	_fold_hints()
 	trail.visible = not broadcast
 	tracer.visible = broadcast
 	tracer.set_style(tour)
@@ -3224,9 +3240,9 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 		# lands: the bounces and roll are never traced.
 		var land := tracer_end(shot)
 		if upto >= land:
-			tracer.draw(shot.points, land - 1, shot.first_landing, camera.global_position)
+			tracer.draw(shot.points, land - 1, shot.first_landing, camera.global_position, -camera.global_transform.basis.z)
 		else:
-			tracer.draw(shot.points, upto, head, camera.global_position)
+			tracer.draw(shot.points, upto, head, camera.global_position, -camera.global_transform.basis.z)
 
 
 ## The index of the shot's first landing among its points (the last point
