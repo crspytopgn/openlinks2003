@@ -23,6 +23,9 @@ const MAX_TIME := 60.0
 const CUP_RADIUS := 0.054
 const MAX_HOLING_SPEED := 1.6
 const ROLL_THRESHOLD := 0.4
+## A landing this early in a flight step (fraction of the step) counts as on
+## the ground at its start (shot.cpp kLandAtStart).
+const LAND_AT_START := 0.01
 const STOP_SPEED := 0.03
 const MAX_CRATER_DEG := 30.0
 const SOLID_RESTITUTION := 0.35  ## normal speed kept off a trunk or wall
@@ -224,11 +227,12 @@ static func simulate_shot(start: BallState, terrain: CourseTerrain, has_cup := f
 				r.bounces += 1
 				s = b
 				var vn := b.velocity.dot(n)
-				# A ball that meets the ground at the very start of a step was
-				# on it already (a bank ahead rising faster than it flies): it
-				# rolls from there. Bounced again it would land at the same
-				# instant forever.
-				if vn < ROLL_THRESHOLD or frac <= 0.0:
+				# A ball that meets the ground at the very start of a step (or
+				# a hair after it) was on it already (a bank ahead rising
+				# faster than it flies): it rolls from there. Bounced again it
+				# would land at almost the same instant, again and again, and
+				# never finish.
+				if vn < ROLL_THRESHOLD or frac < LAND_AT_START:
 					rolling = true
 					s.velocity = b.velocity - n * vn
 				continue
