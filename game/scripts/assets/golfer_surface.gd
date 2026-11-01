@@ -24,6 +24,7 @@ static var _stubble: Texture2D
 const SKIN_SHADER := preload("res://shaders/golfer_skin.gdshader")
 const HAIR_SHADER := preload("res://shaders/golfer_hair.gdshader")
 const FINE_HAIR_SHADER := preload("res://shaders/golfer_fine_hair.gdshader")
+const EYE_SHADER := preload("res://shaders/golfer_eye.gdshader")
 
 
 static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -68,7 +69,7 @@ static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Text
 ## see-through edges instead of a hard cut-out, lashes thinner and in the
 ## hair's colour (fair hair has fair lashes), so they read as hair at a
 ## close-up and fade at a distance as real ones do.
-static func fine_hair(mat: StandardMaterial3D, lashes: bool, hair_colour: Color) -> ShaderMaterial:
+static func fine_hair(mat: StandardMaterial3D, lashes: bool, hair_colour: Color, groomed := false) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.resource_name = mat.resource_name
 	m.shader = FINE_HAIR_SHADER
@@ -76,11 +77,23 @@ static func fine_hair(mat: StandardMaterial3D, lashes: bool, hair_colour: Color)
 	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
 	if lashes:
 		m.set_shader_parameter("albedo", hair_colour.darkened(0.55).lerp(Color(0.06, 0.05, 0.045), 0.4))
-		m.set_shader_parameter("opacity", 0.55)
+		m.set_shader_parameter("opacity", 0.4)
 	else:
 		m.set_shader_parameter("albedo", mat.albedo_color)
-		m.set_shader_parameter("opacity", 0.9)
-		m.set_shader_parameter("strands", 0.7)
+		# Groomed (most women's): finer and less dense, as in photos.
+		m.set_shader_parameter("opacity", 0.7 if groomed else 0.9)
+		m.set_shader_parameter("strands", 0.85 if groomed else 0.7)
+	return m
+
+
+## The eyes as golfer_eye.gdshader: off-white whites, the upper lid's
+## shade, pinker corners and a wet highlight, from `mat`'s eye texture.
+static func eye(mat: StandardMaterial3D) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.resource_name = mat.resource_name
+	m.shader = EYE_SHADER
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
 	return m
 
 

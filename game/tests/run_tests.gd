@@ -3511,6 +3511,8 @@ func _test_golfer_roster() -> void:
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
 	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D
 	_check(lashes != null and lashes.material_override is ShaderMaterial, "lashes are soft fine hair, not a cut-out")
+	var eyes := golfer.find_child("Eyes", true, false) as MeshInstance3D
+	_check(eyes != null and eyes.material_override is ShaderMaterial, "eyes are wet, with the lid's shade")
 	# Upright when waiting: the idle clip's knees nearly straight (PR #172
 	# had them bent 22-28 degrees, a squat).
 	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
