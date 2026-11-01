@@ -348,9 +348,16 @@ at Medium and grass at Low.
   card is one quad that turns about the vertical and draws a standing
   person in its fragment shader: head and hair, shirt, arms and hands,
   trousers and shoes, with a varied height (1.72 m, sd 9 cm), build, skin
-  tone, shirt and trousers. All the cards are one MultiMesh, so one draw
-  call: 80, 160, 260 or 360 cards from Low to Ultra (Low has cards and no
-  3D people). They keep off greens, bunkers and water and 0.7 m apart.
+  tone, shirt and trousers. Each also picks, in the shares seen in tour
+  gallery photos, a cap or visor (half, with the brim's shade over the
+  eyes), folded arms (a third), shorts with bare legs and white trainers (a
+  quarter) and longer hair (about a third of those without a cap), with
+  some grey hair; the legs darken a little towards the ground. The picks
+  come from the instance id in the vertex shader, so every pixel of a card
+  agrees. All the cards are one MultiMesh, so one draw call: 80, 160, 260
+  or 360 cards from Low to Ultra (Low has cards and no 3D people), plus one
+  more for the soft contact shadows they stand on, as the 3D people do.
+  They keep off greens, bunkers and water and 0.7 m apart.
 - **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
   bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
   0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set
