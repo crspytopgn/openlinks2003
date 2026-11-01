@@ -3064,7 +3064,7 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
