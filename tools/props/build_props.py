@@ -13,6 +13,9 @@ from reference photos of the real thing to its real size.
                      added in the game)
     tee_bench.glb    a 5 ft slatted bench with a back and arms
     bunker_rake.glb  a 25 in (64 cm) bunker rake on a 54 in (1.37 m) handle
+    yardage_plate.glb  a flush in-ground yardage plate (the number in game)
+    yardage_pole.glb   a black and white banded 150 yard pole
+    sponsor_sign.glb   a hole sponsor's plaque on a short post
 
 The sizes and where they come from are in docs/props.md. No makers' names
 or logos. Our own work, released as CC0 like the other free assets.
@@ -34,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "golfer"))
 sys.path.insert(0, os.path.join(HERE, "..", "buggy"))
 from gltf import FLOAT, UBYTE, UINT, USHORT, Gltf  # noqa: E402
-from build_golf_cart import Part, superquadric, tube  # noqa: E402
+from build_golf_cart import Part, grid, superquadric, tube  # noqa: E402
 from sdf import ambient_occlusion, mesh as sdf_mesh, rbox, smooth_union, sphere, union  # noqa: E402
 
 # Every shape's triangle budget is scaled by this: the game's props are seen
@@ -512,8 +515,84 @@ def build_rake(out):
     pr.save(out)
 
 
+# --- Fairway yardage plate -------------------------------------------------------------
+#
+# From the maker's photo of a cast in-ground yardage plate: a white plate
+# about 12 by 8 in (0.3 x 0.2 m) with a raised gold rim, set flush in the
+# fairway (the number goes on in the game). The top face is at y = 0.
+
+def build_yardage_plate(out):
+    pr = Prop("yardage_plate")
+    pr.material("white", (0.92, 0.92, 0.9, 1), 0.5)
+    pr.material("gold", (0.86, 0.72, 0.45, 1), 0.38, metal=1.0)
+    plate = box((-0.15, -0.03, -0.1), (0.15, 0.0, 0.1), 0.006)
+    pr.shape("white", plate, (-0.17, -0.05, -0.12), (0.17, 0.02, 0.12), 0.003, 600)
+    rim = cut(box((-0.152, -0.01, -0.102), (0.152, 0.004, 0.102), 0.002),
+              box((-0.135, -0.02, -0.085), (0.135, 0.02, 0.085)))
+    pr.shape("gold", rim, (-0.17, -0.03, -0.12), (0.17, 0.02, 0.12), 0.002, 1200)
+    pr.save(out)
+
+
+# --- Fairway yardage pole -----------------------------------------------------------------
+#
+# A vinyl-covered yardage pole in black and white bands, as the maker's
+# photo shows at the edge of a fairway: 1.5 in (38 mm) across, standing
+# about 2 m out of the ground in a flush in-ground socket, the bands about
+# 0.3 m long, with a black cap.
+
+POLE_H = 2.0
+
+
+def build_yardage_pole(out):
+    pr = Prop("yardage_pole")
+    pr.material("white", (0.92, 0.92, 0.9, 1), 0.35)
+    pr.material("black", (0.05, 0.05, 0.055, 1), 0.35)
+    bands = 7
+    band = POLE_H / (bands - 0.3)
+    for k in range(bands):
+        y0, y1 = k * band, min((k + 1) * band, POLE_H)
+        if y0 >= POLE_H:
+            break
+        key = "white" if k % 2 == 0 else "black"
+        lathe_y(pr.parts[key], [(y0, 0.019), (y1, 0.019)], 12)
+    lathe_y(pr.parts["black"], [(POLE_H, 0.02), (POLE_H + 0.015, 0.02), (POLE_H + 0.025, 0.012), (POLE_H + 0.028, 0.0)], 12)
+    lathe_y(pr.parts["white"], [(-0.01, 0.0), (-0.005, 0.045), (0.005, 0.045), (0.008, 0.02)], 16)
+    pr.save(out)
+
+
+# --- Sponsor plaque ------------------------------------------------------------------------
+#
+# A hole sponsor's cast plaque, as the maker's photos show: black with a gold
+# rim and gold lettering (added in the game), about 24 by 12 in (0.61 x
+# 0.3 m), on a short black square post, its top about 1 m up. It faces +z.
+
+def build_sponsor_sign(out):
+    pr = Prop("sponsor_sign")
+    pr.material("black", (0.05, 0.05, 0.052, 1), 0.55, metal=0.2)
+    pr.material("gold", (0.86, 0.72, 0.45, 1), 0.38, metal=1.0)
+    panel = box((-0.305, 0.68, -0.012), (0.305, 0.985, 0.012), 0.005)
+    post = box((-0.0375, 0.0, -0.06), (0.0375, 0.75, 0.015), 0.004)
+    pr.shape("black", union(panel, post), (-0.33, -0.01, -0.08), (0.33, 1.0, 0.04), 0.004, 2500)
+
+    def rim(x, y, z):
+        d = box((-0.3, 0.685, -1), (0.3, 0.98, 1))(x, y, z)
+        return np.maximum(np.maximum(d, -(d + 0.012)), np.abs(z - 0.012) - 0.0025)
+    pr.shape("gold", rim, (-0.32, 0.67, -0.0), (0.32, 1.0, 0.03), 0.0025, 1500)
+    pr.save(out)
+
+
+def lathe_y(part, profile, segs):
+    """Revolves (y, radius) points round the y axis."""
+    th = np.linspace(0, 2 * math.pi, segs, endpoint=False)
+    P = np.array([[(r * math.cos(t), y, r * math.sin(t)) for t in th] for y, r in profile])
+    pts, idx = grid(P, wrap_cols=True)
+    part.add(pts, idx)
+
+
 BUILDERS = {"golf_bag": build_bag, "tee_marker": build_tee_marker, "ball_washer": build_ball_washer,
-            "tee_sign": build_tee_sign, "tee_bench": build_bench, "bunker_rake": build_rake}
+            "tee_sign": build_tee_sign, "tee_bench": build_bench, "bunker_rake": build_rake,
+            "yardage_plate": build_yardage_plate, "yardage_pole": build_yardage_pole,
+            "sponsor_sign": build_sponsor_sign}
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else OUT

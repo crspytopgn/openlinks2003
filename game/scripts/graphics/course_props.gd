@@ -3,8 +3,10 @@ extends Node3D
 ## The furniture of a real course, each piece modelled from photos of the
 ## real thing at its real size (tools/props/build_props.py; sizes and
 ## sources in docs/props.md): at the side of each tee a hole sign with the
-## number, par and yardage, a ball washer over a litter bin, and a bench;
-## and a rake lying at the edge of the bunkers. Scenery only: nothing
+## number, par and yardage, the hole sponsor's plaque, a ball washer over a
+## litter bin, and a bench; yardage plates set in the fairway 100, 150 and
+## 200 yards from the green with a banded pole at the edge of the fairway at
+## 150; and a rake lying at the edge of the bunkers. Scenery only: nothing
 ## collides with them, and the ball's flight never sees them.
 ##
 ## Off in the Classic Links presentation (Links 2003 has none) and at Low
@@ -16,6 +18,7 @@ const DIR := "res://assets/props/"
 ## across it): the sign by the front of the tee, then the washer, then the
 ## bench behind.
 const SIGN_SPOT := Vector2(-0.5, 4.6)
+const SPONSOR_SPOT := Vector2(2.0, 4.3)
 const WASHER_SPOT := Vector2(-2.4, 4.8)
 const BENCH_SPOT := Vector2(-4.6, 5.4)
 ## Rakes: the bunker search step (metres), how far round the hole's line it
@@ -24,6 +27,14 @@ const RAKE_STEP := 2.0
 const RAKE_MARGIN := 35.0
 const RAKES_BY_QUALITY: Array[int] = [0, 4, 8, 12]
 const RAKE_LENGTH := 1.39  ## head to the end of the grip
+## Yardage plates: yards to the green, on the line of the hole.
+const PLATE_YARDS: Array[int] = [100, 150, 200]
+const POLE_YARDS := 150
+const YARD := 0.9144
+## Made-up hole sponsors (no real businesses), one per hole in turn.
+const SPONSORS := [["THE NINETEENTH", "BAR & GRILL"], ["FAIRWAY & FIELD", "CLUBMAKERS SINCE 1921"],
+		["OLD COURSE MOTORS", "SALES | SERVICE"], ["HOLLOW OAK", "TIMBER & JOINERY"],
+		["LINKSIDE DAIRY", "FRESH EVERY MORNING"], ["BRAMBLE & FINCH", "ESTATE AGENTS"]]
 ## Surfaces furniture can't stand on.
 const NOT_ON := [Surface.Type.WATER, Surface.Type.SAND, Surface.Type.GREEN, Surface.Type.OUT_OF_BOUNDS]
 
@@ -35,6 +46,7 @@ static func build(hole: HoleData, toward: Vector3, rakes: int) -> CourseProps:
 	var props := CourseProps.new()
 	props.name = "CourseProps"
 	props._build_tee(hole, toward)
+	props._build_yardages(hole)
 	if rakes > 0:
 		for r in rake_spots(hole.terrain, hole.tee, hole.pin, hole.route, rakes):
 			props._add_rake(hole.terrain, r[0], r[1])
@@ -101,8 +113,19 @@ func _build_tee(hole: HoleData, toward: Vector3) -> void:
 		# Its face towards the back of the tee, turned a little to the line.
 		var right := _side_of(hole.tee, dir, sign_at)
 		sign.rotation.y = facing + PI + 0.45 * right
-		_add_sign_text(sign, hole)
+		var yards := roundi(hole.length_m() / YARD)
+		_add_text(sign, [[str(hole.number), 300, 1.17], ["PAR %d" % hole.par, 96, 0.92], ["%d YARDS" % yards, 64, 0.81]],
+				0.325, 0.0135, false)
 		add_child(sign)
+
+	var sponsor_at := tee_spot(t, hole.tee, toward, SPONSOR_SPOT)
+	var sponsor := instance("sponsor_sign")
+	if sponsor != null and sponsor_at != Vector3.INF:
+		sponsor.position = sponsor_at
+		sponsor.rotation.y = facing + PI + 0.45 * _side_of(hole.tee, dir, sponsor_at)
+		var words: Array = SPONSORS[(hole.number - 1) % SPONSORS.size()]
+		_add_text(sponsor, [[words[0], 56, 0.865], [words[1], 30, 0.77]], 0.0, 0.0135, true)
+		add_child(sponsor)
 
 	var washer_at := tee_spot(t, hole.tee, toward, WASHER_SPOT)
 	var washer := instance("ball_washer")
@@ -127,12 +150,10 @@ static func _side_of(tee: Vector3, dir: Vector3, p: Vector3) -> float:
 	return 1.0 if (p - tee).dot(side) > 0.0 else -1.0
 
 
-## The hole's number, par and length on both faces of the sign, in its
-## raised gold lettering.
-static func _add_sign_text(sign: Node3D, hole: HoleData) -> void:
-	var yards := roundi(hole.length_m() / 0.9144)
-	var lines := [[str(hole.number), 300, 1.17], ["PAR %d" % hole.par, 96, 0.92], ["%d YARDS" % yards, 64, 0.81]]
-	for face: float in [1.0, -1.0]:
+## Lines of raised gold lettering, [text, size, height], on the face of a
+## sign at `x` across and `z` out (and on the back too unless `front_only`).
+static func _add_text(sign: Node3D, lines: Array, x: float, z: float, front_only: bool) -> void:
+	for face: float in ([1.0] if front_only else [1.0, -1.0]):
 		for l: Array in lines:
 			var label := Label3D.new()
 			label.text = l[0]
@@ -142,10 +163,88 @@ static func _add_sign_text(sign: Node3D, hole: HoleData) -> void:
 			label.modulate = Color(0.88, 0.74, 0.46)
 			label.shaded = true
 			label.double_sided = false
-			label.position = Vector3(0.325, l[2], 0.0135 * face)
+			label.position = Vector3(x, l[2], z * face)
 			if face < 0.0:
 				label.rotation.y = PI
 			sign.add_child(label)
+
+
+## The point on the hole's line `metres` short of the pin (walking back from
+## the pin along the route to the tee), and the line's direction there
+## (towards the pin). [INF, ZERO] if the hole is shorter than that.
+static func point_back_from_pin(tee: Vector3, pin: Vector3, route: PackedVector2Array, metres: float) -> Array:
+	var pts: Array[Vector2] = [Vector2(pin.x, pin.z)]
+	for k in range(route.size() - 1, -1, -1):
+		pts.append(route[k])
+	pts.append(Vector2(tee.x, tee.z))
+	var left := metres
+	for k in pts.size() - 1:
+		var seg := pts[k].distance_to(pts[k + 1])
+		if seg >= left and seg > 0.0:
+			var p := pts[k].lerp(pts[k + 1], left / seg)
+			var d := (pts[k] - pts[k + 1]).normalized()
+			return [Vector3(p.x, 0.0, p.y), Vector3(d.x, 0.0, d.y)]
+		left -= seg
+	return [Vector3.INF, Vector3.ZERO]
+
+
+## Plates in the fairway at 100, 150 and 200 yards from the green, and the
+## 150 yard pole at the right-hand edge of the fairway.
+func _build_yardages(hole: HoleData) -> void:
+	var t := hole.terrain
+	var tee_to_pin := Vector2(hole.tee.x, hole.tee.z).distance_to(Vector2(hole.pin.x, hole.pin.z))
+	for yards in PLATE_YARDS:
+		var at := point_back_from_pin(hole.tee, hole.pin, hole.route, yards * YARD)
+		var p: Vector3 = at[0]
+		if p == Vector3.INF or tee_to_pin < yards * YARD + 40.0:
+			continue
+		var dir: Vector3 = at[1]
+		if t.surface_at(p.x, p.z) == Surface.Type.FAIRWAY:
+			var plate := instance("yardage_plate", false)
+			if plate != null:
+				# Flush with the turf, following its slope.
+				p.y = t.height_at(p.x, p.z) + 0.006
+				var up := t.normal_at(p.x, p.z)
+				var across := up.cross(dir).normalized()
+				plate.transform = Transform3D(Basis(across, up, across.cross(up).normalized()), p)
+				var label := Label3D.new()
+				label.text = str(yards)
+				label.font_size = 160
+				label.pixel_size = 0.00055
+				label.outline_size = 0
+				label.modulate = Color(0.72, 0.56, 0.26)
+				label.shaded = true
+				label.rotation.x = -PI * 0.5
+				label.rotation.z = PI  # read from the tee side
+				label.position = Vector3(0, 0.003, 0)
+				plate.add_child(label)
+				add_child(plate)
+		if yards == POLE_YARDS:
+			var edge := fairway_edge(t, p, dir)
+			var pole := instance("yardage_pole")
+			if pole != null and edge != Vector3.INF:
+				pole.position = edge
+				add_child(pole)
+
+
+## Where the fairway gives way to rough on the right of the line at `p`
+## (the left if the right runs into hazards), a metre into the rough. INF
+## if neither side has rough within 45 m.
+static func fairway_edge(t: CourseTerrain, p: Vector3, dir: Vector3) -> Vector3:
+	var side := Vector3.UP.cross(dir).normalized()
+	for s: float in [-1.0, 1.0]:
+		var d := 1.0
+		while d < 45.0:
+			var q := p + side * (s * d)
+			var surf := t.surface_at(q.x, q.z)
+			if surf == Surface.Type.ROUGH or surf == Surface.Type.DEEP_ROUGH:
+				q += side * s
+				q.y = t.height_at(q.x, q.z)
+				return q
+			if surf != Surface.Type.FAIRWAY and surf != Surface.Type.FRINGE:
+				break
+			d += 1.0
+	return Vector3.INF
 
 
 ## Up to `count` places for a rake: one per bunker near the hole's line,

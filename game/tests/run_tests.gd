@@ -1496,6 +1496,9 @@ func _test_props_real_size() -> void:
 		"tee_sign": [Vector3(0.71, 1.74, 0.08), 0.03],
 		"tee_bench": [Vector3(1.54, 0.97, 0.63), 0.04],
 		"bunker_rake": [Vector3(0.64, 0.06, 1.42), 0.02],
+		"yardage_plate": [Vector3(0.304, 0.034, 0.204), 0.01],
+		"yardage_pole": [Vector3(0.09, 2.04, 0.09), 0.02],
+		"sponsor_sign": [Vector3(0.61, 0.985, 0.075), 0.02],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
@@ -1520,9 +1523,22 @@ func _test_props_real_size() -> void:
 		var tip := head + out * CourseProps.RAKE_LENGTH
 		_check(t.surface_at(tip.x, tip.z) != Surface.Type.SAND, "rake handle out over the grass")
 		_check(head.x < -12.0, "rake on the side of the bunker facing the line (%.1f)" % head.x)
+	# 150 yards back from the pin along a dogleg, and the fairway's edge.
+	var dog := PackedVector2Array([Vector2(0, 200), Vector2(100, 200)])
+	var at := CourseProps.point_back_from_pin(Vector3.ZERO, Vector3(200, 0, 200), dog, 150.0)
+	_check((at[0] as Vector3).distance_to(Vector3(0, 0, 150)) < 0.01, "150 m back round the dogleg (%s)" % at[0])
+	_check((at[1] as Vector3).distance_to(Vector3(0, 0, 1)) < 0.01, "line runs towards the pin there")
+	var edge := CourseProps.fairway_edge(_FairwayTerrain.new(), Vector3(0, 0, 100), Vector3(0, 0, 1))
+	_check(absf(edge.x + 16.0) < 0.01, "pole a metre into the rough on the right (%s)" % edge)
 	# Tee furniture keeps out of water: the right is a pond, so it goes left.
 	var spot := CourseProps.tee_spot(t, Vector3(0, 0, 0), Vector3(0, 0, 100), CourseProps.WASHER_SPOT)
 	_check(spot != Vector3.INF and spot.x > 0.0, "tee furniture on the dry side (%s)" % spot)
+
+
+## A 30 m fairway down the z axis, rough either side.
+class _FairwayTerrain extends CourseTerrain:
+	func surface_at(x: float, _z: float) -> int:
+		return Surface.Type.FAIRWAY if absf(x) < 15.0 else Surface.Type.ROUGH
 
 
 ## Flat fairway with a pond right of the tee and a 10 m bunker 100 m out.
