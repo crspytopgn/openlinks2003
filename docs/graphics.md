@@ -55,7 +55,9 @@ at Medium and grass at Low.
   colour ambient, tuned so the textures keep their own colours. Photoreal
   uses the AgX tone map (natural highlights, no lime greens), a strong,
   warm sun against fill about a fifth as bright (from the sky on Forward+,
-  a quarter stronger flat fill on Compatibility so shade isn't black),
+  a 60% stronger flat fill on Compatibility, as real shade is far lighter
+  than ours measured), turf toned to real course photos (`turf_tone.gdshaderinc`:
+  about 30% less saturated and nudged to olive; 50 photos measured in Lab),
   stronger aerial perspective, a lower 30 degree afternoon sun for long
   shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
   1.12, a slight warm balance; 2K25's greens are olive, not lime), glow only
