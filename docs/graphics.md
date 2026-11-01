@@ -55,7 +55,9 @@ at Medium and grass at Low.
   colour ambient, tuned so the textures keep their own colours. Photoreal
   uses the AgX tone map (natural highlights, no lime greens), a strong,
   warm sun against fill about a fifth as bright (from the sky on Forward+,
-  a quarter stronger flat fill on Compatibility so shade isn't black),
+  a 60% stronger flat fill on Compatibility, as real shade is far lighter
+  than ours measured), turf toned to real course photos (`turf_tone.gdshaderinc`:
+  about 30% less saturated and nudged to olive; 50 photos measured in Lab),
   stronger aerial perspective, a lower 30 degree afternoon sun for long
   shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
   1.12, a slight warm balance; 2K25's greens are olive, not lime), glow only
@@ -325,6 +327,16 @@ at Medium and grass at Low.
   split, would cost more than the rest of the hole. Each gets a soft contact
   shadow instead, all in one MultiMesh. The 28 people add about 260 draw
   calls from the tee.
+  The spectators react to each shot as the crowd sounds do: everyone
+  celebrates a roar, most a cheer, a few polite applause, and about half show
+  dismay at a groan or an "ooh".
+- **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
+  bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
+  0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set
+  6 m behind the green rope and turned up to 50 degrees to clear water,
+  sand, greens and trees, or left out if none of those fit. About 80% of
+  the seats are filled with seated fans (a torso in a shirt colour and a
+  head or cap), which costs two instanced draw calls.
 
 ## Performance budget
 

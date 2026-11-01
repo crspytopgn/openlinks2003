@@ -252,16 +252,46 @@ func _choose_sky() -> void:
 		if _free_sky is ShaderMaterial:
 			# Brighter in Compatibility, which has no sky fill light.
 			var sky_mat := _free_sky as ShaderMaterial
+			# Brighter in Compatibility, which has no sky fill light.
 			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else 1.5)
 			sky_mat.set_shader_parameter("tint", _time.sky)
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
 			sky_mat.set_shader_parameter("glow", _time.glow)
 			sky_mat.set_shader_parameter("glow_color", _time.sun)
+			_align_sky_sun(sky_mat)
 		return
 	environment.sky.sky_material = _backdrop_sky
 	environment.fog_sky_affect = 0.0
 	environment.fog_light_color = backdrop.sky_haze.lerp(backdrop.ground, 0.35)
 	environment.fog_density = 0.00035
+
+
+## Turns and stretches the photographed sky so the sun in the photo sits
+## where the game's sun is (photo_sky.gdshader). Without it the clouds are
+## lit from one side and the course's shadows fall from another, the
+## commonest giveaway of a pasted-on sky.
+func _align_sky_sun(sky_mat: ShaderMaterial) -> void:
+	var photo_sun := FreeAssets.free_sky_sun()
+	sky_mat.set_shader_parameter("align_sun", photo_sun.x >= 0.0)
+	if photo_sun.x < 0.0:
+		return
+	var to_sun := sun.basis.z
+	var a := sky_sun_mapping(to_sun, photo_sun.y)
+	sky_mat.set_shader_parameter("photo_sun_u", photo_sun.x)
+	sky_mat.set_shader_parameter("photo_sun_elevation", photo_sun.y)
+	sky_mat.set_shader_parameter("sun_u", a.x)
+	sky_mat.set_shader_parameter("sun_elevation", a.y)
+
+
+## For the direction to the game's sun: its place across the panorama in
+## photo_sky.gdshader's mapping, and the height the photo's sun (at
+## `photo_elevation` radians) is stretched to: the sun's own height, but
+## no more than 40% lower or higher than the photo's, beyond which the
+## clouds would visibly squash or smear.
+static func sky_sun_mapping(to_sun: Vector3, photo_elevation: float) -> Vector2:
+	var u := atan2(to_sun.x, -to_sun.z) / TAU + 0.5
+	var e := asin(clampf(to_sun.normalized().y, -1.0, 1.0))
+	return Vector2(u, clampf(e, photo_elevation * 0.6, minf(photo_elevation * 1.4, deg_to_rad(80.0))))
 
 
 ## How far through the round the player is (0 the first hole, 1 the last),
@@ -314,6 +344,7 @@ func _apply_time() -> void:
 	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
 	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
+	RenderingServer.global_shader_parameter_set("turf_tone", 1.0 if _photo else 0.0)
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
 		return
@@ -322,13 +353,15 @@ func _apply_time() -> void:
 	sun.light_energy = PHOTO_SUN_ENERGY * float(_time.energy)
 	# Compatibility has no sky light, so its flat fill is a little stronger,
 	# or shade goes near black.
-	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.25)
+	# (Measured against real course photos: our shade was far darker than
+	# real shade, and the whole frame about a stop under.)
+	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * float(_time.fill) * (1.0 if GraphicsSettings.is_forward_plus() else 1.6)
 	if _gi:
 		# The bounced light does much of the fill's work.
 		environment.ambient_light_energy *= 0.6
 	environment.ambient_light_color = _time.ambient
 	var fwd := GraphicsSettings.is_forward_plus()
-	environment.tonemap_exposure = (PHOTO_EXPOSURE if fwd else PHOTO_EXPOSURE * 0.8) * float(_time.exposure)
+	environment.tonemap_exposure = PHOTO_EXPOSURE * float(_time.exposure)
 	var sky: Color = _time.sky
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(sky.r, sky.g, sky.b))
 

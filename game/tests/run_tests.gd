@@ -1362,7 +1362,8 @@ func _test_caddie() -> void:
 	print("  green: " + advice.text)
 	_check(advice.text.begins_with("20 feet"), "putt read gives the length (%s)" % advice.text)
 
-	_check(GolfBag.shared_mesh().get_surface_count() == 3, "bag is one mesh of three materials")
+	_check(GolfBag.shared_mesh().get_surface_count() == 5, "bag is one mesh of five materials")
+	_check(GolfBag.simple_mesh().get_surface_count() == 3, "simple bag is one mesh of three materials")
 	var figure := Caddie.make_figure()
 	_check(figure != null, "caddie figure from the free golfer")
 	if figure != null:
@@ -1480,9 +1481,77 @@ func _test_real_scale() -> void:
 	_check(top - bottom > 1.7 and top - bottom < 1.85, "golfer about 1.75 m tall (%.2f)" % (top - bottom))
 	golfer.free()
 	var bag := GolfBag.shared_mesh().get_aabb()
-	_check(bag.size.y > 0.95 and bag.size.y < 1.15, "stand bag with clubs about a metre high (%.2f)" % bag.size.y)
+	_check(bag.size.y > 1.2 and bag.size.y < 1.4, "staff bag with the driver's cover about 1.3 m up (%.2f)" % bag.size.y)
+	_test_props_real_size()
 	_check_near(BallPhysics.RADIUS * 2.0, 0.04267, 0.0001, "ball 42.67 mm across")
 	_check_near(BallPhysics.CUP_RADIUS * 2.0, 0.108, 0.001, "hole 108 mm across")
+
+
+## The course props are their real size (docs/props.md), and the tee
+## furniture and rakes go where they should.
+func _test_props_real_size() -> void:
+	var sizes := {
+		"tee_marker": [Vector3(0.127, 0.115, 0.127), 0.01],
+		"ball_washer": [Vector3(0.5, 1.28, 0.5), 0.03],
+		"tee_sign": [Vector3(0.71, 1.74, 0.08), 0.03],
+		"tee_bench": [Vector3(1.54, 0.97, 0.63), 0.04],
+		"bunker_rake": [Vector3(0.64, 0.06, 1.42), 0.02],
+		"yardage_plate": [Vector3(0.304, 0.034, 0.204), 0.01],
+		"yardage_pole": [Vector3(0.09, 2.04, 0.09), 0.02],
+		"sponsor_sign": [Vector3(0.61, 0.985, 0.075), 0.02],
+	}
+	for prop: String in sizes:
+		var m := CourseProps.mesh(prop)
+		_check(m != null, "%s model loads" % prop)
+		if m == null:
+			continue
+		var want: Vector3 = sizes[prop][0]
+		var got := m.get_aabb().size
+		var tol: float = sizes[prop][1]
+		_check(absf(got.x - want.x) < tol and absf(got.y - want.y) < tol and absf(got.z - want.z) < tol,
+				"%s is %.2f x %.2f x %.2f m (want %.2f x %.2f x %.2f)" % [prop, got.x, got.y, got.z, want.x, want.y, want.z])
+	# A bunker 20 m right of the line, 100 m out: one rake, at its edge, the
+	# handle pointing out of the sand.
+	var t := _BunkerTerrain.new()
+	var route := PackedVector2Array([Vector2(0, 150)])
+	var rakes := CourseProps.rake_spots(t, Vector3.ZERO, Vector3(0, 0, 150), route, 8)
+	_check(rakes.size() == 1, "one rake for one bunker (%d)" % rakes.size())
+	if rakes.size() == 1:
+		var head: Vector3 = rakes[0][0]
+		var out: Vector3 = rakes[0][1]
+		_check(t.surface_at(head.x, head.z) == Surface.Type.SAND, "rake head in the sand")
+		var tip := head + out * CourseProps.RAKE_LENGTH
+		_check(t.surface_at(tip.x, tip.z) != Surface.Type.SAND, "rake handle out over the grass")
+		_check(head.x < -12.0, "rake on the side of the bunker facing the line (%.1f)" % head.x)
+	# 150 yards back from the pin along a dogleg, and the fairway's edge.
+	var dog := PackedVector2Array([Vector2(0, 200), Vector2(100, 200)])
+	var at := CourseProps.point_back_from_pin(Vector3.ZERO, Vector3(200, 0, 200), dog, 150.0)
+	_check((at[0] as Vector3).distance_to(Vector3(50, 0, 200)) < 0.01, "150 m back along the route (%s)" % at[0])
+	_check((at[1] as Vector3).distance_to(Vector3(1, 0, 0)) < 0.01, "line runs towards the pin there")
+	at = CourseProps.point_back_from_pin(Vector3.ZERO, Vector3(200, 0, 200), dog, 250.0)
+	_check((at[0] as Vector3).distance_to(Vector3(0, 0, 150)) < 0.01, "250 m back is round the dogleg (%s)" % at[0])
+	_check((at[1] as Vector3).distance_to(Vector3(0, 0, 1)) < 0.01, "and the line there runs up the first leg")
+	var edge := CourseProps.fairway_edge(_FairwayTerrain.new(), Vector3(0, 0, 100), Vector3(0, 0, 1))
+	_check(absf(edge.x + 16.0) < 0.01, "pole a metre into the rough on the right (%s)" % edge)
+	# Tee furniture keeps out of water: the right is a pond, so it goes left.
+	var spot := CourseProps.tee_spot(t, Vector3(0, 0, 0), Vector3(0, 0, 100), CourseProps.WASHER_SPOT)
+	_check(spot != Vector3.INF and spot.x > 0.0, "tee furniture on the dry side (%s)" % spot)
+
+
+## A 30 m fairway down the z axis, rough either side.
+class _FairwayTerrain extends CourseTerrain:
+	func surface_at(x: float, _z: float) -> int:
+		return Surface.Type.FAIRWAY if absf(x) < 15.0 else Surface.Type.ROUGH
+
+
+## Flat fairway with a pond right of the tee and a 10 m bunker 100 m out.
+class _BunkerTerrain extends CourseTerrain:
+	func surface_at(x: float, z: float) -> int:
+		if x < -2.0 and x > -12.0 and z > -8.0 and z < 4.0:
+			return Surface.Type.WATER
+		if x < -15.0 and x > -25.0 and z > 95.0 and z < 105.0:
+			return Surface.Type.SAND
+		return Surface.Type.FAIRWAY
 
 
 func _test_placeholder_course() -> void:
@@ -1537,6 +1606,26 @@ func _test_graphics_settings() -> void:
 	_check(is_equal_approx(PostProcess.horizon_screen_y(0.0, 0.7), 0.5), "shimmer: level camera, horizon mid-screen")
 	_check(PostProcess.horizon_screen_y(-0.1, 0.7) < 0.5, "shimmer: camera tipped down, horizon higher")
 	_check(is_equal_approx(PostProcess.horizon_screen_y(-0.35, 0.7), 0.0), "shimmer: horizon at the top edge")
+	# The sun found in a sky photo: a bright spot a quarter of the way
+	# across, a quarter of the way down (45 degrees up).
+	var sky_img := Image.create(64, 32, false, Image.FORMAT_RGBF)
+	sky_img.fill(Color(0.3, 0.4, 0.6))
+	sky_img.set_pixel(16, 8, Color(500.0, 500.0, 480.0))
+	var found := FreeAssets.sun_in_image(sky_img)
+	_check(absf(found.x - 16.5 / 64.0) < 0.01 and absf(found.y - PI * (0.5 - 8.5 / 32.0)) < 0.01, "sky sun: found in the photo (%s)" % found)
+	sky_img.set_pixel(16, 8, Color(0.5, 0.5, 0.6))
+	_check(FreeAssets.sun_in_image(sky_img).x < 0.0, "sky sun: none in a grey sky")
+	var mapped := Scenery.sky_sun_mapping(Vector3(0.0, 0.5, 0.866), deg_to_rad(48.0))
+	_check(absf(mapped.y - deg_to_rad(30.0)) < 0.001, "sky sun: the photo's sun is moved down to a 30 degree sun")
+	_check(absf(Scenery.sky_sun_mapping(Vector3(0.0, 0.156, 0.988), deg_to_rad(48.0)).y - deg_to_rad(28.8)) < 0.001, "sky sun: a low sun stretches the sky at most 40%")
+	# The TV cameraman's drift stays tiny, and grows while panning.
+	var most := 0.0
+	var most_pan := 0.0
+	for i in 600:
+		most = maxf(most, RoundCamera.operator_offset(i * 0.1, 0.0).length())
+		most_pan = maxf(most_pan, RoundCamera.operator_offset(i * 0.1, 1.0).length())
+	_check(most > 0.0 and most < deg_to_rad(0.1), "camera operator: resting drift under 0.1 degree")
+	_check(most_pan > most and most_pan < deg_to_rad(0.3), "camera operator: more drift while panning, under 0.3 degree")
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")
@@ -1845,10 +1934,18 @@ func _test_gallery() -> void:
 		for j in i:
 			placed = placed and p.distance_to(spots[j][0]) >= Gallery.CROWD_SPACING - 1e-3
 	_check(placed, "spectators off the greens and bunkers, not on top of each other")
-	var g := Gallery.build(hole, hole.pin, 3, 7)
+	var g := Gallery.build(hole, hole.pin, 3, 7, true)
 	root.add_child(g)
 	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	var spot := Gallery.grandstand_spot(hole)
+	if not spot.is_empty():
+		var capacity := Gallery.STAND_ROWS * (int(Gallery.STAND_WIDTH / Gallery.STAND_SEAT) - 1)
+		_check(g.seated_count() > capacity / 2 and g.seated_count() <= capacity, "a grandstand full of people (%d)" % g.seated_count())
+		var front: Vector3 = spot[0]
+		_check(front.distance_to(hole.pin) > Gallery.GREEN_MARGIN + Gallery.STAND_BACK, "the grandstand stands back from the green")
+	g.react(Commentary.Crowd.ROAR)
 	g.free()
+	_check_near(Gallery.stand_depth(), 6.8, 1e-4, "eight bleacher rows of 0.85 m")
 
 
 func _test_course_life() -> void:
