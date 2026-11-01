@@ -165,9 +165,7 @@ void fragment() {
 		sand = w.y;
 		w_rough_in = w.x;
 		// Mowing stripes cut with the surface, alternately lighter and darker.
-		float u = (p.x + p.y * 0.15) / splat_stripe_metres;
-		float aa = max(fwidth(u), 0.001);
-		float band = smoothstep(-aa, aa, sin(u * 3.14159));
+		float band = mow_band((p.x + p.y * 0.15) / splat_stripe_metres, MOW_SOFT);
 		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(vec2(-0.15, 1.0), from_eye);
 	} else if (wy > 0.0 && wy < 0.97) {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
@@ -225,14 +223,13 @@ void fragment() {
 		vec3 tilt = (VIEW_MATRIX * vec4(-hx, 0.0, -hz, 0.0)).xyz;
 		NORMAL = normalize(NORMAL + tilt * bump * close_up);
 	}
-	// Mowing stripes along the hole, crisp-edged, alternately lighter and
-	// darker, as the mower lays the grass one way and then the other; which
-	// is the light one, and how strongly, depends on where you look from.
-	float stripe_aa = max(fwidth(stripes.x / stripe_metres), 0.001);
+	// Mowing stripes along the hole, alternately lighter and darker, as the
+	// mower lays the grass one way and then the other; which is the light
+	// one, and how strongly, depends on where you look from.
+	// (Outside the branch: its derivatives need every pixel of the quad.)
+	float hole_band = mow_band(stripes.x / stripe_metres, MOW_SOFT);
 	if (stripes.y > 0.0) {
-		float u = stripes.x / stripe_metres;
-		float band = smoothstep(-stripe_aa, stripe_aa, sin(u * 3.14159) * 0.35);
-		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);
+		col *= 1.0 + (hole_band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);
 	}
 	col *= 1.0 - 0.35 * lip;
 	// Sand is darker and damp where it meets the turf (the bank sheds
