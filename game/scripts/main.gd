@@ -23,8 +23,6 @@ const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
-const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
-const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
 const HINT_AIM := "Left/Right or right-click: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
@@ -57,6 +55,7 @@ const HINT_WAIT := "Space or click: continue    R: replay    Tab: scorecard"
 const HINT_REMOTE := "%s is playing    Tab: scorecard"
 const HINT_DONE := "Space or click: play again    X: copy result code    M: main menu    Esc: menu"
 const HINT_CAREER_DONE := "Space or click: back to your career    X: copy result code    Esc: menu"
+const HINT_TOURNAMENT_DONE := "Space or click: back to the tournament    X: copy result code    Esc: menu"
 const MENU_SCENE := "res://scenes/boot.tscn"
 ## Broadcast replays: slow motion near the landing and the cup.
 const REPLAY_SLOW := 0.35
@@ -126,6 +125,8 @@ var scoring: RoundScoring
 var players: Array[PlayerBall] = []
 ## Each player's computer golfer, or null for a person.
 var opponents: Array[ComputerGolfer] = []
+## The tournament this round is part of (RoundSetup.tournament), or null.
+var _tournament: Tournament = null
 var current := 0  ## whose ball is being played
 var shooter := 0  ## who is hitting it (a partner, in a shared-ball mode)
 ## The last person to play, for the hot-seat hand-over; -1 at the start.
@@ -378,6 +379,13 @@ func start_round() -> void:
 				_career_board.append("AFTER ROUND %d" % c.rounds_played())
 				for line in c.leaderboard_lines(5):
 					_career_board.append(line.to_upper())
+	_tournament = null
+	if not round_setup.tournament.is_empty():
+		var t := Tournament.load_saved()
+		if t != null and t.begin_round(round_setup.tournament, pars, stroke_index):
+			_tournament = t
+			_career_title = "%s, %s" % [t.title, t.next_text().get_slice(".", 0) if t.format == Tournament.Format.MATCH else "round %d" % (t.rounds_played() + 1)]
+			_update_tournament_board(0, 0)
 	for p in players:
 		if p.marker:
 			p.marker.queue_free()
@@ -391,7 +399,9 @@ func start_round() -> void:
 	for i in scoring.player_count():
 		var cpu: ComputerGolfer = null
 		if round_setup.is_computer(i):
-			cpu = ComputerGolfer.new(round_setup.computer_level(i), round_seed * 31 + i + 1)
+			cpu = ComputerGolfer.new(round_setup.computer_level(i), round_seed * 31 + i + 1, round_setup.pro_for(i))
+			cpu.classic = graphics.computer_play == GraphicsSettings.ComputerPlay.CLASSIC
+			cpu.start_round()
 		opponents.append(cpu)
 		var p := PlayerBall.new()
 		p.marker = _make_ball_mesh()
@@ -779,9 +789,10 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	rec.from = ball_at
 	rec.skill = graphics.skill
 	rec.computer = round_setup != null and round_setup.is_computer(shooter)
-	# A computer's swing or putt makes Links 2003's own computer misses.
-	if rec.computer and opponents[shooter] != null:
-		rec.cpu_rating = opponents[shooter].skill.links_rating
+	# A Classic computer's swing or putt makes Links 2003's own computer misses.
+	if rec.computer and _classic_computer(shooter):
+		var sk := opponents[shooter].skill
+		rec.cpu_ratings = PackedInt32Array([sk.links_tee, sk.links_irons, sk.links_chips, sk.links_putts, sk.links_max_power])
 		rec.to_hole_m = ball_at.distance_to(hole.pin) if club.is_putter else _shot_from_pin
 	rec.chip = _chip and not club.is_putter
 	rec.stroke = null if rec.computer else _mouse_stroke
@@ -1095,7 +1106,7 @@ func _on_swing_pressed() -> void:
 		State.HOLE_DONE:
 			_next_hole()
 		State.ROUND_DONE:
-			if online != null or not round_setup.career.is_empty():
+			if online != null or not round_setup.career.is_empty() or not round_setup.tournament.is_empty():
 				_quit_to_menu()
 			else:
 				start_round()
@@ -2185,6 +2196,8 @@ func _finish_hole(add_stats := true) -> void:
 	for i in players.size():
 		var p := players[ball_of[i]]
 		scoring.cards[i].record(hole_index, p.strokes)
+		if i < opponents.size() and opponents[i] != null:
+			opponents[i].end_hole(p.strokes - hole.par)
 		if not add_stats:
 			continue
 		var st := round_stats[i]
@@ -2195,6 +2208,9 @@ func _finish_hole(add_stats := true) -> void:
 		st.putts += p.putts
 		st.holes += 1
 	state = State.HOLE_DONE
+	if _tournament != null:
+		var done := card.holes_played()
+		_update_tournament_board(done - 1, done)
 	if players.size() == 1:
 		var p := players[0]
 		var title := "Picked up" if p.picked_up else Scorecard.score_name(p.strokes, hole.par)
@@ -2259,9 +2275,17 @@ func _next_hole() -> void:
 		var report := _record_career()
 		if not report.is_empty():
 			text = report + "\n" + text
+	if not round_setup.tournament.is_empty():
+		var report := _record_tournament()
+		if not report.is_empty():
+			text = report + "\n" + text
 	hud.show_message(text)
 	hud.scorecard.show_round(scoring, _round_name(), "Final")
-	hud.hint.text = HINT_DONE if round_setup.career.is_empty() else HINT_CAREER_DONE
+	hud.hint.text = HINT_DONE
+	if not round_setup.career.is_empty():
+		hud.hint.text = HINT_CAREER_DONE
+	elif not round_setup.tournament.is_empty():
+		hud.hint.text = HINT_TOURNAMENT_DONE
 
 
 ## Keeps the finished round in user://replays/ (RoundRecord).
@@ -2306,6 +2330,77 @@ func _record_rounds() -> String:
 
 ## A Career round (RoundSetup.career): adds everyone's finished card to the
 ## event (Career.record_round) and says what it meant. The person is seat 0.
+## A tournament round (RoundSetup.tournament): adds the group's cards to the
+## tournament (the field was simulated alongside).
+func _record_tournament() -> String:
+	var t := Tournament.load_saved()
+	if t == null:
+		return ""
+	var pars: Array[int] = []
+	var stroke_index: Array[int] = []
+	for h in holes:
+		pars.append(h.par)
+		stroke_index.append(h.stroke_index)
+	var text := t.record_round(round_setup.tournament, _tournament_cards(), pars, stroke_index)
+	if text.is_empty():
+		return ""
+	t.save()
+	Tournament.open_on_menu = true
+	_tournament = null
+	return text
+
+
+## The person's group's hole scores so far, by name.
+func _tournament_cards() -> Dictionary:
+	var out := {}
+	for i in scoring.player_count():
+		out[scoring.names[i]] = Array(scoring.cards[i].strokes)
+	return out
+
+
+## The live tournament leaderboard for the ticker, the Tour rail and the
+## captions, after the person has played `after` holes (`before` at the last
+## update): the field's birdies near the top in between become captions.
+func _update_tournament_board(before: int, after: int) -> void:
+	var t := _tournament
+	if t == null:
+		return
+	_career_board.clear()
+	if t.format == Tournament.Format.MATCH or t.format == Tournament.Format.SKINS:
+		return
+	var real := _tournament_cards()
+	_career_board.append("LEADERBOARD")
+	var rows := t.live_rows(after, real)
+	for k in mini(5, rows.size()):
+		var row: Dictionary = rows[k]
+		_career_board.append(("%s  %s  %s%s" % [row.pos, row.name, t._value_text(int(row.total)),
+			"" if int(row.thru) == 0 or int(row.thru) >= holes.size() else "  (%d)" % int(row.thru)]).to_upper())
+	if before >= 0 and after > before:
+		var news := t.live_news(before, after, 10, real)
+		if not news.is_empty():
+			if hud.broadcast:
+				hud.overlay.caption(news[-1].to_upper(), 5.0)
+			else:
+				hud.show_message(news[-1], 4.0)
+
+
+## How many strokes (or points) player `i` is behind the tournament lead
+## now, or -1 outside a stroke or Stableford tournament.
+func _tournament_gap(i: int) -> int:
+	var t := _tournament
+	if t == null or t.format == Tournament.Format.MATCH or t.format == Tournament.Format.SKINS:
+		return -1
+	var rows := t.live_rows(card.holes_played(), _tournament_cards())
+	if rows.is_empty():
+		return -1
+	var lead := int(rows[0].total)
+	for row: Dictionary in rows:
+		if str(row.name) == scoring.names[i]:
+			var gap := lead - int(row.total) if t.format == Tournament.Format.STABLEFORD else int(row.total) - lead
+			return maxi(0, gap)
+	return -1
+
+
 func _record_career() -> String:
 	var c := Career.load_saved()
 	if c == null:
@@ -2580,16 +2675,46 @@ func _process_computer(delta: float) -> void:
 		return
 	_computer_timer += delta
 	var cpu := opponents[shooter]
+	# Each golfer's own pre-shot routine: a quick player is over the ball and
+	# away while a deliberate one is still reading the shot.
 	if not _computer_ready:
-		if cpu.step() and _computer_timer >= COMPUTER_THINK:
+		if cpu.step() and _computer_timer >= cpu.think_time():
 			_show_computer_plan()
 		return
-	if not _computer_backswing and _computer_timer >= COMPUTER_ADDRESS - 0.5:
+	var address := cpu.address_time()
+	if not _computer_backswing and _computer_timer >= address - 0.5:
 		_computer_backswing = true
 		if golfer and not cpu.is_putt():
 			golfer.play(&"backswing")
-	if _computer_timer >= COMPUTER_ADDRESS:
+	if _computer_timer >= address:
 		_computer_swing()
+
+
+## True when player `i` is a Classic computer golfer under Links 2003's
+## physics, whose misses come from the game's own generators.
+func _classic_computer(i: int) -> bool:
+	return shot_model is LinksShotModel and i < opponents.size() and opponents[i] != null and opponents[i].classic
+
+
+## How tense this shot is for player `i`, 0 to 1: nothing early on, building
+## over the last three holes when they are in the hunt (within two of the
+## lead in their group, or of the tournament lead), most of all on the last.
+func _pressure_on(i: int) -> float:
+	var left := holes.size() - 1 - hole_index
+	if left > 2 or i >= scoring.player_count():
+		return 0.0
+	var late := (3.0 - left) / 3.0
+	var mine := scoring.cards[i].to_par()
+	var best := mine
+	for j in scoring.player_count():
+		if j != i:
+			best = mini(best, scoring.cards[j].to_par())
+	var behind := mine - best
+	var gap := _tournament_gap(i)
+	if gap >= 0:
+		behind = gap
+	var close := 1.0 if behind <= 2 else (0.5 if behind <= 4 else 0.15)
+	return clampf(late * close, 0.0, 1.0)
 
 
 ## Takes the club and line the computer chose and shows them.
@@ -2607,10 +2732,11 @@ func _show_computer_plan() -> void:
 
 func _computer_swing() -> void:
 	var cpu := opponents[shooter]
+	cpu.pressure = _pressure_on(shooter)
 	var made := cpu.swing()
-	if shot_model is LinksShotModel:
-		# The Links physics adds the game's own computer misses (play_shot).
-		made = PackedFloat64Array([cpu.power, 0.0, cpu.aim_deg])
+	if _classic_computer(shooter):
+		# Links 2003's own computer misses (play_shot); the plan keeps its shape.
+		made = PackedFloat64Array([cpu.power, cpu.accuracy, cpu.aim_deg])
 	aim_deg = made[2]
 	hud.meter.reset()
 	play_shot(made[0], made[1])
@@ -3597,20 +3723,28 @@ func _update_tour() -> void:
 func _tour_state(aiming: bool, putting: bool, to_pin: float) -> Dictionary:
 	var club := clubs[club_index]
 	var rows: Array = []
-	for i in scoring.names.size():
-		var c := scoring.cards[i]
-		rows.append({"name": scoring.names[i], "player": i, "current": i == shooter,
-			"score": c.to_par(), "to_par": "E" if c.holes_played() == 0 or c.to_par() == 0 else Scorecard.format_to_par(c.to_par())})
-	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.score < b.score or (a.score == b.score and a.player < b.player))
-	for i in rows.size():
-		var score: int = rows[i].score
-		var first := i
-		while first > 0 and int(rows[first - 1].score) == score:
-			first -= 1
-		var tied: bool = first < i or (i + 1 < rows.size() and int(rows[i + 1].score) == score)
-		rows[i].pos = ("T%d" if tied else "%d") % (first + 1)
+	if _tournament != null and _tournament.format != Tournament.Format.MATCH and _tournament.format != Tournament.Format.SKINS:
+		rows = _tournament_rail()
+	else:
+		for i in scoring.names.size():
+			var c := scoring.cards[i]
+			rows.append({"name": scoring.names[i], "player": i, "current": i == shooter,
+				"score": c.to_par(), "to_par": "E" if c.holes_played() == 0 or c.to_par() == 0 else Scorecard.format_to_par(c.to_par())})
+		rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.score < b.score or (a.score == b.score and a.player < b.player))
+		for i in rows.size():
+			var score: int = rows[i].score
+			var first := i
+			while first > 0 and int(rows[first - 1].score) == score:
+				first -= 1
+			var tied: bool = first < i or (i + 1 < rows.size() and int(rows[i + 1].score) == score)
+			rows[i].pos = ("T%d" if tied else "%d") % (first + 1)
+	var round_text := course.course_name
+	if _tournament != null:
+		round_text = _career_title
+	elif round_setup != null:
+		round_text = "%s  \u00b7  %s" % [course.course_name, GameModes.MODE_NAMES[round_setup.mode]]
 	return {
-		"to_play": holes.size() - hole_index, "round": "%s  \u00b7  %s" % [course.course_name, GameModes.MODE_NAMES[round_setup.mode]] if round_setup != null else course.course_name,
+		"to_play": holes.size() - hole_index, "round": round_text,
 		"rows": rows, "hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
 		"stroke": strokes + 1, "aiming": aiming, "putting": putting, "club": club.full_name,
 		"carry_yd": roundi(club.carry_m * Surface.lie_power(lie) * YARDS_PER_METRE),
@@ -3618,6 +3752,32 @@ func _tour_state(aiming: bool, putting: bool, to_pin: float) -> Dictionary:
 		"wind_mph": 0.0 if wind.is_calm() else wind.speed_mph(), "wind_rel_deg": wind.relative_deg(aim_deg),
 		"expected": strokes + OpponentSkill.expected_strokes(to_pin, lie),
 	}
+
+
+## The Tour rail in a tournament: the top of the live leaderboard, then
+## anyone in the person's group below it, each with the holes they have
+## played ("-6 (12)"). The golfer on the shot is picked out.
+func _tournament_rail() -> Array:
+	var t := _tournament
+	var rows := t.live_rows(card.holes_played(), _tournament_cards())
+	var out: Array = []
+	for k in rows.size():
+		var row: Dictionary = rows[k]
+		var seat := scoring.names.find(str(row.name))
+		if k >= 5 and seat < 0:
+			continue
+		var total := int(row.total)
+		var text := t._value_text(total) if t.format == Tournament.Format.STABLEFORD else ("E" if total == 0 else Scorecard.format_to_par(total))
+		var thru := int(row.thru)
+		if thru > 0 and thru < holes.size():
+			text += " (%d)" % thru
+		elif thru >= holes.size():
+			text += " F"
+		out.append({"name": str(row.name), "player": seat if seat >= 0 else 4 + k, "current": seat == shooter,
+			"score": total, "to_par": text, "pos": str(row.pos)})
+		if out.size() >= 8:
+			break
+	return out
 
 
 # --- Putting: green reading and the practice green -----------------------------

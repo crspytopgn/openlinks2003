@@ -26,6 +26,10 @@ var from := Vector3.ZERO
 var skill := 3
 var computer := false
 var cpu_rating := -1
+## A Classic computer golfer's ratings for Links 2003's miss generators
+## (tee, woods and irons, chips, putts, max power); empty for a realistic
+## golfer, whose swing is all in power, accuracy and aim.
+var cpu_ratings := PackedInt32Array()
 var to_hole_m := 0.0
 var wind_level := 0
 var wind := Vector3.ZERO
@@ -62,6 +66,8 @@ func to_dict() -> Dictionary:
 		d["setup"] = [ball_position, face, stance]
 	if not monitor.is_empty():
 		d["monitor"] = monitor
+	if not cpu_ratings.is_empty():
+		d["cpu_ratings"] = Array(cpu_ratings)
 	if mulligan:
 		d["mulligan"] = true
 	if stroke != null:
@@ -92,6 +98,7 @@ static func from_dict(d: Dictionary) -> ShotRecord:
 	r.skill = int(d.get("skill", 3))
 	r.computer = bool(d.get("computer", false))
 	r.cpu_rating = int(d.get("cpu_rating", -1))
+	r.cpu_ratings = PackedInt32Array(d.get("cpu_ratings", []))
 	r.to_hole_m = float(d.get("to_hole_m", 0.0))
 	r.chip = bool(d.get("chip", false))
 	r.wind_level = int(d.get("wind_level", 0))

@@ -22,6 +22,10 @@ enum Upscaler { OFF, FSR1, FSR2 }
 enum Grade { NEUTRAL, VIVID, WARM, COOL, FILM }
 ## The Photoreal lighting's time of day (Scenery.TIMES); Through the round
 ## moves the sun from morning on the first hole to golden hour on the last.
+## How computer golfers miss with Links 2003's physics: our errors measured
+## against tour statistics, or the game's own computer miss generators.
+enum ComputerPlay { REALISTIC, CLASSIC }
+const COMPUTER_PLAY_NAMES := ["Realistic (tour statistics)", "Classic Links"]
 enum TimeOfDay { AFTERNOON, MORNING, MIDDAY, GOLDEN, ROUND }
 
 const PATH := "user://settings.cfg"
@@ -121,6 +125,7 @@ const MULLIGAN_NAMES := ["Off", "One per nine holes", "One per hole"]
 ## (GolfRound.MAX_STROKES). 0 off, 1 at double par, 2 at triple bogey.
 ## Never in a friend's round.
 var pickup := 0
+var computer_play: int = ComputerPlay.REALISTIC
 const PICKUP_NAMES := ["Off (at 10)", "At double par", "At triple bogey"]
 ## Take real swings from a launch monitor app over OpenConnect (desktop).
 var launch_monitor := false
@@ -305,6 +310,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	s.pickup = clampi(int(cfg.get_value(GAME_SECTION, "pickup", s.pickup)), 0, PICKUP_NAMES.size() - 1)
 	s.mulligans = clampi(int(cfg.get_value(GAME_SECTION, "mulligans", s.mulligans)), 0, MULLIGAN_NAMES.size() - 1)
 	s.gimme = clampi(int(cfg.get_value(GAME_SECTION, "gimme", s.gimme)), 0, GIMME_FEET.size() - 1)
+	s.computer_play = clampi(int(cfg.get_value(GAME_SECTION, "computer_play", s.computer_play)), 0, COMPUTER_PLAY_NAMES.size() - 1)
 	if force_look >= 0:
 		s.apply_look(force_look)
 		return s
@@ -370,6 +376,7 @@ func save(path := PATH) -> void:
 	cfg.set_value(GAME_SECTION, "gimme", gimme)
 	cfg.set_value(GAME_SECTION, "mulligans", mulligans)
 	cfg.set_value(GAME_SECTION, "pickup", pickup)
+	cfg.set_value(GAME_SECTION, "computer_play", computer_play)
 	cfg.set_value(GAME_SECTION, "captions", captions)
 	cfg.set_value(GAME_SECTION, "launch_monitor", launch_monitor)
 	cfg.set_value(SECTION, "look_version", LOOK_VERSION)
