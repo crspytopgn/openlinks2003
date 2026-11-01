@@ -114,8 +114,8 @@ const STRIDE := 0.38  ## metres between one print and the next
 const MAX_STEPS := 18
 ## How far the golfer's feet stand from the ball, across the line, matching
 ## the golfer thread's address poses: long clubs stand further off.
-const STANCE_WOOD := 0.72
-const STANCE_IRON := 0.57
+const STANCE_WOOD := 0.93
+const STANCE_IRON := 0.62
 const STANCE_PUTT := 0.45
 
 
