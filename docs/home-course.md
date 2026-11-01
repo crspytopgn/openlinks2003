@@ -109,7 +109,15 @@ one by one for that hole (they cast baked shade and the gallery avoids
 them); every other tree on the course is drawn batched
 (`DesignedTerrain._add_distant_trees`, impostors at a distance), so the
 woods across the whole course are seen from every hole for a few draw
-calls. Every tree keeps its obstacle for the ball.
+calls. The batched trees cast no sun shadows: drawing them a second time
+for the shadow map pushed the tee view over the 2 million triangle budget
+(render_check), and at 60 m or more from play their shadows seldom fall
+where the player looks. Every tree keeps its obstacle for the ball.
+
+Pond banks run down to the water line over `DesignedTerrain.WATER_BANK`
+(5 m) outside the outline and carry on under it with no step. A dig that
+started at the outline left a cliff that the 2 m height grid drew as a
+sawtooth shore.
 
 ## Mowing
 

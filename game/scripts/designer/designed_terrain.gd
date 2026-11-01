@@ -19,6 +19,7 @@ const TEE_BLEND := 3.0
 const BUNKER_DEPTH := 0.7
 const BUNKER_LIP := 2.0
 const WATER_DROP := 0.3  ## water line below the lowest point of the bank
+const WATER_BANK := 5.0  ## metres outside a pond over which the bank runs down to it
 ## Water surfaces: grid spacing inside a pond, and how far out from the
 ## bank the shallows reach (see water_surface_mesh()).
 const SHORE_STEP := 4.0
@@ -121,8 +122,8 @@ func update_heights(cells: Rect2i) -> void:
 	# A pond's water line follows its bank, and a tee pad its mean height,
 	# so a change near either redoes the whole shape.
 	for s in course.shapes:
-		if s.surface in [Surface.Type.WATER, Surface.Type.TEE] and _cells_of(s.bounds().grow(TEE_BLEND)).intersects(r):
-			r = r.merge(_cells_of(s.bounds().grow(TEE_BLEND + DesignedCourse.CELL)))
+		if s.surface in [Surface.Type.WATER, Surface.Type.TEE] and _cells_of(s.bounds().grow(WATER_BANK)).intersects(r):
+			r = r.merge(_cells_of(s.bounds().grow(WATER_BANK + DesignedCourse.CELL)))
 	r = r.intersection(Rect2i(0, 0, course.cols, course.rows))
 	_derive(r)
 	_invalidate(r)
@@ -139,7 +140,7 @@ func update_surfaces(area: Rect2) -> void:
 	var cells := _cells_of(grown)
 	for s in course.shapes:
 		if s.surface in [Surface.Type.WATER, Surface.Type.TEE, Surface.Type.SAND] and _cells_of(s.bounds()).intersects(cells):
-			cells = cells.merge(_cells_of(s.bounds().grow(TEE_BLEND + DesignedCourse.CELL)))
+			cells = cells.merge(_cells_of(s.bounds().grow(WATER_BANK + DesignedCourse.CELL)))
 	cells = cells.intersection(Rect2i(0, 0, course.cols, course.rows))
 	_derive(cells)
 	_vertex_surfaces(cells)
@@ -260,10 +261,12 @@ func _add_distant_trees(root: Node3D) -> void:
 		node.name = "DistantTrees"
 		node.multimesh = batch.multimesh
 		node.position = batch.position
+		# They stand at least HOLE_REACH from the tees and the line of play,
+		# so their shadows seldom reach the ground the player looks at, and
+		# drawing them again for the sun is most of what woods cost.
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if batch.full:
 			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
-		else:
-			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
 
 
@@ -767,8 +770,13 @@ func _derive(cells: Rect2i) -> void:
 				lowest = minf(lowest, course.base_height(p.x, p.y))
 			var level := lowest - WATER_DROP
 			_water_levels[s] = level
-			_shape_heights(s, cells, 0.0, func(h: float, d: float) -> float:
-				return minf(h, level - 0.3 - 1.6 * smoothstep(0.0, 6.0, -d)))
+			# The bank runs down to the water line at the edge and on under
+			# it, with no step: a dig that starts at the outline leaves a
+			# cliff that the 2 m grid draws as a sawtooth shore.
+			_shape_heights(s, cells, WATER_BANK, func(h: float, d: float) -> float:
+				if d > 0.0:
+					return minf(h, lerpf(level + 0.05, h, smoothstep(0.0, WATER_BANK, d)))
+				return minf(h, level + 0.05 - 1.95 * smoothstep(0.0, 6.0, -d)))
 
 
 ## Applies `f(height, signed distance)` to the samples inside the shape (or
