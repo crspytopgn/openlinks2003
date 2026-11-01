@@ -15,6 +15,7 @@ uniform float grain_fade_end = 70.0;
 uniform float bump = 0.35; // strength of the close-up normal detail
 
 #include "res://shaders/ground_shade.gdshaderinc"
+#include "res://shaders/mow_sheen.gdshaderinc"
 
 uniform bool textured = false;
 uniform sampler2D grass_albedo : source_color, filter_linear_mipmap, repeat_enable;
@@ -137,6 +138,9 @@ vec4 two_scale(sampler2D tex, vec2 uv) {
 
 void fragment() {
 	vec2 p = world_pos.xz;
+	// Derivatives in uniform control flow, before any branch.
+	vec2 hole_mow_line = mow_line_from(stripes.x, p);
+	vec3 from_eye = world_pos - CAMERA_POSITION_WORLD;
 	float patches = fbm(p * 0.035) - 0.5;
 	float close_up = 1.0 - smoothstep(grain_fade_start, grain_fade_end, length(VERTEX));
 	float fine = (value_noise(p * 2.7) - 0.5) + 0.5 * (value_noise(p * 7.3) - 0.5);
@@ -163,7 +167,7 @@ void fragment() {
 		float u = (p.x + p.y * 0.15) / splat_stripe_metres;
 		float aa = max(fwidth(u), 0.001);
 		float band = smoothstep(-aa, aa, sin(u * 3.14159));
-		c *= 1.0 + (band - 0.5) * 0.09 * mown;
+		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(vec2(-0.15, 1.0), from_eye);
 	} else if (wy > 0.0 && wy < 0.97) {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
 		c = mix(turf, sand_vertex, sand);
@@ -221,12 +225,13 @@ void fragment() {
 		NORMAL = normalize(NORMAL + tilt * bump * close_up);
 	}
 	// Mowing stripes along the hole, crisp-edged, alternately lighter and
-	// darker, as the mower lays the grass one way and then the other.
+	// darker, as the mower lays the grass one way and then the other; which
+	// is the light one, and how strongly, depends on where you look from.
+	float stripe_aa = max(fwidth(stripes.x / stripe_metres), 0.001);
 	if (stripes.y > 0.0) {
 		float u = stripes.x / stripe_metres;
-		float aa = max(fwidth(u), 0.001);
-		float band = smoothstep(-aa, aa, sin(u * 3.14159) * 0.35);
-		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y;
+		float band = smoothstep(-stripe_aa, stripe_aa, sin(u * 3.14159) * 0.35);
+		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);
 	}
 	col *= 1.0 - 0.35 * lip;
 	ALBEDO = clamp(col, vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
