@@ -1343,6 +1343,26 @@ func _test_computer_golfer_plans() -> void:
 	_check(not clubs[cpu.club_index].is_putter, "a full club from the fairway")
 	_check(miss < 6.0, "approach plan ends within 6 m in a crosswind (%.1f m)" % miss)
 
+	# After stroke and distance it doesn't play the same club out of bounds
+	# again: the plan can't see a real swing catch a bunker lip.
+	var first := cpu.club_index
+	var ob := ShotResult.new()
+	ob.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
+	ob.rest = Vector3(60.0, 0.0, 120.0)
+	cpu.learn(Vector3(30.0, 0.0, 0.0), first, ob)  # from somewhere else: ignored
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	_check(cpu.club_index == first, "a result from another spot changes nothing")
+	cpu.learn(Vector3.ZERO, first, ob)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	print("  after %s went out of bounds: %s" % [clubs[first].short_name, clubs[cpu.club_index].short_name])
+	_check(cpu.club_index != first, "doesn't repeat a club that just went out of bounds from here")
+	cpu.end_hole(0)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	_check(cpu.club_index == first, "forgets it on the next hole")
+
 	var weak := ComputerGolfer.new(OpponentSkill.Level.BEGINNER, 5)
 	weak.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3.ZERO)
 	weak.finish()

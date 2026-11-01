@@ -840,6 +840,8 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
+	if rec.computer and shooter < opponents.size() and opponents[shooter] != null:
+		opponents[shooter].learn(rec.from, club_index, shot)
 	record.shots.append(rec)
 	if marks != null:
 		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
