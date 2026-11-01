@@ -996,6 +996,38 @@ const Club& club(const char* short_name) {
   return standard_clubs().front();
 }
 
+// A bunker's face: flat sand up to z = 0, a 1 in 2 bank to a sharp crest
+// 0.75 m up at z = 1.5, and fairway on top.
+class BankTerrain : public Terrain {
+ public:
+  double height(double, double z) const override { return std::min(std::max(0.5 * z, 0.0), 0.75); }
+  Surface surface(double, double z) const override { return z < 1.5 ? Surface::Sand : Surface::Fairway; }
+};
+
+void test_shots_off_a_bank() {
+  BallParams p;
+  BankTerrain bank;
+  // A 7 iron from a lie on the face flies: it used to "roll" from the
+  // start at full club speed, hugging the ground for hundreds of metres.
+  SwingInput in;
+  in.power = 0.6;
+  BallState s = launch_from_swing(club("7i"), in, Surface::Sand);
+  s.position = Vec3{0, bank.height(0, 0.75), 0.75};
+  ShotResult r = simulate_shot(s, p, bank);
+  std::printf("  7i off the face: carry %.2f m, total %.2f m, %d bounces\n", r.carry_m, r.total_m, r.bounces);
+  CHECK(r.carry_m > 30.0);
+  CHECK(r.total_m < 150.0);
+  // A ball rolling fast up the bank takes off over the crest.
+  BallState roll;
+  roll.position = Vec3{0, 0, -5};
+  roll.velocity = Vec3{0, 0, 12};
+  r = simulate_shot(roll, p, bank);
+  std::printf("  roll over the crest: first landing z %.2f m, rest z %.2f m, %d bounces\n", r.first_landing.z, r.rest.z,
+              r.bounces);
+  CHECK(r.bounces >= 1);
+  CHECK(r.rest.z > 1.5);
+}
+
 void test_drive_bounces_and_rolls() {
   BallParams p;
   FlatTerrain ground(Surface::Fairway);
@@ -2760,6 +2792,7 @@ int main() {
       {"skeleton_and_clip", test_skeleton_and_clip},
       {"skinned_mesh", test_skinned_mesh},
       {"drive_bounces_and_rolls", test_drive_bounces_and_rolls},
+      {"shots_off_a_bank", test_shots_off_a_bank},
       {"club_distances_decrease", test_club_distances_decrease},
       {"wedge_checks_on_green", test_wedge_checks_on_green},
       {"rough_and_sand_cost_distance", test_rough_and_sand_cost_distance},

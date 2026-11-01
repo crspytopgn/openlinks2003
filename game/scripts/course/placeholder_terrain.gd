@@ -119,8 +119,11 @@ func height_at(x: float, z: float) -> float:
 
 	for b in bunkers:
 		var d := _blob_distance(p, Vector2(b.x, b.y), b.z, b.x * 0.37 + b.y * 0.11)
-		if d < b.z + 1.5:
-			h -= 0.7 * (1.0 - smoothstep(b.z * 0.3, b.z + 1.5, d))
+		if d < b.z + 3.0:
+			# A flat floor, a steep face just inside the edge and a raised
+			# lip of turf round it, so the bunker reads as a hollow.
+			h -= 0.75 * (1.0 - smoothstep(b.z * 0.45, b.z + 0.8, d))
+			h += 0.15 * exp(-pow((d - b.z - 1.1) / 0.9, 2.0))
 
 	for i in ponds.size():
 		var w := ponds[i]

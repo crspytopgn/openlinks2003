@@ -361,6 +361,31 @@ func _test_physics_matches_olcore() -> void:
 	_check_near(wedge.carry_m, 126.30, 1.0, "wedge carry")
 	_check_near(wedge.total_m, 126.28, 1.0, "wedge total")
 
+	# test_shots_off_a_bank: a 7 iron from a lie on a bunker face flies (it
+	# used to roll from the start at full club speed), and a fast roll takes
+	# off over the crest.
+	var bank := BankTerrain.new()
+	var start := Swing.launch_from_swing(_club("7i"), 0.6, 0.0, 0.0, Surface.Type.SAND)
+	start.position = Vector3(0.0, bank.height_at(0.0, 0.75), 0.75)
+	var off := BallPhysics.simulate_shot(start, bank)
+	print("  7i off the face: carry %.2f m, total %.2f m, %d bounces" % [off.carry_m, off.total_m, off.bounces])
+	_check_near(off.carry_m, 51.06, 1.0, "7i off the face carries")
+	_check_near(off.total_m, 59.44, 1.5, "7i off the face total")
+	var over := BallPhysics.simulate_shot(BallState.new(Vector3(0.0, 0.0, -5.0), Vector3(0.0, 0.0, 12.0)), bank)
+	print("  roll over the crest: rest z %.2f m, %d bounces" % [over.rest.z, over.bounces])
+	_check(over.bounces >= 1, "a fast roll takes off over the crest")
+	_check_near(over.rest.z, 3.50, 0.3, "and stops beyond it")
+
+
+## test_main.cpp's BankTerrain: flat sand up to z = 0, a 1 in 2 bank to a
+## sharp crest 0.75 m up at z = 1.5, and fairway on top.
+class BankTerrain extends CourseTerrain:
+	func height_at(_x: float, z: float) -> float:
+		return minf(maxf(0.5 * z, 0.0), 0.75)
+
+	func surface_at(_x: float, z: float) -> int:
+		return Surface.Type.SAND if z < 1.5 else Surface.Type.FAIRWAY
+
 
 func _test_club_table_matches_physics() -> void:
 	var fairway := FlatTerrain.new(Surface.Type.FAIRWAY)
