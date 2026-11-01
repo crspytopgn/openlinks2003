@@ -770,6 +770,8 @@ the physics, the swing and the scoring are the same in both.
   (SIL Open Font License, `assets/fonts`); panels that spring open. The live
   blur runs only on Forward+ at Medium quality and up; the web build and Low
   quality draw the same shapes as plain tinted glass, with no extra pass.
+  The swing meter's bar and the wind dial (a disc with a compass ring and
+  the speed in a pill) sit on the same glass.
 - From the second hole the key hints fold away to a small "F1: controls";
   F1 brings them back.
 - Replays: R between shots (and automatically after a holed approach, a

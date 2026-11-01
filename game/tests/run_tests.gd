@@ -3742,6 +3742,28 @@ func _test_glass_ui() -> void:
 	Glass.allow_blur = false
 	_check(not Glass.blurs(), "Low quality: no live blur")
 	Glass.allow_blur = true
+	# The HUD's meter and wind dial: glass in Broadcast, nothing behind the
+	# classic ones.
+	var wind := WindIndicator.new()
+	wind.size = Vector2(90, 112)
+	root.add_child(wind)
+	var shapes := wind._modern_shapes()
+	_check(shapes.size() == 2 and is_equal_approx(shapes[0].size.x, shapes[0].size.y)
+			and shapes[1].position.y > shapes[0].end.y, "the wind dial is a disc with the speed pill under it")
+	wind.modern = true
+	wind.update_glass()
+	_check(wind._glass.panel_count() == 2, "both on glass")
+	wind.free()
+	var meter := SwingMeter.new()
+	meter.size = SwingMeter.MODERN_SIZE
+	root.add_child(meter)
+	meter.modern = true
+	meter.update_glass()
+	_check(meter._glass.panel_count() == 1, "the modern meter sits on glass")
+	meter.modern = false
+	meter.update_glass()
+	_check(meter._glass.panel_count() == 0 and not meter._glass.visible, "the classic arc doesn't")
+	meter.free()
 
 
 func _test_click_aim() -> void:
