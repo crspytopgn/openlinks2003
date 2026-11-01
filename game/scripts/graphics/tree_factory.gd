@@ -65,6 +65,13 @@ static func impostor_distance() -> float:
 	return IMPOSTOR_DISTANCE[clampi(level, 1, IMPOSTOR_DISTANCE.size() - 1)]
 
 
+## Height in metres of the tree TreeFactory.instance() makes for `species`
+## at (x, z) (the variant there), before any scale.
+static func natural_height(species: Species, x: float, z: float) -> float:
+	_ensure_instanced()
+	return _meshes[variant_at(species, x, z)].get_aabb().end.y
+
+
 ## A variant of `species` picked by a hash of (x, z), so a course's trees
 ## come out the same every time.
 static func variant_at(species: Species, x: float, z: float) -> int:

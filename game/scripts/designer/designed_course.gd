@@ -19,6 +19,8 @@ const TREE_IDS := ["tree_pine", "tree_broadleaf", "bush"]
 const TREE_NAMES := ["Pine", "Broadleaf", "Bush"]
 ## How many of TREE_IDS are trees, for a mixed planting.
 const TREE_KINDS := 2
+## Metres round a hole within which its objects are placed one by one.
+const HOLE_REACH := 60.0
 
 var course_name := "New course"
 var author := ""
@@ -217,17 +219,43 @@ func to_course_data() -> CourseData:
 	return data
 
 
+## True if `p` is within HOLE_REACH of the hole's line (back tee, aim
+## points, pin): the objects the round places one by one for that hole.
+## Trees further off are drawn batched by DesignedTerrain (impostors at a
+## distance), which is far cheaper than a node each.
+static func near_hole(dh: DesignedHole, p: Vector2) -> bool:
+	if dh.tees.is_empty():
+		return false
+	var prev := dh.tees[0]
+	var r2 := HOLE_REACH * HOLE_REACH
+	for t in dh.tees:
+		if p.distance_squared_to(t) <= r2:
+			return true
+	for q in dh.route:
+		if p.distance_squared_to(Geometry2D.get_closest_point_to_segment(p, prev, q)) <= r2:
+			return true
+		prev = q
+	return p.distance_squared_to(Geometry2D.get_closest_point_to_segment(p, prev, dh.pin)) <= r2
+
+
+## The hole played as number `number` (holes without a tee are skipped,
+## as in to_course_data()), or null.
+func played_hole(number: int) -> DesignedHole:
+	var n := 0
+	for dh in holes:
+		if dh.tees.is_empty():
+			continue
+		n += 1
+		if n == number:
+			return dh
+	return null
+
+
 ## The trees near a hole (the round draws each hole's own objects).
 func _objects_for(dh: DesignedHole, terrain: DesignedTerrain) -> Array[PlacedObject]:
-	var r := Rect2(dh.pin, Vector2.ZERO)
-	for t in dh.tees:
-		r = r.expand(t)
-	for p in dh.route:
-		r = r.expand(p)
-	r = r.grow(220.0)
 	var out: Array[PlacedObject] = []
 	for o in objects:
-		if r.has_point(Vector2(o.position.x, o.position.z)):
+		if near_hole(dh, Vector2(o.position.x, o.position.z)):
 			var shown := DesignerObjects.stand_in(o, object_info)
 			if shown != null:
 				shown.position.y = terrain.height_at(o.position.x, o.position.z)

@@ -66,6 +66,10 @@ uniform vec3 surface_colors[10]; // sRGB
 uniform vec2 surface_weights[10]; // rough and sand weight
 uniform float surface_mown[10]; // 1 where the surface gets mowing stripes
 uniform float splat_stripe_metres = 6.0;
+// Stripe width per surface (the mower's cut), where set: wide fairway
+// units, narrower tee mowers, walk-behind greens mowers. 0 keeps
+// splat_stripe_metres.
+uniform float surface_stripe_metres[10];
 
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
@@ -109,17 +113,18 @@ void vertex() {
 
 // The raster's colour and weights at ground point p, blended over a
 // fraction of a texel with a ragged, natural line.
-void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown) {
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m) {
 	vec2 size = vec2(textureSize(splat_tex, 0));
 	// Two independent wobbles, so the edge wanders rather than steps.
 	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5
-		+ 0.5 * (vec2(value_noise(p * 4.1), value_noise(p * 4.1 + vec2(9.0, 23.0))) - 0.5);
+		+ 0.25 * (vec2(value_noise(p * 4.1), value_noise(p * 4.1 + vec2(9.0, 23.0))) - 0.5);
 	vec2 q = (p - splat_origin) / splat_size * size - 0.5 + wobble * 1.2;
 	vec2 i = floor(q);
 	vec2 f = q - i;
 	col = vec3(0.0);
 	w = vec2(0.0);
 	mown = 0.0;
+	stripe_m = 0.0;
 	for (int k = 0; k < 4; k++) {
 		ivec2 o = ivec2(k & 1, k >> 1);
 		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
@@ -128,6 +133,7 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown) {
 		col += surface_colors[s] * a;
 		w += surface_weights[s] * a;
 		mown += surface_mown[s] * a;
+		stripe_m += (surface_stripe_metres[s] > 0.0 ? surface_stripe_metres[s] : splat_stripe_metres) * a;
 	}
 
 }
@@ -156,19 +162,25 @@ void fragment() {
 	vec3 c = COLOR.rgb;
 	float w_rough_in = weights.x;
 	vec2 sq = (p - splat_origin) / splat_size;
-	if (has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)))) {
+	bool on_splat = has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)));
+	if (on_splat) {
 		vec3 crisp;
 		vec2 w;
 		float mown;
-		splat_at(p, crisp, w, mown);
+		float stripe_m;
+		splat_at(p, crisp, w, mown, stripe_m);
 		c = max(c + crisp - vertex_palette, vec3(0.0));
-		sand = w.y;
+		// A bunker's edge is a trimmed line, not a blur or a torn one.
+		sand = smoothstep(0.3, 0.7, w.y);
 		w_rough_in = w.x;
-		// Mowing stripes cut with the surface, alternately lighter and darker.
-		float u = (p.x + p.y * 0.15) / splat_stripe_metres;
+		// Mowing stripes cut with the surface, alternately lighter and
+		// darker: along each hole where the mesh says which way it runs
+		// (UV.x metres across it), else one way over the whole course.
+		bool along_hole = stripes.y > 0.0;
+		float u = (along_hole ? stripes.x : p.x + p.y * 0.15) / stripe_m;
 		float aa = max(fwidth(u), 0.001);
 		float band = smoothstep(-aa, aa, sin(u * 3.14159));
-		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(vec2(-0.15, 1.0), from_eye);
+		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(along_hole ? hole_mow_line : vec2(-0.15, 1.0), from_eye);
 	} else if (wy > 0.0 && wy < 0.97) {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
 		c = mix(turf, sand_vertex, sand);
@@ -229,7 +241,7 @@ void fragment() {
 	// darker, as the mower lays the grass one way and then the other; which
 	// is the light one, and how strongly, depends on where you look from.
 	float stripe_aa = max(fwidth(stripes.x / stripe_metres), 0.001);
-	if (stripes.y > 0.0) {
+	if (stripes.y > 0.0 && !on_splat) {
 		float u = stripes.x / stripe_metres;
 		float band = smoothstep(-stripe_aa, stripe_aa, sin(u * 3.14159) * 0.35);
 		col *= 1.0 + (band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);

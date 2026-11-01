@@ -46,6 +46,11 @@ const COLORS := [
 ## colours and stripes, more on the rough and beyond, so worn patches,
 ## fields, tracks and dry grass look as they really do. Same order as COLORS.
 const PHOTO_TINT := [0.15, 0.2, 0.2, 0.1, 0.55, 0.65, 0.5, 0.0, 0.75]
+## Mowing stripes: how strong per surface, and how wide (the cut of the
+## mower that mows it: fairway units about 3 m, triplex tee mowers 1.5 m,
+## walk-behind greens mowers 0.55 m).
+const MOWN := {Surface.Type.FAIRWAY: 1.0, Surface.Type.TEE: 0.6, Surface.Type.GREEN: 0.4}
+const STRIPE_METRES := {Surface.Type.FAIRWAY: 3.0, Surface.Type.TEE: 1.5, Surface.Type.GREEN: 0.55}
 const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
 ## Largest splat map side in texels (older phones and browsers top out at
 ## 4096); a bigger course gets a coarser one.
@@ -75,6 +80,11 @@ var _splat: ImageTexture
 var _water_levels := {}  ## CourseShape -> water line
 var _meshes := {}  ## Vector2i chunk -> ArrayMesh
 var _tint := PackedByteArray()  ## softened photo colour per grid vertex (RGB8); empty without a photo
+## Mowing stripes run along each hole: per hole, the unit vector across it
+## (tee to pin), and on a coarse grid which hole each spot belongs to.
+var _across: Array[Vector2] = []
+var _owner := PackedByteArray()
+var _owner_cols := 0
 
 
 func _init(p_course: DesignedCourse) -> void:
@@ -96,6 +106,7 @@ func rebuild() -> void:
 	_vp.resize(course.cols * course.rows * 3)
 	_meshes.clear()
 	_make_tint()
+	_make_owners()
 	var all := Rect2i(0, 0, course.cols, course.rows)
 	_raster(Rect2i(0, 0, _sw, _sh))
 	_derive(all)
@@ -216,7 +227,44 @@ func build_visual() -> Node3D:
 	root.add_child(build_apron())
 	root.add_child(build_paths())
 	root.add_child(build_water())
+	if TreeFactory.enabled() and hole_number > 0:
+		_add_distant_trees(root)
 	return root
+
+
+## The course's trees beyond the ones the round places for this hole
+## (DesignedCourse.near_hole), as batched trees that are impostors far off,
+## so the woods across the course are seen rather than bare ground. Visual
+## only: every tree's obstacles are in `obstacles` already.
+func _add_distant_trees(root: Node3D) -> void:
+	var dh := course.played_hole(hole_number)
+	if dh == null:
+		return
+	var trees := PackedFloat32Array()
+	for o in course.objects:
+		var p := Vector2(o.position.x, o.position.z)
+		if DesignedCourse.near_hole(dh, p):
+			continue
+		var species := -1
+		match o.id:
+			"tree_pine":
+				species = TreeFactory.Species.PINE
+			"tree_broadleaf":
+				species = TreeFactory.Species.BROADLEAF
+		if species < 0:
+			continue
+		var h := TreeFactory.natural_height(species, p.x, p.y) * o.scale
+		trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y), p.y, h, species]))
+	for batch: Dictionary in TreeFactory.batches(trees, 160.0):
+		var node := MultiMeshInstance3D.new()
+		node.name = "DistantTrees"
+		node.multimesh = batch.multimesh
+		node.position = batch.position
+		if batch.full:
+			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
+		else:
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(node)
 
 
 ## The ground's material: the shared terrain shader with this course's
@@ -228,17 +276,21 @@ func material() -> ShaderMaterial:
 		var cols := PackedVector3Array()
 		var wts := PackedVector2Array()
 		var mown := PackedFloat32Array()
+		var widths := PackedFloat32Array()
 		for i in COLORS.size():
 			# Under the water line, the bank: darker rough rather than the
 			# map's blue, which would ring each pond.
 			var c: Color = COLORS[Surface.Type.ROUGH].darkened(0.35) if i == Surface.Type.WATER else COLORS[i]
 			cols.append(Vector3(c.r, c.g, c.b))
 			wts.append(Materials.terrain_weights(i))
-			mown.append(1.0 if i in [Surface.Type.FAIRWAY, Surface.Type.GREEN, Surface.Type.TEE] else 0.0)
+			mown.append(float(MOWN.get(i, 0.0)))
+			widths.append(float(STRIPE_METRES.get(i, 0.0)))
 		# The splat's tenth entry (a first cut) isn't painted on designed courses.
 		cols.append(Vector3(COLORS[Surface.Type.ROUGH].r, COLORS[Surface.Type.ROUGH].g, COLORS[Surface.Type.ROUGH].b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
 		mown.append(0.0)
+		widths.append(0.0)
+		_material.set_shader_parameter("surface_stripe_metres", widths)
 		_material.set_shader_parameter("surface_colors", cols)
 		_material.set_shader_parameter("surface_weights", wts)
 		_material.set_shader_parameter("surface_mown", mown)
@@ -355,7 +407,9 @@ static func _path_material(bridge: bool) -> StandardMaterial3D:
 		return _bridge_mat
 	if _path_mat == null:
 		_path_mat = StandardMaterial3D.new()
-		_path_mat.albedo_color = Color(0.62, 0.60, 0.56)
+		# Weathered asphalt, as most cart paths are (pale concrete read
+		# as a bright line across the view from the tee).
+		_path_mat.albedo_color = Color(0.36, 0.35, 0.33)
 		_path_mat.roughness = 0.95
 	return _path_mat
 
@@ -861,8 +915,69 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_TEX_UV2] = weights
 	arrays[Mesh.ARRAY_CUSTOM0] = palette
+	if not _across.is_empty():
+		arrays[Mesh.ARRAY_TEX_UV] = _stripe_uvs(i0, j0, nx, nz)
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {},
 		Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 	return mesh
+
+
+## Which hole each OWNER_CELL square of the course is nearest (by its line
+## from the back tee through the aim points to the pin), and the direction
+## across each hole, for stripes mown along it. Hole boundaries fall in the
+## rough between holes, where nothing is striped.
+const OWNER_CELL := 8.0
+
+
+func _make_owners() -> void:
+	_across.clear()
+	_owner = PackedByteArray()
+	var lines: Array[PackedVector2Array] = []
+	for dh in course.holes:
+		if dh.tees.is_empty():
+			continue
+		var line := PackedVector2Array([dh.tees[0]])
+		line.append_array(dh.route)
+		line.append(dh.pin)
+		var dir := dh.pin - dh.tees[0]
+		if dir.length() < 1.0 or lines.size() >= 255:
+			continue
+		lines.append(line)
+		_across.append(dir.normalized().orthogonal())
+	if lines.is_empty():
+		return
+	var a := course.area
+	_owner_cols = ceili(a.size.x / OWNER_CELL) + 1
+	var rows := ceili(a.size.y / OWNER_CELL) + 1
+	_owner.resize(_owner_cols * rows)
+	for j in rows:
+		for i in _owner_cols:
+			var p := a.position + Vector2(i, j) * OWNER_CELL
+			var best := INF
+			var who := 0
+			for h in lines.size():
+				var line := lines[h]
+				for k in range(1, line.size()):
+					var d := p.distance_squared_to(Geometry2D.get_closest_point_to_segment(p, line[k - 1], line[k]))
+					if d < best:
+						best = d
+						who = h
+			_owner[j * _owner_cols + i] = who
+
+
+## Per vertex: metres across its hole (UV.x) and -1 (UV.y), which the
+## terrain shader reads as "stripe along the hole".
+func _stripe_uvs(i0: int, j0: int, nx: int, nz: int) -> PackedVector2Array:
+	var uvs := PackedVector2Array()
+	uvs.resize(nx * nz)
+	var a := course.area
+	var rows := _owner.size() / _owner_cols
+	for j in nz:
+		for i in nx:
+			var p := course.sample_pos(i0 + i, j0 + j)
+			var oi := clampi(roundi((p.x - a.position.x) / OWNER_CELL), 0, _owner_cols - 1)
+			var oj := clampi(roundi((p.y - a.position.y) / OWNER_CELL), 0, rows - 1)
+			uvs[j * nx + i] = Vector2(_across[_owner[oj * _owner_cols + oi]].dot(p), -1.0)
+	return uvs

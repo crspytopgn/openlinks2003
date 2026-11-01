@@ -182,7 +182,7 @@ func _fill() -> void:
 		_on_tour_selected()
 		var n := _course_keys.size()
 		_courses_help.text = ("Events are spread over your %d course%s." % [n, "" if n == 1 else "s"]) if n > 0 \
-			else "With no course files loaded, every event is on the Placeholder Nine."
+			else "With no course files loaded, every event is on %s, the built-in course." % PlaceholderCourseLoader.NAME
 		return
 	var c := _career
 	if c.season_over():
