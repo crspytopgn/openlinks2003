@@ -64,6 +64,7 @@ func _initialize() -> void:
 	_run("course_marks", _test_course_marks)
 	_run("sound_over_distance", _test_sound_over_distance)
 	_run("course_life", _test_course_life)
+	_run("gallery", _test_gallery)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1531,6 +1532,11 @@ func _test_hd_pack() -> void:
 func _test_graphics_settings() -> void:
 	_check(SettingsPanel.scroll_height(1100.0, 120.0, 720.0) == 584.0, "settings: the rows scroll in a 720p window")
 	_check(SettingsPanel.scroll_height(400.0, 120.0, 720.0) == 400.0, "settings: no scrolling when they fit")
+	# Heat shimmer: a level camera has the horizon mid-screen, one tipped
+	# down sees it higher up, and the top edge is half the lens away.
+	_check(is_equal_approx(PostProcess.horizon_screen_y(0.0, 0.7), 0.5), "shimmer: level camera, horizon mid-screen")
+	_check(PostProcess.horizon_screen_y(-0.1, 0.7) < 0.5, "shimmer: camera tipped down, horizon higher")
+	_check(is_equal_approx(PostProcess.horizon_screen_y(-0.35, 0.7), 0.0), "shimmer: horizon at the top edge")
 	var path := "user://test_settings.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "folder", "/somewhere")
@@ -1609,11 +1615,14 @@ func _test_graphics_settings() -> void:
 	cfg = ConfigFile.new()
 	cfg.set_value("graphics", "look", GraphicsSettings.Look.NATURAL)
 	cfg.set_value("graphics", "grass", 0)
+	cfg.set_value("graphics", "fov", 50.0)
 	cfg.save(path)
 	loaded = GraphicsSettings.load_saved(path)
 	var natural := GraphicsSettings.new()
 	natural.apply_look(GraphicsSettings.Look.NATURAL)
 	_check(loaded.look == GraphicsSettings.Look.NATURAL and loaded.grass == natural.grass, "presets saved by an older version are redone")
+	_check_near(loaded.fov, 40.0, 1e-6, "the old default lens moves to the long lens")
+	_check(RoundCamera.lens_factor(50.0) == 1.0 and RoundCamera.lens_factor(40.0) > 1.2, "a longer lens stands the aim view further back")
 	loaded.save(path)
 	cfg.load(path)
 	_check(int(cfg.get_value("graphics", "look_version", 0)) == GraphicsSettings.LOOK_VERSION, "look version saved")
@@ -1636,7 +1645,7 @@ func _test_graphics_settings() -> void:
 	_check(noon.elevation > dawn.elevation and dawn.elevation > dusk.elevation, "the sun is highest at midday, lowest at golden hour")
 	_check(half.elevation < noon.elevation and half.elevation > Scenery.TIMES["afternoon"].elevation, "through the round blends the light (%.1f)" % half.elevation)
 	_check((dusk.sun as Color).b < (noon.sun as Color).b, "golden hour sun is warm")
-	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == 38.0, "afternoon keeps the old sun")
+	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == Scenery.TIMES["afternoon"].elevation, "afternoon is the afternoon sun at any point of the round")
 
 
 func _test_trees() -> void:
@@ -1810,6 +1819,36 @@ func _test_course_marks() -> void:
 	var all_clubs := Club.standard_set()
 	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.93 m off the ball")
 	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.62 m")
+
+
+func _test_gallery() -> void:
+	_check_near(Gallery.rope_drop(0.0), 0.0, 1e-6, "the rope is at full height at a stake")
+	_check_near(Gallery.rope_drop(0.5), Gallery.ROPE_SAG, 1e-6, "the rope sags most mid-span")
+	var course := PlaceholderCourseLoader.new().load_course("")
+	var hole: HoleData = course.holes[0]
+	var t := hole.terrain
+	var lines := Gallery.tee_lines(t, hole.tee, hole.pin)
+	_check(lines.size() >= 2, "gallery ropes down both sides of the tee (%d)" % lines.size())
+	var ok := true
+	for line in lines:
+		for k in line.size() - 1:
+			ok = ok and absf(Vector2(line[k].x, line[k].z).distance_to(Vector2(line[k + 1].x, line[k + 1].z)) - Gallery.STAKE_GAP) < 0.01
+	_check(ok, "gallery stakes 4 m apart")
+	lines.append_array(Gallery.green_lines(t, hole.pin, hole.tee))
+	var spots := Gallery.crowd_spots(hole, lines, 20, 7)
+	_check(spots.size() > 0 and spots.size() <= 20, "a crowd behind the ropes (%d)" % spots.size())
+	var placed := true
+	for i in spots.size():
+		var p: Vector3 = spots[i][0]
+		var s := t.surface_at(p.x, p.z)
+		placed = placed and s != Surface.Type.GREEN and s != Surface.Type.SAND and s != Surface.Type.WATER
+		for j in i:
+			placed = placed and p.distance_to(spots[j][0]) >= Gallery.CROWD_SPACING - 1e-3
+	_check(placed, "spectators off the greens and bunkers, not on top of each other")
+	var g := Gallery.build(hole, hole.pin, 3, 7)
+	root.add_child(g)
+	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	g.free()
 
 
 func _test_course_life() -> void:
@@ -2985,6 +3024,27 @@ func _test_player_looks() -> void:
 	var back := PlayerLook.from_dict(look.to_dict())
 	_check(back.key() == look.key(), "a look reads back as saved")
 	_check(back.wears_cap(), "a cap goes with a ponytail")
+	_check(back.glove and not PlayerLook.from_dict({"glove": false}).glove, "the glove is on unless taken off")
+	var pack := GolferParts.shared()
+	if pack != null:
+		var names := pack.bone_names()
+		var left_hand := PackedInt32Array()
+		for i in names.size():
+			if names[i] == "hand_l" or (names[i].ends_with("_l") and names[i].split("_")[0] in FreeGolfer.GLOVE_FINGERS):
+				left_hand.append(i)
+		var gloved := 0
+		for part_name: String in pack.info.parts:
+			if not part_name.begins_with("Body"):
+				continue
+			var whole := pack.bake(part_name, {})
+			var split := pack.bake(part_name, {}, left_hand)
+			var tris := 0
+			for s in split.get_surface_count():
+				tris += split.surface_get_array_index_len(s)
+			_check(tris == whole.surface_get_array_index_len(0), "%s keeps every triangle when the glove is split off" % part_name)
+			if split.get_surface_count() > 1:
+				gloved += split.surface_get_array_index_len(1) / 3
+		_check(gloved > 200, "the glove covers the left hand (%d triangles)" % gloved)
 	var w := look.shape_weights()
 	_check(w.get("female") == 1.0 and w.get("thin") == 0.5 and w.get("old") == 0.25, "body shape weights: %s" % w)
 	_check(w.get("nose_width_plus") == 0.4 and w.get("jaw_minus") == 0.3 and not w.has("jaw_plus"), "face shape weights: %s" % w)
@@ -4077,6 +4137,19 @@ func _test_broadcast_round() -> void:
 		frames += 1
 	_check(not game._replaying, "replay ends")
 	_check(game.state == GolfRound.State.SHOT_RESULT, "replay leaves the result up")
+	game.hud.overlay._draw()
+	_check(game.hud.overlay.glass.panel_count() > 0, "broadcast panels are frosted glass")
+	_check(game.hud.hint.visible and not game.hud.hint_tab.visible, "key hints up on the first hole")
+	game.start_hole(1)
+	_check(not game.hud.hint.visible and game.hud.hint_tab.visible, "key hints folded from the second hole")
+	var f1 := InputEventKey.new()
+	f1.keycode = KEY_F1
+	f1.pressed = true
+	game._unhandled_input(f1)
+	_check(game.hud.hint.visible, "F1 brings the key hints back")
+	game._unhandled_input(f1)
+	_check(not game.hud.hint.visible, "and folds them again")
+	game.start_hole(0)
 	var steps := 0
 	while not (game.state == GolfRound.State.AIM and game.clubs[game.club_index].is_putter) and steps < 40 \
 			and game.state != GolfRound.State.ROUND_DONE:
@@ -4087,6 +4160,8 @@ func _test_broadcast_round() -> void:
 	game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
 	game._apply_graphics()
 	_check(not game.hud.overlay.visible and not game.green_grid.visible, "classic hides the broadcast pieces")
+	game.start_hole(1)
+	_check(game.hud.hint.visible, "classic keeps the key hints")
 	game.start_round()
 	_check(not game.camera.flying(), "classic has no flyover")
 	steps = 0

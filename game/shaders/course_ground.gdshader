@@ -14,6 +14,7 @@
 shader_type spatial;
 
 #include "res://shaders/ground_shade.gdshaderinc"
+#include "res://shaders/mow_sheen.gdshaderinc"
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
@@ -91,7 +92,7 @@ float fbm(vec2 p) {
 }
 
 // One photo layer's colour at ground point p, dist metres away.
-vec3 layer_color(vec3 raw, vec3 mean, vec3 far, float hue, float gain, float vary, float stripe, float width, vec2 p, float dist) {
+vec3 layer_color(vec3 raw, vec3 mean, vec3 far, float hue, float gain, float vary, float stripe, float width, vec2 p, float dist, vec3 from_eye) {
 	// The photo's detail (mostly its light and dark) on the ground's colour,
 	// so its own hue doesn't shift the course's.
 	const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -102,7 +103,8 @@ vec3 layer_color(vec3 raw, vec3 mean, vec3 far, float hue, float gain, float var
 	if (stripe > 0.0) {
 		vec2 dir = vec2(cos(stripe_angle), sin(stripe_angle));
 		float band = step(0.5, fract(dot(p, dir) / (width * 2.0)));
-		col *= 1.0 + (band - 0.5) * stripe;
+		// The bands run across dir, so the mower drove along (-dir.y, dir.x).
+		col *= 1.0 + (band - 0.5) * stripe * mow_sheen(vec2(-dir.y, dir.x), from_eye);
 	}
 	return col;
 }
@@ -145,7 +147,7 @@ void fragment() {
 		uv = parallax(height_tex, uv, view, parallax_depth / tile * near_relief);
 	}
 	vec3 raw = mix(texture(albedo_tex, uv).rgb, texture(albedo_tex, uv * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
-	vec3 col = layer_color(raw, photo_mean, far_color, photo_hue, detail_gain, variation, stripes, stripe_width, p, dist);
+	vec3 col = layer_color(raw, photo_mean, far_color, photo_hue, detail_gain, variation, stripes, stripe_width, p, dist, world_pos - CAMERA_POSITION_WORLD);
 	if (has_height && near_cavity > 0.0) {
 		col *= mix(1.0, cavity_shade(height_tex, uv, cavity, height_mean), near_cavity);
 	}
@@ -167,7 +169,7 @@ void fragment() {
 			uv_b = parallax(height_tex_b, uv_b, view, parallax_depth_b / tile_b * near_relief);
 		}
 		vec3 raw_b = mix(texture(albedo_tex_b, uv_b).rgb, texture(albedo_tex_b, uv_b * 0.137 + vec2(0.31, 0.71)).rgb, 0.35);
-		vec3 col_b = layer_color(raw_b, photo_mean_b, far_color_b, photo_hue_b, detail_gain_b, variation_b, stripes_b, stripe_width_b, p, dist);
+		vec3 col_b = layer_color(raw_b, photo_mean_b, far_color_b, photo_hue_b, detail_gain_b, variation_b, stripes_b, stripe_width_b, p, dist, world_pos - CAMERA_POSITION_WORLD);
 		if (has_height_b && near_cavity_b > 0.0) {
 			col_b *= mix(1.0, cavity_shade(height_tex_b, uv_b, cavity_b, height_mean_b), near_cavity_b);
 		}

@@ -15,6 +15,16 @@ uniform vec3 shadow_tint = vec3(1.0); // colour of the darks, for the film look
 uniform float vignette = 0.0;
 uniform float grain = 0.0;
 uniform float curve = 0.0; // filmic S-curve: deeper shadows, brighter highlights
+// Heat shimmer: on a warm day the air over the course boils, and a long
+// lens looking down the hole shows it as a rippling wobble on the far
+// fairway, the green and the tree line, never on the ground at your feet.
+// The 3D view's depth isn't readable here in Compatibility, so distance is
+// worked out from the row's angle below the level horizon and the
+// camera's height over the ground (flat ground assumed).
+uniform float shimmer = 0.0; // displacement in pixels at 1080p, 0 = off
+uniform float horizon_y = 0.5; // screen y (0 top, 1 bottom) of the level horizon
+uniform float fov_radians = 0.7; // the camera's vertical field of view
+uniform float eye_height = 2.0; // metres above the ground
 
 float hash(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -22,8 +32,30 @@ float hash(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
+float value_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
 void fragment() {
 	vec2 uv = SCREEN_UV;
+	if (shimmer > 0.0) {
+		float below = (uv.y - horizon_y) * fov_radians; // radians below level
+		float dist = below > 0.0 ? eye_height / tan(max(below, 1e-4)) : 1e4;
+		// From about 120 m out, and a few degrees up into the trees and
+		// hills; the sky above is smooth, so nothing shows there anyway.
+		float heat = smoothstep(120.0, 450.0, dist) * (1.0 - smoothstep(0.02, 0.07, -below));
+		if (heat > 0.0) {
+			// Cells of about 12 by 5 pixels at 1080p (the air lies in thin
+			// layers) rising slowly, as hot air does.
+			float scale = 1080.0 * SCREEN_PIXEL_SIZE.y;
+			vec2 q = FRAGCOORD.xy * scale / vec2(12.0, 5.0) + vec2(TIME * 0.7, TIME * 3.0);
+			vec2 wobble = vec2(value_noise(q), value_noise(q * 1.7 + vec2(41.0, 17.0))) - 0.5;
+			uv += wobble * vec2(1.0, 0.5) * shimmer * heat * SCREEN_PIXEL_SIZE / scale;
+		}
+	}
 	vec3 c = texture(screen_tex, uv).rgb;
 	if (sharpen > 0.0) {
 		vec2 px = SCREEN_PIXEL_SIZE;

@@ -39,6 +39,7 @@ var _frames := 0
 var _out := ""
 var _golfer_scene: Node3D
 var _golfer_player: AnimationPlayer
+var _tee_sky := Color.BLACK
 var _golfer_shots: Array[Image] = []
 
 
@@ -74,7 +75,11 @@ func _process(_delta: float) -> bool:
 			return true
 		_game.camera.end_flyover()
 	elif _frames == SHOT_FRAME:
-		_save_jpg(root.get_texture().get_image(), "-tee")
+		var tee := root.get_texture().get_image()
+		_save_jpg(tee, "-tee")
+		# The sky is checked from the tee view: once the ball is away the
+		# long lens can fill the top of the frame with trees.
+		_tee_sky = _mean(tee, Rect2i(tee.get_width() / 3, 0, tee.get_width() / 3, tee.get_height() / 8))
 		if not _check_budget("tee"):
 			return true
 		_game.auto_play_step()
@@ -162,7 +167,7 @@ func _capture() -> bool:
 	img.save_png(_out)
 	_save_jpg(img, "")
 	print("saved %s (%dx%d)" % [_out, img.get_width(), img.get_height()])
-	var top := _mean(img, Rect2i(img.get_width() / 3, 0, img.get_width() / 3, img.get_height() / 8))
+	var top := _tee_sky
 	var bottom := _mean(img, Rect2i(img.get_width() / 4, img.get_height() * 3 / 4, img.get_width() / 2, img.get_height() / 8))
 	print("sky %s  ground %s" % [top, bottom])
 	var ok := top.b > top.r and top.b > 0.3 and bottom.g > bottom.b and bottom.g > 0.08

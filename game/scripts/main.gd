@@ -164,6 +164,8 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## F1: keep the key hints up in the Broadcast and Tour presentations.
+var _show_controls := false
 ## What is driving the mouse swing: the mouse, a finger or a thumbstick.
 enum SwingInput { MOUSE, TOUCH, STICK }
 var _swing_input := SwingInput.MOUSE
@@ -541,6 +543,7 @@ func _round_name() -> String:
 
 func start_hole(index: int) -> void:
 	hole_index = index
+	_fold_hints()
 	shot_log.clear()
 	_undo = {}
 	_drop_pending = false
@@ -581,6 +584,10 @@ func start_hole(index: int) -> void:
 	else:
 		_add_flag()
 	_add_tee_markers()
+	if broadcast and practice == null:
+		# Tournament dressing: gallery ropes, and a crowd at the tee and green.
+		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
+		hole_root.add_child(Gallery.build(hole, _first_leg(), crowd, hole.number * 7919))
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
@@ -860,6 +867,7 @@ func auto_play_step() -> void:
 func _process(delta: float) -> void:
 	_drift_clouds(delta)
 	_update_wind_shaders()
+	_update_post_view()
 	# The pause menu and settings stop the round: the swing meter, the ball
 	# in the air and the countdowns all wait.
 	var paused := pause_menu.visible or settings_panel.visible
@@ -926,6 +934,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			match key.keycode:
 				KEY_ESCAPE:
 					_escape()
+					get_viewport().set_input_as_handled()
+					return
+				KEY_F1:
+					_show_controls = not _show_controls
+					_fold_hints()
 					get_viewport().set_input_as_handled()
 					return
 				KEY_F11:
@@ -1169,6 +1182,13 @@ func aim_at(spot: Vector3) -> void:
 	_aim_camera(false)
 	_update_green_grid()
 	_update_green_aids()
+
+
+## The Broadcast and Tour presentations fold the key hints away from the
+## second hole on, unless F1 brings them back.
+func _fold_hints() -> void:
+	if hud != null and hud.is_node_ready():
+		hud.fold_hints(graphics.broadcast() and hole_index > 0 and not _show_controls)
 
 
 ## Settings > Captions: the golfer's spoken line.
@@ -2777,6 +2797,7 @@ func _apply_graphics() -> void:
 	tour = broadcast and graphics.tour()
 	camera.broadcast = broadcast
 	hud.set_broadcast(broadcast, tour)
+	_fold_hints()
 	trail.visible = not broadcast
 	tracer.visible = broadcast
 	tracer.set_style(tour)
@@ -2838,6 +2859,19 @@ func _update_wind_shaders() -> void:
 	var t := Time.get_ticks_msec() * 0.001
 	var seen := WindGust.visual_wind(Vector2(v.x, v.z), t, float(hole_index) if hole != null else 0.0)
 	RenderingServer.global_shader_parameter_set("wind_vector", seen)
+
+
+## The heat shimmer needs the camera's horizon and height every frame.
+func _update_post_view() -> void:
+	if post == null or not post.visible:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var ground := cam.global_position.y - 2.0
+	if hole != null and hole.terrain != null:
+		ground = hole.terrain.height_at(cam.global_position.x, cam.global_position.z)
+	post.update_view(cam, ground, scenery.sun if scenery != null else null)
 
 
 ## Flagstick height: the Rules ask for at least 7 ft (2.13 m).
@@ -2905,19 +2939,22 @@ func _add_tee_markers() -> void:
 	s.radius = 0.075
 	s.height = 0.11
 	s.is_hemisphere = true
-	# Square to the first leg of the hole, so doglegs face down the fairway.
-	var toward := hole.pin
-	for r in hole.route:
-		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
-			toward = Vector3(r.x, hole.tee.y, r.y)
-			break
-	for p in tee_marker_spots(hole.tee, toward):
+	for p in tee_marker_spots(hole.tee, _first_leg()):
 		var m := MeshInstance3D.new()
 		m.mesh = s
 		m.material_override = mat
 		p.y = hole.terrain.height_at(p.x, p.z) - 0.005
 		m.position = p
 		hole_root.add_child(m)
+
+
+## A point down the first leg of the hole from the tee, so tee markers and
+## the gallery face down the fairway on a dogleg.
+func _first_leg() -> Vector3:
+	for r in hole.route:
+		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
+			return Vector3(r.x, hole.tee.y, r.y)
+	return hole.pin
 
 
 ## Where the two tee markers go: across the line from `tee` toward `toward`.
@@ -3217,9 +3254,9 @@ func _draw_trail(upto: int, head: Vector3) -> void:
 		# lands: the bounces and roll are never traced.
 		var land := tracer_end(shot)
 		if upto >= land:
-			tracer.draw(shot.points, land - 1, shot.first_landing, camera.global_position)
+			tracer.draw(shot.points, land - 1, shot.first_landing, camera.global_position, -camera.global_transform.basis.z)
 		else:
-			tracer.draw(shot.points, upto, head, camera.global_position)
+			tracer.draw(shot.points, upto, head, camera.global_position, -camera.global_transform.basis.z)
 
 
 ## The index of the shot's first landing among its points (the last point

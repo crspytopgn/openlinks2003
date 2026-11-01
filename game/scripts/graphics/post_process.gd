@@ -22,11 +22,16 @@ const GRADES := [
 ## brighter highlights), colour put back, a touch of sun warmth in the
 ## highlights and sky blue in the shadows, as in camera footage of a sunny
 ## course.
-const PHOTO_NEUTRAL := [1.0, 1.04, 1.2, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
+const PHOTO_NEUTRAL := [1.0, 1.08, 1.12, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
 const PHOTO_CURVE := 0.6
+
+## Heat shimmer at 1080p, in pixels, for a 50 degree lens and a high sun
+## (Photoreal only). A long lens magnifies it (RoundCamera.lens_factor).
+const SHIMMER_PIXELS := 2.2
 
 var _rect: ColorRect
 var _mat: ShaderMaterial
+var _shimmer := 0.0
 
 
 func _init() -> void:
@@ -67,8 +72,37 @@ func apply(s: GraphicsSettings) -> void:
 	_mat.set_shader_parameter("shadow_tint", _vec(g[4]))
 	_mat.set_shader_parameter("vignette", GraphicsSettings.VIGNETTE_LEVELS[s.vignette])
 	_mat.set_shader_parameter("grain", GraphicsSettings.GRAIN_LEVELS[s.grain])
+	_shimmer = SHIMMER_PIXELS if photo else 0.0
+	if _shimmer == 0.0:
+		_mat.set_shader_parameter("shimmer", 0.0)
 	visible = photo or s.sharpen > 0 or s.vignette > 0 or s.grain > 0 or s.grade != GraphicsSettings.Grade.NEUTRAL
 
 
 static func _vec(c: Color) -> Vector3:
 	return Vector3(c.r, c.g, c.b)
+
+
+## Each frame: where the level horizon sits on screen and how high the
+## camera is, for the heat shimmer, which only shows far out; and how hot
+## the day looks from the sun's height (none at dawn, full from about 45
+## degrees up).
+func update_view(camera: Camera3D, ground_y: float, sun: DirectionalLight3D) -> void:
+	if _shimmer == 0.0 or camera == null or not visible:
+		return
+	var heat := 1.0
+	if sun != null:
+		var elevation := rad_to_deg(asin(clampf(sun.global_transform.basis.z.y, -1.0, 1.0)))
+		heat = smoothstep(8.0, 45.0, elevation)
+	var fov := deg_to_rad(camera.fov)
+	var fwd := -camera.global_transform.basis.z
+	var pitch := asin(clampf(fwd.y, -1.0, 1.0))  # up is positive
+	_mat.set_shader_parameter("shimmer", _shimmer * heat * RoundCamera.lens_factor(camera.fov))
+	_mat.set_shader_parameter("horizon_y", horizon_screen_y(pitch, fov))
+	_mat.set_shader_parameter("fov_radians", fov)
+	_mat.set_shader_parameter("eye_height", maxf(camera.global_position.y - ground_y, 0.5))
+
+
+## Screen y (0 top, 1 bottom) of the level horizon for a camera pitched
+## `pitch` radians up, with vertical field of view `fov` radians.
+static func horizon_screen_y(pitch: float, fov: float) -> float:
+	return 0.5 + 0.5 * tan(pitch) / tan(fov * 0.5)

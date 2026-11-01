@@ -105,8 +105,10 @@ var outfit := "polo"
 var top := Color(0.13, 0.24, 0.45)
 var bottom := Color(0.85, 0.75, 0.59)
 var shoes := Color(1, 1, 1)
-var cap := false
+var cap := true  ## a golf cap (most tour players wear one)
 var cap_colour := Color(1, 1, 1)
+## A white glove on the left hand.
+var glove := true
 ## Equipment: driver head colour, shaft finish, grip colour, ball colour.
 var club_head := Color(0.06, 0.06, 0.07)
 var shaft := "steel"
@@ -154,7 +156,7 @@ func to_dict() -> Dictionary:
 		"muscle": snappedf(muscle, 0.001), "age": snappedf(age, 0.001), "face": f,
 		"skin": skin.to_html(false), "hair": hair, "hair_colour": hair_colour.to_html(false), "eyes": eyes,
 		"outfit": outfit, "top": top.to_html(false), "bottom": bottom.to_html(false), "shoes": shoes.to_html(false),
-		"cap": cap, "cap_colour": cap_colour.to_html(false),
+		"cap": cap, "cap_colour": cap_colour.to_html(false), "glove": glove,
 		"club_head": club_head.to_html(false), "shaft": shaft, "grip": grip.to_html(false), "ball": ball.to_html(false),
 	}
 
@@ -180,8 +182,9 @@ static func from_dict(d: Dictionary) -> PlayerLook:
 	l.top = _colour(d, "top", l.top)
 	l.bottom = _colour(d, "bottom", l.bottom)
 	l.shoes = _colour(d, "shoes", l.shoes)
-	l.cap = d.get("cap", false) == true
+	l.cap = d.get("cap", true) == true
 	l.cap_colour = _colour(d, "cap_colour", l.cap_colour)
+	l.glove = d.get("glove", true) != false
 	l.club_head = _colour(d, "club_head", l.club_head)
 	l.shaft = _choice(d, "shaft", SHAFTS, l.shaft)
 	l.grip = _colour(d, "grip", l.grip)

@@ -29,7 +29,9 @@ at Medium and grass at Low.
 - The browser build picks Natural on capable devices
   (`GraphicsSettings.web_capable()`): every iPad and iPhone, recent Adreno,
   Mali, Immortalis and Xclipse phone GPUs, and desktop browsers on a real
-  GPU. There it runs at High quality, with grass level 2 and 3D trees.
+  GPU. There it runs at High quality, with grass level 2 (3 on iPads and
+  other large-screen iOS devices) and 3D trees. Shadows reach at most
+  200 m in the browser, so the shadow map stays sharp near the golfer.
   Other phones get Performance, and software renderers never get the higher tier.
 - The terrain shader used by the default and designed courses reads the
   grass and rough scans' height maps. Within about 35 m the texture shifts
@@ -41,6 +43,12 @@ at Medium and grass at Low.
   they are redone once, and a capable device that an older version put on
   Performance moves up.
 
+- The default lens is 40 degrees (vertical), as on TV golf. The aim view
+  stands further back to match (`RoundCamera.lens_factor`), so the golfer
+  keeps his size and the hole behind him is compressed. It also pitches
+  down to keep the ball off the bottom edge. Settings offers 35 to 80
+  degrees, and the old default of 50 moves to 40 once.
+
 ## Effects
 
 - **Lighting** (`Scenery.apply`): Classic is the linear tone map with flat
@@ -48,7 +56,10 @@ at Medium and grass at Low.
   uses the AgX tone map (natural highlights, no lime greens), a strong,
   warm sun against fill about a fifth as bright (from the sky on Forward+,
   a quarter stronger flat fill on Compatibility so shade isn't black),
-  stronger aerial perspective, volumetric haze with light shafts (Forward+,
+  stronger aerial perspective, a lower 30 degree afternoon sun for long
+  shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
+  1.12, a slight warm balance; 2K25's greens are olive, not lime), glow only
+  off real highlights (no whole-image bloom veil), volumetric haze with light shafts (Forward+,
   Ultra) and screen-space reflections on water (Forward+, High and up).
 - **Global illumination** (`Scenery.gi_available`): at Ultra with Photoreal
   lighting on Forward+ and a real graphics card, SDFGI bounces sunlight off
@@ -303,6 +314,17 @@ at Medium and grass at Low.
 - **Birds** (`CourseLife`, `shaders/bird.gdshader`): every 25 to 70
   seconds a small flock (3 to 9 birds in a loose V) crosses the sky 30 to
   70 m up, flapping and gliding. Each flock is one MultiMesh draw call.
+- **Tournament gallery** (`Gallery`, Broadcast and Tour only): gallery
+  ropes on 1.1 m stakes 4 m apart, the rope hung at 0.85 m with a 6 cm sag.
+  They run 7 m either side of the tee from just behind the markers to 30 m
+  down the hole, and round the back of the green 5 m off the putting
+  surface. Behind them stands a crowd of the player creator's people (random
+  `PlayerLook`, no clubs, the idle clip), facing the play. The crowd is 0, 10, 18
+  or 28 people from Low to Ultra, nearest the tee and green first. Spectators
+  cast no sun shadows: a dozen meshes each, redrawn into every shadow
+  split, would cost more than the rest of the hole. Each gets a soft contact
+  shadow instead, all in one MultiMesh. The 28 people add about 260 draw
+  calls from the tee.
 
 ## Performance budget
 
