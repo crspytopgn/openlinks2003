@@ -10,11 +10,7 @@ var _summary: Label
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.08, 0.07, 0.82)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(12)
-	add_theme_stylebox_override("panel", style)
+	Glass.apply(self, 18, 14.0)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	add_child(box)

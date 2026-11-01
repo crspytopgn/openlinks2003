@@ -38,6 +38,8 @@ var _busy := false
 func _ready() -> void:
 	_graphics = GraphicsSettings.load_saved()
 	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
+	Glass.allow_blur = _graphics.quality != GraphicsSettings.Quality.LOW
+	GlassTheme.install()
 	_build_ui()
 	var menu_sounds := MenuSounds.from_game_folder(true)
 	if menu_sounds != null:
@@ -54,10 +56,7 @@ func _ready() -> void:
 
 func _build_ui() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new()
-	bg.color = Color(0.07, 0.16, 0.10)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	add_child(_backdrop())
 	# The menus scroll when they are taller than the window: a 720p screen
 	# at a bigger Settings > Interface size, or a phone held sideways.
 	var scroll := ScrollContainer.new()
@@ -100,7 +99,8 @@ func _build_ui() -> void:
 
 	_title = Label.new()
 	_title.text = "OpenLinks2003"
-	_title.add_theme_font_size_override("font_size", 44)
+	_title.add_theme_font_size_override("font_size", 48)
+	_title.add_theme_font_override("font", GlassTheme.font(700))
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_title)
 	_status = Label.new()
@@ -128,6 +128,43 @@ func _build_ui() -> void:
 
 ## Links to free fan-made courses on Links Corner (CommunityCourses), shown
 ## with the course picker.
+## The menus' backdrop: evening sky into deep fairway green, with a soft
+## glow up to the left, for the glass panels to show.
+static func _backdrop() -> Control:
+	var bg := TextureRect.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sky := Gradient.new()
+	sky.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	sky.colors = PackedColorArray([Color(0.17, 0.32, 0.45), Color(0.08, 0.22, 0.17), Color(0.03, 0.09, 0.06)])
+	var tex := GradientTexture2D.new()
+	tex.gradient = sky
+	tex.fill_from = Vector2(0.5, 0.0)
+	tex.fill_to = Vector2(0.5, 1.0)
+	tex.width = 16
+	tex.height = 256
+	bg.texture = tex
+	var glow := TextureRect.new()
+	glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var g := Gradient.new()
+	g.colors = PackedColorArray([Color(0.95, 0.85, 0.6, 0.22), Color(0.95, 0.85, 0.6, 0.0)])
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.22, 0.12)
+	gt.fill_to = Vector2(0.75, 0.6)
+	gt.width = 256
+	gt.height = 256
+	glow.texture = gt
+	bg.add_child(glow)
+	return bg
+
+
 func _build_community(box: VBoxContainer) -> void:
 	_community = VBoxContainer.new()
 	_community.visible = false

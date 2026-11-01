@@ -643,8 +643,13 @@ the physics, the swing and the scoring are the same in both.
   ribbon with a soft halo, a hot core and a flare at the ball, widened
   across the camera's view so it stays solid where the ball flies at the
   lens.
-- `scripts/ui/frosted_glass.gd`: the Broadcast and Tour panels are frosted
-  glass, the picture under them blurred, under a see-through tint.
+- `scripts/ui/glass.gd`, `glass_theme.gd`, `frosted_glass.gd`: the glass
+  look of the menus and HUD, our own take on the translucent "liquid glass"
+  of current phone and TV interfaces: rounded panels whose picture behind
+  is bent at the edges and blurred, with a lit rim; pill buttons; Inter type
+  (SIL Open Font License, `assets/fonts`); panels that spring open. The live
+  blur runs only on Forward+ at Medium quality and up; the web build and Low
+  quality draw the same shapes as plain tinted glass, with no extra pass.
 - From the second hole the key hints fold away to a small "F1: controls";
   F1 brings them back.
 - Replays: R between shots (and automatically after a holed approach, a

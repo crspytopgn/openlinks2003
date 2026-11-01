@@ -24,11 +24,7 @@ var _read: Button
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.05, 0.03, 0.62)
-	style.set_corner_radius_all(8)
-	style.set_content_margin_all(10)
-	add_theme_stylebox_override("panel", style)
+	Glass.apply(self, 16, 12.0)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	add_child(box)

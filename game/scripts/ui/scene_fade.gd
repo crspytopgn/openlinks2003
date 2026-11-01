@@ -7,6 +7,8 @@ extends CanvasLayer
 const OUT_S := 0.22
 const IN_S := 0.35
 const PANEL_S := 0.18
+const SPRING_S := 0.45
+const SPRING_FROM := 0.94
 
 var _cover: ColorRect
 
@@ -21,12 +23,19 @@ static func change_scene(tree: SceneTree, path: String) -> void:
 	fade._run(path)
 
 
-## Fades `c` in over a moment, for a panel that has just been shown.
+## Fades `c` in over a moment, for a panel that has just been shown, and
+## springs it up from a touch smaller, as phone interfaces open a sheet.
 static func pop_in(c: CanvasItem) -> void:
 	if c == null or not c.is_inside_tree():
 		return
 	c.modulate.a = 0.0
-	c.create_tween().tween_property(c, "modulate:a", 1.0, PANEL_S)
+	var t := c.create_tween()
+	t.tween_property(c, "modulate:a", 1.0, PANEL_S)
+	if c is Control:
+		var ctl := c as Control
+		ctl.pivot_offset = ctl.size * 0.5
+		ctl.scale = Vector2.ONE * SPRING_FROM
+		t.parallel().tween_property(ctl, "scale", Vector2.ONE, SPRING_S).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
 
 
 func _init() -> void:
