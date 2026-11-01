@@ -82,6 +82,12 @@ func to_px_2d(p: Vector2) -> Vector2:
 	return Vector2(WIDTH * 0.5 + q.x / _metres_per_px, HEIGHT * 0.5 - q.y / _metres_per_px)
 
 
+## The world point (x, z) under map pixel `px`: to_px_2d backwards.
+func from_px(px: Vector2) -> Vector2:
+	var q := _mid + Vector2(px.x - WIDTH * 0.5, HEIGHT * 0.5 - px.y) * _metres_per_px
+	return _tee + _side * q.x + _up * q.y
+
+
 static func _turn(v: Vector2, side: Vector2, up: Vector2) -> Vector2:
 	return Vector2(v.dot(side), v.dot(up))
 

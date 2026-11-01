@@ -3841,6 +3841,20 @@ func _test_click_aim() -> void:
 	if game.club_index + 1 < game.clubs.size() and not game.clubs[game.club_index + 1].is_putter:
 		game.club_index += 1
 		_check(game._club_reach() < 134.0, "and the shortest one")
+	# The Tour hole map: a click on it is a spot on the course.
+	var map := HoleMap.build(game.hole)
+	var pin := Vector2(game.hole.pin.x, game.hole.pin.z)
+	_check(map.from_px(map.to_px_2d(pin)).distance_to(pin) < 0.01, "map pixels turn back into the same course spot")
+	var tg := TourGraphics.new()
+	tg.size = Vector2(1280, 720)
+	tg.set_map(map, [], game.ball_at, true)
+	var r := tg.map_rect()
+	var at_pin: Variant = tg.map_spot(r.position + map.to_px_2d(pin) * TourGraphics.MAP_SCALE)
+	_check(at_pin is Vector2 and (at_pin as Vector2).distance_to(pin) < 0.5, "a click on the map's pin aims at the pin: %s" % [at_pin])
+	_check(tg.map_spot(r.position - Vector2(10, 10)) == null, "a click beside the map isn't on it")
+	tg.set_map(map, [], game.ball_at, false)
+	_check(tg.map_spot(r.get_center()) == null, "nor is one while the map is hidden")
+	tg.free()
 	GolfRound.setup = null
 
 

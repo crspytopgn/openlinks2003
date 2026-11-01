@@ -341,9 +341,28 @@ func _draw_putt_panel() -> void:
 			draw_circle(top, 4.0, ACCENT)
 
 
-func _draw_map() -> void:
+## Where the hole map is drawn, in this control's coordinates; empty when
+## it isn't showing.
+func map_rect() -> Rect2:
+	if _map == null or not _show_map or not visible:
+		return Rect2()
 	var ms := Vector2(HoleMap.WIDTH, HoleMap.HEIGHT) * MAP_SCALE
-	var pos := Vector2(size.x - ms.x - 24.0, 58.0)
+	return Rect2(Vector2(size.x - ms.x - 24.0, 58.0), ms)
+
+
+## The course spot (world x, z) under a click on the hole map, or null when
+## the click isn't on it. `local` is in this control's coordinates.
+func map_spot(local: Vector2) -> Variant:
+	var r := map_rect()
+	if not r.has_point(local):
+		return null
+	return _map.from_px((local - r.position) / MAP_SCALE)
+
+
+func _draw_map() -> void:
+	var r := map_rect()
+	var ms := r.size
+	var pos := r.position
 	var frame := Rect2(pos - Vector2(8, 8), ms + Vector2(16, 52))
 	_panel(frame, Color(BASE, 0.6))
 	draw_texture_rect(_map.texture, Rect2(pos, ms), false, Color(1, 1, 1, 0.92))
