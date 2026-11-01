@@ -141,9 +141,6 @@ points. Greenside bunkers curl a little round the green. The old 12-point
 blobs with large wobble made arrowheads and notches; the sharpest turn
 between outline segments is now 15 degrees (it was 61).
 
-In the terrain shader (all designer courses), the sand's edge and colour
-come from `sand_edge()`: the raster's sand weight blurred over about a
-texel and swung only every few metres. The turf colour beside it leaves
-the sand texels out. A bunker's bank in `DesignedTerrain` starts 1.5 m
+A bunker's bank in `DesignedTerrain` starts 1.5 m
 outside the outline (`BUNKER_LIP_OUT`) and reaches full depth 2.5 m inside,
 so the drop no longer follows whichever 2 m grid points fell inside.

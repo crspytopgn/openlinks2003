@@ -117,82 +117,48 @@ void vertex() {
 
 // The raster's colour and weights at ground point p, blended over a
 // fraction of a texel with a ragged, natural line.
-void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut, out vec3 turf_col, out float turf_rough, out vec3 sand_col) {
-	vec2 size = vec2(textureSize(splat_tex, 0));
-	// Two independent wobbles, so the edge wanders rather than steps.
-	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5
-		+ 0.25 * (vec2(value_noise(p * 4.1), value_noise(p * 4.1 + vec2(9.0, 23.0))) - 0.5);
-	vec2 q = (p - splat_origin) / splat_size * size - 0.5 + wobble * 1.2;
-	vec2 i = floor(q);
-	vec2 f = q - i;
+void splat_add(ivec2 t, ivec2 size, float a, inout vec3 col, inout vec2 w, inout float mown, inout float stripe_m, inout float cut) {
+	int s = clamp(int(texelFetch(splat_tex, clamp(t, ivec2(0), size - 1), 0).r * 255.0 + 0.5), 0, 9);
+	col += surface_colors[s] * a;
+	w += surface_weights[s] * a;
+	mown += surface_mown[s] * a;
+	stripe_m += (surface_stripe_metres[s] > 0.0 ? surface_stripe_metres[s] : splat_stripe_metres) * a;
+	cut += surface_cut[s] * a;
+}
+
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut) {
+	ivec2 size = textureSize(splat_tex, 0);
+	// A slow wobble, so an edge wanders a little like a mower's line
+	// rather than following the raster.
+	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5;
+	vec2 q = (p - splat_origin) / splat_size * vec2(size) - 0.5 + wobble * 1.2;
 	col = vec3(0.0);
 	w = vec2(0.0);
 	mown = 0.0;
 	stripe_m = 0.0;
 	cut = 0.0;
-	// The same blend without the sand texels (and the sand's own colour),
-	// so the bunker's edge can come from sand_edge() alone: blended here
-	// with the ragged wobble, sand colour and turf shade showed through as
-	// grey lumps along the lip.
-	turf_col = vec3(0.0);
-	turf_rough = 0.0;
-	sand_col = vec3(0.0);
-	float turf_a = 0.0;
-	float sand_a = 0.0;
-	for (int k = 0; k < 4; k++) {
-		ivec2 o = ivec2(k & 1, k >> 1);
-		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
-		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 9);
-		float a = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
-		col += surface_colors[s] * a;
-		w += surface_weights[s] * a;
-		mown += surface_mown[s] * a;
-		stripe_m += (surface_stripe_metres[s] > 0.0 ? surface_stripe_metres[s] : splat_stripe_metres) * a;
-		cut += surface_cut[s] * a;
-		if (surface_weights[s].y > 0.5) {
-			sand_col += surface_colors[s] * a;
-			sand_a += a;
-		} else {
-			turf_col += surface_colors[s] * a;
-			turf_rough += surface_weights[s].x * a;
-			turf_a += a;
+	// Away from edges the nearest texel is the answer. On an edge, a
+	// quadratic B-spline over the 3x3 texels round it: its contours are
+	// smooth curves, where a bilinear blend of a 0.5 m raster draws stair
+	// steps and the old fine wobble tore them into a ragged fringe.
+	ivec2 c = ivec2(floor(q + 0.5));
+	vec2 t = q - vec2(c);
+	int s0 = int(texelFetch(splat_tex, clamp(c, ivec2(0), size - 1), 0).r * 255.0 + 0.5);
+	ivec2 d = ivec2(t.x < 0.0 ? -1 : 1, t.y < 0.0 ? -1 : 1);
+	bool edge = int(texelFetch(splat_tex, clamp(c + ivec2(d.x, 0), ivec2(0), size - 1), 0).r * 255.0 + 0.5) != s0
+		|| int(texelFetch(splat_tex, clamp(c + ivec2(0, d.y), ivec2(0), size - 1), 0).r * 255.0 + 0.5) != s0
+		|| int(texelFetch(splat_tex, clamp(c + d, ivec2(0), size - 1), 0).r * 255.0 + 0.5) != s0;
+	if (!edge) {
+		splat_add(c, size, 1.0, col, w, mown, stripe_m, cut);
+		return;
+	}
+	vec3 bx = vec3(0.5 * (0.5 - t.x) * (0.5 - t.x), 0.75 - t.x * t.x, 0.5 * (0.5 + t.x) * (0.5 + t.x));
+	vec3 by = vec3(0.5 * (0.5 - t.y) * (0.5 - t.y), 0.75 - t.y * t.y, 0.5 * (0.5 + t.y) * (0.5 + t.y));
+	for (int j = 0; j < 3; j++) {
+		for (int i = 0; i < 3; i++) {
+			splat_add(c + ivec2(i - 1, j - 1), size, bx[i] * by[j], col, w, mown, stripe_m, cut);
 		}
 	}
-	if (turf_a > 1e-4) {
-		turf_col /= turf_a;
-		turf_rough /= turf_a;
-	} else {
-		turf_col = surface_colors[4]; // rough
-		turf_rough = surface_weights[4].x;
-	}
-	sand_col = sand_a > 1e-4 ? sand_col / sand_a : surface_colors[6];
-
-}
-
-// The raster's sand weight at raster position q (texels), bilinear.
-float sand_bilinear(vec2 q, vec2 size) {
-	vec2 i = floor(q);
-	vec2 f = q - i;
-	float w = 0.0;
-	for (int k = 0; k < 4; k++) {
-		ivec2 o = ivec2(k & 1, k >> 1);
-		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
-		int s = clamp(int(texelFetch(splat_tex, t, 0).r * 255.0 + 0.5), 0, 9);
-		w += surface_weights[s].y * (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
-	}
-	return w;
-}
-
-// How much of ground point p is bunker, for a trimmed edge: the raster's
-// sand blurred over about a texel each way (four bilinear taps, so its
-// 0.5 m steps melt into a smooth curve) and swung only slowly, every few
-// metres. The ragged wobble the other surfaces use gave sand a sawtooth.
-float sand_edge(vec2 p) {
-	vec2 size = vec2(textureSize(splat_tex, 0));
-	vec2 drift = vec2(value_noise(p * 0.35), value_noise(p * 0.35 + vec2(13.0, 7.0))) - 0.5;
-	vec2 q = (p - splat_origin) / splat_size * size - 0.5 + drift * 0.8;
-	return 0.25 * (sand_bilinear(q + vec2(-0.5, -0.5), size) + sand_bilinear(q + vec2(0.5, -0.5), size)
-		+ sand_bilinear(q + vec2(-0.5, 0.5), size) + sand_bilinear(q + vec2(0.5, 0.5), size));
 }
 
 // A texture sampled at two scales, so its repeat is hard to see.
@@ -223,9 +189,6 @@ void fragment() {
 	vec3 c = COLOR.rgb;
 	float w_rough_in = weights.x;
 	float cut = 0.0;
-	// Where the turf lip shading falls: the vertex weight, or on a splat
-	// the smooth sand field (the vertex weight follows the 2 m mesh's
-	// triangles, which drew the lip as a sawtooth along every bunker).
 	float lip_w = wy;
 	vec2 sq = (p - splat_origin) / splat_size;
 	bool on_splat = has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)));
@@ -234,17 +197,21 @@ void fragment() {
 		vec2 w;
 		float mown;
 		float stripe_m;
-		vec3 turf_col;
-		float turf_rough;
-		vec3 sand_col;
-		splat_at(p, crisp, w, mown, stripe_m, cut, turf_col, turf_rough, sand_col);
-		// A bunker's edge is a trimmed line, not a blur or a torn one.
-		float se = sand_edge(p);
-		float aa = max(fwidth(se), 0.02);
-		sand = smoothstep(0.5 - aa, 0.5 + aa, se);
-		lip_w = smoothstep(0.1, 0.5, se);
-		c = max(c + mix(turf_col, sand_col, sand) - vertex_palette, vec3(0.0));
-		w_rough_in = turf_rough;
+		splat_at(p, crisp, w, mown, stripe_m, cut);
+		// A bunker's edge is a trimmed line, not a blur or a torn one:
+		// sharp up close, widening with distance so it doesn't shimmer.
+		float aa = 0.05 + 0.004 * length(VERTEX);
+		sand = smoothstep(0.5 - aa, 0.5 + aa, w.y);
+		// The turf lip from the same raster, not the 2 m mesh, whose
+		// triangles drew it as a row of dark teeth.
+		lip_w = w.y;
+		// The blended colour carries a share of sand wherever the raster
+		// has any nearby, which drew a pale, torn fringe out into the
+		// turf: take that share out and put the sand back by the line.
+		vec3 turf = max(crisp - sand_vertex * w.y, vec3(0.0)) / max(1.0 - w.y, 0.05);
+		crisp = mix(turf, sand_vertex, sand);
+		c = max(c + crisp - vertex_palette, vec3(0.0));
+		w_rough_in = w.x;
 		// Mowing stripes cut with the surface, alternately lighter and
 		// darker: along each hole where the mesh says which way it runs
 		// (UV.x metres across it), else one way over the whole course.
