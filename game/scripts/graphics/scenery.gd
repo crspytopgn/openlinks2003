@@ -115,8 +115,15 @@ func _init() -> void:
 	environment.glow_intensity = 0.25
 	environment.glow_bloom = 0.0
 	environment.glow_hdr_threshold = 1.2
-	environment.ssao_radius = 1.2
-	environment.ssao_intensity = 1.2
+	# Tuned for contact shade: a tighter radius with full fine detail, so
+	# grass darkens round the golfer's shoes, the ball, the flagstick and
+	# crowd feet, and a little of it reaches the sunlit side (light_affect),
+	# where real contact shadows show most.
+	environment.ssao_radius = 0.9
+	environment.ssao_intensity = 1.6
+	environment.ssao_detail = 1.0
+	environment.ssao_power = 1.6
+	environment.ssao_light_affect = 0.2
 	var world_env := WorldEnvironment.new()
 	world_env.environment = environment
 	add_child(world_env)
