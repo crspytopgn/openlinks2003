@@ -581,6 +581,10 @@ func start_hole(index: int) -> void:
 	else:
 		_add_flag()
 	_add_tee_markers()
+	if broadcast and practice == null:
+		# Tournament dressing: gallery ropes, and a crowd at the tee and green.
+		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
+		hole_root.add_child(Gallery.build(hole, _first_leg(), crowd, hole.number * 7919))
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if scenery.sun != null:
@@ -2905,19 +2909,22 @@ func _add_tee_markers() -> void:
 	s.radius = 0.075
 	s.height = 0.11
 	s.is_hemisphere = true
-	# Square to the first leg of the hole, so doglegs face down the fairway.
-	var toward := hole.pin
-	for r in hole.route:
-		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
-			toward = Vector3(r.x, hole.tee.y, r.y)
-			break
-	for p in tee_marker_spots(hole.tee, toward):
+	for p in tee_marker_spots(hole.tee, _first_leg()):
 		var m := MeshInstance3D.new()
 		m.mesh = s
 		m.material_override = mat
 		p.y = hole.terrain.height_at(p.x, p.z) - 0.005
 		m.position = p
 		hole_root.add_child(m)
+
+
+## A point down the first leg of the hole from the tee, so tee markers and
+## the gallery face down the fairway on a dogleg.
+func _first_leg() -> Vector3:
+	for r in hole.route:
+		if Vector2(hole.tee.x, hole.tee.z).distance_to(r) > 1.0:
+			return Vector3(r.x, hole.tee.y, r.y)
+	return hole.pin
 
 
 ## Where the two tee markers go: across the line from `tee` toward `toward`.

@@ -64,6 +64,7 @@ func _initialize() -> void:
 	_run("course_marks", _test_course_marks)
 	_run("sound_over_distance", _test_sound_over_distance)
 	_run("course_life", _test_course_life)
+	_run("gallery", _test_gallery)
 	_run("trees", _test_trees)
 	_run("ground shade", _test_ground_shade)
 	_run("broadcast_pieces", _test_broadcast_pieces)
@@ -1810,6 +1811,36 @@ func _test_course_marks() -> void:
 	var all_clubs := Club.standard_set()
 	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.93 m off the ball")
 	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.62 m")
+
+
+func _test_gallery() -> void:
+	_check_near(Gallery.rope_drop(0.0), 0.0, 1e-6, "the rope is at full height at a stake")
+	_check_near(Gallery.rope_drop(0.5), Gallery.ROPE_SAG, 1e-6, "the rope sags most mid-span")
+	var course := PlaceholderCourseLoader.new().load_course("")
+	var hole: HoleData = course.holes[0]
+	var t := hole.terrain
+	var lines := Gallery.tee_lines(t, hole.tee, hole.pin)
+	_check(lines.size() >= 2, "gallery ropes down both sides of the tee (%d)" % lines.size())
+	var ok := true
+	for line in lines:
+		for k in line.size() - 1:
+			ok = ok and absf(Vector2(line[k].x, line[k].z).distance_to(Vector2(line[k + 1].x, line[k + 1].z)) - Gallery.STAKE_GAP) < 0.01
+	_check(ok, "gallery stakes 4 m apart")
+	lines.append_array(Gallery.green_lines(t, hole.pin, hole.tee))
+	var spots := Gallery.crowd_spots(hole, lines, 20, 7)
+	_check(spots.size() > 0 and spots.size() <= 20, "a crowd behind the ropes (%d)" % spots.size())
+	var placed := true
+	for i in spots.size():
+		var p: Vector3 = spots[i][0]
+		var s := t.surface_at(p.x, p.z)
+		placed = placed and s != Surface.Type.GREEN and s != Surface.Type.SAND and s != Surface.Type.WATER
+		for j in i:
+			placed = placed and p.distance_to(spots[j][0]) >= Gallery.CROWD_SPACING - 1e-3
+	_check(placed, "spectators off the greens and bunkers, not on top of each other")
+	var g := Gallery.build(hole, hole.pin, 3, 7)
+	root.add_child(g)
+	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	g.free()
 
 
 func _test_course_life() -> void:
