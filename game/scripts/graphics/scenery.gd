@@ -378,7 +378,7 @@ func _apply_time() -> void:
 	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
 	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
-	RenderingServer.global_shader_parameter_set("turf_tone", (1.0 if GraphicsSettings.is_forward_plus() else 1.6) if _photo else 0.0)
+	RenderingServer.global_shader_parameter_set("turf_tone", (1.0 if GraphicsSettings.is_forward_plus() else 1.35) if _photo else 0.0)
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
 		return
