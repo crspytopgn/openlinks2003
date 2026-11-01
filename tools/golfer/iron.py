@@ -4,9 +4,10 @@ and the address pose it is measured from (ref_address_iron).
 The golfer's hand-keyed address poses come from pose.Poser, which
 build_free_golfer.py runs on the MakeHuman skeleton. The .glb holds that
 skeleton's rest pose, so the Poser is rebuilt from it here and posed for a
-shorter, more upright iron: the ball comes closer to the feet, the chest
-bends a little more and the knees flex, and the arms hang instead of
-reaching (they are straight at the driver's address).
+shorter, more upright iron: the ball comes closer to the feet and the
+knees flex a little. For both clubs the hands sit as far from the chest as
+leaves the lead arm nearly straight (LEAD_BEND); the original driver
+address had it bent 55 degrees, pulling the hands into the body.
 """
 
 import numpy as np
@@ -16,7 +17,12 @@ import pose
 
 # A mid iron: grip point (left palm) to hosel, lie, head toe offset.
 IRON = pose.Club("Iron", 0.84, 62.0, 0.04)
-IRON_KEY = pose.Key(tilt=40.0, sink=0.02)
+IRON_KEY = pose.Key(tilt=36.0, sink=0.01)
+LEAD_BEND = 12.0  # degrees at the lead elbow at address: nearly straight
+# The driver: more upright, the ball further away, the lead arm a little softer.
+DRIVER_KEY = pose.Key(tilt=28.0)
+DRIVER_LEAD_BEND = 30.0
+FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 
 class _Human:
@@ -44,9 +50,41 @@ def poser(rig):
     return pose.Poser(_Human(rig))
 
 
-def address_locals(rig, p, club, key):
-    """Joint-local rotation matrices and root translation of an address."""
-    p.stances[0] = p._stance(club, 0.0)
+def stance(p, club, forward):
+    """pose.Poser._stance with the hands `forward` metres further out from
+    the chest, the body moved back so the club still meets the ball."""
+    st = p._stance(club, 0.0)
+    st["grip"] = st["grip"] + np.array([0.0, 0.0, -forward])
+    hosel = st["grip"] + st["shaft"] * club.length
+    toe = pose.Poser._toe(st["shaft"], -pose.X, club)
+    ball_at = hosel + toe * club.head_toe * 0.8 - pose.X * 0.03
+    shift = np.array([pose.BALL[0] - ball_at[0], 0.0, pose.BALL[2] - ball_at[2]])
+    for k in ("grip", "offset", "centre"):
+        st[k] = st[k] + shift
+    return st
+
+
+def lead_reach(rig, local, root):
+    world, poss = rig.world(local, root)
+    return np.linalg.norm(poss[rig.index["hand_l"]] - poss[rig.index["upperarm_l"]])
+
+
+def address_locals(rig, p, club, key, forward=None, bend=None):
+    """Joint-local rotation matrices and root translation of an address.
+    Without `forward`, the hands go as far out as gives the lead arm
+    `bend` degrees (LEAD_BEND by default) at the elbow."""
+    if forward is None:
+        l1, l2 = p.upper["l"], p.fore["l"]
+        want = np.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * np.cos(np.radians(LEAD_BEND if bend is None else bend)))
+        lo, hi = -0.1, 0.3
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            if lead_reach(rig, *address_locals(rig, p, club, key, mid)) < want:
+                lo = mid
+            else:
+                hi = mid
+        forward = (lo + hi) / 2
+    p.stances[0] = stance(p, club, forward)
     world, root, _ = p.pose(key)
     quats, club_local, root = p.locals(world, root)
     by_name = dict(zip(p.names, quats))
@@ -72,12 +110,29 @@ def club_mesh(p):
 
 
 def ensure_iron(glb, rig):
-    """Adds the iron mesh and ref_address_iron if the .glb lacks them."""
+    """Adds the iron mesh and ref_address_iron if the .glb lacks them, and
+    the driver's address with the lead arm nearly straight
+    (ref_address, marked done by ref_address_v2)."""
     p = poser(rig)
+    if not glb.animation("ref_address_v2"):
+        from mocap_swing import write_clip
+        old, _ = rig.sample(glb, "ref_address")
+        local, root = address_locals(rig, p, pose.DRIVER, DRIVER_KEY, bend=DRIVER_LEAD_BEND)
+        for j, name in enumerate(rig.names):
+            if name.split("_")[0] in FINGERS:
+                local[j] = old[j]
+        for name in ("ref_address", "ref_address_v2"):
+            write_clip(glb, rig, name, np.zeros(1, np.float32), [local], np.array([root]), filtered=False)
     if not glb.animation("ref_address_iron"):
         # Imported here: mocap_swing imports this module.
         from mocap_swing import write_clip
         local, root = address_locals(rig, p, IRON, IRON_KEY)
+        # The fingers wrap the grip as they do on the driver: the rebuilt
+        # Poser's curl axes are only estimates (the .glb has no bone tails).
+        driver, _ = rig.sample(glb, "ref_address")
+        for j, name in enumerate(rig.names):
+            if name.split("_")[0] in FINGERS:
+                local[j] = driver[j]
         write_clip(glb, rig, "ref_address_iron", np.zeros(1, np.float32), [local], np.array([root]),
                    filtered=False)
     doc = glb.doc

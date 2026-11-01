@@ -1808,8 +1808,8 @@ func _test_course_marks() -> void:
 	_check_near(absf(tm[0].z - tm[1].z), GolfRound.TEE_MARKER_GAP, 1e-4, "tee markers square to an east-bound hole")
 	_check(tm[0].x > 0.0 and tm[1].x > 0.0, "tee markers just in front of the ball")
 	var all_clubs := Club.standard_set()
-	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.72 m off the ball")
-	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.57 m")
+	_check_near(CourseMarks.stance_for(all_clubs[0]), CourseMarks.STANCE_WOOD, 1e-6, "the driver stands 0.93 m off the ball")
+	_check_near(CourseMarks.stance_for(all_clubs[11]), CourseMarks.STANCE_IRON, 1e-6, "the sand wedge stands closer, 0.62 m")
 
 
 func _test_course_life() -> void:
