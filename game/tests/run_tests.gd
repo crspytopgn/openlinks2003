@@ -1845,10 +1845,18 @@ func _test_gallery() -> void:
 		for j in i:
 			placed = placed and p.distance_to(spots[j][0]) >= Gallery.CROWD_SPACING - 1e-3
 	_check(placed, "spectators off the greens and bunkers, not on top of each other")
-	var g := Gallery.build(hole, hole.pin, 3, 7)
+	var g := Gallery.build(hole, hole.pin, 3, 7, true)
 	root.add_child(g)
 	_check(g.crowd_count() <= 3, "the crowd keeps to its count")
+	var spot := Gallery.grandstand_spot(hole)
+	if not spot.is_empty():
+		var capacity := Gallery.STAND_ROWS * (int(Gallery.STAND_WIDTH / Gallery.STAND_SEAT) - 1)
+		_check(g.seated_count() > capacity / 2 and g.seated_count() <= capacity, "a grandstand full of people (%d)" % g.seated_count())
+		var front: Vector3 = spot[0]
+		_check(front.distance_to(hole.pin) > Gallery.GREEN_MARGIN + Gallery.STAND_BACK, "the grandstand stands back from the green")
+	g.react(Commentary.Crowd.ROAR)
 	g.free()
+	_check_near(Gallery.stand_depth(), 6.8, 1e-4, "eight bleacher rows of 0.85 m")
 
 
 func _test_course_life() -> void:
