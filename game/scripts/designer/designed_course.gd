@@ -424,8 +424,13 @@ static func _sidecar(file: String) -> Image:
 	return img if img != null and not img.is_empty() else null
 
 
+## Reads a course file, plain JSON or gzipped (the built-in course ships
+## gzipped to keep the download small).
 static func load_file(path: String) -> DesignedCourse:
-	var text := FileAccess.get_file_as_string(path)
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.size() > 2 and bytes[0] == 0x1f and bytes[1] == 0x8b:
+		bytes = bytes.decompress_dynamic(-1, FileAccess.COMPRESSION_GZIP)
+	var text := bytes.get_string_from_utf8()
 	if text.is_empty():
 		return null
 	return from_json(text)

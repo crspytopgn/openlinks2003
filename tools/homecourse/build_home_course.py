@@ -16,6 +16,7 @@ so it can also be opened and edited in the course designer.
 
 import argparse
 import base64
+import gzip
 import json
 import math
 import os
@@ -587,8 +588,11 @@ def write_course(path, holes, shapes, paths, objects, area, cols, rows, height):
         "credits": "Ground: Terrarium elevation tiles (Mapzen / AWS Open Data), from USGS 3DEP lidar (public domain).",
         "source": {"kind": "built-in", "lat": LAT, "lon": LON},
     }
-    with open(path, "w") as f:
-        json.dump(course, f, separators=(",", ":"))
+    # Gzipped (DesignedCourse.load_file reads either): the export packs
+    # files as they are, and the JSON is mostly tree positions that shrink
+    # to a third. mtime 0 keeps rebuilds byte-identical.
+    with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=9, mtime=0) as f:
+        f.write(json.dumps(course, separators=(",", ":")).encode("utf-8"))
 
 
 def preview(path, holes, shapes, paths, objects, area, height):

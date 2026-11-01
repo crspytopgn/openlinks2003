@@ -8,7 +8,8 @@ routed parkland nine on real ground, drawn the way courses are really
 built.
 
 - Built by `tools/homecourse/build_home_course.py` into
-  `game/assets/courses/home.olc`, a course designer file
+  `game/assets/courses/home.olc`, a course designer file (gzipped, about
+  300 KB; `DesignedCourse.load_file` reads gzipped or plain JSON)
   ([course-designer.md](course-designer.md)). `PlaceholderCourseLoader`
   loads it, so it plays through `DesignedTerrain` like any designer or
   real-world course, and it can be opened and edited in the designer.
