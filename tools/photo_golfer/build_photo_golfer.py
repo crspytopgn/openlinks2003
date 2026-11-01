@@ -14,16 +14,19 @@ clip and where the ball is in the picture. The script
 3. cuts the golfer out with BiRefNet through rembg (pip install rembg
    onnxruntime pillow numpy) and keeps only the golfer, the club and the
    club head (stray range balls and specks are dropped),
-4. crops each frame to its cut-out, scales it and packs the frames into
-   sheets, and
-5. writes game/assets/photo_golfer/<take>/take.json: per frame its sheet,
-   rectangle and where the ball is, and per clip the time of each frame.
+4. crops each frame to its cut-out, scales it and stores it as a WebP in
+   game/assets/photo_golfer/<take>/frames.olp (the four bytes OLPG, then
+   the frames back to back), and
+5. writes take.json beside it: per frame its offset and length in the
+   pack, its size and where the ball is, and per clip the time of each
+   frame and of impact.
 
 The matting is slow on a CPU (about 10 to 30 s a frame), so cut-outs are
 cached in --cache and only new frames are matted on a rerun.
 """
 
 import argparse
+import io
 import json
 import os
 import subprocess
@@ -37,11 +40,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(ROOT, "game", "assets", "photo_golfer")
 MODEL = "birefnet-general-lite"
-# Output pixels per metre: 1.65 m is about 330 px, sharp at the tee camera's
-# usual size on a 1080p screen without making the sheets huge.
-OUT_PX_PER_M = 200.0
-SHEET = 2048
-PAD = 2
+# Output pixels per metre: close to the source's own (470 at the ball), so a
+# 1.6 m golfer is about 640 px tall, sharp in close-ups and replays.
+OUT_PX_PER_M = 400.0
+PACK = "frames.olp"
+MAGIC = b"OLPG"
+QUALITY = 92
 # Cut-out pieces smaller than this (in source pixels) are dropped unless they
 # touch the golfer: range balls, divots, specks of sky.
 MIN_PIECE = 400
@@ -164,45 +168,27 @@ def build(name, take, cache, limit=0):
         bb = im.getbbox()
         cutouts[n] = (im.crop(bb), bb)
 
-    # Shelf packing, tallest first.
-    order = sorted(numbers, key=lambda n: -cutouts[n][0].height)
-    sheets, placed = [], {}
-    x = y = shelf = 0
-    sheet = None
-    for n in order:
-        im = cutouts[n][0]
-        w, h = im.width + PAD * 2, im.height + PAD * 2
-        if sheet is None or x + w > SHEET:
-            x, y, shelf = 0, y + shelf, 0
-        if sheet is None or y + h > SHEET:
-            sheet = Image.new("RGBA", (SHEET, SHEET), (0, 0, 0, 0))
-            sheets.append(sheet)
-            x = y = shelf = 0
-        sheet.paste(im, (x + PAD, y + PAD))
-        placed[n] = (len(sheets) - 1, x + PAD, y + PAD)
-        x += w
-        shelf = max(shelf, h)
-
+    # Each frame is its own WebP in one pack file (frames.olp): the game
+    # decodes only the frame on screen into one small texture, so the photo
+    # golfer costs about a megabyte of video memory whatever the frame count.
     folder = os.path.join(OUT, name)
     os.makedirs(folder, exist_ok=True)
     for f in os.listdir(folder):
-        if f.startswith("sheet_"):
+        if f.startswith("sheet_") or f == PACK:
             os.remove(os.path.join(folder, f))
-    names = []
-    for i, s in enumerate(sheets):
-        used = s.getbbox()
-        s = s.crop((0, 0, SHEET, min(SHEET, used[3] + PAD)))
-        fname = "sheet_%d.png" % i
-        s.save(os.path.join(folder, fname), optimize=True)
-        names.append(fname)
-
     out_frames = {}
+    blob = bytearray(MAGIC)
     for n in numbers:
         im, bb = cutouts[n]
-        s, px, py = placed[n]
+        buf = io.BytesIO()
+        im.save(buf, "WEBP", quality=QUALITY, method=6, exact=False)
+        data = buf.getvalue()
         # The ball's position relative to the frame's top left corner.
-        out_frames[str(n)] = {"sheet": s, "rect": [px, py, im.width, im.height],
+        out_frames[str(n)] = {"offset": len(blob), "bytes": len(data), "size": [im.width, im.height],
                               "ball": [round(ball[0] - bb[0], 1), round(ball[1] - bb[1], 1)]}
+        blob += data
+    with open(os.path.join(folder, PACK), "wb") as f:
+        f.write(blob)
     clips = {}
     for clip_name, clip in take["clips"].items():
         frames_out, times = [], []
@@ -214,17 +200,22 @@ def build(name, take, cache, limit=0):
                 times.append(round(t0 + seg["seconds"] * i / len(seq), 4))
             t0 += seg["seconds"]
         clips[clip_name] = {"frames": frames_out, "times": times, "loop": clip.get("loop", False)}
+        if "impact_frame" in clip:
+            # When the club meets the ball, in seconds into the clip: the
+            # round holds the ball until then (GolferRig.impact_delay).
+            clips[clip_name]["impact"] = times[frames_out.index(clip["impact_frame"])]
     meta = {
         "source": {k: take[k] for k in ("title", "page", "author", "license", "view", "club")},
         "px_per_m": OUT_PX_PER_M,
-        "sheets": names,
+        "golfer_height_m": take["golfer_height_m"],
+        "pack": PACK,
         "frames": out_frames,
         "clips": clips,
     }
     with open(os.path.join(folder, "take.json"), "w") as f:
         json.dump(meta, f, indent=1)
         f.write("\n")
-    print("%s: %d frames in %d sheets" % (name, len(numbers), len(sheets)))
+    print("%s: %d frames in %s, %.1f MB" % (name, len(numbers), PACK, len(blob) / 1e6))
 
 
 def main():

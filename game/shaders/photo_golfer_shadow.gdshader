@@ -5,9 +5,8 @@ shader_type spatial;
 render_mode unshaded, cull_disabled;
 
 uniform sampler2D sheet : filter_linear_mipmap, repeat_disable;
-uniform vec4 rect = vec4(0.0, 0.0, 1.0, 1.0);
 
 void fragment() {
-	ALPHA = texture(sheet, rect.xy + UV * rect.zw).a;
+	ALPHA = texture(sheet, UV).a;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
 }

@@ -3,14 +3,18 @@ extends GolferRig
 ## The "Photo golfer" option: a real person filmed swinging, played back
 ## frame by frame like the filmed golfers of the early Links games, so the
 ## golfer looks like a photograph. The frames are cut out of a freely
-## licensed video by tools/photo_golfer/build_photo_golfer.py and packed into
-## sheets in res://assets/photo_golfer/<take>/ with a take.json (per frame its
-## sheet, rectangle and where the ball is; per clip the frames and their
-## times).
+## licensed video by tools/photo_golfer/build_photo_golfer.py, each a WebP
+## in res://assets/photo_golfer/<take>/frames.olp, with a take.json (per
+## frame where it is in the pack, its size and where the ball is; per clip
+## the frames, their times and the moment of impact). Only the frame on
+## screen is decoded, into one small texture, so a take of any length costs
+## about a megabyte of video memory; the last few frames are kept decoded.
 ##
 ## The frames are drawn on a card at the ball that turns about the vertical
 ## to face the camera, placed so the ball in the picture sits on the real
-## ball, and scaled to the take's pixels per metre. A second card turned to
+## ball, and scaled to the take's pixels per metre (measured from the ball in
+## the film), then to the player's height (PlayerLook.height_cm) against the
+## filmed golfer's. A second card turned to
 ## the sun draws the same frame into the shadow map only.
 ##
 ## A take is filmed from one side. When the camera looks at the golfer from
@@ -29,11 +33,18 @@ const FILMED_VIEW := Vector3(1.0, 0.0, 0.3)
 const VIEW_LIMIT := deg_to_rad(50.0)
 ## Light from the filmed day (overcast) pulled towards the course's light.
 const EXPOSURE := 1.0
+## Decoded frames kept for going back (the address after a swing).
+const CACHE := 8
 
 var _fallback: GolferRig
 var _take := {}
-var _sheets: Array[Texture2D] = []
+var _pack: FileAccess
+var _texture: ImageTexture
+var _decoded := {}  ## frame key -> Image, the last CACHE shown
+var _decoded_order: Array[String] = []
 var _px_per_m := 200.0
+## The player's height over the filmed golfer's.
+var _height_scale := 1.0
 var _pivot: Node3D
 var _card: MeshInstance3D
 var _shadow: MeshInstance3D
@@ -49,13 +60,18 @@ var _sun: DirectionalLight3D
 
 ## Wraps `fallback` (the 3D golfer) with the photo golfer. Returns the
 ## fallback itself if the take can't be read.
-static func wrap(fallback: GolferRig, take := DEFAULT_TAKE) -> GolferRig:
+## `look` gives the player's height; without one the filmed golfer keeps
+## her own.
+static func wrap(fallback: GolferRig, look: PlayerLook = null, take := DEFAULT_TAKE) -> GolferRig:
 	var data := read_take(take)
 	if data.is_empty():
 		return fallback
 	var g := PhotoGolfer.new()
 	g._take = data
 	g._fallback = fallback
+	var filmed := float(data.get("golfer_height_m", 0.0))
+	if look != null and filmed > 0.0:
+		g._height_scale = clampf(look.height_cm / 100.0 / filmed, 0.8, 1.3)
 	g._build(take)
 	return g
 
@@ -67,6 +83,8 @@ static func read_take(take: String) -> Dictionary:
 		return {}
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not parsed is Dictionary or not (parsed as Dictionary).has("frames"):
+		return {}
+	if not FileAccess.file_exists(TAKE_DIR + take + "/" + String((parsed as Dictionary).get("pack", ""))):
 		return {}
 	return parsed
 
@@ -80,9 +98,7 @@ func _build(take: String) -> void:
 	name = "PhotoGolfer"
 	add_child(_fallback)
 	_px_per_m = float(_take.get("px_per_m", 200.0))
-	for file: String in _take.get("sheets", []):
-		var tex: Texture2D = load(TAKE_DIR + take + "/" + file)
-		_sheets.append(tex)
+	_pack = FileAccess.open(TAKE_DIR + take + "/" + String(_take["pack"]), FileAccess.READ)
 	_pivot = Node3D.new()
 	_pivot.position = BALL
 	add_child(_pivot)
@@ -117,6 +133,15 @@ func play(animation: StringName) -> void:
 
 func set_shot(club: Club, distance_m: float, power: float = 1.0) -> void:
 	_fallback.set_shot(club, distance_m, power)
+
+
+## The filmed club meets the ball this far into the swing clip; while the 3D
+## golfer stands in (a side view), its own timing.
+func impact_delay() -> float:
+	var swing: Dictionary = _take.get("clips", {}).get("swing", {})
+	if not swing.has("impact") or not filmed_view_ok():
+		return _fallback.impact_delay()
+	return float(swing["impact"])
 
 
 func watch(target: Node3D, delay: float = 0.3) -> void:
@@ -185,24 +210,46 @@ func _use_frame(key: String) -> void:
 	var f: Dictionary = _take["frames"].get(key, {})
 	if f.is_empty():
 		return
-	var tex := _sheets[int(f["sheet"])]
-	var size := Vector2(tex.get_width(), tex.get_height())
-	var r: Array = f["rect"]
+	var image := _decode(key, f)
+	if image == null:
+		return
+	if _texture != null and _texture.get_size() == Vector2(image.get_size()):
+		_texture.update(image)
+	else:
+		_texture = ImageTexture.create_from_image(image)
+		for mat: ShaderMaterial in [_material, _shadow_material]:
+			mat.set_shader_parameter("sheet", _texture)
+	var r: Array = f["size"]
 	var ball: Array = f["ball"]
-	var uv := Vector4(float(r[0]) / size.x, float(r[1]) / size.y, float(r[2]) / size.x, float(r[3]) / size.y)
-	var metres := Vector2(float(r[2]), float(r[3])) / _px_per_m
+	var ppm := _px_per_m / _height_scale
+	var metres := Vector2(float(r[0]), float(r[1])) / ppm
 	# The card's centre from the ball: the ball's pixel is on the ball.
-	var offset := Vector3((float(r[2]) * 0.5 - float(ball[0])) / _px_per_m,
-			(float(ball[1]) - float(r[3]) * 0.5) / _px_per_m, 0.0)
-	for pair in [[_card, _material], [_shadow, _shadow_material]]:
-		var mat: ShaderMaterial = pair[1]
-		mat.set_shader_parameter("sheet", tex)
-		mat.set_shader_parameter("rect", uv)
+	var offset := Vector3((float(r[0]) * 0.5 - float(ball[0])) / ppm,
+			(float(ball[1]) - float(r[1]) * 0.5) / ppm, 0.0)
 	_card.scale = Vector3(metres.x, metres.y, 1.0)
 	_card.position = offset
 	_shadow.scale = _card.scale
 	_shadow.set_meta("offset", offset)
 	_face_camera()
+
+
+## Frame `key` decoded from the pack (with mipmaps, for the long tee
+## views), or null if it can't be read.
+func _decode(key: String, f: Dictionary) -> Image:
+	if _decoded.has(key):
+		return _decoded[key]
+	if _pack == null:
+		return null
+	_pack.seek(int(f["offset"]))
+	var image := Image.new()
+	if image.load_webp_from_buffer(_pack.get_buffer(int(f["bytes"]))) != OK:
+		return null
+	image.generate_mipmaps()
+	_decoded[key] = image
+	_decoded_order.append(key)
+	if _decoded_order.size() > CACHE:
+		_decoded.erase(_decoded_order.pop_front())
+	return image
 
 
 ## Turns the card to the camera and the shadow card to the sun, both about

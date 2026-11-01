@@ -8,7 +8,7 @@ extends SceneTree
 
 ## The first picture after the round opens can come out black in software
 ## rendering, so the address is taken twice and the first one dropped.
-const POSES := [[&"address", 0.0], [&"address", 0.0], [&"backswing", 0.9], [&"swing", 0.3], [&"swing", 1.2]]
+const POSES := [[&"address", 0.0], [&"address", 0.0], [&"backswing", 0.9], [&"swing", 0.24], [&"swing", 1.2]]
 const CROP := Vector2i(560, 640)
 const SETTLE := 12
 
