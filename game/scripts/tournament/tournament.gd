@@ -875,7 +875,7 @@ func _finish() -> String:
 		finishers.erase(winner)
 		finishers.insert(0, winner)
 		playoff = true
-	var paid := CUT_PLACES[cut] if has_cut() else mini(65, finishers.size())
+	var paid: int = CUT_PLACES[cut] if has_cut() else mini(65, finishers.size())
 	var pay := Career.payouts(keys, purse, mini(paid, finishers.size()), finishers.size() if has_cut() else paid, playoff)
 	for k in finishers.size():
 		money[finishers[k]] += pay[k]
