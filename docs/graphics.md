@@ -321,7 +321,7 @@ at Medium and grass at Low.
   They run 7 m either side of the tee from just behind the markers to 30 m
   down the hole, and round the back of the green 5 m off the putting
   surface. Behind them stands a crowd of the player creator's people (random
-  `PlayerLook`, no clubs, the idle clip), facing the play. The crowd is 0, 10, 18
+  `PlayerLook`, no clubs, standing upright), facing the play. The crowd is 0, 10, 18
   or 28 people from Low to Ultra, nearest the tee and green first. Spectators
   cast no sun shadows: a dozen meshes each, redrawn into every shadow
   split, would cost more than the rest of the hole. Each gets a soft contact
@@ -329,9 +329,10 @@ at Medium and grass at Low.
   calls from the tee.
   The spectators react to each shot as the crowd sounds do: everyone
   celebrates a roar, most a cheer, a few polite applause, and about half show
-  dismay at a groan or an "ooh". About 30% of the front row (within 1.6 m
-  of the rope) crouch, as front rows do at real events, so the people
-  behind them can see.
+  dismay at a groan or an "ooh". The crowd watches the golfer: at each
+  address every spectator turns towards them, a moment apart (keeping a
+  little of their own angle), and their heads follow (GolferLook); once the
+  ball is struck the heads follow the ball. Spectators wear no golf glove.
 - **Crowd cards** (`Gallery`, `crowd_card.gdshader`): further back, 1.2 to
   5 m behind the ropes, the crowd thickens into camera-facing cards. Each
   card is one quad that turns about the vertical and draws a standing

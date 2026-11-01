@@ -11,7 +11,7 @@ extends Node3D
 ## the line, from just behind the markers to 30 m down the hole; at the
 ## green they stand about 5 m off the putting surface, round the back.
 ## The spectators are the player creator's people (FreeGolfer with a random
-## PlayerLook) without clubs, standing idle, facing the play. They are
+## PlayerLook) without clubs, standing upright, watching the golfer. They are
 ## scenery only: nothing collides with them or the ropes.
 
 const STAKE_HEIGHT := 1.1
@@ -62,7 +62,57 @@ static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, 
 		var at := grandstand_spot(hole)
 		if not at.is_empty():
 			g._build_grandstand(hole.terrain, at[0], at[1], seed_value)
+	g._add_murmur(hole)
 	return g
+
+
+# --- Crowd murmur ----------------------------------------------------------
+
+## The gallery talking among itself (amb_murmur, see tools/audio), from the
+## crowds at the tee and round the green, fainter the further off. It hushes
+## while the player stands over the ball, as a tour crowd does, and picks up
+## again a few seconds after the shot.
+const MURMUR_DB := -6.0
+const MURMUR_HUSH_DB := -22.0
+const MURMUR_UNIT := 9.0  ## metres at which it plays at MURMUR_DB
+const MURMUR_BACK := 3.0  ## seconds after the strike
+
+
+func _add_murmur(hole: HoleData) -> void:
+	var stream := load("res://assets/sounds/amb_murmur.ogg") as AudioStreamOggVorbis
+	if stream == null:
+		return
+	stream.loop = true
+	var spots: Array[Vector3] = [hole.tee, hole.pin]
+	for i in spots.size():
+		var at := spots[i]
+		var p := AudioStreamPlayer3D.new()
+		p.name = "Murmur%d" % i
+		p.stream = stream
+		p.unit_size = MURMUR_UNIT
+		p.volume_db = MURMUR_DB
+		p.attenuation_filter_cutoff_hz = 4000.0
+		p.position = at + Vector3.UP * 1.6
+		p.autoplay = true
+		add_child(p)
+
+
+## Fades the murmur to `db` after `delay` seconds.
+func _murmur_to(db: float, delay: float) -> void:
+	for c in get_children():
+		var p := c as AudioStreamPlayer3D
+		if p == null or not p.name.begins_with("Murmur"):
+			continue
+		var t := p.create_tween()
+		t.tween_interval(delay)
+		t.tween_property(p, "volume_db", db, 1.5)
+
+
+func murmur_db() -> float:
+	for c in get_children():
+		if c is AudioStreamPlayer3D:
+			return (c as AudioStreamPlayer3D).volume_db
+	return -80.0
 
 
 ## The two rope lines down the sides of the tee, as stake positions, each
@@ -274,7 +324,9 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	var feet := PackedVector3Array()
 	var spots := crowd_spots(hole, lines, count, seed_value)
 	for spot: Array in spots:
-		var person := FreeGolfer.create(PlayerLook.random(rng.randi()))
+		var look := PlayerLook.random(rng.randi())
+		look.glove = false  # spectators don't wear a golf glove
+		var person := FreeGolfer.create(look)
 		if person == null:
 			break  # no golfer model or look pack: ropes only
 		person.walk_in = false
@@ -286,25 +338,16 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		var at: Vector3 = spot[0]
 		var focus: Vector3 = spot[1]
 		add_child(person)
-		# The rig faces -x at address (the target is -x); turn them to face
-		# the play, give or take a little.
-		var yaw := atan2(focus.x - at.x, focus.z - at.z) + PI * 0.5 + rng.randf_range(-0.35, 0.35)
+		# Turn them to face the play, give or take a little.
 		person.global_position = at
-		person.rotation.y = yaw
+		person.rotation.y = facing_yaw(at, focus) + rng.randf_range(-0.25, 0.25)
+		person.set_meta(&"lean", rng.randf_range(-0.2, 0.2))
 		feet.append(at)
 		var player := person.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		if player == null:
 			continue
-		# Not everyone stands the same way: on the rope, some crouch to see
-		# under the people behind, as the front row does on tour.
-		var clip := &"idle"
-		if spot[2] and rng.randf() < CROUCH_SHARE and player.has_animation(&"read"):
-			clip = &"read"
-		if player.has_animation(clip):
-			player.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
-			player.play(clip)
-			player.seek(rng.randf() * player.current_animation_length, true)
-			player.speed_scale = rng.randf_range(0.85, 1.1)
+		player.set_meta(&"stand", STAND_FRAMES[rng.randi() % STAND_FRAMES.size()])
+		_stand(player)
 	if feet.is_empty():
 		return spots
 	var quad := PlaneMesh.new()
@@ -327,6 +370,46 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	return spots
 
 
+## The rig's yaw that turns a person at `at` to face `focus`. The body
+## faces the rig's -z (at address the ball is in front, the target off to
+## the left at -x).
+static func facing_yaw(at: Vector3, focus: Vector3) -> float:
+	return atan2(at.x - focus.x, at.z - focus.z)
+
+
+## The crowd watches `node` (the golfer over the ball, then the ball in
+## flight): heads follow it, and each spectator turns a little towards
+## where it is, a moment apart from the others.
+func watch(node: Node3D) -> void:
+	if node == null or not is_inside_tree():
+		return
+	if node.name != "Focus":
+		_murmur_to(MURMUR_DB, MURMUR_BACK)
+	var at := node.global_position
+	for c in get_children():
+		var person := c as FreeGolfer
+		if person == null:
+			continue
+		person.watch(node, randf_range(0.05, 0.5))
+		var want := facing_yaw(person.global_position, at) + float(person.get_meta(&"lean", 0.0))
+		var from := person.rotation.y
+		var t := person.create_tween()
+		t.tween_interval(randf_range(0.0, 0.6))
+		t.tween_method(func(k: float) -> void: person.rotation.y = lerp_angle(from, want, k), 0.0, 1.0, randf_range(0.8, 1.4)).set_trans(Tween.TRANS_SINE)
+
+
+## The crowd watches a spot (the golfer: about chest height over them).
+func watch_point(at: Vector3) -> void:
+	var mark := get_node_or_null("Focus") as Marker3D
+	if mark == null:
+		mark = Marker3D.new()
+		mark.name = "Focus"
+		add_child(mark)
+	mark.global_position = at
+	watch(mark)
+	_murmur_to(MURMUR_HUSH_DB, 0.8)
+
+
 # --- Crowd cards -------------------------------------------------------------
 
 ## Past the 3D people the gallery goes on as crowd cards
@@ -337,8 +420,9 @@ const CARD_WIDTH := 0.62  ## metres, for a 1.8 m person
 const CARD_SPACING := 0.7
 const CARD_NEAR := 1.2
 const CARD_FAR := 5.0
-## Share of the front row that crouches (3D people on the rope).
-const CROUCH_SHARE := 0.3
+## Seconds into the walk clip where the feet pass under the body: an
+## upright standing pose, the left or the right foot a little forward.
+const STAND_FRAMES: Array[float] = [1.0, 0.35]
 const CROUCH_ROW := 1.6  ## metres behind the rope that counts as the front row
 
 
@@ -468,8 +552,27 @@ func react(crowd: int) -> void:
 static func _react_one(player: AnimationPlayer, clip: StringName) -> void:
 	if not is_instance_valid(player):
 		return
+	player.speed_scale = 1.0
 	player.play(clip, 0.25)
-	player.queue(&"idle")
+	if not player.animation_finished.is_connected(_on_reacted):
+		player.animation_finished.connect(_on_reacted.bind(player))
+
+
+static func _on_reacted(_clip: StringName, player: AnimationPlayer) -> void:
+	_stand(player)
+
+
+## Stands a spectator upright and still, weight on both feet: a frame of
+## the walk where the feet pass. The golfer's own idle is a golfer's
+## stance (knees flexed, feet wide), which looks odd on someone watching.
+static func _stand(player: AnimationPlayer) -> void:
+	if not player.has_animation(&"walk"):
+		return
+	# Held still with a zero speed rather than paused, so the pose still
+	# applies when the crowd is built before it joins the scene.
+	player.play(&"walk", 0.0)
+	player.seek(float(player.get_meta(&"stand", STAND_FRAMES[0])), true)
+	player.speed_scale = 0.0
 
 
 # --- Grandstand ------------------------------------------------------------
