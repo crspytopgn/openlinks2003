@@ -228,10 +228,13 @@ def fetch_twigs(out_dir):
             print(f"  twigs: {TWIG_ASSET} {key} 1k")
             with open(paths[name], "wb") as f:
                 f.write(get(files[key]["1k"][fmt]["url"]))
-    # Lossless, as for the leaves: lossy compression shows as bright fringes.
-    for p in paths.values():
+    # Imported at 512 pixels (a sprig still gets about 3 pixels a
+    # centimetre), which keeps the download inside its budget. The colour
+    # can be lossy: the atlas fills the gaps round the sprigs with green,
+    # so no bright fringes show (unlike the leaves); the alpha is lossless.
+    for name, p in paths.items():
         with open(p + ".import", "w") as f:
-            f.write(TEXTURE_IMPORT.format(mode=0, limit=0, mipmaps="true"))
+            f.write(TEXTURE_IMPORT.format(mode=1 if name.endswith(".jpg") else 0, limit=512, mipmaps="true"))
     return f"- **twigs**: [Fir Tree 01](https://polyhaven.com/a/{TWIG_ASSET}) twig atlas by Poly Haven, CC0"
 
 
