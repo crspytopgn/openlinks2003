@@ -107,6 +107,9 @@ func _process(_delta: float) -> bool:
 	_run("practice_range", _test_practice_range)
 	_run("gimmes", _test_gimmes)
 	_run("launch_monitor_input", _test_launch_monitor_input)
+	_run("practice_ground", _test_practice_ground)
+	_run("range_game", _test_range_game)
+	_run("practice_ground_round", _test_practice_ground_round)
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
 	_run("pick_up", _test_pick_up)
@@ -3321,6 +3324,92 @@ func _test_practice_range() -> void:
 	_check(r.descent_deg > 5.0 and r.descent_deg < 80.0, "descent %.0f deg" % r.descent_deg)
 	_check(not game.practice_session.summary(r.club).is_empty(), "session summary")
 	print("  range: %s" % game.practice_session.summary(r.club))
+	GolfRound.setup = null
+
+
+## The built-in practice ground: the range's targets are greens at their
+## yardages, the tee line is wide and flat, and the putting green is big.
+func _test_practice_ground() -> void:
+	var course := PracticeGround.new().load_course(PracticeGround.PATH)
+	_check(course.holes.size() == 2, "a range and a putting green")
+	var range_hole := course.holes[PracticeGround.RANGE]
+	var t := range_hole.terrain
+	var last := 0.0
+	for i in PracticeGround.TARGETS.size():
+		var p := PracticeGround.target_position(t, i)
+		var yards := Vector2(p.x, p.z).distance_to(Vector2.ZERO) / PracticeGround.YARD
+		_check(t.surface_at(p.x, p.z) == Surface.Type.GREEN, "target %d is a green" % i)
+		_check(absf(Vector2(0, p.z).length() / PracticeGround.YARD - PracticeGround.TARGETS[i][0]) < 0.5 and yards > last, "target %d at %d yd down the range" % [i, PracticeGround.TARGETS[i][0]])
+		var edge := p + Vector3(PracticeGround.target_radius(i) + 0.7, 0, 0)
+		_check(t.surface_at(edge.x, edge.z) == Surface.Type.FRINGE, "target %d has a collar" % i)
+		last = yards
+	for x in [-30.0, -3.0, 0.0, 3.0, 30.0]:
+		_check(t.surface_at(x, 0.0) == Surface.Type.TEE, "tee line at x %.0f" % x)
+		_check(absf(t.height_at(x, 0.0) - t.height_at(0.0, 0.0)) < 0.25, "tee line level at x %.0f" % x)
+	_check(t.surface_at(40.0, 120.0) == Surface.Type.FAIRWAY, "the field is mown")
+	_check(range_hole.aim_point(range_hole.tee, 125.0).distance_to(PracticeGround.target_position(t, 3)) < 0.1, "a 125 m club aims at the 125 yd target")
+	var green := course.holes[PracticeGround.PUTTING_GREEN]
+	var pr := PuttingPractice.new(3)
+	pr.setup(green)
+	_check(pr.cups.size() == PuttingPractice.MAX_CUPS, "six cups on the practice green (%d)" % pr.cups.size())
+	var dressing := RangeDressing.build(range_hole, GraphicsSettings.Quality.MEDIUM, range_hole.tee)
+	var balls := dressing.find_child("RangeBalls", true, false) as MultiMeshInstance3D
+	_check(balls != null and balls.multimesh.instance_count > 400, "ball pyramids and range balls in one draw")
+	_check(dressing.find_child("Yardage150", true, false) != null, "a 150 yard board")
+	dressing.free()
+
+
+## The target game: points by target and bullseye, the last balls double,
+## and a bucket ends after its balls.
+func _test_range_game() -> void:
+	var targets: Array[Vector3] = [Vector3(0, 50, 5), Vector3(10, 100, 8)]
+	var g := RangeGame.new(targets)
+	_check(g.points_at(Vector2(0, 50))[0] == RangeGame.POINTS[0] * 2, "bullseye doubles")
+	_check(g.points_at(Vector2(4, 50))[0] == RangeGame.POINTS[0], "on the green")
+	_check(g.points_at(Vector2(30, 30))[0] == 0, "a miss")
+	_check(g.add_shot(Vector3(20, 0, 20), Vector3(10, 0, 96)) == RangeGame.POINTS[1], "rolled onto a target")
+	_check(g.add_shot(Vector3(4, 0, 50), Vector3(30, 0, 70)) == RangeGame.POINTS[0], "pitched on and ran off")
+	for _i in RangeGame.BALLS - 3:
+		g.add_shot(Vector3(40, 0, 10), Vector3(40, 0, 10))
+	_check(not g.finished(), "one ball left")
+	_check(g.add_shot(Vector3(0, 0, 50), Vector3(0, 0, 50)) == RangeGame.POINTS[0] * 4, "a bullseye with the last ball")
+	_check(g.finished() and g.best == g.score and g.status().contains("Bucket done"), "bucket done")
+	g.add_shot(Vector3(40, 0, 10), Vector3(40, 0, 10))
+	_check(g.ball == 1 and g.score == 0 and g.best > 0, "the next ball starts a new bucket")
+
+
+func _test_practice_ground_round() -> void:
+	var game := _game
+	if not game.is_node_ready():
+		return
+	var s := RoundSetup.new()
+	s.practice = true
+	s.facility = true
+	s.target_game = true
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.course.course_name == "Practice Ground" and game.holes.size() == 1, "the range")
+	_check(game.range_game != null and game.monitor_panel != null, "target game and launch monitor")
+	_check(game.hole_root.find_child("RangeDressing", true, false) != null, "the range is dressed")
+	_check(game.gallery == null, "no gallery on the range")
+	var tee: Vector3 = game.hole.tee
+	for i in 3:
+		var steps := 0
+		while game.state != GolfRound.State.AIM or steps == 0:
+			game.auto_play_step()
+			steps += 1
+			if steps > 10:
+				break
+		_check(game.state == GolfRound.State.AIM and game.ball_at.distance_to(tee) < 0.01, "range ball %d back on the tee" % i)
+	_check(game.range_game.ball == 3, "three balls of the bucket (%d)" % game.range_game.ball)
+	print("  target game: %s" % game.range_game.status())
+	s = RoundSetup.new()
+	s.putting = true
+	s.facility = true
+	GolfRound.setup = s
+	game.start_round()
+	_check(game.holes.size() == 1 and game.hole.number == 2 and game.practice != null, "the practice putting green")
+	_check(game.lie == Surface.Type.GREEN, "ball on the practice green")
 	GolfRound.setup = null
 
 

@@ -148,6 +148,8 @@ var shape := ShotShape.new()
 ## The practice range (RoundSetup.practice): the launch monitor and the
 ## session's shots.
 var monitor_panel: LaunchMonitorPanel = null
+## The range's target game (RoundSetup.target_game), or null.
+var range_game: RangeGame = null
 var practice_session := LaunchMonitor.Session.new()
 var shot: ShotResult
 var shot_from := Vector3.ZERO
@@ -337,7 +339,9 @@ func start_round() -> void:
 		round_setup = RoundSetup.single(course_path if not course_path.is_empty() else chosen_course)
 	if course_path.is_empty():
 		course_path = round_setup.course_path
-	course = AssetProviders.load_course(course_path)
+	# The practice ground is built in, whatever course was picked.
+	course = PracticeGround.new().load_course(PracticeGround.PATH) if round_setup.facility \
+			else AssetProviders.load_course(course_path)
 	round_setup.course_name = course.course_name
 	if round_setup.putting:
 		round_setup.trim_for_practice()
@@ -358,7 +362,10 @@ func start_round() -> void:
 	var pars: Array[int] = []
 	var numbers: Array[int] = []
 	var stroke_index: Array[int] = []
-	for i in round_setup.hole_indices(course.holes.size()):
+	var indices := round_setup.hole_indices(course.holes.size())
+	if round_setup.facility:
+		indices = [PracticeGround.RANGE if round_setup.practice else PracticeGround.PUTTING_GREEN]
+	for i in indices:
 		var h := course.holes[i]
 		if h.tees.size() > 1:
 			h.tee = h.tees[round_setup.tee_index(h.tees.size())]
@@ -580,17 +587,23 @@ func start_hole(index: int) -> void:
 		node.rotation_degrees.y = o.yaw_deg
 		node.scale = Vector3.ONE * o.scale
 		hole_root.add_child(node)
+	var on_range := _on_range()
 	if practice != null:
 		practice_cups = PracticeCups.new()
 		hole_root.add_child(practice_cups)
 		practice_cups.build(practice.cups, practice.cup)
-	else:
+	elif not on_range:
 		_add_flag()
-	_add_tee_markers()
-	if broadcast and practice == null and graphics != null and graphics.quality > GraphicsSettings.Quality.LOW:
+	if on_range:
+		hole_root.add_child(RangeDressing.build(hole, graphics.quality if graphics != null else 1, hole.tee))
+	else:
+		_add_tee_markers()
+	# The practice ground has none of a course's furniture or a gallery.
+	var dressed := practice == null and not round_setup.facility
+	if broadcast and dressed and graphics != null and graphics.quality > GraphicsSettings.Quality.LOW:
 		# The course's furniture: tee sign, ball washer, bench, bunker rakes.
 		hole_root.add_child(CourseProps.build(hole, _first_leg(), CourseProps.RAKES_BY_QUALITY[graphics.quality]))
-	if broadcast and practice == null:
+	if broadcast and dressed:
 		# Tournament dressing: gallery ropes, and a crowd at the tee and green.
 		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
 		# Grandstands go up where tournaments build them: at par 3s and the last green.
@@ -601,6 +614,8 @@ func start_hole(index: int) -> void:
 		gallery = null
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
+	if on_range:
+		RangeDressing.add_divots(marks, hole.terrain, hole.tee, clubs[clubs.size() / 2])
 	if scenery.sun != null:
 		# The sun moves on through the round with that time of day.
 		scenery.set_round_progress(float(index) / maxf(holes.size() - 1, 1))
@@ -640,7 +655,11 @@ func start_hole(index: int) -> void:
 	var text := "Hole %d    Par %d    %d yards" % [hole.number, hole.par, roundi(hole.length_m() * YARDS_PER_METRE)]
 	if practice != null:
 		text = "Practice green: hole %d\n%s" % [hole.number, PuttingPractice.DRILL_HELP[practice.drill]]
-	if broadcast and practice == null:
+		if round_setup.facility:
+			text = "Practice putting green\n%s" % PuttingPractice.DRILL_HELP[practice.drill]
+	if on_range:
+		text = "Driving range: targets at 50 to 250 yards" if range_game == null else range_game.status()
+	if broadcast and dressed:
 		text = ""
 		hud.overlay.wipe()
 		_tour_dots.clear()
@@ -1652,14 +1671,29 @@ func _setup_practice() -> void:
 		monitor_panel.queue_free()
 		monitor_panel = null
 	practice_session = LaunchMonitor.Session.new()
+	range_game = null
 	if not round_setup.practice:
 		return
+	if round_setup.target_game:
+		var targets: Array[Vector3] = []
+		var terrain := holes[0].terrain
+		for i in PracticeGround.TARGETS.size():
+			var p := PracticeGround.target_position(terrain, i)
+			targets.append(Vector3(p.x, p.z, PracticeGround.target_radius(i)))
+		range_game = RangeGame.new(targets)
 	monitor_panel = LaunchMonitorPanel.new()
 	monitor_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
 	monitor_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	monitor_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	monitor_panel.position.x -= 16
 	hud.add_child(monitor_panel)
+	if range_game != null:
+		monitor_panel.show_note(range_game.status())
+
+
+## True on the practice ground's driving range.
+func _on_range() -> bool:
+	return round_setup != null and round_setup.facility and round_setup.practice
 
 
 func _practice_shot_done() -> void:
@@ -1679,6 +1713,13 @@ func _practice_shot_done() -> void:
 			msg = "In the water."
 		ShotResult.Outcome.OUT_OF_BOUNDS:
 			msg = "Out of bounds."
+	if range_game != null:
+		var points := range_game.add_shot(shot.first_landing, shot.rest)
+		msg = range_game.last_text
+		if points > 0:
+			sounds.play(&"cup")
+		if monitor_panel != null:
+			monitor_panel.show_note(range_game.status())
 	hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
 	state = State.SHOT_RESULT

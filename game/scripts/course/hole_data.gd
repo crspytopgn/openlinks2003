@@ -20,10 +20,15 @@ var objects: Array[PlacedObject] = []
 ## Points (x, z) the hole is designed to be played along, from the tee to the
 ## green. Used for auto-aim and the hole length.
 var route := PackedVector2Array()
+## The length to show for the hole in metres when the route doesn't give it
+## (a driving range, whose route visits each target); 0 to measure the route.
+var card_length := 0.0
 
 
 ## Playing length along the route, in metres.
 func length_m() -> float:
+	if card_length > 0.0:
+		return card_length
 	var total := 0.0
 	var prev := Vector2(tee.x, tee.z)
 	for p in route:
