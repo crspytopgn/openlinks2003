@@ -595,7 +595,7 @@ func start_hole(index: int) -> void:
 		var crowd := Gallery.CROWD_BY_QUALITY[graphics.quality] if graphics != null else 0
 		# Grandstands go up where tournaments build them: at par 3s and the last green.
 		var stand := hole.par == 3 or hole_index == holes.size() - 1
-		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand)
+		gallery = Gallery.build(hole, _first_leg(), crowd, hole.number * 7919, stand, graphics.quality if graphics != null else 0)
 		hole_root.add_child(gallery)
 	else:
 		gallery = null
