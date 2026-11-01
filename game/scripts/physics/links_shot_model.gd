@@ -8,8 +8,9 @@ extends StandardShotModel
 ## How far past the perfect zone, in the game's meter units, our meter's
 ## accuracy of +/-1 lands: the game clamps a snap at 25 units.
 const METER_UNITS_AT_FULL_MISS := 25.0
-## Face angle at accuracy +/-1 for a computer golfer's swing.
-const COMPUTER_FACE_ERROR_DEG := 4.0
+## Face angle at accuracy +/-1 for a computer golfer's swing (its planned
+## shape and, for a realistic golfer, its timing error).
+const COMPUTER_FACE_ERROR_DEG := OpponentSkill.LINKS_FACE_DEG_PER_ACCURACY
 ## The same for a putt (the game turns a putter's face the other way).
 const COMPUTER_PUTT_FACE_ERROR_DEG := 2.0
 ## Putt power at a full meter. The game's putt meter has its own scales
@@ -81,6 +82,7 @@ func launch(club: Club, power: float, accuracy: float, aim_deg: float, lie: int,
 			# The plan goes in as a percentage of the club, so its forced-power
 			# penalty (past max_power) is the same for every club.
 			cw.power = 100.0 * share if not chip else s.power
+			cw.face_deg = -COMPUTER_FACE_ERROR_DEG * clampf(accuracy, -1.0, 1.0)  # the planned shape
 			LinksLaunch.computer_miss(cw, computer_ratings, s.club, lie == Surface.Type.TEE, chip,
 					lie_params.ground_class, to_hole_m * LinksLaunch.FEET_PER_METRE, rng)
 			s.power = cw.power if chip else cw.power * rating / 100.0
