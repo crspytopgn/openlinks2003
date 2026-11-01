@@ -232,7 +232,7 @@ def build(dem, mpp):
         # Green: an organic pear, long along the approach.
         gl, gw = spec["gsize"]
         ang = math.atan2(h.approach[1], h.approach[0])
-        g_pts = geom.blob(h.green, gl, gw, ang + rng.uniform(-0.25, 0.25), spec["seed"] * 13, count=14, wobble=0.1)
+        g_pts = geom.smooth_blob(h.green, gl, gw, ang + rng.uniform(-0.25, 0.25), spec["seed"] * 13, count=22, wobble=0.09)
         h.green_poly = geom.outline(g_pts)
         shapes.append((GREEN, g_pts))
 
@@ -282,7 +282,10 @@ def build(dem, mpp):
                 c = h.green + dirv * (ge + bw * 0.5 + 2.6)
                 bang = math.atan2(dirv[1], dirv[0]) + math.pi / 2 + rng.uniform(-0.2, 0.2)
                 face = -dirv  # the face is the side by the green
-            pts = geom.blob(c, bl, bw, bang, spec["seed"] * 101 + len(h.bunkers), count=12, wobble=0.18)
+            # Rounded, with no points: greenside bunkers curl a little round
+            # the green, fairway ones bend gently either way.
+            bend = 0.35 if b[0] == "gs" else rng.uniform(-0.25, 0.25)
+            pts = geom.smooth_blob(c, bl, bw, bang, spec["seed"] * 101 + len(h.bunkers), bend=bend)
             shapes.append((SAND, pts))
             h.bunkers.append((c, bl, bw, bang, face))
 
@@ -291,7 +294,7 @@ def build(dem, mpp):
         if "pond" in spec:
             pc, pl, pw, pang = spec["pond"]
             c = np.array(to_game(pc))
-            pts = geom.blob(c, pl * 2, pw * 2, pang, spec["seed"] * 211, count=14, wobble=0.15)
+            pts = geom.smooth_blob(c, pl * 2, pw * 2, pang, spec["seed"] * 211, count=22, wobble=0.12)
             shapes.append((WATER, pts))
             h.pond = geom.outline(pts)
 
