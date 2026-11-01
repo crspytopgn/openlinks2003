@@ -2081,6 +2081,8 @@ func _test_gallery() -> void:
 		var front: Vector3 = spot[0]
 		_check(front.distance_to(hole.pin) > Gallery.GREEN_MARGIN + Gallery.STAND_BACK, "the grandstand stands back from the green")
 	_check(g.card_count() > 0 and g.card_count() <= Gallery.CARDS_BY_QUALITY[3], "crowd cards fill in behind the 3D people (%d)" % g.card_count())
+	var card_shadows := g.get_node_or_null("CardShadows") as MultiMeshInstance3D
+	_check(card_shadows != null and card_shadows.multimesh.instance_count == g.card_count(), "every crowd card stands on a contact shadow")
 	var cards := Gallery.card_spots(hole, lines, spots, 120, 7)
 	var spaced := cards.size() > 0
 	for i in cards.size():

@@ -354,8 +354,14 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 			skeleton.add_child(arms)
 			player.set_meta(&"arms", arms)
 		_stand(player)
+	_add_contact_shadows("ContactShadows", feet)
+	return spots
+
+
+## A soft contact shadow under each of `feet`, all in one MultiMesh.
+func _add_contact_shadows(node_name: String, feet: PackedVector3Array) -> void:
 	if feet.is_empty():
-		return spots
+		return
 	var quad := PlaneMesh.new()
 	quad.size = Vector2(CONTACT_SHADOW, CONTACT_SHADOW)
 	var mat := ShaderMaterial.new()
@@ -369,11 +375,10 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	for i in feet.size():
 		mm.set_instance_transform(i, Transform3D(Basis.IDENTITY, feet[i] + Vector3.UP * 0.02))
 	var shadows := MultiMeshInstance3D.new()
-	shadows.name = "ContactShadows"
+	shadows.name = node_name
 	shadows.multimesh = mm
 	shadows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(shadows)
-	return spots
 
 
 ## The rig's yaw that turns a person at `at` to face `focus`. The body
@@ -521,6 +526,8 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	node.multimesh = mm
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
+	# Grounded like the 3D people, one more draw for the lot.
+	_add_contact_shadows("CardShadows", spots)
 
 
 func card_count() -> int:
