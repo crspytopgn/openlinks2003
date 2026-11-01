@@ -197,9 +197,12 @@ at Medium and grass at Low.
   beside the fairway (colour only, the ball plays it as rough); bunkers
   with a trimmed, slightly ragged edge sharpened from the sand weight
   (the sand colour taken back out of the grass beside it) and a shaded
-  lip of turf; and with 3D trees on, two rows of woods round the edge of
-  the ground, out of bounds and mostly impostors, so the hole no longer
-  ends in a bare edge against the sky.
+  lip of turf; and with 3D trees on, a wood round the edge of the ground,
+  out of bounds: a skirt of shrubs, two rows of full trees, two deeper
+  rows that are only ever impostors (`TreeFactory.FAR_ONLY`), and behind
+  them a dark, unlit band (`_wood_floor`) so no sky shows under the
+  crowns. Impostors darken towards their base, as the crown shades its
+  trunk. The pond bed is dark silt rather than the map's blue.
 - **Water's edge**: a disc course's water triangles carry how far each
   vertex is from the bank (`CrzTerrain._shore_levels`: 0 on a vertex dry
   ground also uses, 0.5 one triangle out, 1 beyond, in the vertex colour).
@@ -212,7 +215,10 @@ at Medium and grass at Low.
   middle is inside), each carrying its distance from the bank over 10 m
   (`DesignedTerrain.water_surface_mesh`). The finest ripples are drifting noise instead of
   more sine waves (whose crossings showed a regular diamond pattern), and
-  gusts roughen patches of the surface and leave others glassy.
+  gusts roughen patches of the surface and leave others glassy. Ripples
+  calm with the pixel footprint (`fwidth`), so far water is a smooth
+  mirror instead of aliased bands, and reflections up to about ten
+  degrees above the horizon show the dark trees of the far bank.
 - **Texture mappings and blended edges** (`TerrainMappings`,
   `shaders/terrain_mapped.gdshader`): the disc textures lie on the ground
   the way the course's `Mappings` entry says (per-hole fairway planars

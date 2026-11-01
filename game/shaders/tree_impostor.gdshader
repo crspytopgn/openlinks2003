@@ -13,7 +13,8 @@ uniform float rows = 1.0;
 uniform float row = 0.0;
 // Drawn in a MultiMesh of a course's trees: the row comes from the
 // instance's custom data, and inside tree_impostor_distance from the
-// camera the instance collapses, as the full tree shows there.
+// camera the instance collapses, as the full tree shows there, unless the
+// custom data's green marks a tree that is only ever an impostor.
 uniform bool instanced = false;
 
 global uniform vec2 wind_vector;
@@ -29,7 +30,7 @@ void vertex() {
 	float azimuth = atan(to_camera.x, to_camera.z);
 	frame = mod(round(azimuth / (6.2831853 / frames)), frames);
 	atlas_row = instanced ? floor(INSTANCE_CUSTOM.r * rows) : row;
-	if (instanced && distance(root, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) < tree_impostor_distance) {
+	if (instanced && INSTANCE_CUSTOM.g < 0.5 && distance(root, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) < tree_impostor_distance) {
 		VERTEX = vec3(0.0);
 	}
 	if (foliage_sway > 0.0) {
@@ -65,6 +66,9 @@ void fragment() {
 	// sky's blue, layer behind layer, so the distance reads as depth.
 	float far = smoothstep(60.0, 350.0, length(VERTEX)) * 0.6;
 	vec3 haze = vec3(dot(c.rgb, vec3(0.3, 0.59, 0.11))) * vec3(0.85, 0.97, 1.15) + vec3(0.03, 0.05, 0.08);
+	// The crown shades its own trunk and the ground under it: the lower
+	// part of a tree (and the floor of a wood) reads dark, as in photos.
+	c.rgb *= mix(0.45, 1.0, smoothstep(0.08, 0.45, 1.0 - UV.y));
 	c.rgb = mix(c.rgb, haze, far);
 	ALBEDO = c.rgb;
 	BACKLIGHT = c.rgb * 0.4;

@@ -11,7 +11,7 @@ uniform vec3 deep_color : source_color = vec3(0.03, 0.07, 0.07);
 uniform vec3 shallow_color : source_color = vec3(0.09, 0.15, 0.12);
 uniform vec3 sky_color : source_color = vec3(0.36, 0.52, 0.68);
 uniform vec3 foam_color : source_color = vec3(0.85, 0.90, 0.88);
-uniform float ripple_strength = 0.6;
+uniform float ripple_strength = 0.45;
 uniform float ripple_speed = 1.0;
 uniform float edge_width = 0.07; // as a fraction of the radius
 uniform bool disc = true;
@@ -60,8 +60,8 @@ void fragment() {
 	float t = TIME * ripple_speed;
 	float breeze = 1.0 + min(length(wind_vector), 12.0) * 0.08;
 	vec2 g = vec2(0.0);
-	g += wave(p, normalize(vec2(1.0, 0.3)), 0.9, 0.05, 1.3, t);
-	g += wave(p, normalize(vec2(-0.4, 1.0)), 1.7, 0.03, 1.9, t);
+	g += wave(p, normalize(vec2(1.0, 0.3)), 0.9, 0.03, 1.3, t);
+	g += wave(p, normalize(vec2(-0.4, 1.0)), 1.7, 0.018, 1.9, t);
 	g += wave(p, normalize(vec2(0.7, -0.8)), 3.9, 0.012, 2.7, t);
 	g += wave(p, normalize(vec2(-1.0, -0.2)), 7.3, 0.006, 3.6, t);
 	// Fine wind ripples on top, for sparkle in the sun: drifting noise
@@ -76,6 +76,12 @@ void fragment() {
 	// Gusts roughen patches of the surface (cat's paws) and leave others
 	// glassy.
 	g *= 0.6 + 0.8 * noise2(p * 0.06 + drift * 0.05);
+	// Calmer with distance: ripples finer than a pixel or two average out
+	// to a smoother mirror, as in photos, instead of aliasing into bands.
+	// So the far half of a pond holds the dark reflection of the trees
+	// on its far bank, and only the near water shows the wind.
+	float footprint = length(fwidth(p));
+	g *= 1.0 / (1.0 + footprint * 6.0);
 	vec3 n_world = normalize(vec3(-g.x * ripple_strength * breeze, 1.0, -g.y * ripple_strength * breeze));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
@@ -102,7 +108,9 @@ void fragment() {
 		refl = texture(sky_pano, uv).rgb * pano_energy * sky_tint;
 		// The banks and trees round the water fill the bottom of the
 		// reflected sky.
-		refl = mix(bank_color, refl, smoothstep(0.05, 0.4, r_dir.y));
+		// A wood on the far bank stands about ten degrees above the
+		// water, so a band that high mirrors dark trees, not sky.
+		refl = mix(bank_color, refl, smoothstep(0.12, 0.32, r_dir.y));
 		// Ponds and creeks sit low among banks and trees, which take
 		// some of the sky out of every reflection.
 		refl = mix(refl, bank_color, 0.25);
