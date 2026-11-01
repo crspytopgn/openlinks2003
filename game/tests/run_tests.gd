@@ -1610,11 +1610,14 @@ func _test_graphics_settings() -> void:
 	cfg = ConfigFile.new()
 	cfg.set_value("graphics", "look", GraphicsSettings.Look.NATURAL)
 	cfg.set_value("graphics", "grass", 0)
+	cfg.set_value("graphics", "fov", 50.0)
 	cfg.save(path)
 	loaded = GraphicsSettings.load_saved(path)
 	var natural := GraphicsSettings.new()
 	natural.apply_look(GraphicsSettings.Look.NATURAL)
 	_check(loaded.look == GraphicsSettings.Look.NATURAL and loaded.grass == natural.grass, "presets saved by an older version are redone")
+	_check_near(loaded.fov, 40.0, 1e-6, "the old default lens moves to the long lens")
+	_check(RoundCamera.lens_factor(50.0) == 1.0 and RoundCamera.lens_factor(40.0) > 1.2, "a longer lens stands the aim view further back")
 	loaded.save(path)
 	cfg.load(path)
 	_check(int(cfg.get_value("graphics", "look_version", 0)) == GraphicsSettings.LOOK_VERSION, "look version saved")
@@ -1637,7 +1640,7 @@ func _test_graphics_settings() -> void:
 	_check(noon.elevation > dawn.elevation and dawn.elevation > dusk.elevation, "the sun is highest at midday, lowest at golden hour")
 	_check(half.elevation < noon.elevation and half.elevation > Scenery.TIMES["afternoon"].elevation, "through the round blends the light (%.1f)" % half.elevation)
 	_check((dusk.sun as Color).b < (noon.sun as Color).b, "golden hour sun is warm")
-	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == 38.0, "afternoon keeps the old sun")
+	_check(Scenery.time_light(GraphicsSettings.TimeOfDay.AFTERNOON, 0.7).elevation == Scenery.TIMES["afternoon"].elevation, "afternoon is the afternoon sun at any point of the round")
 
 
 func _test_trees() -> void:

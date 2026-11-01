@@ -22,7 +22,7 @@ const GRADES := [
 ## brighter highlights), colour put back, a touch of sun warmth in the
 ## highlights and sky blue in the shadows, as in camera footage of a sunny
 ## course.
-const PHOTO_NEUTRAL := [1.0, 1.04, 1.2, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
+const PHOTO_NEUTRAL := [1.0, 1.08, 1.08, Color(1.04, 1.0, 0.93), Color(0.95, 0.98, 1.04)]
 const PHOTO_CURVE := 0.6
 
 var _rect: ColorRect

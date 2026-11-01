@@ -21,12 +21,15 @@ const SUN_ENERGY := 0.85
 const PHOTO_SUN_ENERGY := 3.0
 const PHOTO_AMBIENT_ENERGY := 0.5
 const PHOTO_EXPOSURE := 1.0
+## Links 2003's afternoon sun height, which Classic lighting keeps.
+const CLASSIC_SUN_ELEVATION := 38.0
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light,
 ## the photographed sky's tint (overall and at the horizon), the glow round
 ## a low sun, the haze colour and thickness and an exposure that makes up
-## for a low sun. Afternoon is the light the game always had.
+## for a low sun. Afternoon sits lower and warmer than Classic's sun
+## (CLASSIC_SUN_ELEVATION), for long shadows as in TV golf.
 const TIMES := {
 	"morning": {elevation = 17.0, bearing = 100.0, sun = Color(1.0, 0.86, 0.7), energy = 0.85, fill = 0.95,
 		ambient = Color(0.62, 0.69, 0.8), sky = Color(0.92, 0.96, 1.04), horizon = Color(1.05, 1.0, 0.95), glow = 0.25,
@@ -34,9 +37,9 @@ const TIMES := {
 	"midday": {elevation = 62.0, bearing = 160.0, sun = Color(1.0, 0.97, 0.93), energy = 1.0, fill = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.02), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
 		haze = Color(0.70, 0.78, 0.88), fog = 0.9, exposure = 0.95},
-	"afternoon": {elevation = 38.0, bearing = 145.0, sun = Color(1.0, 0.94, 0.84), energy = 1.0, fill = 1.0,
+	"afternoon": {elevation = 30.0, bearing = 145.0, sun = Color(1.0, 0.92, 0.8), energy = 1.0, fill = 1.0,
 		ambient = Color(0.66, 0.70, 0.76), sky = Color(1.0, 1.0, 1.0), horizon = Color(1.0, 1.0, 1.0), glow = 0.0,
-		haze = HORIZON, fog = 1.0, exposure = 1.0},
+		haze = HORIZON, fog = 1.6, exposure = 1.0},
 	"golden": {elevation = 9.0, bearing = 205.0, sun = Color(1.0, 0.66, 0.38), energy = 0.95, fill = 1.0,
 		ambient = Color(0.72, 0.66, 0.64), sky = Color(1.02, 0.86, 0.74), horizon = Color(1.15, 0.92, 0.72), glow = 0.8,
 		haze = Color(0.9, 0.74, 0.58), fog = 1.6, exposure = 1.35},
@@ -305,7 +308,8 @@ static func _blend(a: Dictionary, b: Dictionary, f: float) -> Dictionary:
 ## lighting keeps Links 2003's afternoon sun.
 func _apply_time() -> void:
 	_time = time_light(_time_setting, _round_progress) if _photo else TIMES["afternoon"]
-	sun.rotation_degrees = Vector3(-float(_time.elevation), float(_time.bearing), 0.0)
+	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
+	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
