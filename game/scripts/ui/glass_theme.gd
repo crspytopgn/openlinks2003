@@ -2,7 +2,8 @@ class_name GlassTheme
 extends RefCounted
 ## The theme every menu and dialog uses (installed as the default at boot):
 ## Inter type, pill-shaped buttons and lists, rounded fields and glass
-## panels (Glass). Inter is an open font (SIL OFL, assets/fonts).
+## panels (Glass). Inter is an open font (SIL OFL, assets/fonts), cut down
+## to the Latin letters, numbers and marks the game uses (57 KB).
 
 const FONT_PATH := "res://assets/fonts/InterVariable.woff2"
 const TEXT := Color(0.96, 0.97, 0.98)
@@ -29,6 +30,8 @@ static func font(weight := 400) -> Font:
 		if base != null:
 			var v := FontVariation.new()
 			v.base_font = base
+			# Inter is cut down to Latin; anything else comes from the default font.
+			v.fallbacks = [ThemeDB.fallback_font]
 			v.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("weight"): weight}
 			f = v
 	_fonts[weight] = f
