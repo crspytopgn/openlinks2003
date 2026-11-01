@@ -33,6 +33,8 @@ var _colors := {
 	Surface.Type.OUT_OF_BOUNDS: Color(0.13, 0.27, 0.10),
 }
 
+const POND_BED_COLOR := Color(0.09, 0.1, 0.06)
+
 var tee := Vector2.ZERO
 var route := PackedVector2Array()  ## tee first, green centre last
 var fairway_width := 34.0
@@ -226,25 +228,41 @@ func build_visual() -> Node3D:
 
 ## Woods round the edge of the ground, out of bounds, so the hole is set
 ## among trees instead of ending in a bare edge against the sky. Visual
-## only (far trees are impostors); the ball never gets there.
+## only; the ball never gets there. Like a real wood seen from a fairway:
+## a skirt of shrubs at the edge, two rows of full trees, then deeper rows
+## that are only ever impostors (FAR_ONLY), close enough together that no
+## sky shows between the trunks.
 func _add_tree_line(root: Node3D) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector2i(roundi(tee.x), roundi(tee.y)))
 	var trees := PackedFloat32Array()
 	var ring := bounds.grow(MARGIN * 0.55)
 	var corners := [ring.position, Vector2(ring.end.x, ring.position.y), ring.end, Vector2(ring.position.x, ring.end.y)]
+	# Per row: distance out from the ring, spacing range, height range and
+	# whether the row is impostors only. Row -1 is the shrub skirt.
+	var rows := [
+		[-4.5, 3.0, 5.0, 2.5, 4.5, -1],
+		[0.0, 5.0, 8.0, 11.0, 18.0, 0],
+		[7.0, 5.0, 8.0, 12.0, 19.0, 0],
+		[13.0, 4.0, 6.5, 14.0, 22.0, 1],
+		[18.0, 4.0, 6.5, 15.0, 24.0, 1],
+	]
 	for side in 4:
 		var a: Vector2 = corners[side]
 		var b: Vector2 = corners[(side + 1) % 4]
 		var out := (b - a).normalized().orthogonal()
 		var length := a.distance_to(b)
-		var at := 0.0
-		while at < length:
-			for row in 2:
-				var p := a.lerp(b, at / length) + out * (row * 9.0 + rng.randf_range(-3.0, 3.0))
-				var species := TreeFactory.Species.PINE if rng.randf() < 0.45 else TreeFactory.Species.BROADLEAF
-				trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y) - 0.2, p.y, rng.randf_range(10.0, 17.0), species]))
-			at += rng.randf_range(6.0, 10.0)
+		for row: Array in rows:
+			var at := rng.randf_range(0.0, row[2])
+			while at < length:
+				var p := a.lerp(b, at / length) + out * (float(row[0]) + rng.randf_range(-2.5, 2.5))
+				var species := TreeFactory.Species.PINE if rng.randf() < 0.4 else TreeFactory.Species.BROADLEAF
+				if row[5] < 0:
+					species = TreeFactory.Species.BUSH
+				var code := float(species) + (TreeFactory.FAR_ONLY if row[5] > 0 else 0)
+				trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y) - 0.2, p.y, rng.randf_range(row[3], row[4]), code]))
+				at += rng.randf_range(row[1], row[2])
+	root.add_child(_wood_floor(corners))
 	for batch: Dictionary in TreeFactory.batches(trees, 50.0):
 		var node := MultiMeshInstance3D.new()
 		node.name = "TreeLine"
@@ -255,6 +273,44 @@ func _add_tree_line(root: Node3D) -> void:
 		else:
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
+
+
+## The dark inside of the wood, behind its front rows: a low band, unlit
+## and nearly black green, so the sky never shows under the crowns and
+## between the trunks. Real woods read that way from a fairway; fog still
+## fades it with distance like everything else.
+func _wood_floor(corners: Array) -> MeshInstance3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var low := Color(0.02, 0.028, 0.016)
+	var high := Color(0.045, 0.06, 0.032)
+	for side in 4:
+		var a: Vector2 = corners[side]
+		var b: Vector2 = corners[(side + 1) % 4]
+		var out := (b - a).normalized().orthogonal()
+		var steps := maxi(1, ceili(a.distance_to(b) / 8.0))
+		for k in steps:
+			var p0 := a.lerp(b, float(k) / steps) + out * 16.0
+			var p1 := a.lerp(b, float(k + 1) / steps) + out * 16.0
+			var h0 := height_at(p0.x, p0.y)
+			var h1 := height_at(p1.x, p1.y)
+			var quad := [
+				[Vector3(p0.x, h0 - 1.0, p0.y), low], [Vector3(p1.x, h1 - 1.0, p1.y), low], [Vector3(p1.x, h1 + 6.0, p1.y), high],
+				[Vector3(p0.x, h0 - 1.0, p0.y), low], [Vector3(p1.x, h1 + 6.0, p1.y), high], [Vector3(p0.x, h0 + 6.0, p0.y), high],
+			]
+			for v: Array in quad:
+				st.set_color(v[1])
+				st.add_vertex(v[0])
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var inst := MeshInstance3D.new()
+	inst.name = "WoodFloor"
+	inst.mesh = st.commit()
+	inst.material_override = mat
+	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return inst
 
 
 func _build_ground_mesh() -> MeshInstance3D:
@@ -357,13 +413,20 @@ func _splat_material() -> ShaderMaterial:
 	var cols := PackedVector3Array()
 	var wts := PackedVector2Array()
 	var mown := PackedFloat32Array()
+	var cut := PackedFloat32Array()
 	for s in 10:
 		var c: Color = FIRST_CUT_COLOR if s == FIRST_CUT_CODE else _colors[s]
+		if s == Surface.Type.WATER:
+			# The pond's bed and the wet bank just above the water line:
+			# dark silt, not the map's blue, which showed as a bright rim.
+			c = POND_BED_COLOR
 		cols.append(Vector3(c.r, c.g, c.b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH if s == FIRST_CUT_CODE else s))
 		# The mesh's UV already carries the stripes along the hole.
 		mown.append(0.0)
+		cut.append(0.0 if s == FIRST_CUT_CODE else Materials.terrain_cut(s))
 	mat.set_shader_parameter("surface_colors", cols)
+	mat.set_shader_parameter("surface_cut", cut)
 	mat.set_shader_parameter("surface_weights", wts)
 	mat.set_shader_parameter("surface_mown", mown)
 	mat.set_shader_parameter("splat_tex", ImageTexture.create_from_image(img))

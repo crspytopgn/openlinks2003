@@ -280,6 +280,7 @@ func material() -> ShaderMaterial:
 		var wts := PackedVector2Array()
 		var mown := PackedFloat32Array()
 		var widths := PackedFloat32Array()
+		var cut := PackedFloat32Array()
 		for i in COLORS.size():
 			# Under the water line, the bank: darker rough rather than the
 			# map's blue, which would ring each pond.
@@ -288,13 +289,16 @@ func material() -> ShaderMaterial:
 			wts.append(Materials.terrain_weights(i))
 			mown.append(float(MOWN.get(i, 0.0)))
 			widths.append(float(STRIPE_METRES.get(i, 0.0)))
+			cut.append(Materials.terrain_cut(i))
 		# The splat's tenth entry (a first cut) isn't painted on designed courses.
 		cols.append(Vector3(COLORS[Surface.Type.ROUGH].r, COLORS[Surface.Type.ROUGH].g, COLORS[Surface.Type.ROUGH].b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
 		mown.append(0.0)
 		widths.append(0.0)
+		cut.append(0.0)
 		_material.set_shader_parameter("surface_stripe_metres", widths)
 		_material.set_shader_parameter("surface_colors", cols)
+		_material.set_shader_parameter("surface_cut", cut)
 		_material.set_shader_parameter("surface_weights", wts)
 		_material.set_shader_parameter("surface_mown", mown)
 		_material.set_shader_parameter("has_splat", true)

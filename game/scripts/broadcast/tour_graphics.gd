@@ -51,10 +51,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glass = FrostedGlass.new()
 	add_child(glass)
-	_font = ThemeDB.fallback_font
+	_font = GlassTheme.font(600)
 	_bold = FontVariation.new()
-	_bold.base_font = _font
-	_bold.variation_embolden = 0.9
+	_bold.base_font = GlassTheme.font(800)
 	_bold.variation_transform = Transform2D(Vector2(1, 0), Vector2(-0.12, 1), Vector2.ZERO)  # a sporty lean
 
 

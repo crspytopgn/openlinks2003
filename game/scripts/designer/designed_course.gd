@@ -200,6 +200,8 @@ func to_course_data() -> CourseData:
 	var terrain := DesignedTerrain.new(self)
 	var data := CourseData.new()
 	data.course_name = course_name
+	if source.has("lat") and source.has("lon"):
+		data.location = Vector2(float(source.lat), float(source.lon))
 	for n in holes.size():
 		var dh := holes[n]
 		if dh.tees.is_empty():

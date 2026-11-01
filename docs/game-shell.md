@@ -585,6 +585,16 @@ better golfers make more birdies and fewer bogeys, weak ones more doubles. A
 tour-average golfer's simulated rounds average 0.6 under par 72 with a
 round-to-round spread of about 2.8 strokes.
 
+Real courses don't all play like that average, and under our physics a
+course can play harder or easier for computer golfers than tour odds say.
+So the computer golfers in the person's group teach the simulation
+(`CourseDifficulty`): after each real round, the strokes each took beyond what
+the simulation expected for it (`Tournament.expected_to_par`) are kept for
+that course, and the rest of the field plays that much harder or easier
+there from then on. The shift is per 18 holes and starts as if three rounds
+had shown no difference, so one wild round moves it only a little. It is
+kept across tournaments in `user://course_difficulty.cfg`.
+
 Field golfers start before and after the person's group (groups 10 minutes
 apart, about 0.7 holes), so while the person plays, the live leaderboard
 moves: the Tour presentation's rail shows the top five and the person's
@@ -763,8 +773,15 @@ the physics, the swing and the scoring are the same in both.
   ribbon with a soft halo, a hot core and a flare at the ball, widened
   across the camera's view so it stays solid where the ball flies at the
   lens.
-- `scripts/ui/frosted_glass.gd`: the Broadcast and Tour panels are frosted
-  glass, the picture under them blurred, under a see-through tint.
+- `scripts/ui/glass.gd`, `glass_theme.gd`, `frosted_glass.gd`: the glass
+  look of the menus and HUD, our own take on the translucent "liquid glass"
+  of current phone and TV interfaces: rounded panels whose picture behind
+  is bent at the edges and blurred, with a lit rim; pill buttons; Inter type
+  (SIL Open Font License, `assets/fonts`); panels that spring open. The live
+  blur runs only on Forward+ at Medium quality and up; the web build and Low
+  quality draw the same shapes as plain tinted glass, with no extra pass.
+  The swing meter's bar and the wind dial (a disc with a compass ring and
+  the speed in a pill) sit on the same glass.
 - From the second hole the key hints fold away to a small "F1: controls";
   F1 brings them back.
 - Replays: R between shots (and automatically after a holed approach, a
@@ -921,7 +938,11 @@ Nothing in the round needs to change.
   with a little random pitch and level. Courses with no ambient sounds of
   their own get `FreeAmbience`. Like a real course on TV it is mostly
   quiet: wind in the trees (always a little, more with the wind); a bed
-  picked from the course name (parkland, woodland, seaside, desert) kept
+  picked from where the course is in the world when that is known (a
+  course built from a map: deserts round Phoenix, the Gulf and inland
+  Australia; woodland far north or south) and otherwise from its name
+  (parkland, woodland, seaside, desert; a name that says links or bay
+  wins), kept
   low, with birdsong loudest at dawn and quietest at midday (cicadas the
   other way); now and then a single bird calling from a tree 25 to 90 m
   away (a 3D sound, fainter and duller with distance); a far-off road;
@@ -930,7 +951,9 @@ Nothing in the round needs to change.
   twice a second and faded smoothly: under the trees the birds and leaves
   are louder and the calls come from the hole's own trees; on an open
   fairway both drop away (on a seaside links the wind rises instead); water
-  rises as the camera nears it. The time of day comes from Settings (and moves
+  rises as the camera nears it. Somewhere warm (within 38 degrees of the
+  equator) cicadas sing in the trees under the birds, loudest at midday.
+  The time of day comes from Settings (and moves
   through the round with "Through the round"). In Broadcast and Tour the
   gallery murmurs from the tee and the green, and hushes while the player
   is over the ball. The road, mower and murmur are synthesised by

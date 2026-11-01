@@ -82,6 +82,7 @@ func _initialize() -> void:
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
 	_run("player_looks", _test_player_looks)
+	_run("golfer_roster", _test_golfer_roster)
 	_run("face_from_photo", _test_face_from_photo)
 	_run("free_sounds", _test_free_sounds)
 	_run("format_readers", _test_format_readers)
@@ -117,6 +118,7 @@ func _process(_delta: float) -> bool:
 	_run("practice_ground_round", _test_practice_ground_round)
 	_run("mulligans", _test_mulligans)
 	_run("click_aim", _test_click_aim)
+	_run("glass_ui", _test_glass_ui)
 	_run("pick_up", _test_pick_up)
 	_run("computer_opponents", _test_computer_opponents)
 	_run("team_ball_modes", _test_team_ball_modes)
@@ -1342,6 +1344,26 @@ func _test_computer_golfer_plans() -> void:
 	print("  approach: %s at %.2f power, aim %.2f deg, %.1f m from the pin" % [clubs[cpu.club_index].short_name, cpu.power, cpu.aim_deg, miss])
 	_check(not clubs[cpu.club_index].is_putter, "a full club from the fairway")
 	_check(miss < 6.0, "approach plan ends within 6 m in a crosswind (%.1f m)" % miss)
+
+	# After stroke and distance it doesn't play the same club out of bounds
+	# again: the plan can't see a real swing catch a bunker lip.
+	var first := cpu.club_index
+	var ob := ShotResult.new()
+	ob.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
+	ob.rest = Vector3(60.0, 0.0, 120.0)
+	cpu.learn(Vector3(30.0, 0.0, 0.0), first, ob)  # from somewhere else: ignored
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	_check(cpu.club_index == first, "a result from another spot changes nothing")
+	cpu.learn(Vector3.ZERO, first, ob)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	print("  after %s went out of bounds: %s" % [clubs[first].short_name, clubs[cpu.club_index].short_name])
+	_check(cpu.club_index != first, "doesn't repeat a club that just went out of bounds from here")
+	cpu.end_hole(0)
+	cpu.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3(3.0, 0.0, 0.0))
+	cpu.finish()
+	_check(cpu.club_index == first, "forgets it on the next hole")
 
 	var weak := ComputerGolfer.new(OpponentSkill.Level.BEGINNER, 5)
 	weak.plan(model, clubs, hole, Vector3.ZERO, Surface.Type.FAIRWAY, Vector3.ZERO)
@@ -2881,7 +2903,7 @@ func _test_full_round() -> void:
 	print(line + "  total %d (%s)" % [game.card.total_strokes(), Scorecard.format_to_par(game.card.to_par())])
 	# Without game files the round plays the free recordings.
 	_check(game.sounds is FreeSoundBank, "free sound bank without game files")
-	_check(game.free_ambience != null and game.free_ambience.get_child_count() == 6, "free ambience beds, road, mower and birdcalls")
+	_check(game.free_ambience != null and game.free_ambience.get_child_count() == 7, "free ambience beds, road, mower, insects and birdcalls")
 	var before := game.sounds.get_child_count()
 	game.sounds.play_detail(&"hit", {"club": _club("Dr"), "lie": Surface.Type.ROUGH, "power": 1.0})
 	game.sounds.play_detail(&"land", {"surface": Surface.Type.SAND, "speed": 15.0})
@@ -3125,6 +3147,16 @@ func _test_free_sounds() -> void:
 	_check(FreeAmbience.water_for(5.0) == 1.0 and FreeAmbience.water_for(200.0) == 0.0 and FreeAmbience.water_for(46.0) > 0.0, "water fades with distance")
 	_check(FreeAmbience.woods_for(0) == 0.0 and FreeAmbience.woods_for(100) == 1.0, "woods from the trees around")
 	_check(FreeAmbience.water_distance(null, Vector3.ZERO) == INF, "no terrain, no water")
+	var nowhere := Vector2(NAN, NAN)
+	_check(FreeAmbience.setting_for_place("Placeholder Nine", nowhere) == FreeAmbience.Setting.PARKLAND, "unknown place: from the name")
+	_check(FreeAmbience.setting_for_place("TPC Scottsdale", Vector2(33.64, -111.91)) == FreeAmbience.Setting.DESERT, "Scottsdale is desert")
+	_check(FreeAmbience.setting_for_place("Emirates Golf Club", Vector2(25.09, 55.16)) == FreeAmbience.Setting.DESERT, "Dubai is desert")
+	_check(FreeAmbience.setting_for_place("Augusta National", Vector2(33.50, -82.02)) == FreeAmbience.Setting.PARKLAND, "Augusta is parkland")
+	_check(FreeAmbience.setting_for_place("St Andrews Links", Vector2(56.34, -2.80)) == FreeAmbience.Setting.SEASIDE, "a links by name wins")
+	_check(FreeAmbience.setting_for_place("Gleneagles", Vector2(56.28, -3.75)) == FreeAmbience.Setting.WOODLAND, "Scottish highlands are woodland")
+	_check(FreeAmbience.is_warm(Vector2(33.5, -82.0)) and not FreeAmbience.is_warm(Vector2(51.4, -0.6)) and not FreeAmbience.is_warm(nowhere), "cicadas in Georgia, not Surrey")
+	_check(FreeAmbience.insects_db(park, true, "midday", 1.0) > FreeAmbience.insects_db(park, true, "morning", 1.0), "cicadas loudest at midday")
+	_check(FreeAmbience.insects_db(park, false, "midday", 1.0) == FreeAmbience.SILENT_DB, "no cicadas somewhere cool")
 	var trees: Array[PlacedObject] = [PlacedObject.new("oak", Vector3(50, 0, 0))]
 	var spot := FreeAmbience.call_spot(trees, Vector3.ZERO)
 	_check(Vector2(spot.x, spot.z).distance_to(Vector2(50, 0)) < 0.01 and spot.y >= FreeAmbience.CALL_HEIGHT.x, "birds call from up in the trees")
@@ -3294,6 +3326,74 @@ func _test_face_from_photo() -> void:
 	_check(skin.is_equal_approx(Color(0.8, 0.6, 0.5)) or skin.r > 0.78, "skin colour from the cheeks and forehead")
 	var hair := PlayerFaceFit.hair_colour(img, pts)
 	_check(hair.r < 0.15, "hair colour from above the forehead")
+
+
+func _test_golfer_roster() -> void:
+	var pros := GolferRoster.golfers()
+	_check(pros.size() == 16, "sixteen tour pros on the roster")
+	var seen := {}
+	var women := 0
+	var tones := {}
+	for g in pros:
+		var look: PlayerLook = g["look"]
+		seen[str(g["name"]).to_lower()] = true
+		women += 1 if look.sex >= 0.5 else 0
+		tones[look.skin.to_html()] = true
+		_check(look.outfit == "polo", "%s wears a polo" % g["name"])
+		_check(look.height_cm >= 150.0 and look.height_cm <= 200.0, "%s is a real height" % g["name"])
+		_check(look.sex < 0.5 or look.stubble == 0.0, "%s has no stubble" % g["name"])
+	_check(seen.size() == pros.size(), "every pro has their own name")
+	_check(women >= 5 and women <= 8, "men and women on the roster (%d women)" % women)
+	_check(tones.size() >= 6, "skin tones vary across the roster (%d)" % tones.size())
+	var callum := GolferRoster.find(" callum REID ")
+	_check(not callum.is_empty() and callum["country"] == "SCO", "pros are found by name in any case")
+	_check(GolferRoster.look_for("Callum Reid").key() == (callum["look"] as PlayerLook).key(), "a pro's own look")
+	var a := GolferRoster.look_for("Somebody Else")
+	_check(a.key() == GolferRoster.look_for("somebody else").key(), "an unknown name always gets the same look")
+	_check(a.key() != GolferRoster.look_for("Another Golfer").key(), "unknown names look different")
+	_check(is_equal_approx(GolferRoster.age_slider(25.0), 0.0) and GolferRoster.age_slider(54.0) > 0.4,
+		"ages in years map to the age slider")
+	# Random golfers follow real odds: red hair is rare, women don't wear
+	# the short shorts, men have some stubble.
+	var red := 0
+	var shorts_women := 0
+	var stubbled := 0
+	for k in 400:
+		var l := PlayerLook.random(k)
+		if l.hair_colour == PlayerLook.HAIR_COLOURS[4][1]:
+			red += 1
+		if l.sex >= 0.5 and l.outfit == "shorts":
+			shorts_women += 1
+		if l.sex < 0.5 and l.stubble > 0.1:
+			stubbled += 1
+	_check(red < 20, "red hair is rare (%d of 400)" % red)
+	_check(shorts_women == 0, "women golfers wear trousers")
+	_check(stubbled > 60, "some men have stubble (%d)" % stubbled)
+	var l2 := PlayerLook.new()
+	l2.stubble = 0.6
+	_check(is_equal_approx(PlayerLook.from_dict(l2.to_dict()).stubble, 0.6), "stubble is saved with the look")
+	var parts := GolferParts.shared()
+	if parts == null:
+		return
+	var shown := FreeGolfer.parts_for(PlayerLook.new(), parts.info)
+	_check(shown.has("Collar_polo") and shown.has("Placket_polo") and shown.has("Buttons_polo"),
+		"a polo has its collar, placket and buttons")
+	var sleeves := PlayerLook.new()
+	sleeves.outfit = "sleeves"
+	_check(not FreeGolfer.parts_for(sleeves, parts.info).has("Collar_polo"), "collars only on polos")
+	_check(int(parts.info.materials.Cap.texture) >= 0 and parts.texture(int(parts.info.materials.Cap.texture)) != null,
+		"the cap has its stitched texture")
+	_check(int(parts.info.materials.Skin.get("regions", -1)) >= 0, "the skin has its region map")
+	var golfer := FreeGolfer.create(GolferRoster.look_for("Luis Navarro"))
+	if golfer == null:
+		return
+	var body := golfer.find_child("Body", true, false) as MeshInstance3D
+	var mat: Material = body.get_surface_override_material(0) if body.mesh.get_surface_count() > 1 else body.material_override
+	_check(mat is ShaderMaterial and is_equal_approx(float((mat as ShaderMaterial).get_shader_parameter("stubble")), 0.7),
+		"the skin shader shows the pro's stubble")
+	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
+	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
+	golfer.free()
 
 
 func _test_player_looks() -> void:
@@ -3627,6 +3727,49 @@ func _test_launch_monitor_input() -> void:
 
 ## Mulligans: the shot is taken again from the same spot, the card doesn't
 ## count it, and the round still replays to the same card.
+func _test_glass_ui() -> void:
+	_check(Glass.spring(0.0) == 0.0 and Glass.spring(1.0) == 1.0, "the spring starts at 0 and settles at 1")
+	var peak := 0.0
+	for i in 101:
+		peak = maxf(peak, Glass.spring(i / 100.0))
+	_check(peak > 1.0 and peak < 1.15, "and overshoots a touch (%.3f)" % peak)
+	GlassTheme.install()
+	var d := ThemeDB.get_default_theme()
+	var pill := d.get_stylebox("normal", "Button") as StyleBoxFlat
+	_check(pill != null and pill.corner_radius_top_left >= 20, "buttons are pills")
+	_check(d.default_font is FontVariation, "the theme's type is Inter")
+	var p := PanelContainer.new()
+	MenuStyle.panel(p)
+	var style := p.get_theme_stylebox("panel") as StyleBoxFlat
+	_check(style != null and style.corner_radius_top_left == Glass.RADIUS and style.bg_color.a < 0.8, "menu panels are rounded glass")
+	p.free()
+	Glass.allow_blur = false
+	_check(not Glass.blurs(), "Low quality: no live blur")
+	Glass.allow_blur = true
+	# The HUD's meter and wind dial: glass in Broadcast, nothing behind the
+	# classic ones.
+	var wind := WindIndicator.new()
+	wind.size = Vector2(90, 112)
+	root.add_child(wind)
+	var shapes := wind._modern_shapes()
+	_check(shapes.size() == 2 and is_equal_approx(shapes[0].size.x, shapes[0].size.y)
+			and shapes[1].position.y > shapes[0].end.y, "the wind dial is a disc with the speed pill under it")
+	wind.modern = true
+	wind.update_glass()
+	_check(wind._glass.panel_count() == 2, "both on glass")
+	wind.free()
+	var meter := SwingMeter.new()
+	meter.size = SwingMeter.MODERN_SIZE
+	root.add_child(meter)
+	meter.modern = true
+	meter.update_glass()
+	_check(meter._glass.panel_count() == 1, "the modern meter sits on glass")
+	meter.modern = false
+	meter.update_glass()
+	_check(meter._glass.panel_count() == 0 and not meter._glass.visible, "the classic arc doesn't")
+	meter.free()
+
+
 func _test_click_aim() -> void:
 	var flat := FlatTerrain.new(Surface.Type.FAIRWAY, 2.0)
 	var hit: Variant = ClickAim.ray_ground(flat, Vector3(0, 12, 0), Vector3(0, -1, 1))
@@ -3770,16 +3913,21 @@ func _test_computer_opponents() -> void:
 	_check(game.state == GolfRound.State.COMPUTER, "a computer golfer is on the tee")
 	var started := Time.get_ticks_msec()
 	var steps := 0
-	var worst := 0
-	var worst_log := PackedStringArray()
+	var pro_log := PackedStringArray()
+	var was_done := false
 	while game.state != GolfRound.State.ROUND_DONE and steps < 2000:
 		game.auto_play_step()
 		steps += 1
-		if game.state == GolfRound.State.HOLE_DONE and game.players[0].strokes > worst:
-			worst = game.players[0].strokes
-			worst_log = game.shot_log.duplicate()
+		var done := game.state == GolfRound.State.HOLE_DONE or game.state == GolfRound.State.ROUND_DONE
+		if done and not was_done:
+			# Every shot the tour pro played, hole by hole.
+			pro_log.append("hole %d (par %d): %d" % [game.hole.number, game.hole.par, game.players[0].strokes])
+			for line in game.shot_log:
+				if line.begins_with("Pro"):
+					pro_log.append("  " + line)
+		was_done = done
 	_check(game.state == GolfRound.State.ROUND_DONE, "computer round finishes")
-	print("  the tour pro's worst hole:\n    " + "\n    ".join(worst_log))
+	print("  the tour pro's round:\n    " + "\n    ".join(pro_log))
 	var pro := game.scoring.cards[0]
 	var hacker := game.scoring.cards[1]
 	_check(pro.holes_played() == game.holes.size() and hacker.holes_played() == game.holes.size(), "both played every hole")
@@ -4919,6 +5067,8 @@ func _play_tournament_round(t: Tournament, pars: Array[int], mine: int) -> Strin
 func _test_tournament_stroke_play() -> void:
 	Tournament.path = "user://test_tournament.cfg"
 	Tournament.remove()
+	CourseDifficulty.path = "user://test_course_difficulty.cfg"
+	CourseDifficulty.remove()
 	var keys: Array[String] = ["", ""]
 	var titles: Array[String] = ["Kauri Cliffs Golf Club", "Kauri Cliffs Golf Club"]
 	var t := Tournament.create({"player": "Tester", "format": Tournament.Format.STROKE, "rounds": 4, "strength": 3,
@@ -4946,8 +5096,18 @@ func _test_tournament_stroke_play() -> void:
 	_check(late > early, "the field plays on while the person does (%d, %d holes)" % [early, late])
 	var rows := t.live_rows(9, {"Tester": [4, 4, 3, 4, 5, 4, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]})
 	_check(rows.size() == 72 and str(rows[0].pos) in ["1", "T1"], "live rows")
+	var group := t.partner_indexes()
 	var text := _play_tournament_round(t, pars, 0)
 	print("  " + text)
+	# The partners' real rounds (level par here) teach the field how the
+	# course plays.
+	var want := 0.0
+	for i in group:
+		want -= t.expected_to_par(i, pars, t.round_winds[0])
+	want /= group.size() + CourseDifficulty.PRIOR_ROUNDS
+	_check(CourseDifficulty.rounds("") == group.size(), "each partner's round is kept (%d)" % CourseDifficulty.rounds(""))
+	_check_near(CourseDifficulty.shift(""), want, 1e-4, "the course shift")
+	print("  course shift after round 1: %+.2f a round" % CourseDifficulty.shift(""))
 	_check(text.begins_with("Kauri Cliffs Open, round 1: 72 (E)"), "round 1 text (%s)" % text)
 	text = _play_tournament_round(t, pars, -1)
 	print("  " + text)
@@ -4977,6 +5137,7 @@ func _test_tournament_stroke_play() -> void:
 	var board := t2.leaderboard_lines(5)
 	_check(board.size() >= 5 and board[0].contains("pts"), "a Stableford board (%s)" % board[0])
 	Tournament.remove()
+	CourseDifficulty.remove()
 
 
 func _test_tournament_match_play() -> void:

@@ -106,6 +106,9 @@ var top := Color(0.13, 0.24, 0.45)
 var bottom := Color(0.85, 0.75, 0.59)
 var shoes := Color(1, 1, 1)
 var cap := true  ## a golf cap (most tour players wear one)
+## Beard shadow on the jaw, chin and upper lip, 0 clean-shaven to 1 a few
+## days' growth (the colour follows the hair).
+var stubble := 0.0
 var cap_colour := Color(1, 1, 1)
 ## A white glove on the left hand.
 var glove := true
@@ -156,7 +159,7 @@ func to_dict() -> Dictionary:
 		"muscle": snappedf(muscle, 0.001), "age": snappedf(age, 0.001), "face": f,
 		"skin": skin.to_html(false), "hair": hair, "hair_colour": hair_colour.to_html(false), "eyes": eyes,
 		"outfit": outfit, "top": top.to_html(false), "bottom": bottom.to_html(false), "shoes": shoes.to_html(false),
-		"cap": cap, "cap_colour": cap_colour.to_html(false), "glove": glove,
+		"cap": cap, "cap_colour": cap_colour.to_html(false), "glove": glove, "stubble": snappedf(stubble, 0.001),
 		"club_head": club_head.to_html(false), "shaft": shaft, "grip": grip.to_html(false), "ball": ball.to_html(false),
 	}
 
@@ -185,6 +188,7 @@ static func from_dict(d: Dictionary) -> PlayerLook:
 	l.cap = d.get("cap", true) == true
 	l.cap_colour = _colour(d, "cap_colour", l.cap_colour)
 	l.glove = d.get("glove", true) != false
+	l.stubble = clampf(float(d.get("stubble", 0.0)), 0.0, 1.0)
 	l.club_head = _colour(d, "club_head", l.club_head)
 	l.shaft = _choice(d, "shaft", SHAFTS, l.shaft)
 	l.grip = _colour(d, "grip", l.grip)
@@ -212,39 +216,75 @@ func key() -> String:
 
 
 ## A plausible random golfer, the same for the same seed: computer golfers
-## get one from their name.
+## get one from their name (GolferRoster.look_for). The odds follow real
+## golfers: hair and eye colours go with the skin tone (red hair is rare),
+## hair greys from the forties, women mostly tie their hair back, and the
+## clothes are tour pairings (a polo, neutral trousers, a cap that matches
+## one of them or is white).
 static func random(seed_value: int) -> PlayerLook:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var l := PlayerLook.new()
 	var female := rng.randf() < 0.35
 	l.sex = 1.0 if female else 0.0
-	l.height_cm = clampf(rng.randfn(165.0 if female else 178.0, 7.0), HEIGHT_MIN, HEIGHT_MAX)
-	l.weight = clampf(rng.randfn(0.05, 0.4), -1.0, 1.0)
-	l.muscle = clampf(rng.randfn(0.0, 0.35), -1.0, 1.0)
-	l.age = clampf(rng.randf_range(-0.9, 0.8), -1.0, 1.0)
+	l.height_cm = clampf(rng.randfn(168.0 if female else 180.0, 6.5), HEIGHT_MIN, HEIGHT_MAX)
+	l.weight = clampf(rng.randfn(0.05, 0.3), -0.8, 0.9)
+	l.muscle = clampf(rng.randfn(0.1, 0.3), -0.8, 0.9)
+	# 20 to 55 years old, most in their late twenties and thirties.
+	var years := clampf(rng.randfn(33.0, 8.0), 20.0, 58.0)
+	l.age = GolferRoster.age_slider(years)
 	for entry: Array in FACE:
-		l.face[entry[0]] = snappedf(clampf(rng.randfn(0.0, 0.35), -1.0, 1.0), 0.01)
-	l.skin = SKIN_TONES[rng.randi_range(0, SKIN_TONES.size() - 1)][1]
-	var dark_skin := SKIN_TONES.find(_nearest(SKIN_TONES, l.skin)) >= 5
-	var styles := ["ponytail", "bob", "long", "short", "afro"] if female else ["short", "crop", "side_part", "short", "bald", "afro"]
-	l.hair = styles[rng.randi_range(0, styles.size() - 1)]
-	if l.hair == "afro" and not dark_skin and rng.randf() < 0.8:
-		l.hair = "short"
-	var colours := 3 if dark_skin else HAIR_COLOURS.size() - 2
-	l.hair_colour = HAIR_COLOURS[rng.randi_range(0, colours - 1)][1]
-	if l.age > 0.5 and rng.randf() < 0.7:
-		l.hair_colour = HAIR_COLOURS[6 + rng.randi_range(0, 1)][1]
-	l.eyes = EYES[rng.randi_range(0, 1 if dark_skin else EYES.size() - 1)]
-	l.outfit = OUTFITS[rng.randi_range(0, OUTFITS.size() - 1)]
-	l.top = CLOTH_COLOURS[rng.randi_range(0, CLOTH_COLOURS.size() - 1)][1]
-	var trousers := [0, 2, 3, 4, 5, 6, 1]
-	l.bottom = CLOTH_COLOURS[trousers[rng.randi_range(0, trousers.size() - 1)]][1]
-	l.shoes = [Color(1, 1, 1), Color(0.12, 0.12, 0.13), Color(0.45, 0.3, 0.2)][rng.randi_range(0, 2)]
-	l.cap = rng.randf() < 0.5
-	l.cap_colour = CLOTH_COLOURS[rng.randi_range(0, CLOTH_COLOURS.size() - 1)][1]
-	l.shaft = SHAFTS[rng.randi_range(0, SHAFTS.size() - 1)]
+		l.face[entry[0]] = snappedf(clampf(rng.randfn(0.0, 0.3), -1.0, 1.0), 0.01)
+	var tone := _pick(rng, [10, 16, 18, 14, 12, 12, 10, 8])
+	l.skin = SKIN_TONES[tone][1]
+	var hair_odds: Array
+	if tone >= 5:
+		hair_odds = [85, 15, 0, 0, 0, 0]
+	elif tone >= 3:
+		hair_odds = [50, 38, 12, 0, 0, 0]
+	else:
+		hair_odds = [12, 32, 30, 6, 3, 17]
+	l.hair_colour = HAIR_COLOURS[_pick(rng, hair_odds)][1]
+	if rng.randf() < clampf((years - 40.0) / 20.0, 0.0, 0.85):
+		l.hair_colour = HAIR_COLOURS[6 if rng.randf() < 0.8 else 7][1]
+	if female:
+		l.hair = ["ponytail", "ponytail", "ponytail", "bob", "long"][rng.randi_range(0, 4)]
+	elif tone >= 5:
+		l.hair = ["crop", "crop", "short", "bald", "afro"][rng.randi_range(0, 4)]
+	else:
+		l.hair = ["short", "short", "crop", "side_part", "side_part"][rng.randi_range(0, 4)]
+		if rng.randf() < clampf((years - 30.0) / 50.0, 0.0, 0.3):
+			l.hair = "bald"
+	l.eyes = EYES[_pick(rng, [100, 0, 0, 0, 0] if tone >= 5 else ([70, 20, 5, 5, 0] if tone >= 3 else [30, 15, 12, 33, 10]))]
+	if not female:
+		l.stubble = snappedf(clampf(rng.randfn(0.25, 0.25), 0.0, 0.8), 0.01)
+	l.outfit = OUTFITS[_pick(rng, [75, 15, 0 if female else 10])]
+	var tops := [0, 1, 1, 2, 3, 4, 7, 8, 10, 11, 12, 13, 14, 9]
+	var top := tops[rng.randi_range(0, tops.size() - 1)] as int
+	l.top = CLOTH_COLOURS[top][1]
+	var trousers := [0, 1, 2, 3, 4, 5, 6]
+	var bottom := top
+	while bottom == top:
+		bottom = trousers[rng.randi_range(0, trousers.size() - 1)]
+	l.bottom = CLOTH_COLOURS[bottom][1]
+	l.shoes = [Color(1, 1, 1), Color(1, 1, 1), Color(0.12, 0.12, 0.13), Color(0.45, 0.3, 0.2)][rng.randi_range(0, 3)]
+	l.cap = rng.randf() < 0.7
+	l.cap_colour = CLOTH_COLOURS[[top, bottom, 1, 1][rng.randi_range(0, 3)]][1]
+	l.shaft = SHAFTS[_pick(rng, [55, 35, 10])]
 	return l
+
+
+## An index into `odds`, picked with those relative weights.
+static func _pick(rng: RandomNumberGenerator, odds: Array) -> int:
+	var total := 0.0
+	for o: Variant in odds:
+		total += float(o)
+	var r := rng.randf() * total
+	for i in odds.size():
+		r -= float(odds[i])
+		if r < 0.0:
+			return i
+	return odds.size() - 1
 
 
 ## The named entry of `options` ([name, colour] pairs) closest to `c`.

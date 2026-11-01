@@ -79,11 +79,14 @@ var setting: Setting = Setting.PARKLAND
 ## GraphicsSettings.TimeOfDay and how far through the round (0 to 1), for
 ## the "Through the round" setting.
 var time_of_day := 0
+## Somewhere warm: cicadas in the trees on a hot afternoon (is_warm).
+var warm := false
 var round_progress := 0.0
 var _bed: AudioStreamPlayer
 var _breeze: AudioStreamPlayer
 var _water: AudioStreamPlayer
 var _traffic: AudioStreamPlayer
+var _insects: AudioStreamPlayer
 var _mower: AudioStreamPlayer
 var _call: AudioStreamPlayer3D
 var _tweens := {}
@@ -102,8 +105,50 @@ var water := 0.0
 static func create(course: CourseData) -> FreeAmbience:
 	var a := FreeAmbience.new()
 	a.name = "FreeAmbience"
-	a.setting = setting_for(course.course_name)
+	var at := location_of(course)
+	a.setting = setting_for_place(course.course_name, at)
+	a.warm = is_warm(at)
 	return a
+
+
+## Where in the world a course is, (latitude, longitude) in degrees, when it
+## was built from a real place (the course from a map); NAN otherwise.
+static func location_of(course: CourseData) -> Vector2:
+	return course.location if course != null else Vector2(NAN, NAN)
+
+
+## Hot dry places, (lat from, lat to, lon from, lon to): the deserts round
+## Phoenix, Tucson, Las Vegas and Palm Springs; North Africa and the Gulf;
+## inland Australia.
+const ARID := [
+	[31.0, 37.5, -118.0, -104.0],
+	[15.0, 32.0, -17.0, 60.0],
+	[-30.0, -19.0, 118.0, 145.0],
+]
+## Within this latitude summers are hot enough for cicadas in the trees
+## (the US South, the Mediterranean, Australia, Japan).
+const WARM_LATITUDE := 38.0
+
+
+## The kind of place from where the course is in the world, when that is
+## known, and its name: a name that says seaside wins (a links can be
+## anywhere on a coast), then the climate (desert), then far north or south
+## woodland, then what the name says.
+static func setting_for_place(course_name: String, at: Vector2) -> Setting:
+	var by_name := setting_for(course_name)
+	if is_nan(at.x) or by_name == Setting.SEASIDE:
+		return by_name
+	for box: Array in ARID:
+		if at.x >= box[0] and at.x <= box[1] and at.y >= box[2] and at.y <= box[3]:
+			return Setting.DESERT
+	if absf(at.x) >= 55.0:
+		return Setting.WOODLAND
+	return by_name
+
+
+## Whether the course is somewhere with cicadas in the summer trees.
+static func is_warm(at: Vector2) -> bool:
+	return not is_nan(at.x) and absf(at.x) < WARM_LATITUDE
 
 
 ## The kind of place a course is, from its name; parkland when the name
@@ -123,6 +168,7 @@ func _ready() -> void:
 	_breeze = _player("amb_breeze")
 	_water = _player("amb_water")
 	_traffic = _player("amb_traffic")
+	_insects = _player("amb_desert")
 	_mower = _player("amb_mower", false)
 	_call = AudioStreamPlayer3D.new()
 	_call.name = "BirdCall"
@@ -236,6 +282,15 @@ func _apply() -> void:
 	_relevel(_bed, l.bed)
 	_relevel(_breeze, l.breeze)
 	_relevel(_water, l.water)
+	_relevel(_insects, insects_db(setting, warm, Scenery.time_name(time_of_day, round_progress), woods))
+
+
+## Cicadas in the trees somewhere warm, under the birds: loudest in the
+## midday heat and among the trees. The desert's bed is cicadas already.
+static func insects_db(p_setting: Setting, p_warm: bool, time: String, p_woods: float) -> float:
+	if not p_warm or p_setting == Setting.DESERT or p_setting == Setting.SEASIDE:
+		return SILENT_DB
+	return CICADAS_DB[time] - 10.0 + lerpf(-6.0, 0.0, p_woods)
 
 
 func _relevel(p: AudioStreamPlayer, db: float) -> void:

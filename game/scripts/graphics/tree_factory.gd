@@ -29,6 +29,10 @@ const FRAME_PIXELS := 256
 ## Distance at which a tree turns into its impostor, per GraphicsSettings
 ## tree level (0 = classic trees, no 3D).
 const IMPOSTOR_DISTANCE: Array[float] = [0.0, 35.0, 70.0, 120.0]
+## Added to a tree's species in batches() for a tree that is only ever an
+## impostor: the back rows of a wood, hidden behind the front rows, which
+## never need the full mesh.
+const FAR_ONLY := 8
 
 const LEAF_SHADER := preload("res://shaders/tree_leaves.gdshader")
 const BARK_SHADER := preload("res://shaders/tree_bark.gdshader")
@@ -91,7 +95,8 @@ static func variant_at(species: Species, x: float, z: float) -> int:
 ## global tree_impostor_distance), and a cell's full trees are culled
 ## beyond that. Returns [{multimesh, position, reach, full}]: reach is how
 ## far the farthest tree is from position, so a cell's node can be hidden
-## at impostor_distance() + reach.
+## at impostor_distance() + reach. A species of FAR_ONLY or more (see
+## FAR_ONLY) gives a tree with only its impostor.
 static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]:
 	_ensure_instanced()
 	var out: Array[Dictionary] = []
@@ -102,13 +107,19 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 	var groups := {}  # Vector3i(cell x, cell z, variant) -> PackedInt32Array
 	var variant := PackedInt32Array()
 	variant.resize(n)
+	var far := PackedByteArray()
+	far.resize(n)
 	var centre := Vector3.ZERO
 	for i in n:
 		var x := trees[5 * i]
 		var z := trees[5 * i + 2]
-		var v := variant_at(int(trees[5 * i + 4]) as Species, x, z)
+		var code := int(trees[5 * i + 4])
+		var v := variant_at((code % FAR_ONLY) as Species, x, z)
 		variant[i] = v
+		far[i] = 1 if code >= FAR_ONLY else 0
 		centre += Vector3(x, trees[5 * i + 1], z)
+		if far[i] == 1:
+			continue
 		var key := Vector3i(floori(x / cell), floori(z / cell), v)
 		if not groups.has(key):
 			groups[key] = PackedInt32Array()
@@ -145,7 +156,7 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 		t.basis = t.basis.scaled(Vector3.ONE * _sizes[v])
 		t.origin -= centre
 		imp.set_instance_transform(i, t)
-		imp.set_instance_custom_data(i, Color((v + 0.5) / VARIANTS.size(), 0, 0, 0))
+		imp.set_instance_custom_data(i, Color((v + 0.5) / VARIANTS.size(), far[i], 0, 0))
 	out.append({multimesh = imp, position = centre, reach = 0.0, full = false})
 	if not _baked:
 		_start_bake()

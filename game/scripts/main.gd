@@ -169,6 +169,8 @@ var _computer_backswing := false
 ## within 100 ft of the hole off the green and out of sand. Chips swing on
 ## their own meter and take their own power.
 var _chip := false
+## What the computer golfer planned, added to its next shot_log line.
+var _cpu_plan_note := ""
 ## F1: keep the key hints up in the Broadcast and Tour presentations.
 var _show_controls := false
 ## What is driving the mouse swing: the mouse, a finger or a thumbstick.
@@ -310,6 +312,8 @@ func _ready() -> void:
 	shot_model = AssetProviders.shot_model
 	clubs = Club.standard_set()
 	graphics = GraphicsSettings.load_saved()
+	Glass.allow_blur = graphics.quality != GraphicsSettings.Quality.LOW
+	GlassTheme.install()
 	_build_world()
 	_apply_graphics()
 	sounds = AssetProviders.create_sound_bank()
@@ -840,6 +844,8 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
+	if rec.computer and shooter < opponents.size() and opponents[shooter] != null:
+		opponents[shooter].learn(rec.from, club_index, shot)
 	record.shots.append(rec)
 	if marks != null:
 		marks.add_divot(hole.terrain, ball_at, _aim_dir(), club, lie, _chip and not club.is_putter)
@@ -1927,7 +1933,8 @@ func _complete_flight() -> void:
 	shot_log.append("%s %d: %s from %s %.0f m, %s, %.1f m left on %s" % [
 		scoring.names[shooter], strokes, clubs[club_index].short_name, Surface.name_of(lie),
 		_flat_distance(shot_from, hole.pin), ShotResult.Outcome.keys()[shot.outcome],
-		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))])
+		_flat_distance(shot.rest, hole.pin), Surface.name_of(hole.terrain.surface_at(shot.rest.x, shot.rest.z))] + _cpu_plan_note)
+	_cpu_plan_note = ""
 	if voice != null:
 		var rest_pin := _flat_distance(shot.rest, hole.pin)
 		var past := Vector2(shot.rest.x - hole.pin.x, shot.rest.z - hole.pin.z).dot(Vector2(hole.pin.x - shot_from.x, hole.pin.z - shot_from.z)) > 0.0
@@ -1976,6 +1983,8 @@ func _complete_flight() -> void:
 	if round_setup.mode == GameModes.Mode.SCRAMBLE and players[current].members.size() > 1:
 		msg = _scramble_shot(strokes_before, msg)
 	if strokes >= _pickup_at():
+		# A penalty on the last shot can't take the card past the limit.
+		strokes = mini(strokes, _pickup_at())
 		_hole_out(true)
 		return
 	if players.size() > 1 and not msg.is_empty():
@@ -2639,6 +2648,8 @@ func _finish_drop() -> void:
 		what = "Unplayable: " + what.to_lower()
 	shot_log.append("%s: %s, %.0f m left" % [scoring.names[shooter], what, _flat_distance(ball_at, hole.pin)])
 	if strokes >= _pickup_at():
+		# A penalty on the last shot can't take the card past the limit.
+		strokes = mini(strokes, _pickup_at())
 		_hole_out(true)
 		return
 	var msg := what + "."
@@ -2786,6 +2797,7 @@ func _computer_swing() -> void:
 	var cpu := opponents[shooter]
 	cpu.pressure = _pressure_on(shooter)
 	var made := cpu.swing()
+	_cpu_plan_note = " (planned %.1f m, errors x%.2f)" % [cpu.planned_left, cpu.last_error_scale]
 	if _classic_computer(shooter):
 		# Links 2003's own computer misses (play_shot); the plan keeps its shape.
 		made = PackedFloat64Array([cpu.power, cpu.accuracy, cpu.aim_deg])
@@ -3328,7 +3340,7 @@ func _choose_looks() -> void:
 		var player_name: String = round_setup.names[i] if i < round_setup.names.size() else ""
 		var look := profiles.look_of(player_name) if not player_name.is_empty() else null
 		if look == null and free:
-			look = PlayerLook.random(player_name.hash()) if round_setup.is_computer(i) else PlayerLook.new()
+			look = GolferRoster.look_for(player_name) if round_setup.is_computer(i) else PlayerLook.new()
 		_looks.append(look)
 
 

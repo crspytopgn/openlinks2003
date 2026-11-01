@@ -217,7 +217,7 @@ func _fill() -> void:
 	_heading.text = "%s   ·   %s, %s field of %d" % [t.title, Tournament.FORMAT_NAMES[t.format],
 		str(Tournament.STRENGTHS[t.strength].name).to_lower(), t.names.size()]
 	_next.text = t.next_text()
-	_play.text = "Done" if t.over() else ("Play the %s" % ("match" if t.format == Tournament.Format.MATCH else "round %d" % (t.rounds_played() + 1)))
+	_play.text = "Done" if t.over() else ("Play the match" if t.format == Tournament.Format.MATCH else "Play round %d" % (t.rounds_played() + 1))
 	if not t.playing() and not t.over():
 		_play.text = "See it out"
 	var board := t.leaderboard_lines(12)

@@ -1,7 +1,7 @@
 class_name SwingMeter
 extends Control
 ## The classic three-click power meter. In the Broadcast presentation it is
-## a slim modern bar on a dark glass panel. In Classic it is drawn as an
+## a slim modern bar on a glass panel (Glass: blurred where it can be). In Classic it is drawn as an
 ## arc in the style of Links or, with the player's own interface art
 ## (HudArt), as the original's chrome bar. On the bars power runs right
 ## from the snap line and accuracy left of it.
@@ -31,7 +31,7 @@ const BAR_LENGTH := 330.0
 ## The modern bar: panel size, and the track's inset from the panel's sides.
 const MODERN_SIZE := Vector2(480, 78)
 const MODERN_INSET := 28.0
-const GLASS := Color(0.03, 0.05, 0.07, 0.62)
+const MODERN_RADIUS := 20
 const TRACK := Color(1, 1, 1, 0.16)
 const SWING := Color(1, 1, 1, 0.92)
 const GOLD := Color(0.98, 0.76, 0.28)
@@ -74,10 +74,18 @@ var target := -1.0:
 		queue_redraw()
 const TARGET := Color(0.95, 0.12, 0.1)
 
+## The blurred picture behind the modern bar (FrostedGlass), and its panel
+## style, rebuilt when the blur is turned on or off.
+var _glass: FrostedGlass
+var _panel: StyleBoxFlat
+var _panel_blurs := false
+
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(220, 220)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_glass = FrostedGlass.new()
+	add_child(_glass)
 
 
 ## Size the meter needs: the arc, or the bar with the original art.
@@ -180,7 +188,16 @@ func _tick(v: float, color: Color, inner: float, outer: float, width: float) -> 
 	draw_line(c + dir * (RADIUS - inner), c + dir * (RADIUS + outer), color, width, true)
 
 
+## Lists the glass behind the modern bar (none behind the classic ones).
+func update_glass() -> void:
+	_glass.begin()
+	if modern:
+		_glass.add(Rect2(Vector2.ZERO, size), 1.0, Vector4.ONE * MODERN_RADIUS)
+	_glass.commit()
+
+
 func _draw() -> void:
+	update_glass()
 	if modern:
 		_draw_modern()
 		return
@@ -294,13 +311,10 @@ func _capsule(r: Rect2, color: Color) -> void:
 
 
 func _draw_modern() -> void:
-	var glass := StyleBoxFlat.new()
-	glass.bg_color = GLASS
-	glass.set_corner_radius_all(16)
-	glass.border_color = Color(1, 1, 1, 0.1)
-	glass.set_border_width_all(1)
-	glass.anti_aliasing = true
-	draw_style_box(glass, Rect2(Vector2.ZERO, size))
+	if _panel == null or _panel_blurs != Glass.blurs():
+		_panel_blurs = Glass.blurs()
+		_panel = Glass.panel_style(MODERN_RADIUS, 0.0)
+	draw_style_box(_panel, Rect2(Vector2.ZERO, size))
 	var mid := size.y * 0.62
 	var h := 8.0
 	var x0 := _modern_x(-_low())
@@ -325,7 +339,7 @@ func _draw_modern() -> void:
 		_capsule(Rect2(x - 4.0, mid - 13.0, 8.0, 26.0), Color(1, 1, 1, 0.25))
 		_capsule(Rect2(x - 2.0, mid - 11.0, 4.0, 22.0), Color.WHITE)
 
-	var font := ThemeDB.fallback_font
+	var font := GlassTheme.font(600)
 	var top := 24.0
 	draw_string(font, Vector2(MODERN_INSET, top), "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.55))
 	if phase == Phase.BACKSWING:

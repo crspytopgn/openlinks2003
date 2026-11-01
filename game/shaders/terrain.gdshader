@@ -65,6 +65,10 @@ uniform vec2 splat_size = vec2(1.0); // metres it covers
 uniform vec3 surface_colors[10]; // sRGB
 uniform vec2 surface_weights[10]; // rough and sand weight
 uniform float surface_mown[10]; // 1 where the surface gets mowing stripes
+// How closely each surface is cut (Materials.terrain_cut): the green's
+// turf is finer, denser and smoother than the fairway's, the collar
+// between the two, so a green reads as a green up close.
+uniform float surface_cut[10];
 uniform float splat_stripe_metres = 6.0;
 // Stripe width per surface (the mower's cut), where set: wide fairway
 // units, narrower tee mowers, walk-behind greens mowers. 0 keeps
@@ -113,7 +117,7 @@ void vertex() {
 
 // The raster's colour and weights at ground point p, blended over a
 // fraction of a texel with a ragged, natural line.
-void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m) {
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut) {
 	vec2 size = vec2(textureSize(splat_tex, 0));
 	// Two independent wobbles, so the edge wanders rather than steps.
 	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5
@@ -125,6 +129,7 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe
 	w = vec2(0.0);
 	mown = 0.0;
 	stripe_m = 0.0;
+	cut = 0.0;
 	for (int k = 0; k < 4; k++) {
 		ivec2 o = ivec2(k & 1, k >> 1);
 		ivec2 t = clamp(ivec2(i) + o, ivec2(0), ivec2(size) - 1);
@@ -134,6 +139,7 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe
 		w += surface_weights[s] * a;
 		mown += surface_mown[s] * a;
 		stripe_m += (surface_stripe_metres[s] > 0.0 ? surface_stripe_metres[s] : splat_stripe_metres) * a;
+		cut += surface_cut[s] * a;
 	}
 
 }
@@ -148,6 +154,10 @@ void fragment() {
 	// Derivatives in uniform control flow, before any branch.
 	vec2 hole_mow_line = mow_line_from(stripes.x, p);
 	vec3 from_eye = world_pos - CAMERA_POSITION_WORLD;
+	// Rake marks in the sand: soft, wandering furrows about 30 cm apart,
+	// fading out once they get finer than a few pixels.
+	float rake_v = (p.x * 0.8 + p.y * 0.6 + 0.35 * sin(p.y * 0.9) + 0.25 * sin(p.x * 0.53)) / 0.3;
+	float rake = sin(rake_v * 6.28318) * (1.0 - smoothstep(0.15, 0.45, fwidth(rake_v)));
 	float patches = fbm(p * 0.035) - 0.5;
 	float close_up = 1.0 - smoothstep(grain_fade_start, grain_fade_end, length(VERTEX));
 	float fine = (value_noise(p * 2.7) - 0.5) + 0.5 * (value_noise(p * 7.3) - 0.5);
@@ -161,6 +171,7 @@ void fragment() {
 	float sand = smoothstep(0.42, 0.5, wy + edge_noise * 0.12);
 	vec3 c = COLOR.rgb;
 	float w_rough_in = weights.x;
+	float cut = 0.0;
 	vec2 sq = (p - splat_origin) / splat_size;
 	bool on_splat = has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)));
 	if (on_splat) {
@@ -168,7 +179,7 @@ void fragment() {
 		vec2 w;
 		float mown;
 		float stripe_m;
-		splat_at(p, crisp, w, mown, stripe_m);
+		splat_at(p, crisp, w, mown, stripe_m, cut);
 		c = max(c + crisp - vertex_palette, vec3(0.0));
 		// A bunker's edge is a trimmed line, not a blur or a torn one.
 		sand = smoothstep(0.3, 0.7, w.y);
@@ -187,7 +198,9 @@ void fragment() {
 	// The mesh colours are authored in sRGB; lighting works in linear.
 	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
 	vec3 col = base * (1.0 + patches * variation * 2.0);
-	ROUGHNESS = 0.95;
+	// Close-cut turf: a touch deeper and bluer, and smoother.
+	col *= mix(vec3(1.0), vec3(0.9, 0.96, 0.95), cut);
+	ROUGHNESS = mix(0.95, 0.72, cut);
 	SPECULAR = 0.1;
 
 	if (textured) {
@@ -207,7 +220,10 @@ void fragment() {
 			h = w_grass * (texture(grass_height, uv).r - grass_height_mean) + w_rough * (texture(rough_height, uv).r - rough_height_mean);
 			shade_relief = mix(1.0, clamp(1.0 + h * 2.0 * cavity, 0.3, 1.4), turf * (1.0 - smoothstep(25.0, 110.0, dist)));
 		}
-		vec3 g = two_scale(grass_albedo, uv).rgb;
+		// The green's blades are a few millimetres long: the lawn scan
+		// smaller and calmer there.
+		vec2 uv_g = uv * mix(1.0, 3.2, cut);
+		vec3 g = two_scale(grass_albedo, uv_g).rgb;
 		vec3 r = two_scale(rough_albedo, uv).rgb;
 		vec3 s = two_scale(sand_albedo, uv).rgb;
 		vec3 detail = w_grass * g / max(grass_mean, vec3(0.02)) + w_rough * r / max(rough_mean, vec3(0.02))
@@ -217,10 +233,10 @@ void fragment() {
 		const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 		vec3 photo_toned = photo * dot(col, LUMA) / max(dot(photo_mean, LUMA), 0.02);
 		// Far away the texture only adds noise and shows its repeat.
-		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX)));
+		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX))) * (1.0 - 0.35 * cut);
 		col = mix(col * mix(vec3(1.0), detail, strength), photo_toned, photo_mix * strength);
 		col *= shade_relief;
-		vec3 n = w_grass * two_scale(grass_normal, uv).rgb + w_rough * two_scale(rough_normal, uv).rgb
+		vec3 n = w_grass * two_scale(grass_normal, uv_g).rgb + w_rough * two_scale(rough_normal, uv).rgb
 			+ w_sand * two_scale(sand_normal, uv).rgb;
 		n = n * 2.0 - 1.0;
 		// The textures lie flat on the ground: u along +x, v along +z.
@@ -249,5 +265,6 @@ void fragment() {
 	// bunker reads as a hollow, not a white decal.
 	float damp = sand * (1.0 - smoothstep(0.55, 0.98, sand + edge_noise * 0.2));
 	col *= mix(1.0, 0.9 - 0.22 * damp, sand);
+	col *= 1.0 + 0.07 * rake * sand * (0.6 + 0.4 * value_noise(p * 0.4));
 	ALBEDO = clamp(tone_turf(col), vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
 }

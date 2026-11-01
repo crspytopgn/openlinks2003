@@ -861,7 +861,8 @@ STAND_CLIPS = {
     # Crouching behind the ball to read a putt, putter in hand.
     "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
 }
-CARRY_HEAD_HEIGHT = 0.12  # the club head's height when carried, metres
+CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
+CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
 
 def actor_facing(bvh, f):
@@ -1035,7 +1036,7 @@ def retarget_stand(glb, rig, clip, cache):
             # when the hand is raised above the shoulder.
             rots, poss = rig.world(rig.locals(rots), root)
             h = rig.index["hand_l"]
-            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / 1.07, 0.3, 0.95))
+            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / CARRY_REACH, 0.3, 0.95))
             low = facing * math.sqrt(1 - drop * drop) - up * drop
             raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
             w = float(np.clip(raised, 0, 1))

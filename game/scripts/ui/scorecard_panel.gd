@@ -19,8 +19,9 @@ var _split := false
 func _ready() -> void:
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.97, 0.96, 0.9, 0.96)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(14)
+	style.set_corner_radius_all(16)
+	style.corner_detail = 12
+	style.set_content_margin_all(16)
 	add_theme_stylebox_override("panel", style)
 	var box := VBoxContainer.new()
 	add_child(box)

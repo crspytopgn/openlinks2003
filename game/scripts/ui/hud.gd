@@ -169,6 +169,7 @@ func set_broadcast(on: bool, tour_on := false) -> void:
 	_place(hint_tab, Control.PRESET_BOTTOM_LEFT, Rect2(hint.offset_left, hint.offset_top + 6, 200, 20))
 	fold_hints(hints_folded)
 	meter.modern = on
+	wind.modern = on
 	_place_meter()
 
 
