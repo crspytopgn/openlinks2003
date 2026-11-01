@@ -1,9 +1,12 @@
 class_name GolfBag
 extends MeshInstance3D
-## A stand golf bag with headcovers and irons, built in code (no files): one
-## mesh with three materials (fabric, trim, metal), so it costs three draw
-## calls wherever it stands. The caddie stands it beside them, and a buggy
-## carries one on its back.
+## A tour staff bag, as a tour caddie carries: white with a coloured stripe,
+## woods under long knitted headcovers, irons, a putter cover and a towel,
+## modelled from tour photos at its real size (0.92 m bag, the driver's
+## cover about 1.3 m up; tools/props/build_props.py, docs/props.md). One
+## mesh with five materials, shared by every bag. The caddie stands it
+## beside them, and a buggy carries one on its back. Without the model, a
+## simple stand bag is built here from primitives.
 
 const FABRIC := Color(0.06, 0.11, 0.22)
 const TRIM := Color(0.92, 0.92, 0.9)
@@ -18,8 +21,16 @@ func _init() -> void:
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 
-## The bag's mesh, built once and shared by every bag.
-static func shared_mesh() -> ArrayMesh:
+## The bag's mesh, loaded (or built) once and shared by every bag.
+static func shared_mesh() -> Mesh:
+	var model := CourseProps.mesh("golf_bag")
+	if model != null:
+		return model
+	return simple_mesh()
+
+
+## The stand bag built from primitives, for when the model is missing.
+static func simple_mesh() -> ArrayMesh:
 	if _mesh != null:
 		return _mesh
 	var fabric := SurfaceTool.new()
