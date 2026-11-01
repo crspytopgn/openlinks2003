@@ -23,6 +23,8 @@ const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
+## A putt missed from inside this many metres (8 ft) gets a slump.
+const SLUMP_PUTT := 2.5
 const COMPUTER_THINK := 0.8  ## shortest time a computer golfer spends planning
 const COMPUTER_ADDRESS := 1.2  ## then it stands over the ball this long
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
@@ -1906,6 +1908,8 @@ func _complete_flight() -> void:
 				msg = ""
 			elif clubs[club_index].is_putter:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
+			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
+				golfer.play(&"slump")
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
 	if _gimme_now():
@@ -2170,7 +2174,8 @@ func _hole_out(picked_up: bool) -> void:
 		sounds.play(&"applause")
 		_caption_crowd(Commentary.Crowd.POLITE)
 		if golfer:
-			golfer.play(&"celebrate")
+			# A fist pump for a birdie; both arms up for an eagle or better.
+			golfer.play(&"fist_pump" if strokes == hole.par - 1 else &"celebrate")
 	if _next_player() < 0:
 		_finish_hole()
 		return

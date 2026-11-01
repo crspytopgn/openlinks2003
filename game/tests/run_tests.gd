@@ -3092,13 +3092,26 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	# GolferHands: a grip for the driver, iron and putter, the right hand a
+	# hand's width or so from the left; on for swings, off for the walk.
+	var hands: GolferHands = golfer._hands
+	var fresh := GolferHands.new()
+	_check(fresh.influence == 0.0 and not fresh.holding, "the hands start free (a walk before any swing keeps them apart)")
+	fresh.free()
+	for ref: StringName in [&"ref_address", &"ref_address_iron", &"ref_address_putt"]:
+		var gap := hands.grips.get(ref, Transform3D.IDENTITY).origin.length() as float
+		_check(gap > 0.03 and gap < 0.2, "the %s grip has the right hand %.3f m from the left" % [ref, gap])
+	hands.follow(&"swing_iron", 0.0)
+	_check(hands.holding and hands.influence == 1.0, "both hands hold the club in a swing")
+	hands.follow(&"walk", 0.0)
+	_check(not hands.holding and hands.influence == 0.0, "the hands swing free on the walk")
 	_test_club_heads(golfer)
 	golfer.free()
 
