@@ -81,6 +81,7 @@ func _initialize() -> void:
 	_run("web_game_files", _test_web_game_files)
 	_run("golfer_file_readers", _test_golfer_file_readers)
 	_run("free_golfer", _test_free_golfer)
+	_run("photo_golfer", _test_photo_golfer)
 	_run("golfer_cloth", _test_golfer_cloth)
 	_run("golfer_arms", _test_golfer_arms)
 	_run("player_looks", _test_player_looks)
@@ -3276,6 +3277,41 @@ func _test_drops_in_round() -> void:
 
 
 ## The MakeHuman golfer used without the original files.
+## The photo golfer: its take loads, every clip's frames are in it with
+## rising times, it plays the filmed clips and hands the rest (putts) to the
+## 3D golfer it wraps.
+func _test_photo_golfer() -> void:
+	var take := PhotoGolfer.read_take(PhotoGolfer.DEFAULT_TAKE)
+	_check(not take.is_empty(), "the photo golfer's take.json loads")
+	if take.is_empty():
+		return
+	var src: Dictionary = take.get("source", {})
+	_check(String(src.get("license", "")).begins_with("CC"), "the take is freely licensed (%s)" % src.get("license", ""))
+	var frames: Dictionary = take["frames"]
+	for clip_name in [&"address", &"backswing", &"swing"]:
+		var clip: Dictionary = take["clips"].get(String(clip_name), {})
+		_check(not clip.is_empty(), "the take has a %s clip" % clip_name)
+		var times: Array = clip.get("times", [])
+		var ok: bool = times.size() == (clip.get("frames", []) as Array).size()
+		for i in times.size():
+			ok = ok and frames.has(str(int(clip["frames"][i]))) and (i == 0 or float(times[i]) > float(times[i - 1]))
+		_check(ok, "%s: every frame is in a sheet, in time order" % clip_name)
+	var fallback := PlaceholderGolfer.new()
+	var g := PhotoGolfer.wrap(fallback)
+	_check(g is PhotoGolfer, "the photo golfer wraps the 3D golfer")
+	if not g is PhotoGolfer:
+		fallback.free()
+		return
+	var photo := g as PhotoGolfer
+	photo.play(&"swing")
+	photo.seek(0.3)
+	_check(photo._photo_on and not fallback.visible, "the filmed swing shows instead of the 3D golfer")
+	_check(photo._card.scale.y > 1.0 and photo._card.scale.y < 3.0, "the picture is golfer-sized (%.2f m tall)" % photo._card.scale.y)
+	photo.play(&"putt")
+	_check(not photo._photo_on and fallback.visible, "a putt is played by the 3D golfer")
+	photo.free()
+
+
 func _test_free_golfer() -> void:
 	var golfer := FreeGolfer.create()
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")

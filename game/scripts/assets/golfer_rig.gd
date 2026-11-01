@@ -21,6 +21,13 @@ func set_shot(_club: Club, _distance_m: float, _power: float = 1.0) -> void:
 	pass
 
 
+## Seconds from play(&"swing") to the club meeting the ball. The round holds
+## the ball (and the strike sound) that long, so the ball leaves the club.
+## Rigs whose swing starts at impact return 0.
+func impact_delay() -> float:
+	return 0.0
+
+
 ## Turns the golfer's head to follow `target` (the ball in flight) after
 ## `delay` seconds, until the next play().
 func watch(_target: Node3D, _delay: float = 0.3) -> void:

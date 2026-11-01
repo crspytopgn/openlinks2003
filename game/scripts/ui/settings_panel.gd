@@ -38,6 +38,7 @@ var _skill: OptionButton
 var _swing: OptionButton
 var _swing_help: OptionButton
 var _ball_size: OptionButton
+var _photo_golfer: OptionButton
 var _firmness: OptionButton
 var _putting_grid: OptionButton
 var _breakline: OptionButton
@@ -114,6 +115,8 @@ func _ready() -> void:
 	_sky = _row(grid, "Sky (next course)", [], false)
 	_sky.item_selected.connect(_on_sky_selected)
 	_presentation = _row(grid, "Presentation", GraphicsSettings.PRESENTATION_NAMES)
+	_photo_golfer = _row(grid, "Golfer", ["3D (motion capture)", "Photo (filmed, prototype)"])
+	_photo_golfer.tooltip_text = "A real golfer filmed swinging, frame by frame, like the early Links games. The 3D golfer stands in for putts, reactions and side views. From the next hole."
 	if OS.has_feature("web"):
 		# The disc's crowd, menu and voice sounds are tens of MB to copy into
 		# the browser's memory, so they are a choice, used from the next start.
@@ -179,6 +182,7 @@ func open(s: GraphicsSettings) -> void:
 	_swing.select(s.swing_method)
 	_swing_help.select(1 if s.swing_help else 0)
 	_ball_size.select(1 if s.true_size_ball else 0)
+	_photo_golfer.select(1 if s.photo_golfer else 0)
 	_firmness.select(s.green_firmness)
 	_speed.select(s.green_speed)
 	_putting_grid.select(s.putting_grid)
@@ -420,6 +424,7 @@ func _on_selected() -> void:
 	settings.swing_method = _swing.selected
 	settings.swing_help = _swing_help.selected == 1
 	settings.true_size_ball = _ball_size.selected == 1
+	settings.photo_golfer = _photo_golfer.selected == 1
 	settings.green_firmness = _firmness.selected
 	settings.green_speed = _speed.selected
 	settings.putting_grid = _putting_grid.selected
