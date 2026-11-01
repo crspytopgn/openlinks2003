@@ -73,11 +73,29 @@ python3 tools/grade/fit_grade.py --refs photos/ --blue-sky -12 \
 3. Check the previews against the photos and the report's
    `distance_after`.
 
+## Golden hour
+
+`--low-sun` switches the region rules: a warm sky near a low sun counts as
+sky, and turf in long shade is told from trees by height in the frame
+rather than by lightness. The 2026-11-01 golden fit used 37 Geograph
+photos of courses in evening and low sun. They were found with searches such
+as `golf evening sun`, `golf low sun` and `golf sunset fairway`, and kept
+only if their upper frame is warm (Lab b above 6) and there is turf below.
+
+Our golden renders were far darker and more orange than the photos:
+
+| Region | Photos       | Compatibility | Forward+      |
+|--------|--------------|---------------|---------------|
+| Sky    | 83 / -1 / 1  | 64 / 11 / 18  | 61 / 11 / 20  |
+| Turf   | 42 / -10 / 27 | 17 / -3 / 20 | 13 / -2 / 16  |
+| Trees  | 29 / -8 / 16 | 25 / -1 / 25  | 20 / 0 / 20   |
+
+The lookup (strength 0.7) takes out the brown-orange cast and lifts the
+shade. Turf in long shade is still about 15 to 20 Lab units short. Closing
+that is a source fix (golden-hour exposure and fill light), not a lookup's
+job.
+
 ## Still to do
 
-- **Golden hour.** It has no lookup yet. Real golden-hour golf photos on
-  Geograph and Commons are too few and too mixed to fit one honestly. Our
-  golden-hour renders are also very dark (trees at L 16), which is a source
-  problem first.
 - **Per-course looks** (links against parkland) belong at source, in each
   course's surface colours, not in a global lookup.
