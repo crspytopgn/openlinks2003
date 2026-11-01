@@ -1,0 +1,62 @@
+{
+  "suvichaya_iron_dtl": {
+    "title": "Suvichaya Vinijchaitham Golf Swing Slow Mo 2026",
+    "page": "https://commons.wikimedia.org/wiki/File:Suvichaya_Vinijchaitham_Golf_Swing_Slow_Mo_2026.webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Suvichaya_Vinijchaitham_Golf_Swing_Slow_Mo_2026.webm",
+    "author": "Hut2026 (Wikimedia Commons)",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "view": "down the line, from behind the golfer's back, as the tee camera sees them",
+    "club": "iron",
+    "notes": "Slow motion: about 5 video frames per real 1/30 s. Frame numbers are video frames at 30 fps. px_per_m: the address silhouette (cap to soles) is 687 px, about 1.46 m for a 1.65 m golfer bent over the ball.",
+    "ball_px": [
+      738,
+      1236
+    ],
+    "keep_box": [
+      120,
+      180,
+      1080,
+      1320
+    ],
+    "clips": {
+      "address": {
+        "loop": true,
+        "segments": [
+          {
+            "from": 30,
+            "to": 30,
+            "step": 1,
+            "seconds": 0.0
+          }
+        ]
+      },
+      "backswing": {
+        "segments": [
+          {
+            "from": 66,
+            "to": 210,
+            "step": 8,
+            "seconds": 0.9
+          }
+        ]
+      },
+      "swing": {
+        "segments": [
+          {
+            "from": 214,
+            "to": 278,
+            "step": 4,
+            "seconds": 0.3
+          },
+          {
+            "from": 282,
+            "to": 402,
+            "step": 6,
+            "seconds": 0.75
+          }
+        ]
+      }
+    },
+    "px_per_m": 470
+  }
+}

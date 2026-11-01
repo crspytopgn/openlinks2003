@@ -3358,6 +3358,8 @@ func _make_golfers() -> void:
 				g = FreeGolfer.create(look)
 			if g == null:
 				g = AssetProviders.golfer_assets.create_golfer_for(look)
+			if graphics != null and graphics.photo_golfer:
+				g = PhotoGolfer.wrap(g)
 			g.visible = false
 			hole_root.add_child(g)
 			made[key] = g
