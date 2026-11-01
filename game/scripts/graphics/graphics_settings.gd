@@ -26,7 +26,7 @@ enum TimeOfDay { AFTERNOON, MORNING, MIDDAY, GOLDEN, ROUND }
 
 const PATH := "user://settings.cfg"
 ## Raised when the looks change, so saved preset settings are redone.
-const LOOK_VERSION := 2
+const LOOK_VERSION := 3
 const SECTION := "graphics"
 const GAME_SECTION := "game"
 const QUALITY_NAMES := ["Low", "Medium", "High", "Ultra"]
@@ -66,7 +66,10 @@ var colour_safe := false
 var vsync := true
 var msaa := 2  ## samples: 0, 2, 4 or 8
 var render_scale := 1.0  ## 3D resolution relative to the window
-var fov := 50.0  ## vertical field of view, degrees (Links frames shots fairly tight)
+## Vertical field of view, degrees. A long lens, as TV golf and modern golf
+## games use: the aim view steps back to keep the golfer's size
+## (RoundCamera.lens_factor), so the hole behind is compressed.
+var fov := 40.0
 var wind: int = Wind.Level.MODERATE
 var presentation: int = Presentation.BROADCAST
 ## Web only: copy the disc's crowd, menu and golfer voice sounds into memory
@@ -202,6 +205,16 @@ static func web_capable() -> bool:
 	return true
 
 
+## An iPad (or another big-screened Apple device) in the browser: Apple's
+## tablet chips take the densest grass too.
+static func web_tablet() -> bool:
+	if not OS.has_feature("web_ios") or not web_capable():
+		return false
+	# In CSS pixels: phones are under about 450 wide, iPads 744 and up.
+	var size := Vector2(DisplayServer.screen_get_size()) / maxf(DisplayServer.screen_get_scale(), 1.0)
+	return minf(size.x, size.y) >= 700.0
+
+
 ## Sets every option to the preset `which` (a Look). Options the renderer
 ## can't do (SSAO, depth of field and FSR in the browser) are still stored
 ## and simply skipped when applied. The browser build keeps quality and grass
@@ -237,7 +250,7 @@ func apply_look(which: int) -> void:
 		# on devices outside web_capable().
 		var top := web_capable()
 		quality = mini(quality, Quality.HIGH if top else Quality.MEDIUM)
-		grass = mini(grass, 2 if top else 1)
+		grass = mini(grass, (3 if web_tablet() else 2) if top else 1)
 		trees = mini(trees, 2 if top else 1)
 		msaa = maxi(msaa, 2) if which != Look.PERFORMANCE else 0
 
@@ -271,7 +284,7 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 	var samples := int(cfg.get_value(SECTION, "msaa", s.msaa))
 	s.msaa = samples if MSAA_CHOICES.has(samples) else s.msaa
 	s.render_scale = clampf(float(cfg.get_value(SECTION, "render_scale", s.render_scale)), 0.25, 2.0)
-	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 40.0, 90.0)
+	s.fov = clampf(float(cfg.get_value(SECTION, "fov", s.fov)), 35.0, 90.0)
 	s.wind = clampi(int(cfg.get_value(GAME_SECTION, "wind", s.wind)), Wind.Level.OFF, Wind.Level.STRONG)
 	s.presentation = clampi(int(cfg.get_value(GAME_SECTION, "presentation", s.presentation)), Presentation.CLASSIC, Presentation.TOUR)
 	s.web_disc_sounds = bool(cfg.get_value(GAME_SECTION, "web_disc_sounds", s.web_disc_sounds))
@@ -305,6 +318,8 @@ static func load_saved(path := PATH) -> GraphicsSettings:
 		# ones, and a capable phone or tablet the old version put on
 		# Performance moves up to its new look.
 		var which := s.look
+		if is_equal_approx(s.fov, 50.0):
+			s.fov = 40.0  # the old default lens moves to the new one
 		if which == Look.PERFORMANCE and OS.has_feature("web"):
 			which = detect_look()
 		s.apply_look(which)
@@ -386,8 +401,12 @@ static func is_forward_plus() -> bool:
 	return RenderingServer.get_current_rendering_method() == "forward_plus"
 
 
+## How far the sun's shadows reach. The browser keeps them nearer, so its
+## one shadow map is spent where the player looks (sharper shadows); the
+## baked ground shade carries the far trees' shadows.
 func shadow_distance() -> float:
-	return [150.0, 250.0, 400.0, 600.0][quality]
+	var d: float = [150.0, 250.0, 400.0, 600.0][quality]
+	return minf(d, 200.0) if OS.has_feature("web") else d
 
 
 func shadow_atlas_size() -> int:

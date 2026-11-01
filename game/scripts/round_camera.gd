@@ -59,8 +59,9 @@ const FLYOVER_UP := 38.0
 ## Snaps behind the ball, looking down the aim line `dir` (flat, unit).
 func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 	_shot = null
-	var back := PUTT_BACK if putting else AIM_BACK
-	var up := PUTT_UP if putting else AIM_UP
+	var lens := lens_factor(fov)
+	var back := (PUTT_BACK if putting else AIM_BACK) * lens
+	var up := (PUTT_UP if putting else AIM_UP) * (1.0 + (lens - 1.0) * 0.4)
 	var pos := _above_ground(ball - dir * back + Vector3.UP * up)
 	if putting:
 		_look = ball + dir * PUTT_LOOK_AHEAD
@@ -75,6 +76,13 @@ func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 			if not sight_clear(terrain, pos, target):
 				_aim_over_rise(ball, dir, pos, target)
 				return
+		# A long lens from further back puts the ball near the bottom edge:
+		# pitch down until it sits 85% of the way there.
+		var half := deg_to_rad(minf(fov, AIM_FRAME_FOV)) * 0.5
+		var pitch := _angle_below(pos, ball) - half * 0.85
+		if pitch > _angle_below(pos, _look):
+			var flat := Vector3(dir.x, 0.0, dir.z).normalized()
+			_look = pos + flat * AIM_LOOK_AHEAD + Vector3.DOWN * tan(pitch) * AIM_LOOK_AHEAD
 	_aim_pos = pos
 	_aim_look = _look
 	if flying():
@@ -82,6 +90,13 @@ func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 	position = pos
 	_look_now = _look
 	look_at(_look_now)
+
+
+## How much further back the aim view stands with a narrower lens than
+## the 50 degrees its distances were set for, so the golfer stays the same
+## size in frame while the hole behind him is compressed, as on TV.
+static func lens_factor(fov_degrees: float) -> float:
+	return clampf(tan(deg_to_rad(25.0)) / tan(deg_to_rad(clampf(fov_degrees, 30.0, 90.0) * 0.5)), 0.6, 1.8)
 
 
 ## Stands at `pos` looking at `look`, for reading a putt (GreenRead.View).

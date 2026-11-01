@@ -13,7 +13,7 @@ signal changed
 ## Done was pressed (Esc does the same in the menus that show the panel).
 signal back_pressed
 
-const FOV_CHOICES := [50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0]
+const FOV_CHOICES := [35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0]
 
 var settings: GraphicsSettings
 
