@@ -1549,6 +1549,13 @@ func _test_graphics_settings() -> void:
 	var mapped := Scenery.sky_sun_mapping(Vector3(0.0, 0.5, 0.866), deg_to_rad(48.0))
 	_check(absf(mapped.y - deg_to_rad(30.0)) < 0.001, "sky sun: the photo's sun is moved down to a 30 degree sun")
 	_check(absf(Scenery.sky_sun_mapping(Vector3(0.0, 0.156, 0.988), deg_to_rad(48.0)).y - deg_to_rad(28.8)) < 0.001, "sky sun: a low sun stretches the sky at most 40%")
+	# The learned grade: a 32-cubed lookup per daytime light and renderer.
+	for t in [GraphicsSettings.TimeOfDay.AFTERNOON, GraphicsSettings.TimeOfDay.MORNING, GraphicsSettings.TimeOfDay.MIDDAY]:
+		for fwd in [false, true]:
+			var lut := PostProcess.lut_for(t, fwd)
+			_check(lut != null and lut.get_width() == 1024 and lut.get_height() == 32, "grade: lookup for time %d (forward %s)" % [t, fwd])
+	var lut_img := PostProcess.lut_for(GraphicsSettings.TimeOfDay.AFTERNOON, false).get_image()
+	_check(lut_img.get_pixel(0, 0).get_luminance() < 0.1 and lut_img.get_pixel(1023, 31).get_luminance() > 0.9, "grade: black stays dark and white stays bright")
 	# The TV cameraman's drift stays tiny, and grows while panning.
 	var most := 0.0
 	var most_pan := 0.0
