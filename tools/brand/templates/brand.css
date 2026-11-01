@@ -1,0 +1,59 @@
+/* Shared look for the rendered banners: Inter Display (closest free face
+   to SF Pro Display), Apple's system greys, and a Liquid Glass material. */
+:root {
+	--ink: #1D1D1F;
+	--ink-2: #6E6E73;
+	--bg: #F5F5F7;
+	--card: #FFFFFF;
+	--accent: #0071E3;
+	--green: #34C759;
+}
+.dark {
+	--ink: #F5F5F7;
+	--ink-2: #A1A1A6;
+	--bg: #000000;
+	--card: #1C1C1E;
+	--accent: #2997FF;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: transparent; }
+body {
+	font-family: "Inter Display", "Inter", -apple-system, sans-serif;
+	color: var(--ink);
+	-webkit-font-smoothing: antialiased;
+	font-feature-settings: "cv11", "ss03";
+}
+/* Liquid Glass: blurred, saturated backdrop, a bright rim lit from the top
+   left, a faint inner glow, and a soft drop shadow. */
+.glass {
+	position: relative;
+	background: rgba(255, 255, 255, 0.16);
+	backdrop-filter: blur(22px) saturate(190%) brightness(1.08);
+	-webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.08);
+	border-radius: 999px;
+	box-shadow:
+		inset 0 1.5px 0 rgba(255, 255, 255, 0.75),
+		inset 0 -1px 0 rgba(255, 255, 255, 0.18),
+		inset 0 0 24px rgba(255, 255, 255, 0.10),
+		0 12px 40px rgba(0, 0, 0, 0.22);
+	color: #fff;
+}
+.glass::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	padding: 1.5px;
+	background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.05) 60%, rgba(255,255,255,0.6));
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+	pointer-events: none;
+}
+.glass.light-ui {
+	background: rgba(255, 255, 255, 0.55);
+	color: var(--ink);
+}
+.dark .glass.light-ui {
+	background: rgba(40, 40, 44, 0.55);
+}

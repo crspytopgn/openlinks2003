@@ -1518,6 +1518,8 @@ func _test_props_real_size() -> void:
 		"water_station": [Vector3(0.76, 1.38, 0.745), 0.03],
 		"practice_flag": [Vector3(0.228, 0.718, 0.043), 0.01],
 		"course_sign": [Vector3(0.3, 0.195, 0.012), 0.01],
+		"tee_peg": [Vector3(0.011, 0.0705, 0.011), 0.002],
+		"flagstick": [Vector3(0.0196, 2.2375, 0.0196), 0.005],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
@@ -1749,6 +1751,32 @@ func _test_graphics_settings() -> void:
 	loaded = GraphicsSettings.load_saved(path)
 	GraphicsSettings.force_look = -1
 	_check(loaded.look == GraphicsSettings.Look.CLASSIC, "forced look")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	# The desktop launcher's requests: a look, then a quality, applied once.
+	cfg = ConfigFile.new()
+	cfg.set_value("graphics", "look", GraphicsSettings.Look.CLASSIC)
+	cfg.set_value("graphics", "look_version", GraphicsSettings.LOOK_VERSION)
+	cfg.set_value("graphics", "display_mode", GraphicsSettings.DisplayMode.EXCLUSIVE)
+	cfg.set_value("graphics", "window_width", 1920)
+	cfg.set_value("graphics", "window_height", 1080)
+	cfg.set_value("launcher", "look", GraphicsSettings.Look.NATURAL)
+	cfg.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.look == GraphicsSettings.Look.NATURAL and loaded.grass == natural.grass, "the launcher's look is applied")
+	_check(loaded.display_mode == GraphicsSettings.DisplayMode.EXCLUSIVE and loaded.window_size == Vector2i(1920, 1080), "display mode and window size load")
+	cfg = ConfigFile.new()
+	cfg.load(path)
+	_check(not cfg.has_section("launcher") and int(cfg.get_value("graphics", "look", -1)) == GraphicsSettings.Look.NATURAL, "launcher requests are used up and saved")
+	cfg.set_value("launcher", "quality", GraphicsSettings.Quality.LOW)
+	cfg.save(path)
+	loaded = GraphicsSettings.load_saved(path)
+	_check(loaded.quality == GraphicsSettings.Quality.LOW and loaded.look == GraphicsSettings.Look.CUSTOM, "the launcher's quality makes the look custom")
+	cfg = ConfigFile.new()
+	cfg.set_value("audio", "master", 50)
+	cfg.set_value("audio", "music", 0)
+	cfg.save(path)
+	_check_near(AudioSettings.level("master", path), 0.5, 1e-6, "master volume")
+	_check(AudioSettings.music_db(path) <= -79.0 and AudioSettings.level("effects", path) == 1.0, "music off, unset volumes full")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	for g in GraphicsSettings.Grade.values():
 		_check(g < PostProcess.GRADES.size(), "grade %d has values" % g)
@@ -3071,7 +3099,35 @@ func _test_free_golfer() -> void:
 	made.free()
 	golfer.play(&"putt")
 	golfer.play(&"address")
+	_test_club_heads(golfer)
 	golfer.free()
+
+
+## The clubs are modelled to real sizes (tools/golfer/clubs.py): each head's
+## widest span, hosel and ferrule included, and the driver's crown, face and
+## sole as separate surfaces so only the crown takes the player's colour.
+func _test_club_heads(golfer: Node) -> void:
+	var spans := {"Driver_head": [0.15, 0.19], "Iron_head": [0.12, 0.16], "Putter_head": [0.13, 0.17]}
+	for node in golfer.find_children("*_head", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if not spans.has(String(mi.name)):
+			continue
+		var pts := PackedVector3Array()
+		var names: Array[String] = []
+		for i in mi.mesh.get_surface_count():
+			pts.append_array(mi.mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX])
+			names.append(mi.mesh.surface_get_material(i).resource_name)
+		var span := 0.0
+		for i in range(0, pts.size(), 3):
+			for j in range(i + 3, pts.size(), 3):
+				span = maxf(span, pts[i].distance_to(pts[j]))
+		var want: Array = spans[String(mi.name)]
+		_check(span > want[0] and span < want[1], "%s spans %.3f m" % [mi.name, span])
+		_check(names.has("Ferrule"), "%s has a ferrule" % mi.name)
+		if mi.name == "Driver_head":
+			_check(names.has("DriverHead") and names.has("DriverFace") and names.has("DriverSole"), "driver crown, face and sole: %s" % [names])
+		spans.erase(String(mi.name))
+	_check(spans.is_empty(), "every club head found: %s left" % [spans.keys()])
 
 
 ## The player creator's looks: saved and read back, mapped to blend shapes,

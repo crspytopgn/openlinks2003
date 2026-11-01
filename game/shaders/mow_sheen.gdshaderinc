@@ -40,3 +40,16 @@ vec2 mow_line_from(float u, vec2 p) {
 	float len = length(g);
 	return len > 1e-6 ? vec2(-g.y, g.x) / len : vec2(0.0, 1.0);
 }
+
+// The light (1) or dark (0) side of a mowing stripe at `u`, measured in
+// stripes (the band swaps at every whole u). Real stripe edges are soft:
+// the blades lean over gradually from one pass to the next, so the swap
+// takes `soft` of a stripe each side (plus a pixel, against aliasing)
+// instead of a hard, drawn-looking line.
+float mow_band(float u, float soft) {
+	float e = soft + max(fwidth(u), 0.001);
+	return smoothstep(-e, e, sin(u * 3.14159) / 3.14159);
+}
+
+// How much of a stripe each soft edge takes (about 0.4 m on a 7 m stripe).
+const float MOW_SOFT = 0.06;

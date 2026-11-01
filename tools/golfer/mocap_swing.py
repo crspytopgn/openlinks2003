@@ -31,6 +31,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import glb_edit  # noqa: E402
+import clubs  # noqa: E402
 import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
@@ -557,14 +558,16 @@ def ramp(angle, hinge):
 
 
 def club_direction(glb, rig):
-    """The shaft's direction (grip to head) in the rest frame."""
+    """The shaft's direction (grip to head) in the rest frame: towards the
+    middle of the driver's shaft, which lies on its axis (the head's middle
+    is off the axis, in front of the hosel and towards the toe)."""
     doc = glb.doc
-    head = None
+    mid = None
     for n in doc["nodes"]:
-        if n.get("name") == "Driver_head":
-            head = glb.read(doc["meshes"][n["mesh"]]["primitives"][0]["attributes"]["POSITION"]).mean(axis=0)
+        if n.get("name") == "Driver_shaft":
+            mid = glb.read(doc["meshes"][n["mesh"]]["primitives"][0]["attributes"]["POSITION"]).mean(axis=0)
     _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
-    return pose.unit(head - rest[rig.index["club"]])
+    return pose.unit(mid - rest[rig.index["club"]])
 
 
 def fill(rig, rots, ref_local, keep=False):
@@ -827,6 +830,9 @@ def main():
     ensure_refs(glb, rig)
     iron.ensure_iron(glb, rig)
     grip.fit(glb, rig, club_direction(glb, rig))
+    # The clubs modelled from real ones, before the swings are measured
+    # against their heads.
+    clubs.swap(glb, rig)
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
             times, rots, root = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
