@@ -58,7 +58,8 @@ at Medium and grass at Low.
   a quarter stronger flat fill on Compatibility so shade isn't black),
   stronger aerial perspective, a lower 30 degree afternoon sun for long
   shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
-  1.08, warm white balance; 2K25's greens are olive, not lime), volumetric haze with light shafts (Forward+,
+  1.12, a slight warm balance; 2K25's greens are olive, not lime), glow only
+  off real highlights (no whole-image bloom veil), volumetric haze with light shafts (Forward+,
   Ultra) and screen-space reflections on water (Forward+, High and up).
 - **Global illumination** (`Scenery.gi_available`): at Ultra with Photoreal
   lighting on Forward+ and a real graphics card, SDFGI bounces sunlight off
