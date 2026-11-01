@@ -61,6 +61,11 @@ void fragment() {
 	if (c.a < 0.5) {
 		discard;
 	}
+	// Aerial perspective: far tree lines lose colour and lift towards the
+	// sky's blue, layer behind layer, so the distance reads as depth.
+	float far = smoothstep(60.0, 350.0, length(VERTEX)) * 0.6;
+	vec3 haze = vec3(dot(c.rgb, vec3(0.3, 0.59, 0.11))) * vec3(0.85, 0.97, 1.15) + vec3(0.03, 0.05, 0.08);
+	c.rgb = mix(c.rgb, haze, far);
 	ALBEDO = c.rgb;
 	BACKLIGHT = c.rgb * 0.4;
 	ROUGHNESS = 1.0;

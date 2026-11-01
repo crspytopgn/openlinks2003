@@ -480,8 +480,15 @@ static func material(which: String) -> ShaderMaterial:
 	else:
 		mat.shader = LEAF_SHADER
 		mat.set_shader_parameter("needles", kind == "needles")
-		# Compatibility has no fill light from the sky.
-		mat.set_shader_parameter("fill", 0.12 if GraphicsSettings.is_forward_plus() else 0.3)
+		# Compatibility has no fill light from the sky. Forward+ lights the
+		# crown from the sky as well, so it needs no fill, a darker inside
+		# and a cooler green (under its sun the photo leaves read
+		# yellow-lime). The impostors are baked to match.
+		var fwd := GraphicsSettings.is_forward_plus()
+		mat.set_shader_parameter("fill", 0.0 if fwd else 0.3)
+		mat.set_shader_parameter("inner_shade", 0.36 if fwd else 0.58)
+		if fwd:
+			mat.set_shader_parameter("leaf_tint", Vector3(0.36, 0.5, 0.3))
 		var leaf := FreeAssets.tree_texture("leaf_albedo.png")
 		var opacity := FreeAssets.tree_texture("leaf_opacity.png")
 		if leaf != null and opacity != null and kind == "leaves":
