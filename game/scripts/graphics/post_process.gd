@@ -126,8 +126,7 @@ static func horizon_screen_y(pitch: float, fov: float) -> float:
 
 ## The learned grade for a time of day, fitted to that light's renders
 ## (Forward+ and Compatibility light the course differently, so each has
-## its own). Golden hour has none yet: too few real golden-hour golf
-## photos to fit one honestly.
+## its own).
 static func lut_for(time_of_day: int, forward_plus: bool) -> Texture2D:
 	var light := "afternoon"  # also "Through the round"
 	match time_of_day:
