@@ -1518,6 +1518,8 @@ func _test_props_real_size() -> void:
 		"water_station": [Vector3(0.76, 1.38, 0.745), 0.03],
 		"practice_flag": [Vector3(0.228, 0.718, 0.043), 0.01],
 		"course_sign": [Vector3(0.3, 0.195, 0.012), 0.01],
+		"tee_peg": [Vector3(0.011, 0.0705, 0.011), 0.002],
+		"flagstick": [Vector3(0.0196, 2.2375, 0.0196), 0.005],
 	}
 	for prop: String in sizes:
 		var m := CourseProps.mesh(prop)
