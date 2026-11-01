@@ -3462,6 +3462,17 @@ func _test_golfer_roster() -> void:
 		_check(bend < 18.0, "standing %s knee nearly straight (%.0f deg)" % [side, bend])
 		print("  standing %s knee %.1f deg" % [side, bend])
 	golfer.free()
+	# The cap fits the skull (as a real one presses the hair flat), and the
+	# hair it covers is cut away rather than poking through.
+	var capped := FreeGolfer.create(GolferRoster.look_for("Callum Reid"))
+	var cut := capped.find_child("Hair_short", true, false) as MeshInstance3D
+	var full := parts.bake("Hair_short", GolferRoster.look_for("Callum Reid").shape_weights())
+	_check(cut != null and cut.mesh.get_surface_count() == 1, "the hair under the cap is kept below the band")
+	if cut != null and cut.mesh.get_surface_count() == 1:
+		var kept: int = (cut.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX] as PackedInt32Array).size()
+		var all: int = (full.surface_get_arrays(0)[Mesh.ARRAY_INDEX] as PackedInt32Array).size()
+		_check(kept < all * 0.8 and kept > 0, "the cap hides the hair above its band (%d of %d)" % [kept, all])
+	capped.free()
 	var luis: PlayerLook = GolferRoster.look_for("Luis Navarro")
 	var grace: PlayerLook = GolferRoster.look_for("Grace Mensah")
 	_check(is_equal_approx(luis.face_value("jaw"), 0.35 * GolferRoster.FACE_SCALE), "roster face sliders scaled up")

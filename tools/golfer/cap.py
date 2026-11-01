@@ -10,8 +10,11 @@ the band and the peak.
 This one follows real structured six-panel golf caps (spec sheets give a
 crown about 9 cm tall at the front and a peak about 7 cm long and 18 cm
 across):
-- the crown is wrapped over the head and every hair style the cap is worn
-  with, so no hair pokes through, with a stiffer, fuller front;
+- the crown fits the skull with room for flattened hair (HAIR_ROOM), as a
+  real cap presses the hair down, with a stiffer, fuller front; the hair
+  under it is cut away at runtime (FreeGolfer, from "cap_band": the
+  crown's lower edge). Wrapped over every hair style instead, it stood
+  1.2 cm off the head at the band and read as a baker boy cap;
 - six panels meeting at a button on top, with a seam down the front, the
   seams drawn into the texture with twin stitching and an eyelet in each
   panel;
@@ -39,14 +42,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 import golf_shoes  # noqa: E402  (load and save)
 import look_pack  # noqa: E402  (tangents)
 
-CAP_HAIR = ("short", "crop", "side_part", "ponytail")
 SEGMENTS = 60
 RINGS = 14
-HAIR_ROOM = 0.004
+HAIR_ROOM = 0.006
 PEAK_LENGTH = 0.07
 PEAK_HALF_SPAN = math.radians(72)
 PEAK_TILT = math.radians(12)
-PEAK_CURL = 0.02
+PEAK_CURL = 0.03
 PEAK_THICK = 0.0035
 TEX = 512
 # Texture layout (u, v ranges): crown, peak top, peak underside, band.
@@ -86,7 +88,7 @@ def crown(points, brow_y, centre):
     dirs = rel / dist[:, None]
 
     def reach(u):
-        near = dirs @ u > math.cos(math.radians(8))
+        near = dirs @ u > math.cos(math.radians(12))
         return (dist[near].max() if near.any() else 0.09) + HAIR_ROOM
 
     grid = np.zeros((RINGS + 1, SEGMENTS, 3))
@@ -101,10 +103,16 @@ def crown(points, brow_y, centre):
     r = np.linalg.norm(grid, axis=2)
     # Cloth over a stiff frame: smooth out the skull and the hair's lumps,
     # never moving inwards, so nothing pokes through.
-    for _ in range(6):
+    # (The skull alone is coarser than it was with the hair, so more passes.)
+    for _ in range(24):
         s = (r + np.roll(r, 1, axis=1) + np.roll(r, -1, axis=1)) / 3
         s[1:-1] = (s[1:-1] * 2 + s[:-2] + s[2:]) / 4
         r = np.maximum(r, s)
+    # Round off the top: the last rings even out towards the button, so
+    # the skull's lumps don't leave a crease or a point there.
+    for i in range(RINGS - 4, RINGS + 1):
+        w = (i - (RINGS - 4)) / 4
+        r[i] = r[i] * (1 - w) + r[i].mean() * w
     # The structured front: the front panels stand up off the forehead.
     for i in range(RINGS + 1):
         t = i / RINGS
@@ -124,11 +132,7 @@ def build(info, blob):
     on_head = (b_bones == head_j).__and__(b_weights > 0.5).any(axis=1)
     brows, _, _ = part_arrays(info, blob, "Eyebrows")
     brow_y = float(brows[:, 1].mean() + 0.022)
-    pts = [body[on_head]]
-    for h in CAP_HAIR:
-        hp, _, _ = part_arrays(info, blob, "Hair_" + h)
-        pts.append(hp)
-    allp = np.concatenate(pts)
+    allp = body[on_head]
     allp = allp[allp[:, 1] > brow_y - 0.06]
     head_top = body[on_head]
     top = head_top[head_top[:, 1] > brow_y]
@@ -389,7 +393,7 @@ def main():
     info["materials"]["Cap"].update({"texture": img_a, "normal": img_a + 1, "roughness": 0.9})
     # Blend shapes: the crown moves with the head under it (an average of
     # the nearest head vertices, so it stays smooth) and the peak moves
-    # rigidly with the nearest point of the band, so it never kinks.
+    # rigidly with the front of the band, so it never kinks.
     head_ids = np.nonzero(on_head)[0]
     hp = body[head_ids]
     K = 12
@@ -404,13 +408,20 @@ def main():
         near_w[i0:i0 + 256] = w / w.sum(axis=1, keepdims=True)
     peak = np.arange(peak_start, peak_end)
     band_pos = pos[band_ids]
-    anchor = np.arange(len(pos))
-    anchor[peak] = band_ids[np.argmin(((pos[peak, None, :] - band_pos[None]) ** 2).sum(axis=2), axis=1)]
+    band_mid = band_pos.mean(axis=0)
+    # Band points over the forehead, where the peak is sewn on.
+    button = np.arange(peak_end, len(pos))
+    crown_top = int(np.argmax(np.where(np.arange(len(pos)) < peak_start, pos[:, 1], -1e9)))
+    front_band = band_ids[(band_pos[:, 2] - band_mid[2]) < -0.6 * np.abs(band_pos[:, 2] - band_mid[2]).max()]
     shapes = {}
     for shape in info["parts"]["Body"]["shapes"]:
         full = shape_offsets(info, blob, "Body", shape, len(body))
         off = (full[near_ids] * near_w[..., None]).sum(axis=1)
-        off = off[anchor]
+        # The peak moves as one piece with the front of the band (per band
+        # point it sheared and kinked on wide or narrow faces).
+        off[peak] = off[front_band].mean(axis=0)
+        # The button sits on the crown's top point.
+        off[button] = off[crown_top]
         rows = np.nonzero(np.abs(off).max(axis=1) > 1e-4)[0]
         if len(rows) == 0:
             continue
@@ -430,6 +441,9 @@ def main():
     del old
     info["parts"]["Cap"] = entry
     info["cap_v2"] = True
+    # The crown's lower edge, round from the back: hair above it is under
+    # the cap (FreeGolfer cuts it away).
+    info["cap_band"] = [int(i) for i in band_ids]
     golf_shoes.save(args.pack, info, blob)
     print(f"cap: {n} vertices, {len(tris)} triangles, {len(shapes)} shapes, pack {os.path.getsize(args.pack)} bytes")
 

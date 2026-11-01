@@ -132,6 +132,8 @@ func apply_look(p_look: PlayerLook) -> void:
 		var mat_name := parts.part_material(part_name)
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
 		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
+		if part_name.begins_with("Hair_") and look.wears_cap():
+			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
 		var std := _material(parts, mat_name)
 		var mat: Material = null
@@ -203,6 +205,64 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 		var eyes: Dictionary = parts.info.get("eyes", {})
 		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
 	return parts.make_material(material_name)
+
+
+## The hair without the part the cap covers: the cap fits the skull with
+## room for flattened hair (tools/golfer/cap.py), as a real one presses
+## the hair down, so the full hair would poke through it. Triangles whose
+## middle is above the crown's lower edge ("cap_band", the band ring of
+## the cap shaped like this golfer) are dropped, short of a ponytail.
+## How far below the band at the front the hair is cut (the fringe).
+const FRINGE_TUCK := 0.05
+
+
+static func under_cap(hair: ArrayMesh, parts: GolferParts, weights: Dictionary) -> ArrayMesh:
+	var band_ids: Array = parts.info.get("cap_band", [])
+	var cap := parts.bake("Cap", weights)
+	if band_ids.is_empty() or cap == null or hair == null:
+		return hair
+	var cap_verts: PackedVector3Array = cap.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var ring := PackedVector3Array()
+	var centre := Vector3.ZERO
+	for i: int in band_ids:
+		ring.append(cap_verts[i])
+		centre += cap_verts[i]
+	centre /= ring.size()
+	# The band point nearest each degree round the head.
+	var nearest := PackedInt32Array()
+	nearest.resize(360)
+	for deg in 360:
+		var ang := deg_to_rad(deg - 180.0)
+		var best_d := TAU
+		for k in ring.size():
+			var d := absf(wrapf(ang - atan2(ring[k].x - centre.x, ring[k].z - centre.z), -PI, PI))
+			if d < best_d:
+				best_d = d
+				nearest[deg] = k
+	var arrays := hair.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var kept := PackedInt32Array()
+	for t in range(0, idx.size(), 3):
+		var m := (verts[idx[t]] + verts[idx[t + 1]] + verts[idx[t + 2]]) / 3.0
+		var deg := clampi(int(rad_to_deg(atan2(m.x - centre.x, m.z - centre.z)) + 180.0), 0, 359)
+		var best := nearest[deg]
+		var edge := ring[best]
+		var reach := Vector2(edge.x - centre.x, edge.z - centre.z).length()
+		var out := Vector2(m.x - centre.x, m.z - centre.z).length()
+		# Above the band and no further out than a ponytail's root; at the
+		# front a fringe tucks up under the peak, so from a little lower.
+		var front := maxf(0.0, -(m.z - centre.z) / maxf(out, 0.001))
+		if m.y > edge.y - FRINGE_TUCK * front and out < reach + 0.03:
+			continue
+		kept.append_array([idx[t], idx[t + 1], idx[t + 2]])
+	if kept.size() == idx.size():
+		return hair
+	arrays[Mesh.ARRAY_INDEX] = kept
+	var mesh := ArrayMesh.new()
+	if not kept.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 ## The look pack's map of the face's regions for the skin shader, or null.
