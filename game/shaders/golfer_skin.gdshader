@@ -37,6 +37,20 @@ uniform float rim_tint : hint_range(0.0, 1.0) = 0.6;
 // How far each colour wraps past the terminator (red, green, blue).
 uniform vec3 wrap = vec3(0.5, 0.24, 0.18);
 uniform vec3 warmth = vec3(1.12, 0.96, 0.84);
+// Real skin is never one even colour: faint blotches of redness and
+// lighter and darker patches, a few millimetres to centimetres across.
+uniform float mottle = 0.5;
+
+float hash21(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x), mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0)), f.x), f.y);
+}
 
 void fragment() {
 	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb;
@@ -45,6 +59,10 @@ void fragment() {
 	float light = clamp(dot(albedo.rgb, vec3(0.33)) * 1.4, 0.35, 1.0);
 	c *= mix(vec3(1.0), vec3(1.04, 0.84, 0.82), r.r * flush_strength * light);
 	c *= mix(vec3(1.0), vec3(0.86, 0.6, 0.6), r.b * lip_strength);
+	float blotch = vnoise(UV * 90.0) * 0.6 + vnoise(UV * 260.0) * 0.4;
+	float patch = vnoise(UV * 35.0 + 13.0);
+	c *= mix(vec3(1.0), vec3(1.05, 0.93, 0.92), smoothstep(0.45, 0.85, blotch) * mottle * light);
+	c *= 1.0 + (patch - 0.5) * 0.08 * mottle;
 	float beard = r.g;
 	c *= mix(vec3(1.0), vec3(0.74, 0.76, 0.8), beard * shave_shadow * light);
 	float dots = texture(stubble_dots, UV * stubble_scale).r;

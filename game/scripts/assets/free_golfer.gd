@@ -143,8 +143,10 @@ func apply_look(p_look: PlayerLook) -> void:
 				mat = GolferSurface.skin(std)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
 			mat = GolferSurface.hair(std)
+		elif mat_name == "Eyes" and std.albedo_texture != null:
+			mat = GolferSurface.eye(std)
 		elif mat_name == "Eyelashes" or mat_name == "Eyebrows":
-			mat = GolferSurface.fine_hair(std, mat_name == "Eyelashes", look.hair_colour)
+			mat = GolferSurface.fine_hair(std, mat_name == "Eyelashes", look.hair_colour, look.sex >= 0.5)
 		else:
 			mat = GolferSurface.cloth(std) if _is_cloth(parts, mat_name) else _matt(std)
 		if mi.mesh.get_surface_count() > 1:
