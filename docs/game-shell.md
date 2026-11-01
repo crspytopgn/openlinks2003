@@ -29,7 +29,8 @@ Right-click on the course while aiming to aim at that spot (`ClickAim`: a
 ray from the camera to the ground). Away from the green the round also takes
 the shortest club whose full swing reaches it, as in modern sims; chips and
 putts only turn the aim. A click on the sky does nothing. Left-click stays
-the swing.
+the swing, except on the Tour presentation's hole map, where either button
+aims at the spot under it (`HoleMap.from_px`).
 
 ### Touch screens and game pads
 
@@ -584,6 +585,16 @@ par 4s, 38% on par 5s) are tilted to that expectation, which keeps real shapes:
 better golfers make more birdies and fewer bogeys, weak ones more doubles. A
 tour-average golfer's simulated rounds average 0.6 under par 72 with a
 round-to-round spread of about 2.8 strokes.
+
+Real courses don't all play like that average, and under our physics a
+course can play harder or easier for computer golfers than tour odds say.
+So the computer golfers in the person's group teach the simulation
+(`CourseDifficulty`): after each real round, the strokes each took beyond what
+the simulation expected for it (`Tournament.expected_to_par`) are kept for
+that course, and the rest of the field plays that much harder or easier
+there from then on. The shift is per 18 holes and starts as if three rounds
+had shown no difference, so one wild round moves it only a little. It is
+kept across tournaments in `user://course_difficulty.cfg`.
 
 Field golfers start before and after the person's group (groups 10 minutes
 apart, about 0.7 holes), so while the person plays, the live leaderboard

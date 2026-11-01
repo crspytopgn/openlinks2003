@@ -23,6 +23,7 @@ static var _pores: Texture2D
 static var _stubble: Texture2D
 const SKIN_SHADER := preload("res://shaders/golfer_skin.gdshader")
 const HAIR_SHADER := preload("res://shaders/golfer_hair.gdshader")
+const FINE_HAIR_SHADER := preload("res://shaders/golfer_fine_hair.gdshader")
 
 
 static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -60,6 +61,26 @@ static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Text
 	m.set_shader_parameter("shave_shadow", (0.35 + 0.65 * look.stubble) if man else 0.0)
 	m.set_shader_parameter("lip_strength", 1.15 if not man else 0.8)
 	m.set_shader_parameter("flush_strength", 1.0)
+	return m
+
+
+## Eyebrows and eyelashes as fine hair rather than painted card: soft,
+## see-through edges instead of a hard cut-out, lashes thinner and in the
+## hair's colour (fair hair has fair lashes), so they read as hair at a
+## close-up and fade at a distance as real ones do.
+static func fine_hair(mat: StandardMaterial3D, lashes: bool, hair_colour: Color) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.resource_name = mat.resource_name
+	m.shader = FINE_HAIR_SHADER
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
+	if lashes:
+		m.set_shader_parameter("albedo", hair_colour.darkened(0.55).lerp(Color(0.06, 0.05, 0.045), 0.4))
+		m.set_shader_parameter("opacity", 0.55)
+	else:
+		m.set_shader_parameter("albedo", mat.albedo_color)
+		m.set_shader_parameter("opacity", 0.9)
+		m.set_shader_parameter("strands", 0.7)
 	return m
 
 

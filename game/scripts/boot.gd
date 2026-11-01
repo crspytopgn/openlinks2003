@@ -43,6 +43,8 @@ func _ready() -> void:
 	get_window().content_scale_factor = GraphicsSettings.UI_SCALES[_graphics.ui_scale]
 	Glass.allow_blur = _graphics.quality != GraphicsSettings.Quality.LOW
 	GlassTheme.install()
+	# Browser on a phone or tablet: lets every text box open the keyboard.
+	WebTextInput.install(get_tree())
 	if not OS.has_feature("web"):
 		# The display mode, window size and volumes the launcher may have set.
 		_graphics.apply_display(get_viewport())
