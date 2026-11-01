@@ -12,6 +12,10 @@ extends Control
 
 const PANEL := Color(0.04, 0.13, 0.10, 0.86)
 const PANEL_DARK := Color(0.02, 0.06, 0.05, 0.9)
+## Panels are frosted glass (FrostedGlass) under a tint this see-through,
+## with a faint light edge along the top.
+const GLASS_TINT := 0.55
+const GLASS_EDGE := Color(1, 1, 1, 0.14)
 const ACCENT := Color(0.98, 0.78, 0.25)
 const TEXT := Color(1, 1, 1)
 const DIM := Color(0.78, 0.86, 0.82)
@@ -53,11 +57,14 @@ var tour := false
 var pip: SubViewportContainer
 var pip_camera: Camera3D
 var _pip_view: SubViewport
+var glass: FrostedGlass
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass = FrostedGlass.new()
+	add_child(glass)
 	_font = ThemeDB.fallback_font
 	pip = SubViewportContainer.new()
 	pip.stretch = true
@@ -182,6 +189,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	glass.begin()
+	_draw_pieces()
+	glass.commit()
+
+
+func _draw_pieces() -> void:
 	if status.is_empty():
 		return
 	if not tour:
@@ -217,7 +230,7 @@ func _draw_score_bug() -> void:
 	_text(Vector2(x + 32, y + 30), str(status.get("hole", "")), 30, PANEL_DARK, true)
 	_text(Vector2(x + 32, y + 54), "PAR %s" % status.get("par", ""), 13, PANEL_DARK, true)
 	var w := 300.0
-	draw_rect(Rect2(x + 64, y, w, 64), PANEL)
+	_panel(Rect2(x + 64, y, w, 64), PANEL)
 	_text(Vector2(x + 76, y + 24), str(status.get("player", "")).to_upper(), 19, TEXT)
 	var to_par := str(status.get("to_par", "E"))
 	_text_right(Vector2(x + 64 + w - 12, y + 24), to_par, 22, UNDER if to_par.begins_with("-") else TEXT)
@@ -243,7 +256,7 @@ func _draw_shot_panel() -> void:
 	var x := 16.0
 	var y := 92.0
 	var h := 24.0
-	draw_rect(Rect2(x, y, 364, h * rows.size() + 10), PANEL)
+	_panel(Rect2(x, y, 364, h * rows.size() + 10), PANEL)
 	draw_rect(Rect2(x, y, 4, h * rows.size() + 10), ACCENT)
 	for i in rows.size():
 		var ry := y + 22 + i * h
@@ -257,7 +270,7 @@ func _draw_lower_third() -> void:
 	var x := lerpf(-w, 40.0, a)
 	# Clear of the key hints that run just above the ticker.
 	var y := size.y - TICKER_H - 100.0
-	draw_rect(Rect2(x, y, w, 34), PANEL_DARK)
+	_panel(Rect2(x, y, w, 34), PANEL_DARK)
 	draw_rect(Rect2(x, y, 6, 52), ACCENT)
 	_text(Vector2(x + 18, y + 25), str(_lower.get("name", "")).to_upper(), 22, TEXT)
 	draw_rect(Rect2(x, y + 34, w, 20), Color(ACCENT, 0.92))
@@ -279,7 +292,7 @@ func _draw_shot_card() -> void:
 	]
 	draw_rect(Rect2(x, y, w, 30), ACCENT)
 	_text(Vector2(x + 12, y + 21), str(_card.get("title", "SHOT")).to_upper(), 15, PANEL_DARK)
-	draw_rect(Rect2(x, y + 30, w, rows.size() * 24 + 8), PANEL)
+	_panel(Rect2(x, y + 30, w, rows.size() * 24 + 8), PANEL)
 	for i in rows.size():
 		var ry := y + 52 + i * 24
 		_text(Vector2(x + 12, ry), rows[i][0], 13, ACCENT)
@@ -292,11 +305,11 @@ func _draw_hole_card() -> void:
 	var x := lerpf(-w - 20.0, 16.0, a)
 	var y := 92.0
 	var map_h := 280.0
-	draw_rect(Rect2(x, y, w, 64), PANEL_DARK)
+	_panel(Rect2(x, y, w, 64), PANEL_DARK)
 	_text(Vector2(x + 14, y + 28), "HOLE %s" % _hole.get("number", ""), 24, ACCENT)
 	_text_right(Vector2(x + w - 14, y + 28), "PAR %s" % _hole.get("par", ""), 20, TEXT)
 	_text(Vector2(x + 14, y + 52), "%s YARDS    %s" % [_hole.get("yards", ""), str(_hole.get("name", "")).to_upper()], 13, DIM)
-	draw_rect(Rect2(x, y + 64, w, map_h + 16), PANEL)
+	_panel(Rect2(x, y + 64, w, map_h + 16), PANEL)
 	if _hole_map != null:
 		var ms := _hole_map.get_size()
 		var scale := minf((w - 16) / ms.x, map_h / ms.y)
@@ -316,7 +329,7 @@ func _draw_caption() -> void:
 	var h := caption_height(lines.size())
 	var fade := clampf(minf(_caption_t * 4.0, (_caption_len - _caption_t) * 2.0), 0.0, 1.0)
 	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 116.0 - h, w, h)
-	draw_rect(r, Color(PANEL_DARK, PANEL_DARK.a * fade))
+	_panel(r, PANEL_DARK, fade)
 	if lines.size() == 1:
 		_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)
 		return
@@ -338,7 +351,7 @@ func _draw_ticker() -> void:
 	if _ticker.is_empty():
 		return
 	var y := size.y - TICKER_H
-	draw_rect(Rect2(0, y, size.x, TICKER_H), PANEL_DARK)
+	_panel(Rect2(0, y, size.x, TICKER_H), PANEL_DARK)
 	draw_rect(Rect2(0, y, size.x, 2), ACCENT)
 	var fs := 14
 	var tw := _font.get_string_size(_ticker, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 120.0
@@ -369,11 +382,17 @@ func _draw_wipe() -> void:
 
 # --- Helpers ------------------------------------------------------------------
 
+## A frosted-glass panel tinted `col`, faded by `alpha`.
+func _panel(r: Rect2, col: Color, alpha := 1.0) -> void:
+	glass.add(r, alpha)
+	draw_rect(r, Color(col, col.a * GLASS_TINT * alpha))
+	draw_rect(Rect2(r.position, Vector2(r.size.x, 1.0)), Color(GLASS_EDGE, GLASS_EDGE.a * alpha))
+
 func _tag(at: Vector2, text: String, right_align: bool) -> void:
 	var fs := 13
 	var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 20.0
 	var r := Rect2(at.x - w if right_align else at.x, at.y - 18.0, w, 22.0)
-	draw_rect(r, PANEL)
+	_panel(r, PANEL)
 	draw_rect(Rect2(r.position, Vector2(3, r.size.y)), ACCENT)
 	_text(r.position + Vector2(11, 16), text, fs, TEXT)
 

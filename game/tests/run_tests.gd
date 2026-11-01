@@ -4077,6 +4077,19 @@ func _test_broadcast_round() -> void:
 		frames += 1
 	_check(not game._replaying, "replay ends")
 	_check(game.state == GolfRound.State.SHOT_RESULT, "replay leaves the result up")
+	game.hud.overlay._draw()
+	_check(game.hud.overlay.glass.panel_count() > 0, "broadcast panels are frosted glass")
+	_check(game.hud.hint.visible and not game.hud.hint_tab.visible, "key hints up on the first hole")
+	game.start_hole(1)
+	_check(not game.hud.hint.visible and game.hud.hint_tab.visible, "key hints folded from the second hole")
+	var f1 := InputEventKey.new()
+	f1.keycode = KEY_F1
+	f1.pressed = true
+	game._unhandled_input(f1)
+	_check(game.hud.hint.visible, "F1 brings the key hints back")
+	game._unhandled_input(f1)
+	_check(not game.hud.hint.visible, "and folds them again")
+	game.start_hole(0)
 	var steps := 0
 	while not (game.state == GolfRound.State.AIM and game.clubs[game.club_index].is_putter) and steps < 40 \
 			and game.state != GolfRound.State.ROUND_DONE:
@@ -4087,6 +4100,8 @@ func _test_broadcast_round() -> void:
 	game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
 	game._apply_graphics()
 	_check(not game.hud.overlay.visible and not game.green_grid.visible, "classic hides the broadcast pieces")
+	game.start_hole(1)
+	_check(game.hud.hint.visible, "classic keeps the key hints")
 	game.start_round()
 	_check(not game.camera.flying(), "classic has no flyover")
 	steps = 0

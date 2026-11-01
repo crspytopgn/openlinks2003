@@ -20,6 +20,8 @@ const HOT := Color(0.95, 0.47, 0.34)
 const TEXT := Color(1, 1, 1)
 const DIM := Color(0.7, 0.76, 0.8)
 const INK := Color(0.04, 0.06, 0.07)
+## Panels are frosted glass (FrostedGlass) under a tint this see-through.
+const GLASS_TINT := 0.62
 ## One colour per player for their chip and their shots on the map.
 const PLAYER_COLORS := [
 	Color(0.25, 0.95, 0.75), Color(1.0, 0.45, 0.35), Color(0.62, 0.5, 1.0), Color(1.0, 0.8, 0.25),
@@ -38,6 +40,7 @@ var _map: HoleMap
 var _dots: Array = []  ## [world position, player index]
 var _ball := Vector3.ZERO
 var _show_map := false
+var glass: FrostedGlass
 var _font: Font
 var _bold: FontVariation
 var _time := 0.0
@@ -46,6 +49,8 @@ var _time := 0.0
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass = FrostedGlass.new()
+	add_child(glass)
 	_font = ThemeDB.fallback_font
 	_bold = FontVariation.new()
 	_bold.base_font = _font
@@ -78,6 +83,18 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	glass.begin()
+	_draw_pieces()
+	glass.commit()
+
+
+## A frosted-glass panel tinted `col`.
+func _panel(r: Rect2, col: Color) -> void:
+	glass.add(r)
+	draw_rect(r, Color(col, col.a * GLASS_TINT))
+
+
+func _draw_pieces() -> void:
 	if state.is_empty():
 		return
 	_draw_rail()
@@ -98,7 +115,7 @@ func _draw_rail() -> void:
 	var rows: Array = state.get("rows", [])
 	var y := 0.0
 	var top_h := 92.0
-	draw_rect(Rect2(0, 0, RAIL_W, top_h), BASE)
+	_panel(Rect2(0, 0, RAIL_W, top_h), BASE)
 	# Diagonal pinstripes in the header, as on a tour board.
 	for i in 14:
 		var x := -40.0 + i * 22.0
@@ -132,7 +149,7 @@ func _draw_rail() -> void:
 		if current:
 			_draw_hole_strip(y, w)
 			y += ROW_H
-	draw_rect(Rect2(0, y, RAIL_W, 6), BASE)
+	_panel(Rect2(0, y, RAIL_W, 6), BASE)
 
 
 ## Under the current player: the hole, its length, and the shot boxes.
@@ -158,7 +175,7 @@ func _draw_shot_bar() -> void:
 	var x0 := RAIL_W + 24.0
 	var x1 := size.x - METER_W
 	var y := size.y - BAR_H - 18.0
-	draw_rect(Rect2(x0, y, x1 - x0, BAR_H), BASE)
+	_panel(Rect2(x0, y, x1 - x0, BAR_H), BASE)
 	draw_rect(Rect2(x0, y - 4, x1 - x0, 4), ACCENT)
 	# Title block.
 	var x := x0
@@ -200,7 +217,7 @@ func _draw_shot_bar() -> void:
 	var expected := float(state.get("expected", 0.0))
 	var par := float(state.get("par", 4))
 	var col := ACCENT if expected <= par else (HOT if expected > par + 0.5 else Color(1.0, 0.75, 0.3))
-	draw_rect(Rect2(rx1, y, exp_w, BAR_H), BASE_LIGHT)
+	_panel(Rect2(rx1, y, exp_w, BAR_H), BASE_LIGHT)
 	_text(Vector2(rx1 + exp_w * 0.5, y + 56), "%.2f" % expected, 36, col, _bold, true)
 	_text(Vector2(rx1 + exp_w * 0.5, y + 78), "EXPECTED SCORE", 11, DIM, _font, true)
 
@@ -286,7 +303,7 @@ func _draw_zone_labels() -> void:
 		var r := Rect2(s.x - w * 0.5, s.y - 46, w, 50)
 		if r.position.x < RAIL_W + 90.0:
 			r.position.x = RAIL_W + 90.0 + i * 4.0
-		draw_rect(r, BASE)
+		_panel(r, BASE)
 		var score := float(zone.get("score_" + keys[i], 0.0))
 		_text(Vector2(r.get_center().x, r.position.y + 30), "%.2f" % score, 26, ACCENT if i == 1 else HOT, _bold, true)
 		var pct := roundi(float(zone.get(keys[i], 0.0)) * 100.0)
@@ -299,7 +316,7 @@ func _draw_putt_panel() -> void:
 	var r := Rect2(size.x - w - METER_W, size.y - h - 18.0, w, h)
 	draw_rect(Rect2(r.position, Vector2(w, 34)), ACCENT)
 	_text(r.position + Vector2(14, 25), "THE READ", 20, INK, _bold)
-	draw_rect(Rect2(r.position + Vector2(0, 34), Vector2(w, h - 34)), BASE)
+	_panel(Rect2(r.position + Vector2(0, 34), Vector2(w, h - 34)), BASE)
 	draw_rect(Rect2(r.position + Vector2(0, h - 4), Vector2(w, 4)), ACCENT)
 	var feet := float(putt.get("distance_m", 0.0)) * 3.28084
 	var rows := [
@@ -329,7 +346,7 @@ func _draw_map() -> void:
 	var ms := Vector2(HoleMap.WIDTH, HoleMap.HEIGHT) * MAP_SCALE
 	var pos := Vector2(size.x - ms.x - 24.0, 58.0)
 	var frame := Rect2(pos - Vector2(8, 8), ms + Vector2(16, 52))
-	draw_rect(frame, Color(BASE, 0.6))
+	_panel(frame, Color(BASE, 0.6))
 	draw_texture_rect(_map.texture, Rect2(pos, ms), false, Color(1, 1, 1, 0.92))
 	draw_rect(Rect2(pos, ms), Color(ACCENT, 0.8), false, 2.0)
 	for d: Array in _dots:

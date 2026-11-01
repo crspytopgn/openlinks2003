@@ -8,6 +8,10 @@ var info: Label
 var message: Label
 ## Settings > Captions: what the golfer and the crowd say, in brackets.
 var sound_caption: Label
+## Broadcast and Tour fold the key hints away after the first hole, as TV
+## style golf games do: a small "F1: controls" stays in their place.
+var hints_folded := false
+var hint_tab: Label
 var _sound_caption_time := 0.0
 var hint: Label
 var meter: SwingMeter
@@ -53,6 +57,11 @@ func _ready() -> void:
 	hint = _label(16)
 	_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -34, 900, 26))
 	add_child(hint)
+	hint_tab = _label(13)
+	hint_tab.text = "F1: controls"
+	hint_tab.modulate = Color(1, 1, 1, 0.7)
+	hint_tab.visible = false
+	add_child(hint_tab)
 
 	wind = WindIndicator.new()
 	_place(wind, Control.PRESET_TOP_RIGHT, Rect2(-106, 12, 90, 112))
@@ -157,6 +166,8 @@ func set_broadcast(on: bool, tour_on := false) -> void:
 		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(TourGraphics.RAIL_W + 24.0, -176, 760, 22))
 	else:
 		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+	_place(hint_tab, Control.PRESET_BOTTOM_LEFT, Rect2(hint.offset_left, hint.offset_top + 6, 200, 20))
+	fold_hints(hints_folded)
 	meter.modern = on
 	_place_meter()
 
@@ -205,6 +216,13 @@ func show_message(text: String, seconds := 0.0) -> void:
 		return
 	message.text = text
 	_message_time = seconds
+
+
+## Folds the key hints away (or brings them back).
+func fold_hints(folded: bool) -> void:
+	hints_folded = folded
+	hint.visible = not folded
+	hint_tab.visible = folded
 
 
 ## Shows a caption for a sound, such as "[Golfer: Great Shot]".
