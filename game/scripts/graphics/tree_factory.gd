@@ -270,9 +270,14 @@ static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leave
 	_tube(bark, Vector3.ZERO, fork, radius * 1.25, radius, 7)
 	var top := Vector3(lean.x, height * 0.82, lean.z)
 	_tube(bark, fork, top, radius, radius * 0.25, 6)
-	var centre := Vector3(lean.x * 0.7, height * 0.58, lean.z * 0.7)
-	var reach := Vector2(height * rng.randf_range(0.36, 0.45), height * 0.36)  # crown radii: across, up
-	var count := rng.randi_range(8, 10)
+	# Two parkland shapes from reference photos: an open-grown oak, its
+	# crown about as wide as the tree is tall and a little flattened, and a
+	# beech, a taller dome about three quarters as wide as it is tall.
+	var oak := rng.randf() < 0.6
+	var centre := Vector3(lean.x * 0.7, height * (0.55 if oak else 0.6), lean.z * 0.7)
+	var reach := Vector2(height * (rng.randf_range(0.5, 0.56) if oak else rng.randf_range(0.36, 0.4)),
+		height * (0.33 if oak else 0.38))  # crown radii: across, up
+	var count := rng.randi_range(10, 12) if oak else rng.randi_range(8, 10)
 	var tips: Array[Vector3] = []
 	for i in count:
 		var along := rng.randf_range(0.0, 1.0)

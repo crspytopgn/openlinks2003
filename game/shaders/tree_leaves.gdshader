@@ -129,17 +129,18 @@ void fragment() {
 		float h3 = hash(cell * 1.7 + info.r * 5.3 + 0.37);
 		float rim = length((cell + 0.5) / cells - 0.5) * 2.0;
 		// Once a leaf is only a few pixels across, single leaves on their
-		// grid read as a dot matrix: grow them into each other (and drop
-		// fewer) so a crown further off reads as solid, ragged foliage.
+		// grid read as a dot matrix: grow them into each other so a crown
+		// further off reads as solid, ragged foliage (the rim still thins out,
+		// or the cards show as squares).
 		float per_px = max(length(dFdx(UV)), length(dFdy(UV))) * cells;
 		float far = clamp(per_px * 7.0 - 0.6, 0.0, 1.0);
 		// Core cards (the crown's shaded middle) are packed full of leaves
 		// inside their round outline.
-		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * mix(0.95, 0.75, far) + 0.06 * (1.0 - far);
+		bool keep = core ? rim < 0.95 - 0.15 * h3 : h3 > smoothstep(0.3, 1.05, rim) * 0.95 + 0.06;
 		vec2 jitter = (vec2(h3, fract(h3 * 13.7)) - 0.5) * 0.16;
 		vec2 f = fract(g) - 0.5 - jitter;
 		float a = h * 6.2831;
-		float k = (1.08 + h2 * 0.3) / mix(1.0, 1.7, far);
+		float k = (1.08 + h2 * 0.3) / mix(1.0, 1.25, far);
 		mat2 turn = mat2(vec2(cos(a), sin(a)), vec2(-sin(a), cos(a))) * k;
 		vec2 luv = turn * f + 0.5;
 		bool inside = keep && all(greaterThanEqual(luv, vec2(0.0))) && all(lessThanEqual(luv, vec2(1.0)));
@@ -175,6 +176,10 @@ void fragment() {
 		col *= mix(0.78, 1.12, h3);
 		col *= mix(vec3(1.0), h2 > 0.85 ? vec3(1.12, 1.08, 0.75) : vec3(0.92, 1.0, 1.06), step(0.7, fract(h2 * 7.3)));
 	}
+	// Measured against 60 sunny golf-course photos (median foliage Lab
+	// L 29, a -10, b 16) our crowns were a little dark and too saturated:
+	// about a fifth less chroma and a touch lighter matches them.
+	col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.78) * 1.15;
 	// Inner leaves sit in the crown's own shade.
 	col *= core ? (needles ? 1.0 : 0.5) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {
