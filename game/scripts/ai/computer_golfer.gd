@@ -54,6 +54,10 @@ var power := 1.0
 var aim_deg := 0.0
 var accuracy := 0.0  ## the shape it means to play
 var expected := 0.0  ## strokes still to play after the planned shot
+## Where the planned shot finishes if struck perfectly: metres from the pin
+## (for the shot log, next to where it really went).
+var planned_left := 0.0
+var last_error_scale := 1.0  ## the error scale of the last swing()
 
 var _model: ShotModel
 var _clubs: Array[Club] = []
@@ -74,6 +78,7 @@ class Candidate:
 	var accuracy := 0.0  ## the shot's shape
 	var score := INF  ## expected strokes after the shot
 	var nominal := INF
+	var left := 0.0  ## metres from the pin, struck perfectly
 	var sure := false  ## played past the pin to make sure of getting out
 	var checked := false  ## re-tried with likely misses
 
@@ -194,6 +199,7 @@ func swing() -> PackedFloat64Array:
 	var scale := error_scale()
 	if _model is LinksShotModel:
 		scale *= OpponentSkill.LINKS_ERROR_SCALE[k]
+	last_error_scale = scale
 	return skill.execute(power, accuracy, aim_deg, k, scale, rng)
 
 
@@ -249,6 +255,7 @@ func _job_club(i: int, offset_deg: float, safe: bool, past_m := 0.0) -> void:
 		r = _simulate(c.club, c.power, c.aim_deg, c.accuracy)
 	c.nominal = _value(r)
 	c.score = c.nominal
+	c.left = 0.0 if r.outcome == ShotResult.Outcome.HOLED else _flat(r.rest, _hole.pin)
 	_candidates.append(c)
 
 
@@ -314,6 +321,7 @@ func _job_putt(c: Candidate, attempt: int) -> void:
 		_best_putt.power = c.power
 		_best_putt.aim_deg = c.aim_deg
 		_best_putt.score = c.score
+		_best_putt.left = 0.0 if r.outcome == ShotResult.Outcome.HOLED else _flat(r.rest, _hole.pin)
 	if r.outcome == ShotResult.Outcome.HOLED or attempt + 1 >= PUTT_TRIES:
 		_use(_best_putt)
 		return
@@ -337,6 +345,7 @@ func _use(c: Candidate) -> void:
 	aim_deg = c.aim_deg
 	accuracy = c.accuracy
 	expected = c.score
+	planned_left = c.left
 
 
 func _manages() -> bool:
