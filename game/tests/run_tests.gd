@@ -3440,7 +3440,28 @@ func _test_golfer_roster() -> void:
 		"the skin shader shows the pro's stubble")
 	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
+	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D
+	_check(lashes != null and lashes.material_override is ShaderMaterial, "lashes are soft fine hair, not a cut-out")
+	# Upright when waiting: the idle clip's knees nearly straight (PR #172
+	# had them bent 22-28 degrees, a squat).
+	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var player := golfer.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	root.add_child(golfer)
+	player.play(&"idle")
+	player.seek(0.5, true)
+	_check(player.current_animation == &"idle", "the idle clip plays")
+	for side in ["l", "r"]:
+		var hip := skel.get_bone_global_pose(skel.find_bone("thigh_" + side)).origin
+		var knee := skel.get_bone_global_pose(skel.find_bone("calf_" + side)).origin
+		var ankle := skel.get_bone_global_pose(skel.find_bone("foot_" + side)).origin
+		var bend := 180.0 - rad_to_deg((hip - knee).angle_to(ankle - knee))
+		_check(bend < 18.0, "standing %s knee nearly straight (%.0f deg)" % [side, bend])
+		print("  standing %s knee %.1f deg" % [side, bend])
 	golfer.free()
+	var luis: PlayerLook = GolferRoster.look_for("Luis Navarro")
+	var grace: PlayerLook = GolferRoster.look_for("Grace Mensah")
+	_check(is_equal_approx(luis.face_value("jaw"), 0.35 * GolferRoster.FACE_SCALE), "roster face sliders scaled up")
+	_check(grace.face_value("jaw") < -0.4, "women's faces get a softer jaw (%.2f)" % grace.face_value("jaw"))
 
 
 func _test_player_looks() -> void:

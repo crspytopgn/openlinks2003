@@ -68,7 +68,7 @@ const HAIR_COLOURS := [
 ]
 ## Clothes, cap and grip colours.
 const CLOTH_COLOURS := [
-	["Navy", Color(0.13, 0.24, 0.45)],
+	["Navy", Color(0.08, 0.12, 0.25)],  # real navy cloth, not denim blue
 	["White", Color(1.0, 1.0, 1.0)],
 	["Black", Color(0.12, 0.12, 0.13)],
 	["Charcoal", Color(0.3, 0.31, 0.33)],
@@ -102,7 +102,7 @@ var hair := "short"
 var hair_colour := Color(0.35, 0.28, 0.23)
 var eyes := "brown"
 var outfit := "polo"
-var top := Color(0.13, 0.24, 0.45)
+var top := Color(0.08, 0.12, 0.25)
 var bottom := Color(0.85, 0.75, 0.59)
 var shoes := Color(1, 1, 1)
 var cap := true  ## a golf cap (most tour players wear one)
