@@ -271,6 +271,7 @@ def facing_transform(bvh, f):
 # the turf.
 IMPACT_AT = (0.0, -0.004, -0.755)
 TWIRL_KEYS = 12
+SHAFT_LENGTH = 1.0  # grip to club head, metres, near enough for both clubs
 ADDRESS_CLEAR = 0.004  # the club head's lowest point at address, metres
 IMPACT_WINDOW = 30  # mocap frames either side of impact the correction fades over
 
@@ -378,11 +379,17 @@ def retarget(glb, rig, clip, cache):
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
             if "impact" not in clip:
-                # Waggling over the ball, the club head stays above the ground.
-                low = club_head(rots, poss)[1]
-                if low < ADDRESS_CLEAR:
-                    two_bone(rig, rots, poss, "upperarm_l", "lowerarm_l", "hand_l",
-                             poss[hands_l] + np.array([0.0, ADDRESS_CLEAR - low, 0.0]))
+                # Waggling over the ball, the club head stays above the
+                # ground: the wrists lift it a few degrees round the grip.
+                for _ in range(3):
+                    low = club_head(rots, poss)[1]
+                    if low >= ADDRESS_CLEAR:
+                        break
+                    shaft = rots[hands_l] @ club_dir
+                    axis = pose.unit(np.cross(shaft, [0.0, 1.0, 0.0]))
+                    reach = SHAFT_LENGTH * math.sqrt(max(1e-4, 1.0 - shaft[1] ** 2))
+                    lift = math.degrees((ADDRESS_CLEAR - low) / reach)
+                    rots[hands_l] = pose.rot(axis, lift) @ rots[hands_l]
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
             # The right hand stays on the grip.
