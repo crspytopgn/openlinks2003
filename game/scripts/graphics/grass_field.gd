@@ -42,7 +42,9 @@ func setup(t: CourseTerrain, grass_level: int) -> void:
 			node.queue_free()
 	_chunks.clear()
 	var r: float = RADIUS[level]
-	material().set_shader_parameter("fade_start", r * 0.6)
+	# Tufts sink into the ground from a third of the way out: a few pixels
+	# across, they read as dark clumps (clover) rather than rough.
+	material().set_shader_parameter("fade_start", r * 0.35)
 	material().set_shader_parameter("fade_end", r)
 
 
@@ -154,8 +156,10 @@ static func material() -> ShaderMaterial:
 		_mat = ShaderMaterial.new()
 		_mat.shader = SHADER
 		# Compatibility has no sky fill light, so the blades' sides get less
-		# light than the ground beside them; lift them to match.
-		_mat.set_shader_parameter("brightness", 1.0 if GraphicsSettings.is_forward_plus() else 1.5)
+		# light than the photo ground beside them; lift them to match. Under
+		# the Photoreal fill of PR #155 anything less left the rough from the
+		# tee as dark clumps on lighter ground (like clover).
+		_mat.set_shader_parameter("brightness", 1.0 if GraphicsSettings.is_forward_plus() else 2.0)
 		var fwd := GraphicsSettings.is_forward_plus()
 		_mat.set_shader_parameter("blend_amount", 0.35 if fwd else 1.0)
 		_mat.set_shader_parameter("blade_relief", 0.7 if fwd else 0.0)
