@@ -1,0 +1,35 @@
+; Engine configuration file.
+; Godot 4.4
+
+config_version=5
+
+[application]
+
+config/name="OpenLinks2003 Launcher"
+config/description="Installs, updates and starts OpenLinks2003. Contains nothing from the original game."
+run/main_scene="res://launcher.tscn"
+config/features=PackedStringArray("4.4", "GL Compatibility")
+config/icon="res://assets/icon.png"
+run/low_processor_mode=true
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0, 0, 0, 1)
+
+[display]
+
+window/size/viewport_width=1180
+window/size/viewport_height=720
+window/size/extend_to_title=true
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[gui]
+
+theme/default_font_multichannel_signed_distance_field=false
+common/snap_controls_to_pixels=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0, 0, 0, 1)
+textures/vram_compression/import_etc2_astc=true

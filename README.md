@@ -60,6 +60,13 @@ Every push to `main` builds the game for all three platforms and publishes
 it as the **[latest release](https://github.com/crspytopgn/openlinks2003/releases/tag/latest)**
 (macOS universal, Windows, Linux). The builds contain no game data.
 
+The easiest way in is the **launcher** (`OpenLinks2003-Launcher-*` on the
+same page): it installs the game and keeps it up to date, shows what's new,
+sets the display, quality, sound and swing options before you play, opens the
+course builder, and gets your Links 2003 files ready from your discs, disc
+images or an installed copy, all on your own computer. See
+[docs/launcher.md](docs/launcher.md).
+
 **macOS:** the build is ad-hoc signed, not notarised. Unzip it, move
 OpenLinks2003.app to Applications, then right-click it, choose **Open**, and
 confirm. On macOS 15 or later, if it still won't open, go to **System
