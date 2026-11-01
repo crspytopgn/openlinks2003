@@ -204,6 +204,7 @@ product lead builds it.
   - [x] Career stats (fairways, greens in regulation, putts) and handicaps for the computer golfers
   - [x] Player creator: body, height, skin, face, hair, clothes and equipment looks, saved with the profile and played in rounds ([game-shell.md](docs/game-shell.md#player-creator))
   - [x] Face from a photo, processed on the player's own device (found automatically in the browser; tapped on desktop)
+  - [x] Clothes that move: shirts, trousers and shorts ripple in the course wind, trail the body through the swing and fold as the shoulders turn and the knees and elbows bend (GolferCloth; still on Low, no folds on Medium)
   - [ ] Find the face automatically on desktop too (MediaPipe or similar through GDExtension)
 - [ ] Settings, controller support, performance
   - [x] Touch swipe swing and on-screen aim and club buttons for phones and tablets; game pad play with an analog-stick mouse swing ([game-shell.md](docs/game-shell.md#touch-screens-and-game-pads))
