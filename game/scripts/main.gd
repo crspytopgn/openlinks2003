@@ -252,6 +252,7 @@ var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
 var _drive_to := -1  ## the ball the buggy is driving to
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
+var fescue: FescueField  ## tall fescue on the deep rough, further out
 
 var _trail_mesh := ImmediateMesh.new()
 ## Broadcast presentation pieces (GraphicsSettings.presentation).
@@ -652,6 +653,8 @@ func start_hole(index: int) -> void:
 	camera.terrain = hole.terrain
 	if grass.terrain != hole.terrain:
 		grass.setup(hole.terrain, graphics.grass)
+	if fescue.terrain != hole.terrain:
+		fescue.setup(hole.terrain, graphics.grass)
 	if ambience != null:
 		ambience.start_hole(hole.tee)
 
@@ -979,6 +982,7 @@ func _process(delta: float) -> void:
 	if state != State.DRIVE:
 		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
 	grass.update_around(camera.global_position)
+	fescue.update_around(camera.global_position)
 	_update_ball_size()
 	if broadcast:
 		var playing := _replaying or state == State.FLIGHT
@@ -2966,6 +2970,8 @@ func _build_world() -> void:
 
 	grass = GrassField.new()
 	add_child(grass)
+	fescue = FescueField.new()
+	add_child(fescue)
 	post = PostProcess.new()
 	add_child(post)
 	dynamic_resolution = DynamicResolution.new()
@@ -3058,6 +3064,7 @@ func _apply_graphics() -> void:
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
 	if grass.level != graphics.grass and hole != null:
 		grass.setup(hole.terrain, graphics.grass)
+		fescue.setup(hole.terrain, graphics.grass)
 	broadcast = graphics.broadcast()
 	tour = broadcast and graphics.tour()
 	camera.broadcast = broadcast

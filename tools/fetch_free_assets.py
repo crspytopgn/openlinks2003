@@ -241,6 +241,21 @@ def make_leaf_spray(out_dir):
             f.write(TEXTURE_IMPORT.format(mode=0, limit=256, mipmaps="true"))
 
 
+def make_fescue(out_dir):
+    """The tall fescue atlas (tools/grass/fescue_atlas.py): drawn, not
+    downloaded, but needs Pillow; without it the hills keep plain rough."""
+    out = os.path.join(out_dir, "fescue.png")
+    if not os.path.exists(out):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "grass"))
+        import fescue_atlas  # noqa: E402 - needs Pillow, so only imported here
+        print("  fescue: drawing the tuft atlas")
+        fescue_atlas.build(out)
+    # Lossy is fine (the gaps are filled with the blades' colours), at 512:
+    # a tuft is 256 px, more than it ever covers on screen.
+    with open(out + ".import", "w") as f:
+        f.write(TEXTURE_IMPORT.format(mode=1, limit=512, mipmaps="true"))
+
+
 def fetch_twigs(out_dir):
     """The photoscanned fir sprigs for the conifers' needle cards."""
     paths = {name: os.path.join(out_dir, name) for name in TWIG_MAPS}
@@ -286,6 +301,10 @@ def main():
             make_leaf_spray(args.out)
         except Exception as e:  # noqa: BLE001 - Pillow missing: plain leaf cards
             print(f"WARNING: no leaf spray atlas: {e}")
+    try:
+        make_fescue(args.out)
+    except Exception as e:  # noqa: BLE001 - Pillow missing: no fescue
+        print(f"WARNING: no fescue atlas: {e}")
     try:
         credits.append(fetch_twigs(args.out))
     except Exception as e:  # noqa: BLE001
