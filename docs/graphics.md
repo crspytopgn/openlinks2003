@@ -164,6 +164,18 @@ at Medium and grass at Low.
   Without the atlas the cards fall back to the grid of single leaves
   above. Poly Haven's whole scanned trees (2 to 17
   million triangles, 50 to 960 MB each) are too heavy to ship.
+- **Tall fescue** (`FescueField`, `shaders/fescue.gdshader`): the deep
+  rough, which is most of a hole's ground out of play, grows tufts of long
+  grass 45 to 85 cm tall from about 15 m (fading in to 45 m, past the near
+  3D tufts, so a ball in the rough by the camera stays in view) out to 90,
+  140 or 180 m by the Grass setting, 0.25 to 0.45 tufts a square metre.
+  Each tuft is three crossed cards from the fescue atlas, which
+  `tools/grass/fescue_atlas.py` draws (no download, needs Pillow; run by
+  fetch_free_assets.py): fine blades green at the root and straw at the
+  tips, leaning and bending, with seed stalks above. The cards take half
+  the ground's colour and vary tuft to tuft, sway in the wind, take the
+  baked tree shade, and are built in 32 m chunks, two a frame, as the
+  camera moves. Without it the built-in course's hills read as green felt.
 - **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
   hole starts, every tree, bush and rock billboard and every 3D model
   within 250 m of the tee, route and pin stamps a soft shadow (along
@@ -369,6 +381,16 @@ at Medium and grass at Low.
   or 360 cards from Low to Ultra (Low has cards and no 3D people), plus one
   more for the soft contact shadows they stand on, as the 3D people do.
   They keep off greens, bunkers and water and 0.7 m apart.
+  Once `CrowdImpostors` has baked its atlas, the cards show real people
+  instead of the drawn figure: the first gallery of a session renders
+  twelve of the player creator's people (random looks, the crowd's idle,
+  arms folded, hanging, behind the back or in pockets) from eight sides
+  into a 960 by 1280 atlas, in an off-screen viewport, as TreeFactory
+  bakes its tree impostors (about 40 frames, once). Each card is turned
+  to face the play and draws the view of its person from the side the
+  camera is on, so the far crowd has faces, caps, clothes and folded arms
+  and turns properly as the camera moves. Headless runs, and the moments
+  before the bake finishes, keep the drawn figures.
 - **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
   bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
   0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set
