@@ -64,6 +64,12 @@ static func _matte(black: Image, white: Image) -> Image:
 	return Image.create_from_data(black.get_width(), black.get_height(), false, Image.FORMAT_RGBA8, out)
 
 
+## True while the bake is under way: its off-screen viewport draws the
+## sixteen people for a few dozen frames.
+static func baking() -> bool:
+	return _baking and _atlas == null
+
+
 ## The baked atlas, or null before the first bake (and when headless).
 static func atlas() -> ImageTexture:
 	return _atlas

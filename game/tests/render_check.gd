@@ -36,6 +36,7 @@ const FORWARD_PLUS_VIDEO_MB := 1024.0
 var _game: GolfRound
 var _designer: Node
 var _frames := 0
+var _settle := 0
 var _out := ""
 var _golfer_scene: Node3D
 var _golfer_player: AnimationPlayer
@@ -74,6 +75,12 @@ func _process(_delta: float) -> bool:
 		if not _check_budget("flyover"):
 			return true
 		_game.camera.end_flyover()
+	elif _frames == SHOT_FRAME and (CrowdImpostors.baking() or _settle < 5):
+		# The crowd's one-off bake (an off-screen viewport of sixteen 3D
+		# people, two shots a view in Forward+) is not the round's running
+		# cost: wait it out, and a few frames for its viewport to go.
+		_settle = 0 if CrowdImpostors.baking() else _settle + 1
+		_frames -= 1
 	elif _frames == SHOT_FRAME:
 		var tee := root.get_texture().get_image()
 		_save_jpg(tee, "-tee")
