@@ -5069,6 +5069,15 @@ func _test_broadcast_pieces() -> void:
 	_check(d.cut_cams[0] == ShotDirector.Cam.BEHIND, "starts behind the ball")
 	_check(d.cut_cams[1] == ShotDirector.Cam.CHASE, "variant 0 chases the ball")
 	_check(d.cut_cams[2] == ShotDirector.Cam.PIN, "landing near the pin cuts to the pin camera")
+	# A dogleg whose corner is past the club's reach: aim at the corner, not
+	# straight at the pin over the trees.
+	var dogleg := HoleData.new()
+	dogleg.terrain = terrain
+	dogleg.tee = Vector3.ZERO
+	dogleg.pin = Vector3(200, 0, 300)
+	dogleg.route = PackedVector2Array([Vector2(0, 280)])
+	_check(dogleg.aim_point(dogleg.tee, 250.0).distance_to(Vector3(0, 0, 280)) < 0.1, "out of reach of the corner: aim at the corner")
+	_check(dogleg.aim_point(Vector3(0, 0, 200), 250.0).distance_to(dogleg.pin) < 0.1, "past the corner: aim at the pin")
 	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
 	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
 	var late: Array = d.step(5.5, shot.position_at(5.5), behind, 0.016)
