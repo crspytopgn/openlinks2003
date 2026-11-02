@@ -17,7 +17,9 @@ extends GolferRig
 ## missing.
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
+const SPECTATOR_TEXTURE := 512
 const BLEND_TIME := 0.15
+const REACT_BLEND := 0.4  ## out of the finish into a reaction
 const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
 ## Clips with an iron version (`_iron`): a shorter, more upright club, so he
 ## stands closer to the ball and bends over more.
@@ -32,6 +34,25 @@ const NEW_BALL := 0.5
 ## Where a putt is read from: behind the ball, on the line to the hole
 ## (the target is -x), in the rig's frame.
 const READ_SPOT := Vector3(1.6, 0.0, -0.75)
+## Before a full shot: behind the ball on the target line, looking at the
+## target for SURVEY_TIME seconds before walking in, as tour players do.
+const SURVEY_SPOT := Vector3(2.2, 0.0, -0.75)
+const SURVEY_TIME := 1.6
+## Where the club meets the ball, seconds into the clip at normal speed:
+## swing and swing_iron start at the top (mocap_swing.py downswing), the
+## putt at address (back + downswing).
+const SWING_IMPACT := 0.30
+const PUTT_IMPACT := 0.75
+## Each golfer's own tempo (speed of the backswing, swing and putt),
+## picked from the look: tour downswings run ~0.25 s (quick players) to
+## ~0.33 s (smooth ones).
+const TEMPO_MIN := 0.9
+const TEMPO_MAX := 1.15
+## Everything else plays this much faster or slower each time, and a
+## looping clip starts at a random point, so no two shots look the same.
+const SPEED_JITTER := 0.06
+const SURVEY_JITTER := 0.5  ## seconds either side of SURVEY_TIME
+const SWING_CLIPS: Array[StringName] = [&"backswing", &"swing", &"backswing_iron", &"swing_iron", &"putt"]
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
@@ -42,6 +63,10 @@ const SHAFT_COLOURS := {"steel": Color(0.75, 0.76, 0.78), "graphite": Color(0.16
 var look: PlayerLook
 ## False to settle into address on the spot (the player creator's preview).
 var walk_in := true
+## Largest texture side for this golfer's look (0: the pack's own). The
+## crowd uses SPECTATOR_TEXTURE: six realistic people at full size would
+## take some 300 MB of video memory for faces seen from 20 m.
+var texture_cap := 0
 var _model: Node3D
 var _player: AnimationPlayer
 var _skeleton: Skeleton3D
@@ -58,6 +83,11 @@ var _rest := Vector3.ZERO
 var _walk: Tween
 var _last_spot := Vector3.INF
 var _look: GolferLook
+## This golfer's swing tempo (TEMPO_MIN..TEMPO_MAX), from the look.
+var tempo := 1.0
+var _rng := RandomNumberGenerator.new()
+## The speed the clip playing now runs at (the walk moves with it).
+var _speed := 1.0
 var _feet: GolferFeet
 var _hands: GolferHands
 var _cloth: GolferCloth
@@ -66,7 +96,7 @@ var _arms: GolferArms
 
 ## Null if the model or the look pack is missing, or the model has no
 ## animations.
-static func create(p_look: PlayerLook = null) -> FreeGolfer:
+static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	if not ResourceLoader.exists(SCENE_PATH) or GolferParts.shared() == null:
 		return null
 	var scene := load(SCENE_PATH) as PackedScene
@@ -79,6 +109,7 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 		model.free()
 		return null
 	var golfer := FreeGolfer.new()
+	golfer.texture_cap = p_texture_cap
 	golfer.add_child(model)
 	golfer._model = model
 	golfer._player = player
@@ -115,13 +146,20 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 ## meshes, moves the joints to the new shape and scales to the height.
 func apply_look(p_look: PlayerLook) -> void:
 	look = p_look
+	tempo = tempo_of(p_look)
 	var parts := GolferParts.shared()
 	for node in _look_nodes:
 		node.queue_free()
 	_look_nodes.clear()
 	_cloth.clear_materials()
-	var weights := look.shape_weights()
-	_fit_skeleton(parts.joint_offsets(weights))
+	var who := person_info(look, parts.info)
+	var weights := look.shape_weights() if who.is_empty() else {}
+	var offsets := parts.joint_offsets(weights)
+	if not who.is_empty():
+		for bone: String in who.joints:
+			var d: Array = who.joints[bone]
+			offsets[bone] = Vector3(d[0], d[1], d[2])
+	_fit_skeleton(offsets)
 	var skin := Skin.new()
 	var glove_bones := PackedInt32Array()
 	var names := parts.bone_names()
@@ -132,21 +170,31 @@ func apply_look(p_look: PlayerLook) -> void:
 		var bone := _skeleton.find_bone(bone_name)
 		var rest := _skeleton.get_bone_global_rest(bone) if bone >= 0 else Transform3D.IDENTITY
 		skin.add_named_bind(bone_name, rest.affine_inverse())
-	for part_name in parts_for(look, parts.info):
+	var part_names := parts_for(look, parts.info) if who.is_empty() else person_parts(look, who, parts.info)
+	for part_name in part_names:
 		if not parts.has_part(part_name):
 			continue
 		var mi := MeshInstance3D.new()
 		mi.name = part_name
 		var mat_name := parts.part_material(part_name)
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
-		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
+		var gloved := (is_skin or str(parts.info.materials[mat_name].get("tint", "")) == "person") and look.glove
+		mi.mesh = parts.bake(part_name, weights, glove_bones if gloved else PackedInt32Array())
 		if part_name.begins_with("Hair_") and look.wears_cap():
 			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
 		var std := _material(parts, mat_name)
 		var mat: Material = null
-		if is_skin:
-			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name))
+		var tint := str(parts.info.materials[mat_name].get("tint", ""))
+		if tint == "person":
+			var pm := GolferSurface.person(std, look, _skin_regions(parts, mat_name),
+				parts.info.materials[mat_name].get("region_means", []))
+			_cloth.add_occluded(pm)
+			mat = pm
+		elif tint == "person_hair":
+			mat = _matt(std)
+		elif is_skin:
+			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name), _face_detail(parts, mat_name))
 			if mat == null:
 				mat = GolferSurface.skin(std)
 			else:
@@ -179,12 +227,37 @@ func apply_look(p_look: PlayerLook) -> void:
 		_skeleton.add_child(mi)
 		mi.skeleton = NodePath("..")
 		_look_nodes.append(mi)
-	var s := clampf(look.height_cm / 100.0 / parts.standing_height(weights), 0.7, 1.4)
+	var standing := parts.standing_height(weights) if who.is_empty() else float(who.height)
+	var s := clampf(look.height_cm / 100.0 / standing, 0.7, 1.4)
 	_model.scale = Vector3.ONE * s
 	_rest = BALL * (1.0 - s)
 	if _walk == null:
 		_model.position = _rest
 	_dress_clubs()
+
+
+## The look pack's realistic person `look` asks for (info["people"]), or
+## an empty dictionary for the creator's own body.
+static func person_info(p_look: PlayerLook, info: Dictionary) -> Dictionary:
+	if p_look.person == "":
+		return {}
+	return (info.get("people", {}) as Dictionary).get(p_look.person, {})
+
+
+## A realistic person's parts: body and head, and either their hair or,
+## with the cap on, the cap fitted to their head (rocketbox.py fit_cap;
+## the hair painted on the scalp still shows below it).
+static func person_parts(p_look: PlayerLook, who: Dictionary, info: Dictionary) -> PackedStringArray:
+	var out := PackedStringArray()
+	var cap := "RB_%s_cap" % p_look.person
+	var capped := p_look.cap and (info.get("parts", {}) as Dictionary).has(cap)
+	for part: String in who.parts:
+		if capped and part.ends_with("_opacity"):
+			continue
+		out.append(part)
+	if capped:
+		out.append(cap)
+	return out
 
 
 ## The look pack parts this look shows: the body pieces its outfit doesn't
@@ -212,23 +285,23 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 	match str(m.get("tint", "")):
 		"skin":
 			var female := look.sex >= 0.5 and parts.info.has("skin_female")
-			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1)
+			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1, texture_cap)
 		"top":
-			return parts.make_material(material_name, look.top)
+			return parts.make_material(material_name, look.top, -1, texture_cap)
 		"bottom":
-			return parts.make_material(material_name, look.bottom)
+			return parts.make_material(material_name, look.bottom, -1, texture_cap)
 		"shoes":
-			return parts.make_material(material_name, look.shoes)
+			return parts.make_material(material_name, look.shoes, -1, texture_cap)
 		"hair":
-			return parts.make_material(material_name, look.hair_colour)
+			return parts.make_material(material_name, look.hair_colour, -1, texture_cap)
 		"brows":
-			return parts.make_material(material_name, look.hair_colour.darkened(0.15))
+			return parts.make_material(material_name, look.hair_colour.darkened(0.15), -1, texture_cap)
 		"cap":
-			return parts.make_material(material_name, look.cap_colour)
+			return parts.make_material(material_name, look.cap_colour, -1, texture_cap)
 	if material_name == "Eyes":
 		var eyes: Dictionary = parts.info.get("eyes", {})
-		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
-	return parts.make_material(material_name)
+		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)), texture_cap)
+	return parts.make_material(material_name, Color.WHITE, -1, texture_cap)
 
 
 ## The hair without the part the cap covers: the cap fits the skull with
@@ -293,6 +366,19 @@ static func under_cap(hair: ArrayMesh, parts: GolferParts, weights: Dictionary) 
 static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2D:
 	var index := int(parts.info.materials[material_name].get("regions", -1))
 	return parts.texture(index) if index >= 0 else null
+
+
+## The look pack's scanned face detail for the skin shader at
+## GolferSurface.face_detail's tier, or empty (that tier is off, or an
+## older pack).
+static func _face_detail(parts: GolferParts, material_name: String) -> Dictionary:
+	var fd: Variant = parts.info.materials[material_name].get("face_detail")
+	if GolferSurface.face_detail <= 0 or not fd is Dictionary:
+		return {}
+	var size := 0 if GolferSurface.face_detail >= 2 else 512
+	var r: Array = fd.rect
+	return {"albedo": parts.texture(int(fd.albedo), size), "normal": parts.texture(int(fd.normal), size),
+		"rect": Vector4(r[0], r[1], r[2], r[3])}
 
 
 ## Whether a part is clothing that moves (the cap stays put on the head).
@@ -412,9 +498,38 @@ func play(animation: StringName) -> void:
 		_play(clip, BLEND_TIME)
 
 
+func impact_delay() -> float:
+	return SWING_IMPACT / tempo
+
+
+func putt_impact_delay() -> float:
+	return PUTT_IMPACT / tempo
+
+
+## A tempo for a look, the same every time for the same golfer.
+static func tempo_of(p_look: PlayerLook) -> float:
+	if p_look == null:
+		return 1.0
+	var h := hash(var_to_str(p_look.to_dict()))
+	return lerpf(TEMPO_MIN, TEMPO_MAX, float(posmod(h, 1000)) / 999.0)
+
+
+func react(animation: StringName, delay: float) -> void:
+	if not is_inside_tree() or not _player.has_animation(animation):
+		return
+	var during := _player.current_animation
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
+		if is_instance_valid(self) and _player.current_animation == during:
+			_play(animation, REACT_BLEND))
+
+
 ## Plays a clip, the right hand following onto the club or off it.
-func _play(clip: StringName, blend: float) -> void:
-	_player.play(clip, blend)
+func _play(clip: StringName, blend: float, speed := 0.0) -> void:
+	_speed = speed if speed > 0.0 else (tempo if clip in SWING_CLIPS else 1.0 + _rng.randf_range(-SPEED_JITTER, SPEED_JITTER))
+	_player.play(clip, blend, _speed)
+	var anim := _player.get_animation(clip)
+	if anim and anim.loop_mode != Animation.LOOP_NONE and clip != &"walk":
+		_player.seek(_rng.randf() * anim.length, false)
 	if _hands:
 		_hands.follow(clip, blend)
 
@@ -432,9 +547,12 @@ func set_ground(height: Callable, sink: float = 0.0) -> void:
 
 ## Walks forward to the address spot, then settles into the clip. Before a
 ## putt the golfer reads it first, crouched behind the ball looking down the
-## line.
+## line; before a full shot he stands behind the ball looking at the target.
 func _walk_in(clip: StringName) -> void:
 	_walk = create_tween()
+	# The stride and the walk across the ground at the same pace, so the
+	# feet don't slide.
+	var pace := 1.0 + _rng.randf_range(-SPEED_JITTER, SPEED_JITTER)
 	var from := Vector3(0, 0, WALK_FROM)
 	if clip == &"address_putt" and _player.has_animation(&"read"):
 		_model.position = _rest + READ_SPOT
@@ -444,12 +562,23 @@ func _walk_in(clip: StringName) -> void:
 		from = READ_SPOT
 		var heading := -from.normalized()
 		var yaw := atan2(-heading.x, -heading.z)
-		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE))
+		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
+		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
+	elif _player.has_animation(&"survey"):
+		# Behind the ball looking down the target line, then in.
+		_model.position = _rest + SURVEY_SPOT
+		_model.rotation.y = PI / 2.0
+		_play(&"survey", BLEND_TIME)
+		_walk.tween_interval(SURVEY_TIME + _rng.randf_range(-SURVEY_JITTER, SURVEY_JITTER))
+		from = SURVEY_SPOT
+		var heading := -from.normalized()
+		var yaw := atan2(-heading.x, -heading.z)
+		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
 		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
 	else:
 		_model.position = _rest + from
-		_play(&"walk", BLEND_TIME)
-	_walk.tween_property(_model, "position", _rest, from.length() / WALK_SPEED)
+		_play(&"walk", BLEND_TIME, pace)
+	_walk.tween_property(_model, "position", _rest, from.length() / (WALK_SPEED * pace))
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(clip):
 			_play(clip, WALK_SETTLE))

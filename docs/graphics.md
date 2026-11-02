@@ -290,6 +290,18 @@ at Medium and grass at Low.
   (`GolferCloth.TEXTURE_DETAIL`). In the browser, dynamic resolution stops
   at 80% (`DynamicResolution.WEB_MIN_SCALE`): with only a plain stretch,
   half resolution turned every edge to stair steps on an iPad.
+- **Realistic people** (`tools/golfer/rocketbox.py`, MIT Microsoft
+  Rocketbox avatars): six photographed people moved onto the free golfer's
+  skeleton, so every clip, IK and the self-shade work on them. They are the
+  pros, crowd, computer players and a new player's golfer
+  (`PlayerLook.person`); the sculpted body stays as "Custom". The fit:
+  arm bones turned by their elbow's hinge plane and stretched to the rig's
+  length (longer arms bent at the elbow to reach the grip), shoulders
+  brought forward to the rig's, hands laid over the rig's finger joints,
+  feet only turned about the vertical (flat soles), spine pivots at the
+  rig's heights. `golfer_person.gdshader` dyes shirt, trousers and shoes
+  from a regions mask, keeping the folds (luminance around the garment's
+  median, deepened). Browsers and phones load their maps at 1024.
 - **Ground relief** (`PHOTO_RELIEF` in `crz_terrain.gd`): each photo set's
   height map shifts the texture with the view within about 35 m
   (two-step parallax, a few millimetres to 5 cm of relief per surface)

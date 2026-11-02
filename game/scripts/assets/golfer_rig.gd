@@ -28,9 +28,21 @@ func impact_delay() -> float:
 	return 0.0
 
 
+## The same for play(&"putt"): seconds to the putter meeting the ball.
+func putt_impact_delay() -> float:
+	return 0.0
+
+
 ## Turns the golfer's head to follow `target` (the ball in flight) after
 ## `delay` seconds, until the next play().
 func watch(_target: Node3D, _delay: float = 0.3) -> void:
+	pass
+
+
+## Plays a reaction (&"fore_left", &"fore_right": pointing after a shot
+## heading well offline) `delay` seconds into the clip playing now, unless
+## another clip has started by then. Rigs without it do nothing.
+func react(_animation: StringName, _delay: float) -> void:
 	pass
 
 

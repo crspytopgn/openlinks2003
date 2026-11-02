@@ -22,6 +22,14 @@ const GLOVE_COLOUR := Color(0.86, 0.85, 0.82)
 ## to a flat glowing patch with no shape, the old plastic game look.
 const WHITEST := 0.8
 
+## How deep the scanned face's lines and pores are on an average man.
+const FACE_RELIEF := 1.0
+
+## The scanned face detail on the skin (FreeGolfer, from
+## GraphicsSettings.quality via main.gd): 0 off (Low), 1 at half its
+## resolution (Medium: the web and phones), 2 full (High and Ultra).
+static var face_detail := 2
+
 static var _weave: Texture2D
 static var _pores: Texture2D
 static var _stubble: Texture2D
@@ -29,6 +37,7 @@ const SKIN_SHADER := preload("res://shaders/golfer_skin.gdshader")
 const HAIR_SHADER := preload("res://shaders/golfer_hair.gdshader")
 const FINE_HAIR_SHADER := preload("res://shaders/golfer_fine_hair.gdshader")
 const EYE_SHADER := preload("res://shaders/golfer_eye.gdshader")
+const PERSON_SHADER := preload("res://shaders/golfer_person.gdshader")
 
 
 static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -48,7 +57,10 @@ static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
 ## and a man's beard shadow and stubble from PlayerLook.stubble), with
 ## pores. Null without a region map (an older pack), so the caller can
 ## keep skin() instead.
-static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D) -> ShaderMaterial:
+## `face` is the scanned face detail ({albedo, normal: Texture2D, rect:
+## Vector4}, see FreeGolfer._face_detail), or empty for none: full on a
+## weathered older man, softer on a woman's and a young face.
+static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D, face := {}) -> ShaderMaterial:
 	if regions == null:
 		return null
 	var m := ShaderMaterial.new()
@@ -66,6 +78,13 @@ static func skin_shader(mat: StandardMaterial3D, look: PlayerLook, regions: Text
 	m.set_shader_parameter("shave_shadow", (0.35 + 0.65 * look.stubble) if man else 0.0)
 	m.set_shader_parameter("lip_strength", 1.15 if not man else 0.8)
 	m.set_shader_parameter("flush_strength", 1.0)
+	if not face.is_empty():
+		var years := clampf(1.0 + 0.3 * look.age, 0.6, 1.4)
+		m.set_shader_parameter("face_albedo", face.albedo)
+		m.set_shader_parameter("face_normal", face.normal)
+		m.set_shader_parameter("face_rect", face.rect)
+		m.set_shader_parameter("face_colour", (1.0 if man else 0.65) * minf(years, 1.0))
+		m.set_shader_parameter("face_relief", (FACE_RELIEF if man else FACE_RELIEF * 0.5) * years)
 	return m
 
 
@@ -109,6 +128,28 @@ static func hair(mat: StandardMaterial3D) -> ShaderMaterial:
 	m.set_shader_parameter("albedo", mat.albedo_color)
 	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
 	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
+	return m
+
+
+## A realistic person's painted body (skin and clothes in one texture,
+## tools/golfer/rocketbox.py) as golfer_person.gdshader: the shirt,
+## trousers and shoes dyed the look's colours where the pack has a regions
+## map, matt, with the body's own shade.
+static func person(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D, means: Array) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.resource_name = mat.resource_name
+	m.shader = PERSON_SHADER
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("use_normal", mat.normal_enabled and mat.normal_texture != null)
+	m.set_shader_parameter("texture_normal", mat.normal_texture)
+	m.set_shader_parameter("roughness", maxf(mat.roughness, 0.8))
+	m.set_shader_parameter("regions", regions)
+	m.set_shader_parameter("recolour", 1.0 if regions != null else 0.0)
+	if means.size() == 3:
+		m.set_shader_parameter("region_means", Vector3(means[0], means[1], means[2]))
+	m.set_shader_parameter("top", real_albedo(look.top))
+	m.set_shader_parameter("bottom", real_albedo(look.bottom))
+	m.set_shader_parameter("shoes", real_albedo(look.shoes))
 	return m
 
 

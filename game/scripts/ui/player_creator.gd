@@ -1,7 +1,8 @@
 class_name PlayerCreator
 extends Control
 ## The player creator: a player's golfer (PlayerLook) with a live 3D
-## preview (GolferPreview). Tabs for the body (sex, height, build, muscle,
+## preview (GolferPreview). A Golfer tab picks one of the realistic people
+## or Custom; tabs for Custom's body (sex, height, build, muscle,
 ## age, skin, eyes), the face (sixteen shape sliders, or a photo: see
 ## FaceFromPhoto), hair, clothes and equipment. Saving stores the look with
 ## the player's profile (PlayerProfiles), so their rounds and stats stay
@@ -19,7 +20,7 @@ const HEAD_COLOURS := [
 	["Blue", Color(0.12, 0.25, 0.6)], ["Red", Color(0.6, 0.08, 0.08)], ["Gold", Color(0.75, 0.6, 0.25)],
 ]
 
-var look := PlayerLook.new()
+var look := PlayerLook.default_look()
 var _original_name := ""
 var _profiles := PlayerProfiles.new()
 var _preview: GolferPreview
@@ -98,6 +99,7 @@ func _ready() -> void:
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(_tabs)
+	_build_golfer_tab()
 	_build_body_tab()
 	_build_face_tab()
 	_build_photo_tab()
@@ -113,10 +115,11 @@ func _ready() -> void:
 	buttons.add_theme_constant_override("separation", 10)
 	box.add_child(buttons)
 	var random := MenuStyle.button("Randomise")
-	random.pressed.connect(func() -> void: _set_look(PlayerLook.random(randi())))
+	random.pressed.connect(func() -> void:
+		_set_look(PlayerLook.random(randi()) if look.person == "" else PlayerLook.random_person(randi())))
 	buttons.add_child(random)
 	var reset := MenuStyle.button("Reset")
-	reset.pressed.connect(func() -> void: _set_look(PlayerLook.new()))
+	reset.pressed.connect(func() -> void: _set_look(PlayerLook.default_look()))
 	buttons.add_child(reset)
 	var cancel := MenuStyle.button("Cancel")
 	cancel.pressed.connect(self.cancel)
@@ -134,7 +137,7 @@ func open(player_name: String) -> void:
 	var saved := _profiles.look_of(player_name) if not player_name.is_empty() else null
 	_message.text = ""
 	visible = true
-	_set_look(saved if saved != null else PlayerLook.new())
+	_set_look(saved if saved != null else PlayerLook.default_look())
 	if not _preview.show_look(look):
 		_message.text = "The golfer model is missing from this build, so there is nothing to preview."
 	_name.grab_focus.call_deferred()
@@ -195,6 +198,31 @@ func _tab(title: String) -> VBoxContainer:
 	return box
 
 
+## Who the golfer is: one of the realistic people (PlayerLook.PEOPLE), who
+## take the clothes colours, cap, glove, height and equipment, or Custom,
+## the sculpted body every other tab shapes.
+func _build_golfer_tab() -> void:
+	var box := _tab("Golfer")
+	_heading(box, "Golfer")
+	var ids := [""]
+	var labels := ["Custom"]
+	for p: Array in PlayerLook.PEOPLE:
+		ids.append(p[0])
+		labels.append(p[1])
+	_choices(box, ids, labels, func() -> String: return look.person, func(v: String) -> void:
+		look.person = v
+		if v != "":
+			look.sex = PlayerLook.person_sex(v)
+			look.height_cm = 168.0 if look.sex >= 0.5 else 180.0
+		for refresh in _refreshers:
+			refresh.call())
+	var note := Label.new()
+	note.text = "Custom is built with the Body, Face and Hair tabs. The others are real people: pick their clothes on the Clothes tab."
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.modulate = Color(1, 1, 1, 0.6)
+	box.add_child(note)
+
+
 func _build_body_tab() -> void:
 	var box := _tab("Body")
 	_slider_row(box, "Body", "male", "female", 0.0, 1.0,
@@ -248,6 +276,7 @@ func _build_photo_tab() -> void:
 			look.skin = skin
 		if hair.a > 0.0:
 			look.hair_colour = hair
+		look.person = ""  # a face from a photo is a Custom golfer
 		_set_look(look))
 	box.add_child(_photo)
 
