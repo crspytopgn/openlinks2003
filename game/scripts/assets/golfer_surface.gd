@@ -17,6 +17,10 @@ extends RefCounted
 ## UV layout is small).
 const WEAVE_TILES := 90.0
 const GLOVE_COLOUR := Color(0.86, 0.85, 0.82)
+## The brightest a fabric or leather colour gets. Even a brand new white cap
+## or polo reflects only about 60-70% of the sun; at full white it burns out
+## to a flat glowing patch with no shape, the old plastic game look.
+const WHITEST := 0.8
 
 static var _weave: Texture2D
 static var _pores: Texture2D
@@ -109,12 +113,28 @@ static func hair(mat: StandardMaterial3D) -> ShaderMaterial:
 
 
 static func cloth(mat: StandardMaterial3D) -> StandardMaterial3D:
+	mat.albedo_color = real_albedo(mat.albedo_color)
 	mat.roughness = maxf(mat.roughness, 0.85)
 	mat.metallic_specular = minf(mat.metallic_specular, 0.3)
 	mat.rim_enabled = true
-	mat.rim = 0.25
+	mat.rim = cloth_rim(mat.albedo_color)
 	mat.rim_tint = 0.7
 	return mat
+
+
+## `c` no brighter than real cloth (WHITEST), keeping its hue.
+static func real_albedo(c: Color) -> Color:
+	var top := maxf(c.r, maxf(c.g, c.b))
+	if top <= WHITEST:
+		return c
+	var k := WHITEST / top
+	return Color(c.r * k, c.g * k, c.b * k, c.a)
+
+
+## The fibres' rim light for cloth of colour `c`: it shows on dark cloth,
+## but on white it only adds a glowing halo round the outline.
+static func cloth_rim(c: Color) -> float:
+	return 0.25 * (1.0 - 0.75 * c.get_luminance())
 
 
 static func glove() -> StandardMaterial3D:

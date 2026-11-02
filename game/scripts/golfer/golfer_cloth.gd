@@ -28,6 +28,9 @@ extends Node
 static var detail := 2
 
 const SHADER := preload("res://shaders/golfer_cloth.gdshader")
+## How much of the pack's cloth texture marks to keep (golfer_cloth's
+## texture_detail): its trousers are distressed jeans, scuffed like dirt.
+const TEXTURE_DETAIL := 0.3
 ## The springs: about 3 Hz, a little damped, like a polo's sleeve.
 const LAG_HZ := 3.2
 const LAG_DAMPING := 0.35
@@ -40,6 +43,18 @@ const MAX_TURN_LAG := 0.22
 const TWIST_FOLDS := Vector2(0.12, 0.7)
 const BEND_FOLDS := Vector2(0.35, 1.6)
 
+## The body's capsules for golfer_occlusion.gdshaderinc, as [from bone,
+## to bone, radius in metres]: arms, legs, the trunk in two and the head
+## (to "" is a point above the bone). OCCLUDERS in the shader matches.
+const OCCLUDERS := [
+	["upperarm_l", "lowerarm_l", 0.05], ["lowerarm_l", "hand_l", 0.04],
+	["upperarm_r", "lowerarm_r", 0.05], ["lowerarm_r", "hand_r", 0.04],
+	["thigh_l", "calf_l", 0.075], ["calf_l", "foot_l", 0.05],
+	["thigh_r", "calf_r", 0.075], ["calf_r", "foot_r", 0.05],
+	["pelvis", "spine_03", 0.12], ["spine_03", "neck_01", 0.12],
+	["head", "", 0.09],
+]
+
 ## Arm and leg bones by side, for the mask.
 const ARM_BONES := ["upperarm", "lowerarm", "hand", "thumb", "index", "middle", "ring", "pinky"]
 const LEG_BONES := ["thigh", "calf", "foot", "ball"]
@@ -49,6 +64,9 @@ static var _masked_order: Array = []
 const MASK_CACHE := 48
 
 var materials: Array[ShaderMaterial] = []
+## Every material with golfer_occlusion.gdshaderinc (the clothes and the
+## skin), given the body's capsules each frame.
+var occluded: Array[ShaderMaterial] = []
 var _skeleton: Skeleton3D
 var _bones := {}
 var _springs := {}  ## name -> [offset: Vector3, velocity: Vector3, last pos, last vel]
@@ -59,7 +77,7 @@ func _ready() -> void:
 	_skeleton = get_parent() as Skeleton3D
 	if _skeleton != null:
 		for b in ["pelvis", "spine_03", "neck_01", "clavicle_l", "clavicle_r", "upperarm_l", "lowerarm_l", "hand_l",
-				"upperarm_r", "lowerarm_r", "hand_r", "thigh_l", "calf_l", "foot_l", "thigh_r", "calf_r", "foot_r"]:
+				"upperarm_r", "lowerarm_r", "hand_r", "thigh_l", "calf_l", "foot_l", "thigh_r", "calf_r", "foot_r", "head"]:
 			_bones[b] = _skeleton.find_bone(b)
 
 
@@ -69,7 +87,10 @@ static func material(std: StandardMaterial3D) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.resource_name = std.resource_name
 	m.shader = SHADER
-	m.set_shader_parameter("albedo", std.albedo_color)
+	var colour := GolferSurface.real_albedo(std.albedo_color)
+	m.set_shader_parameter("albedo", colour)
+	m.set_shader_parameter("rim", GolferSurface.cloth_rim(colour))
+	m.set_shader_parameter("texture_detail", TEXTURE_DETAIL)
 	m.set_shader_parameter("texture_albedo", std.albedo_texture)
 	m.set_shader_parameter("use_normal", std.normal_enabled and std.normal_texture != null)
 	m.set_shader_parameter("texture_normal", std.normal_texture)
@@ -92,6 +113,30 @@ func add_material(m: ShaderMaterial) -> void:
 
 func clear_materials() -> void:
 	materials.clear()
+	occluded.clear()
+
+
+## Adds a material that takes the body's occlusion (cloth or skin).
+func add_occluded(m: ShaderMaterial) -> void:
+	occluded.append(m)
+
+
+## The capsules of OCCLUDERS in world space: [ends a (w radius), ends b].
+func occluders() -> Array:
+	var world := _skeleton.global_transform
+	var scale := world.basis.get_scale().x
+	var a := PackedVector4Array()
+	var b := PackedVector4Array()
+	for c: Array in OCCLUDERS:
+		var from := world * _pose(c[0]).origin
+		var to: Vector3
+		if str(c[1]) == "":
+			to = from + world.basis * (_pose(c[0]).basis * Vector3(0, 0.1, 0))
+		else:
+			to = world * _pose(c[1]).origin
+		a.append(Vector4(from.x, from.y, from.z, float(c[2]) * scale))
+		b.append(Vector4(to.x, to.y, to.z, 0.0))
+	return [a, b]
 
 
 func _joint_uniform(shoulder: String, elbow: String) -> Vector4:
@@ -111,6 +156,13 @@ func _pose(bone: String) -> Transform3D:
 
 
 func _process(delta: float) -> void:
+	if _skeleton != null and not occluded.is_empty():
+		var caps := occluders()
+		var strength := 1.0 if detail >= 1 else 0.0
+		for m in occluded:
+			m.set_shader_parameter("occ_a", caps[0])
+			m.set_shader_parameter("occ_b", caps[1])
+			m.set_shader_parameter("occ_strength", strength)
 	if materials.is_empty() or _skeleton == null or delta <= 0.0:
 		return
 	delta = minf(delta, 0.05)

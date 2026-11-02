@@ -14,6 +14,8 @@ shader_type spatial;
 // the vertex normal, so the collar, placket and buttons move with the shirt.
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
+#include "res://shaders/golfer_occlusion.gdshaderinc"
+
 global uniform vec2 wind_vector; // air velocity over the course, m/s (x, z)
 
 uniform vec4 albedo : source_color = vec4(1.0);
@@ -21,6 +23,11 @@ uniform sampler2D texture_albedo : source_color, filter_linear_mipmap_anisotropi
 uniform bool use_normal = false;
 uniform sampler2D texture_normal : hint_roughness_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float roughness : hint_range(0.0, 1.0) = 0.9;
+uniform float rim = 0.25; // GolferSurface.cloth_rim: less on pale cloth
+// How much of the pack texture's own marks to keep. Its trousers are
+// distressed jeans, with dark scuffs that read as dirt on chinos.
+uniform float texture_detail : hint_range(0.0, 1.0) = 1.0;
+uniform float texture_mean = 0.78; // the texture's average, kept as the marks fade
 
 // Set each frame by GolferCloth.
 uniform float motion = 0.0; // 0 still (Low), 1 moving
@@ -87,6 +94,8 @@ void vertex() {
 		// The ripples tilt the shading a little too.
 		NORMAL = normalize(NORMAL - loose * s * 0.12 * cos(phase) * dir);
 	}
+	occ_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	occ_normal = mat3(MODEL_MATRIX) * NORMAL;
 }
 
 // One fold pattern: sharper valleys than crests, as cloth hangs.
@@ -102,7 +111,7 @@ float settle(float x) {
 
 void fragment() {
 	vec4 tex = texture(texture_albedo, UV);
-	vec3 base = albedo.rgb * tex.rgb;
+	vec3 base = albedo.rgb * mix(vec3(texture_mean), tex.rgb, texture_detail);
 	float h = 0.0;
 	if (abs(twist) + bends.x + bends.y + bends.z + bends.w > 0.001) {
 		float arm = mask.g;
@@ -154,12 +163,14 @@ void fragment() {
 		// The folds' valleys are a touch darker.
 		base *= 1.0 - 0.07 * clamp(-h, 0.0, 1.5);
 	}
-	ALBEDO = base;
+	float occ = body_occlusion(occ_pos, occ_normal);
+	AO = occ;
+	ALBEDO = base * mix(1.0, occ, contact_share);
 	if (use_normal) {
 		NORMAL_MAP = texture(texture_normal, UV).rgb;
 	}
 	ROUGHNESS = roughness;
 	SPECULAR = 0.3;
-	RIM = 0.25;
+	RIM = rim;
 	RIM_TINT = 0.7;
 }

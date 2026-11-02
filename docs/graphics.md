@@ -278,6 +278,18 @@ at Medium and grass at Low.
   0.1), so the sun and sky leave no plastic sheen; only the water and
   the clubs shine. The photo ground's colours (`realistic()`) are a little
   lighter to make up for the glare they no longer get.
+- **The golfer's own shade** (`golfer_occlusion.gdshaderinc`): the free
+  golfer's limbs, trunk and head are 11 capsules (`GolferCloth.OCCLUDERS`,
+  set each frame from the posed skeleton), and the clothes and skin darken
+  where they face one close by: the inside of the arms, the shirt under
+  them, between the legs, under the chin. It takes ambient light and 70%
+  of the sun (`contact_share`), works in both renderers and is off on Low.
+  Cloth is never whiter than `GolferSurface.WHITEST` (a white cap or shoe
+  burnt out to a flat glowing patch), pale cloth gets less rim light, and
+  the pack's trouser texture keeps 30% of its scuffs
+  (`GolferCloth.TEXTURE_DETAIL`). In the browser, dynamic resolution stops
+  at 80% (`DynamicResolution.WEB_MIN_SCALE`): with only a plain stretch,
+  half resolution turned every edge to stair steps on an iPad.
 - **Ground relief** (`PHOTO_RELIEF` in `crz_terrain.gd`): each photo set's
   height map shifts the texture with the view within about 35 m
   (two-step parallax, a few millimetres to 5 cm of relief per surface)
