@@ -1178,6 +1178,7 @@ def main():
     grip.fit(glb, rig, club_direction(glb, rig))
     grip.straighten(glb, rig)
     grip.narrow(glb, rig)
+    grip.overlap(glb, rig, club_direction(glb, rig))
     # The clubs modelled from real ones, before the swings are measured
     # against their heads.
     clubs.swap(glb, rig)
