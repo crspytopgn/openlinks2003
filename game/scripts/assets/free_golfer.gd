@@ -171,6 +171,11 @@ func apply_look(p_look: PlayerLook) -> void:
 		var rest := _skeleton.get_bone_global_rest(bone) if bone >= 0 else Transform3D.IDENTITY
 		skin.add_named_bind(bone_name, rest.affine_inverse())
 	var part_names := parts_for(look, parts.info) if who.is_empty() else person_parts(look, who, parts.info)
+	# A person in their cap: whatever the cap presses down (a bun, modelled
+	# hair) moves in under it (tools/golfer/person_cap.py "cap_press").
+	var part_weights := weights
+	if not who.is_empty() and part_names.has("RB_%s_cap" % look.person):
+		part_weights = {"cap_press": 1.0}
 	for part_name in part_names:
 		if not parts.has_part(part_name):
 			continue
@@ -179,7 +184,7 @@ func apply_look(p_look: PlayerLook) -> void:
 		var mat_name := parts.part_material(part_name)
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
 		var gloved := (is_skin or str(parts.info.materials[mat_name].get("tint", "")) == "person") and look.glove
-		mi.mesh = parts.bake(part_name, weights, glove_bones if gloved else PackedInt32Array())
+		mi.mesh = parts.bake(part_name, part_weights, glove_bones if gloved else PackedInt32Array())
 		if part_name.begins_with("Hair_") and look.wears_cap():
 			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
@@ -245,8 +250,8 @@ static func person_info(p_look: PlayerLook, info: Dictionary) -> Dictionary:
 
 
 ## A realistic person's parts: body and head, and either their hair or,
-## with the cap on, the cap fitted to their head (rocketbox.py fit_cap;
-## the hair painted on the scalp still shows below it).
+## with the cap on, the cap built on their own head (person_cap.py; the
+## hair painted on the scalp still shows below it).
 static func person_parts(p_look: PlayerLook, who: Dictionary, info: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
 	var cap := "RB_%s_cap" % p_look.person

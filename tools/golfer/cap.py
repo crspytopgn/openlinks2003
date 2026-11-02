@@ -80,16 +80,16 @@ def shape_offsets(info, blob, name, shape, count):
     return out
 
 
-def crown(points, brow_y, centre):
+def crown(points, brow_y, centre, hair_room=HAIR_ROOM):
     """The crown as a (RINGS+1, SEGMENTS, 3) grid of points round `centre`,
-    reaching over `points` plus HAIR_ROOM."""
+    reaching over `points` plus `hair_room`."""
     rel = points - centre
     dist = np.linalg.norm(rel, axis=1)
     dirs = rel / dist[:, None]
 
     def reach(u):
         near = dirs @ u > math.cos(math.radians(12))
-        return (dist[near].max() if near.any() else 0.09) + HAIR_ROOM
+        return (dist[near].max() if near.any() else 0.09) + hair_room
 
     grid = np.zeros((RINGS + 1, SEGMENTS, 3))
     for i in range(RINGS + 1):
@@ -138,8 +138,23 @@ def build(info, blob):
     top = head_top[head_top[:, 1] > brow_y]
     lo, hi = top.min(axis=0), top.max(axis=0)
     centre = np.array([(lo[0] + hi[0]) / 2, brow_y, (lo[2] + hi[2]) / 2])
-    grid = crown(allp, brow_y, centre)
+    pos, nrm, uv, tris, band = shell(crown(allp, brow_y, centre), centre)
+    return pos, nrm, uv, tris, head_j, body, on_head, band
 
+
+def shell(grid, centre, peak=None):
+    """The cap's mesh round a crown grid (crown()): the crown, sweatband,
+    pre-curved peak and button. Returns positions, normals, uvs, triangles
+    and (peak_start, peak_end, band vertex ids).
+
+    `peak` overrides the peak's shape: half_span, tilt (radians), length,
+    curl (m the sides drop) and bend: with bend the sides drop with the
+    distance out from the crown (a flat bill bent across, so its ends meet
+    the band without a step) and the peak's normals come from its faces.
+    band_lift is how far up the inside the sweatband reaches."""
+    pk = {"half_span": PEAK_HALF_SPAN, "tilt": PEAK_TILT, "length": PEAK_LENGTH, "curl": PEAK_CURL, "bend": False,
+          "band_lift": 0.012}
+    pk.update(peak or {})
     pos, nrm, uv, tris = [], [], [], []
 
     def add(p, n, t):
@@ -167,7 +182,7 @@ def build(info, blob):
     band_in = np.zeros(SEGMENTS + 1, int)
     for k in range(SEGMENTS + 1):
         p = grid[0, k % SEGMENTS]
-        inward = p * (1 - 0.006 / np.linalg.norm(p)) + np.array([0, 0.012, 0])
+        inward = p * (1 - 0.006 / np.linalg.norm(p)) + np.array([0, pk["band_lift"], 0])
         u = CROWN_U[0] + (CROWN_U[1] - CROWN_U[0]) * k / SEGMENTS
         band_in[k] = add(inward + centre, -p, (u, BAND_V[0]))
     for k in range(SEGMENTS):
@@ -185,17 +200,17 @@ def build(info, blob):
         return band[k0] * (1 - f) + band[(k0 + 1) % SEGMENTS] * f
 
     steps, depth = 28, 8
-    left, right = band_at(math.pi - PEAK_HALF_SPAN), band_at(math.pi + PEAK_HALF_SPAN)
+    left, right = band_at(math.pi - pk["half_span"]), band_at(math.pi + pk["half_span"])
     half_w = (abs(left[0] - centre[0]) + abs(right[0] - centre[0])) / 2
     # Which way round the band runs: a = +1 is on this side of the face.
     side_sign = 1.0 if right[0] > centre[0] else -1.0
     zc = (left[2] + right[2]) / 2
     z_front = band_at(math.pi)[2]
-    reach_c = (zc - z_front) + PEAK_LENGTH
+    reach_c = (zc - z_front) + pk["length"]
     top_rows, under_rows = [], []
     for s in range(steps + 1):
         a = -1.0 + 2.0 * s / steps
-        root = band_at(math.pi + a * PEAK_HALF_SPAN)
+        root = band_at(math.pi + a * pk["half_span"])
         # Start the peak a little inside the crown and above its edge, so
         # no gap shows between them.
         root = centre + (root - centre) * (1 - 0.004 / np.linalg.norm(root - centre)) + np.array([0.0, 0.004, 0.0])
@@ -205,8 +220,12 @@ def build(info, blob):
             t = d / depth
             q = root * (1 - t) + edge * t
             out = max(0.0, root[2] - q[2])
-            q[1] -= math.tan(PEAK_TILT) * out + PEAK_CURL * a * a * t ** 1.2
-            n_top = np.array([0.0, 1.0, 0.0]) + np.array([-side_sign * a * 0.5 * t, 0.0, -math.tan(PEAK_TILT)])
+            if pk["bend"]:
+                plan = np.hypot(q[0] - root[0], q[2] - root[2]) / pk["length"]
+                q[1] -= math.tan(pk["tilt"]) * out + pk["curl"] * a * a * min(1.0, plan) ** 0.8
+            else:
+                q[1] -= math.tan(pk["tilt"]) * out + pk["curl"] * a * a * t ** 1.2
+            n_top = np.array([0.0, 1.0, 0.0]) + np.array([-side_sign * a * 0.5 * t, 0.0, -math.tan(pk["tilt"])])
             tu = PEAK_TOP[0] + (PEAK_TOP[1] - PEAK_TOP[0]) * (s / steps)
             trow.append(add(q, n_top, (tu, PEAK_TOP[2] + (PEAK_TOP[3] - PEAK_TOP[2]) * t)))
             qu = q - np.array([0.0, PEAK_THICK, 0.0])
@@ -274,7 +293,22 @@ def build(info, blob):
         a, b = idx[i, 0], idx[i, SEGMENTS]
         m = nrm[a] + nrm[b]
         nrm[a] = nrm[b] = m / max(np.linalg.norm(m), 1e-9)
-    return pos, nrm, uv, tris, head_j, body, on_head, (peak_start, peak_end, idx[0, :SEGMENTS])
+    if pk["bend"]:
+        # The bent peak's top and underside normals from its faces (the
+        # edge strip keeps its sideways ones).
+        in_peak = np.all((tris >= peak_start) & (tris < peak_end), axis=1)
+        pt = tris[in_peak]
+        fn = np.cross(pos[pt[:, 1]] - pos[pt[:, 0]], pos[pt[:, 2]] - pos[pt[:, 0]])
+        acc = np.zeros_like(pos)
+        for kk in range(3):
+            np.add.at(acc, pt[:, kk], fn)
+        ids = np.arange(peak_start, peak_end)
+        ids = ids[np.abs(nrm[ids, 1]) > 0.5]
+        a = acc[ids]
+        a /= np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-12)
+        a[(a * nrm[ids]).sum(axis=1) < 0] *= -1
+        nrm[ids] = a
+    return pos, nrm, uv, tris, (peak_start, peak_end, idx[0, :SEGMENTS])
 
 
 def orient(pos, nrm, tris):

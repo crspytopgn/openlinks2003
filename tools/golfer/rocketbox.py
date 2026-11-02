@@ -40,6 +40,7 @@ from PIL import Image, ImageFilter
 sys.path.insert(0, os.path.dirname(__file__))
 from golf_shoes import load, save  # noqa: E402
 from look_pack import tangents  # noqa: E402
+import person_cap  # noqa: E402
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SOURCE = "https://cdn.jsdelivr.net/gh/microsoft/Microsoft-Rocketbox@master/Assets/Avatars/Adults/"
@@ -454,36 +455,6 @@ def encode(img, size, quality=JPEG_QUALITY):
     return buf.getvalue()
 
 
-CROWN = 0.1  # metres of the skull's top the cap is fitted to
-
-
-def fit_cap(info, blob, heads):
-    """The pack's cap (made for the creator's default head) moved and
-    stretched onto this person's crown: the crown's top, width and depth
-    matched. None without a cap or a head."""
-    if "Cap" not in info["parts"] or not heads:
-        return None
-
-    def arr(e, k, dt, c):
-        o, n = e[k]
-        return np.frombuffer(bytes(blob[o:o + n]), dt).reshape(-1, c)
-    head_bone = info["bones"].index("head")
-    body = info["parts"]["Body"]
-    mh = arr(body, "positions", np.float32, 3)[arr(body, "bones", np.int32, 4)[:, 0] == head_bone]
-    rb = heads[0]["positions"][heads[0]["joints"][:, 0] == head_bone]
-
-    def crown(p):
-        top = p[:, 1].max()
-        c = p[p[:, 1] > top - CROWN]
-        lo, hi = c.min(0), c.max(0)
-        return np.array([(lo[0] + hi[0]) / 2, top, (lo[2] + hi[2]) / 2]), hi - lo
-    c0, e0 = crown(mh)
-    c1, e1 = crown(rb)
-    scale = np.array([e1[0] / e0[0], (e1[0] / e0[0] + e1[2] / e0[2]) / 2, e1[2] / e0[2]])
-    cap = arr(info["parts"]["Cap"], "positions", np.float32, 3).astype(np.float64)
-    return (c1 + (cap - c0) * scale).astype(np.float32)
-
-
 def add(info, blob, name, surfaces, textures, offsets, height, sex, mask=None):
     def put(array, dtype):
         a = np.ascontiguousarray(array, dtype=dtype)
@@ -522,12 +493,9 @@ def add(info, blob, name, surfaces, textures, offsets, height, sex, mask=None):
         part = "RB_%s_%s" % (name, kind)
         info["parts"][part] = entry
         parts.append(part)
-    cap = fit_cap(info, blob, [s for s in surfaces if s["material"].endswith("_head")])
-    if cap is not None:
-        entry = dict(info["parts"]["Cap"])
-        entry["positions"] = put(cap, np.float32)
-        entry["shapes"] = {}
-        info["parts"]["RB_%s_cap" % name] = entry
+    # Their own cap, built on their head (person_cap.py).
+    if "RB_%s_head" % name in info["parts"]:
+        person_cap.add(info, blob, name)
     info.setdefault("people", {})[name] = {"parts": parts, "joints": offsets, "height": height, "sex": sex}
 
 

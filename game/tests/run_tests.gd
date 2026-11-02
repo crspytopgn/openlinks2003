@@ -3787,6 +3787,23 @@ func _test_people(parts: GolferParts) -> void:
 			var top: Color = (mat as ShaderMaterial).get_shader_parameter("top")
 			_check(top.r > top.g * 3.0, "the person's shirt is dyed the look's colour")
 	_check(golfer.find_child("RB_%s_cap" % look.person, true, false) != null, "the cap is fitted to the person's head")
+	# Every person's cap band sits on their head (tools/golfer/person_cap.py):
+	# the old stretched cap stood 25 to 35 mm off it in places.
+	for p: Array in PlayerLook.PEOPLE:
+		var cap_mesh := parts.bake("RB_%s_cap" % p[0], {})
+		var head_mesh := parts.bake("RB_%s_head" % p[0], {"cap_press": 1.0})
+		if cap_mesh == null or head_mesh == null:
+			_check(false, "%s has a cap and a head" % p[0])
+			continue
+		var cap_v: PackedVector3Array = cap_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var head_v: PackedVector3Array = head_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var worst := 0.0
+		for k in 60:  # the crown's lower edge (cap.py SEGMENTS)
+			var near := INF
+			for v in head_v:
+				near = minf(near, cap_v[k].distance_to(v))
+			worst = maxf(worst, near)
+		_check(worst < 0.02, "%s's cap band sits on the head (%.1f mm at most)" % [p[0], worst * 1000.0])
 	_check(golfer.find_child("Body", true, false) == null, "no sculpted body under the person")
 	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
 	var joints: Dictionary = people[look.person].joints
