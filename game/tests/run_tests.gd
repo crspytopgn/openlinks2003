@@ -3340,8 +3340,32 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"survey", &"fore_left", &"fore_right", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
+	# Tempo: each look its own, the same every time, within the tour range;
+	# the ball waits for the club (the swing starts at the top).
+	var quick := PlayerLook.new()
+	var smooth := PlayerLook.new()
+	smooth.height_cm = 190.0
+	var t1 := FreeGolfer.tempo_of(quick)
+	_check(t1 == FreeGolfer.tempo_of(PlayerLook.new()), "a look's tempo is the same every time")
+	_check(t1 >= FreeGolfer.TEMPO_MIN and t1 <= FreeGolfer.TEMPO_MAX and FreeGolfer.tempo_of(smooth) != t1,
+			"tempos are in range and differ by golfer (%.3f, %.3f)" % [t1, FreeGolfer.tempo_of(smooth)])
+	_check(is_equal_approx(golfer.impact_delay(), FreeGolfer.SWING_IMPACT / golfer.tempo)
+			and golfer.impact_delay() > 0.2 and golfer.putt_impact_delay() > golfer.impact_delay(),
+			"the ball waits for the club: swing %.2f s, putt %.2f s" % [golfer.impact_delay(), golfer.putt_impact_delay()])
+	# "Fore": a full shot (aim +z, so the golfer's right is -x) ending well
+	# right, well left, out of bounds, or fine; never on a putt.
+	var fore := ShotResult.new()
+	fore.rest = Vector3(-40.0, 0.0, 200.0)
+	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_right", "a shot 40 m right points right")
+	fore.rest = Vector3(45.0, 0.0, 180.0)
+	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_left", "a shot 45 m left points left")
+	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), true) == &"", "no fore on a putt")
+	fore.rest = Vector3(-10.0, 0.0, 220.0)
+	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"", "no fore 10 m off line")
+	fore.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
+	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_right", "out of bounds points after it")
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
 	made.free()

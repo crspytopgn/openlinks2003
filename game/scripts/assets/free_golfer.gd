@@ -18,6 +18,7 @@ extends GolferRig
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
 const BLEND_TIME := 0.15
+const REACT_BLEND := 0.4  ## out of the finish into a reaction
 const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
 ## Clips with an iron version (`_iron`): a shorter, more upright club, so he
 ## stands closer to the ball and bends over more.
@@ -32,6 +33,25 @@ const NEW_BALL := 0.5
 ## Where a putt is read from: behind the ball, on the line to the hole
 ## (the target is -x), in the rig's frame.
 const READ_SPOT := Vector3(1.6, 0.0, -0.75)
+## Before a full shot: behind the ball on the target line, looking at the
+## target for SURVEY_TIME seconds before walking in, as tour players do.
+const SURVEY_SPOT := Vector3(2.2, 0.0, -0.75)
+const SURVEY_TIME := 1.6
+## Where the club meets the ball, seconds into the clip at normal speed:
+## swing and swing_iron start at the top (mocap_swing.py downswing), the
+## putt at address (back + downswing).
+const SWING_IMPACT := 0.30
+const PUTT_IMPACT := 0.75
+## Each golfer's own tempo (speed of the backswing, swing and putt),
+## picked from the look: tour downswings run ~0.25 s (quick players) to
+## ~0.33 s (smooth ones).
+const TEMPO_MIN := 0.9
+const TEMPO_MAX := 1.15
+## Everything else plays this much faster or slower each time, and a
+## looping clip starts at a random point, so no two shots look the same.
+const SPEED_JITTER := 0.06
+const SURVEY_JITTER := 0.5  ## seconds either side of SURVEY_TIME
+const SWING_CLIPS: Array[StringName] = [&"backswing", &"swing", &"backswing_iron", &"swing_iron", &"putt"]
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
@@ -58,6 +78,11 @@ var _rest := Vector3.ZERO
 var _walk: Tween
 var _last_spot := Vector3.INF
 var _look: GolferLook
+## This golfer's swing tempo (TEMPO_MIN..TEMPO_MAX), from the look.
+var tempo := 1.0
+var _rng := RandomNumberGenerator.new()
+## The speed the clip playing now runs at (the walk moves with it).
+var _speed := 1.0
 var _feet: GolferFeet
 var _hands: GolferHands
 var _cloth: GolferCloth
@@ -115,6 +140,7 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 ## meshes, moves the joints to the new shape and scales to the height.
 func apply_look(p_look: PlayerLook) -> void:
 	look = p_look
+	tempo = tempo_of(p_look)
 	var parts := GolferParts.shared()
 	for node in _look_nodes:
 		node.queue_free()
@@ -425,9 +451,38 @@ func play(animation: StringName) -> void:
 		_play(clip, BLEND_TIME)
 
 
+func impact_delay() -> float:
+	return SWING_IMPACT / tempo
+
+
+func putt_impact_delay() -> float:
+	return PUTT_IMPACT / tempo
+
+
+## A tempo for a look, the same every time for the same golfer.
+static func tempo_of(p_look: PlayerLook) -> float:
+	if p_look == null:
+		return 1.0
+	var h := hash(var_to_str(p_look.to_dict()))
+	return lerpf(TEMPO_MIN, TEMPO_MAX, float(posmod(h, 1000)) / 999.0)
+
+
+func react(animation: StringName, delay: float) -> void:
+	if not is_inside_tree() or not _player.has_animation(animation):
+		return
+	var during := _player.current_animation
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
+		if is_instance_valid(self) and _player.current_animation == during:
+			_play(animation, REACT_BLEND))
+
+
 ## Plays a clip, the right hand following onto the club or off it.
-func _play(clip: StringName, blend: float) -> void:
-	_player.play(clip, blend)
+func _play(clip: StringName, blend: float, speed := 0.0) -> void:
+	_speed = speed if speed > 0.0 else (tempo if clip in SWING_CLIPS else 1.0 + _rng.randf_range(-SPEED_JITTER, SPEED_JITTER))
+	_player.play(clip, blend, _speed)
+	var anim := _player.get_animation(clip)
+	if anim and anim.loop_mode != Animation.LOOP_NONE and clip != &"walk":
+		_player.seek(_rng.randf() * anim.length, false)
 	if _hands:
 		_hands.follow(clip, blend)
 
@@ -445,9 +500,12 @@ func set_ground(height: Callable, sink: float = 0.0) -> void:
 
 ## Walks forward to the address spot, then settles into the clip. Before a
 ## putt the golfer reads it first, crouched behind the ball looking down the
-## line.
+## line; before a full shot he stands behind the ball looking at the target.
 func _walk_in(clip: StringName) -> void:
 	_walk = create_tween()
+	# The stride and the walk across the ground at the same pace, so the
+	# feet don't slide.
+	var pace := 1.0 + _rng.randf_range(-SPEED_JITTER, SPEED_JITTER)
 	var from := Vector3(0, 0, WALK_FROM)
 	if clip == &"address_putt" and _player.has_animation(&"read"):
 		_model.position = _rest + READ_SPOT
@@ -457,12 +515,23 @@ func _walk_in(clip: StringName) -> void:
 		from = READ_SPOT
 		var heading := -from.normalized()
 		var yaw := atan2(-heading.x, -heading.z)
-		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE))
+		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
+		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
+	elif _player.has_animation(&"survey"):
+		# Behind the ball looking down the target line, then in.
+		_model.position = _rest + SURVEY_SPOT
+		_model.rotation.y = PI / 2.0
+		_play(&"survey", BLEND_TIME)
+		_walk.tween_interval(SURVEY_TIME + _rng.randf_range(-SURVEY_JITTER, SURVEY_JITTER))
+		from = SURVEY_SPOT
+		var heading := -from.normalized()
+		var yaw := atan2(-heading.x, -heading.z)
+		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
 		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
 	else:
 		_model.position = _rest + from
-		_play(&"walk", BLEND_TIME)
-	_walk.tween_property(_model, "position", _rest, from.length() / WALK_SPEED)
+		_play(&"walk", BLEND_TIME, pace)
+	_walk.tween_property(_model, "position", _rest, from.length() / (WALK_SPEED * pace))
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(clip):
 			_play(clip, WALK_SETTLE))
