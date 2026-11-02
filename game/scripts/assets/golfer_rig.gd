@@ -34,6 +34,13 @@ func watch(_target: Node3D, _delay: float = 0.3) -> void:
 	pass
 
 
+## Plays a reaction (&"fore_left", &"fore_right": pointing after a shot
+## heading well offline) `delay` seconds into the clip playing now, unless
+## another clip has started by then. Rigs without it do nothing.
+func react(_animation: StringName, _delay: float) -> void:
+	pass
+
+
 ## Ground height at (x, z) in world space, for planting the feet on slopes;
 ## `sink` digs the feet in that many metres (a bunker stance).
 func set_ground(_height: Callable, _sink: float = 0.0) -> void:
