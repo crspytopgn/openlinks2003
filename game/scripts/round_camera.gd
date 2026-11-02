@@ -326,7 +326,24 @@ func _place_for_landing() -> void:
 	var dir := Vector3(land.x - start.x, 0.0, land.z - start.z)
 	dir = dir.normalized() if dir.length() > 0.1 else Vector3.FORWARD
 	var right := dir.cross(Vector3.UP)
-	position = _above_ground(land - dir * LANDING_SHORT + right * LANDING_SIDE + Vector3.UP * LANDING_UP)
+	# Off to the side short of the landing, on whichever side (and at
+	# whatever distance) keeps the camera out of the trees.
+	var fallback := Vector3.INF
+	for side: float in [1.0, -1.0]:
+		for short: float in [LANDING_SHORT, LANDING_SHORT * 0.6, LANDING_SHORT * 1.5]:
+			var p := _above_ground(land - dir * short + right * side * LANDING_SIDE + Vector3.UP * LANDING_UP)
+			if ShotDirector.view_clear(terrain, p, land + Vector3.UP):
+				position = p
+				return
+			if fallback == Vector3.INF and not ShotDirector.near_obstacle(terrain, p):
+				fallback = p
+	if fallback == Vector3.INF:
+		fallback = _above_ground(land - dir * LANDING_SHORT + right * LANDING_SIDE + Vector3.UP * LANDING_UP)
+		for i in 8:
+			if not ShotDirector.near_obstacle(terrain, fallback):
+				break
+			fallback.y += 4.0
+	position = fallback
 
 
 ## True if no ground lies between `from` and `to`.

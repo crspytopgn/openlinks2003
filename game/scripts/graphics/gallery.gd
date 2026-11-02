@@ -344,8 +344,10 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		var at: Vector3 = spot[0]
 		var focus: Vector3 = spot[1]
 		add_child(person)
-		# Turn them to face the play, give or take a little.
-		person.global_position = at
+		# Turn them to face the play, give or take a little. The gallery is
+		# built before it joins the scene and stands at the origin, so local
+		# is world here (global_position would need it in the tree).
+		person.position = at
 		person.rotation.y = facing_yaw(at, focus) + rng.randf_range(-0.25, 0.25)
 		person.set_meta(&"lean", rng.randf_range(-0.2, 0.2))
 		feet.append(at)

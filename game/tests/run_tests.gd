@@ -5077,6 +5077,17 @@ func _test_broadcast_pieces() -> void:
 	var side := ShotDirector.plan(shot, Vector3(0, 0, 400), terrain, behind, false, 2)
 	_check(side.cut_cams[1] == ShotDirector.Cam.SIDE, "variant 2 cuts side-on")
 	_check(side.cut_cams[2] == ShotDirector.Cam.LANDING, "far from the pin: landing camera")
+	# A tree where the landing camera would stand: it moves out of the canopy.
+	var usual: Vector3 = side.fixed[ShotDirector.Cam.LANDING]
+	var wooded := FlatTerrain.new()
+	wooded.obstacles = ObstacleField.new()
+	wooded.obstacles.add_cylinder(usual.x, usual.z, 5.0, 2.0, 14.0, ObstacleField.Kind.CANOPY)
+	wooded.obstacles.finalize()
+	_check(ShotDirector.near_obstacle(wooded, usual), "the usual landing spot is inside the tree")
+	var moved := ShotDirector.plan(shot, Vector3(0, 0, 400), wooded, behind, false, 2)
+	var spot: Vector3 = moved.fixed[ShotDirector.Cam.LANDING]
+	_check(not ShotDirector.near_obstacle(wooded, spot), "landing camera stands clear of the tree (%s)" % spot)
+	_check(ShotDirector.view_clear(wooded, spot, shot.first_landing + Vector3.UP), "landing camera sees the landing")
 	var putt := ShotDirector.plan(shot, pin, terrain, behind, true, 0)
 	_check(putt.cut_cams.size() == 1 and putt.cut_cams[0] == ShotDirector.Cam.PUTT, "putts track the ball")
 

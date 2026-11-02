@@ -1781,6 +1781,7 @@ func _practice_shot_done() -> void:
 			monitor_panel.show_note(range_game.status())
 	hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
+	hud.mouse_swing.reset()
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE * 2.0
 
@@ -2043,6 +2044,9 @@ func _complete_flight() -> void:
 	if not msg.is_empty() or not broadcast:
 		hud.show_message(msg)
 	hud.hint.text = HINT_WAIT
+	# The mouse or touch swing's meter has had its say during the flight;
+	# left up, it sat on top of the shot card.
+	hud.mouse_swing.reset()
 	state = State.SHOT_RESULT
 	result_timer = RESULT_PAUSE
 	if _can_mulligan():
@@ -2875,8 +2879,12 @@ func _auto_club() -> void:
 	# shortest club that reaches a route point leaves a hybrid off a par 4.
 	if lie == Surface.Type.TEE and target != hole.pin:
 		return
+	# Off the tee, the longest club offered is the 3 wood: nobody takes the
+	# driver off the deck, least of all out of the rough.
+	if lie != Surface.Type.TEE and clubs.size() > 1 and clubs[0].short_name == "Dr":
+		club_index = 1
 	var d := _flat_distance(ball_at, target)
-	for i in clubs.size():
+	for i in range(club_index, clubs.size()):
 		if not clubs[i].is_putter and clubs[i].total_m * shot_model.reach_scale(clubs[i]) * power >= d:
 			club_index = i
 
@@ -3018,7 +3026,7 @@ func _build_world() -> void:
 	putting_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	putting_panel.offset_left = -PuttingPanel.WIDTH - 16.0
 	putting_panel.offset_right = -16.0
-	putting_panel.offset_top = 136.0 if hud.windows == null else 20.0 + ShotWindows.wanted_size().y
+	putting_panel.offset_top = PUTTING_PANEL_TOP if hud.windows == null else 20.0 + ShotWindows.wanted_size().y
 	putting_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	putting_panel.action.connect(_on_putting_action)
 	settings_panel = SettingsPanel.new()
@@ -4066,12 +4074,22 @@ func _update_assistant() -> void:
 
 ## The putting panel: the practice drill and tally, the speed of the
 ## greens and the slope at the ball, and the read view.
+const PUTTING_PANEL_TOP := 136.0
+const PUTTING_PANEL_TOP_TV := 176.0
+
+
 func _update_putting_panel() -> void:
 	if putting_panel == null or hole == null:
 		return
-	if not (state == State.AIM or state == State.SWING or state == State.SHOT_RESULT):
+	# Broadcast's shot card slides in where the panel sits once the putt is
+	# struck, so the panel steps aside for it.
+	var tv := graphics.broadcast()
+	if not (state == State.AIM or state == State.SWING or (state == State.SHOT_RESULT and not tv)):
 		putting_panel.visible = false
 		return
+	# Under the wind dial, which Broadcast moves down below its LIVE bug.
+	if hud.windows == null:
+		putting_panel.offset_top = PUTTING_PANEL_TOP_TV if tv else PUTTING_PANEL_TOP
 	var lines: Array[String] = []
 	if practice != null:
 		lines.append(practice.status_text())

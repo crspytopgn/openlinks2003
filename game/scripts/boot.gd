@@ -15,7 +15,7 @@ var _web: WebGameFiles
 var _title: Label
 var _status: Label
 var _bar: ProgressBar
-var _buttons: HBoxContainer
+var _buttons: HFlowContainer
 var _play: Button
 var _main_box: VBoxContainer
 var _setup: RoundSetupPanel
@@ -129,9 +129,12 @@ func _build_ui() -> void:
 	_bar.custom_minimum_size = Vector2(0, 22)
 	_bar.visible = false
 	box.add_child(_bar)
-	_buttons = HBoxContainer.new()
-	_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	_buttons.add_theme_constant_override("separation", 12)
+	# The buttons wrap onto a second row rather than run off the screen's
+	# edges (an iPad, a phone, or a big Interface size).
+	_buttons = HFlowContainer.new()
+	_buttons.alignment = FlowContainer.ALIGNMENT_CENTER
+	_buttons.add_theme_constant_override("h_separation", 12)
+	_buttons.add_theme_constant_override("v_separation", 12)
 	box.add_child(_buttons)
 	_build_community(box)
 	var note := Label.new()

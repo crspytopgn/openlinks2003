@@ -34,9 +34,12 @@ const NEW_BALL := 0.5
 ## Where a putt is read from: behind the ball, on the line to the hole
 ## (the target is -x), in the rig's frame.
 const READ_SPOT := Vector3(1.6, 0.0, -0.75)
-## Before a full shot: behind the ball on the target line, looking at the
-## target for SURVEY_TIME seconds before walking in, as tour players do.
-const SURVEY_SPOT := Vector3(2.2, 0.0, -0.75)
+## Before a full shot: behind the ball, looking at the target for
+## SURVEY_TIME seconds before walking in, as tour players do. He stands a
+## step back and to his side of the target line rather than on it: on the
+## line he stood a metre in front of the aim camera, his back filling the
+## screen.
+const SURVEY_SPOT := Vector3(1.1, 0.0, 0.5)
 const SURVEY_TIME := 1.6
 ## Where the club meets the ball, seconds into the clip at normal speed:
 ## swing and swing_iron start at the top (mocap_swing.py downswing), the
