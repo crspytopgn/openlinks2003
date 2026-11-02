@@ -1624,6 +1624,19 @@ func _test_real_scale() -> void:
 	golfer.free()
 	var bag := GolfBag.shared_mesh().get_aabb()
 	_check(bag.size.y > 1.2 and bag.size.y < 1.4, "staff bag with the driver's cover about 1.3 m up (%.2f)" % bag.size.y)
+	# The player's stand bag: 88 cm, leaning back on its legs, the driver's
+	# cover about 1.09 m up, its foot and both legs on the ground.
+	for lite: bool in [false, true]:
+		var stand := StandBag.shared_mesh(lite)
+		_check(stand != null and stand.get_surface_count() == 10, "stand bag (lite %s) is one mesh of ten materials" % lite)
+		if stand == null:
+			continue
+		var sbox := stand.get_aabb()
+		print("  stand bag (lite %s): %.2f m high, %.2f m wide, %.2f m deep, from %.3f m" % [lite, sbox.size.y, sbox.size.x, sbox.size.z, sbox.position.y])
+		_check_near(sbox.position.y, 0.0, 0.01, "stand bag stands on the ground")
+		_check(sbox.size.y > 1.0 and sbox.size.y < 1.15, "stand bag with the driver's cover about 1.09 m up (%.2f)" % sbox.size.y)
+		_check(sbox.size.z > 0.75 and sbox.size.z < 0.9, "stand bag's legs splay out behind it (%.2f)" % sbox.size.z)
+	_check(StandBag.use_lite(GraphicsSettings.Quality.LOW), "light stand bag at Low quality")
 	_test_props_real_size()
 	_check_near(BallPhysics.RADIUS * 2.0, 0.04267, 0.0001, "ball 42.67 mm across")
 	_check_near(BallPhysics.CUP_RADIUS * 2.0, 0.108, 0.001, "hole 108 mm across")

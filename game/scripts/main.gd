@@ -249,6 +249,8 @@ var _voice_landing := ""
 var post: PostProcess
 var caddie: Caddie  ## Settings > Caddie; null when off
 var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
+var stand_bag: StandBag  ## the player's bag, standing behind the golfer
+var _bag_for := Vector3.INF  ## the ball the bag was set down for
 var _drive_to := -1  ## the ball the buggy is driving to
 var dynamic_resolution: DynamicResolution
 var grass: GrassField
@@ -3114,6 +3116,7 @@ func _apply_graphics() -> void:
 		_update_green_aids()
 	_set_caddie(graphics.caddie)
 	_set_buggy(graphics.buggy)
+	_set_stand_bag()
 	_set_monitor(graphics.launch_monitor)
 	# A round on set conditions (online, or a friend's result code) keeps them.
 	if wind != null and online == null and round_setup.wind_level < 0 and round_setup.challenge == null:
@@ -3481,6 +3484,39 @@ func _place_golfer() -> void:
 	golfer.set_ground(hole.terrain.height_at, FEET_IN_SAND if in_sand else 0.0)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
 	golfer.play(&"address")
+	_place_stand_bag()
+
+
+## The stand bag for this quality (the light one on Low and the Web), or
+## none while a caddie carries the bag or the clubs ride on the buggy.
+func _set_stand_bag() -> void:
+	var lite := StandBag.use_lite(graphics.quality)
+	if stand_bag != null and stand_bag.mesh != StandBag.shared_mesh(lite):
+		stand_bag.queue_free()
+		stand_bag = null
+	if stand_bag == null:
+		stand_bag = StandBag.new(lite)
+		add_child(stand_bag)
+	if hole != null and state == State.AIM:
+		_bag_for = Vector3.INF
+		_place_stand_bag()
+	else:
+		stand_bag.visible = stand_bag.visible and caddie == null and buggy == null
+
+
+## Sets the bag down behind the golfer for this shot, once per ball: it
+## stays put while the player turns to aim or changes club.
+func _place_stand_bag() -> void:
+	if stand_bag == null or hole == null:
+		return
+	if caddie != null or buggy != null or golfer == null:
+		stand_bag.visible = false
+		_bag_for = Vector3.INF
+		return
+	if stand_bag.visible and ball_at.distance_to(_bag_for) < 0.01:
+		return
+	_bag_for = ball_at
+	stand_bag.place(hole.terrain, ball_at, _aim_dir())
 
 
 ## The aim ring is a flat painted band, like a TV graphic laid on the
