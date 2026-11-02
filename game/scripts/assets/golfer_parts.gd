@@ -219,10 +219,12 @@ func make_material(material_name: String, tint := Color.WHITE, texture_override 
 	return mat
 
 
-## Image `index` of the pack as a mipmapped texture (decoded once).
-func texture(index: int) -> Texture2D:
-	if _textures.has(index):
-		return _textures[index]
+## Image `index` of the pack as a mipmapped texture (decoded once), at
+## most `max_size` pixels across if that is above 0.
+func texture(index: int, max_size := 0) -> Texture2D:
+	var key: Variant = index if max_size <= 0 else Vector2i(index, max_size)
+	if _textures.has(key):
+		return _textures[key]
 	var entry: Dictionary = info.images[index]
 	var bytes := _slice(entry.data)
 	var img := Image.new()
@@ -235,12 +237,14 @@ func texture(index: int) -> Texture2D:
 		img.convert(Image.FORMAT_RGBA8 if img.detect_alpha() != Image.ALPHA_NONE else Image.FORMAT_RGB8)
 	# Phones, tablets and browsers keep a 1024 texel cap: the realistic
 	# people's 2048 maps would otherwise take ~45 MB of video memory each.
-	if (OS.has_feature("web") or OS.has_feature("mobile")) and maxi(img.get_width(), img.get_height()) > MOBILE_TEXTURE:
-		var k := float(MOBILE_TEXTURE) / maxi(img.get_width(), img.get_height())
-		img.resize(int(img.get_width() * k), int(img.get_height() * k), Image.INTERPOLATE_BILINEAR)
+	if OS.has_feature("web") or OS.has_feature("mobile"):
+		max_size = MOBILE_TEXTURE if max_size <= 0 else mini(max_size, MOBILE_TEXTURE)
+	if max_size > 0 and maxi(img.get_width(), img.get_height()) > max_size:
+		var k := float(max_size) / maxi(img.get_width(), img.get_height())
+		img.resize(maxi(1, roundi(img.get_width() * k)), maxi(1, roundi(img.get_height() * k)), Image.INTERPOLATE_CUBIC)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
-	_textures[index] = tex
+	_textures[key] = tex
 	return tex
 
 

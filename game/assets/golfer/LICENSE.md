@@ -20,6 +20,16 @@ Jonas Hauquier) in September 2020:
 | Hair | `hair/short02`, `short03`, `short04`, `ponytail01`, `bob01`, `long01`, `afro01`, turned into grey detail for tinting | system assets |
 | Eyes, eyebrows, eyelashes | `eyes/high-poly` with the `brown`, `brownlight`, `green`, `blue` and `grey` materials, `eyebrows/eyebrow001`, `eyelashes/eyelashes01` | system assets |
 
+The face's fine detail (pores, lines, creases and the uneven colour of real
+skin, two images in the look pack) is taken by `tools/golfer/face_detail.py`
+from the "Lee Perry-Smith" head scan by Infinite Realities
+(Lee Perry-Smith, [ir-ltd.net](https://ir-ltd.net/)), released under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), as shipped with
+three.js (`examples/models/gltf/LeePerrySmith`). Changed: only the detail
+finer than about a centimetre is kept (the scan's colour over a blur of
+itself, and its normal map less a blur of it), fitted onto this golfer's
+face, with his brows, lips, shut eyes and stubble left out.
+
 Only MakeHuman's data files are read; no MakeHuman or MPFB code is used. The
 clubs, the golf cap and the reference address poses are this project's own
 work, keyed by hand in `tools/golfer/pose.py` and

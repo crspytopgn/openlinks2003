@@ -28,9 +28,9 @@ vec3 dye(vec3 tex, vec3 target, float mean) {
 	// range so a seam or a highlight doesn't burn out.
 	// 0.8: the creator's cloth texture averages that, so a colour looks the
 	// same on both kinds of golfer.
-	// 1.4: the folds a touch deeper than the source's, as a light colour
+	// 1.8: the folds deeper than the source's, as a light colour
 	// in the sun otherwise reads flat next to the photographed original.
-	return target * 0.75 * clamp(pow(lum / max(mean, 0.01), 1.4), 0.2, 1.6);
+	return target * 0.7 * clamp(pow(lum / max(mean, 0.01), 1.8), 0.15, 1.8);
 }
 
 void vertex() {

@@ -144,6 +144,13 @@ func impact_delay() -> float:
 	return float(swing["impact"])
 
 
+func putt_impact_delay() -> float:
+	var putt: Dictionary = _take.get("clips", {}).get("putt", {})
+	if not putt.has("impact") or not filmed_view_ok():
+		return _fallback.putt_impact_delay()
+	return float(putt["impact"])
+
+
 func watch(target: Node3D, delay: float = 0.3) -> void:
 	_fallback.watch(target, delay)
 

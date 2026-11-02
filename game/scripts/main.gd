@@ -811,7 +811,7 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	if gallery != null and is_instance_valid(gallery):
 		gallery.watch(ball)
 	_strike_sound = {"club": club, "lie": lie, "power": power}
-	_launch_wait = golfer.impact_delay() if golfer and not club.is_putter else 0.0
+	_launch_wait = (golfer.putt_impact_delay() if club.is_putter else golfer.impact_delay()) if golfer else 0.0
 	if _launch_wait <= 0.0:
 		sounds.play_detail(&"hit", _strike_sound)
 	shot_from = ball_at
@@ -861,6 +861,10 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 	shot = RoundReplay.run_shot(shot_model, rec, club, hole.terrain, hole.pin, rec.wind, round_seed)
 	rec.rest = shot.rest
 	rec.outcome = shot.outcome
+	if golfer:
+		var fore := fore_reaction(shot, ball_at, _aim_dir(), club.is_putter)
+		if fore != &"":
+			golfer.react(fore, FORE_DELAY)
 	if rec.computer and shooter < opponents.size() and opponents[shooter] != null:
 		opponents[shooter].learn(rec.from, club_index, shot)
 	record.shots.append(rec)
@@ -2897,6 +2901,29 @@ func _club_reach() -> float:
 	return club.total_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 
 
+## The golfer points after a full shot heading out of bounds or this far
+## off the aim line, FORE_DELAY s into the swing (once the ball is seen
+## going), as tour players do.
+const FORE_OFFLINE_M := 30.0
+const FORE_MIN_M := 80.0
+const FORE_DELAY := 1.4
+
+
+## &"fore_right" or &"fore_left" when the shot from `from` along `aim`
+## heads well offline to that side, else &"".
+static func fore_reaction(p_shot: ShotResult, from: Vector3, aim: Vector3, putter: bool) -> StringName:
+	if putter or p_shot == null:
+		return &""
+	var off := p_shot.rest - from
+	off.y = 0.0
+	if off.length() < FORE_MIN_M:
+		return &""
+	var side := off.dot(aim.cross(Vector3.UP))  # + to the golfer's right
+	if absf(side) < FORE_OFFLINE_M and p_shot.outcome != ShotResult.Outcome.OUT_OF_BOUNDS:
+		return &""
+	return &"fore_right" if side > 0.0 else &"fore_left"
+
+
 func _aim_dir() -> Vector3:
 	var a := deg_to_rad(aim_deg)
 	return Vector3(sin(a), 0.0, cos(a))
@@ -3059,6 +3086,7 @@ func _apply_graphics() -> void:
 	RenderingServer.global_shader_parameter_set("cloud_shadow", CLOUD_SHADOW if graphics.cloud_shadows else 0.0)
 	TreeFactory.set_level(graphics.trees)
 	GolferCloth.detail = graphics.quality
+	GolferSurface.face_detail = mini(graphics.quality, 2)
 	CrzTerrain.photo_ground = graphics.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	RenderingServer.global_shader_parameter_set("billboard_photo", 1.0 if CrzTerrain.photo_ground else 0.0)
 	GroundShade.set_near(TreeFactory.impostor_distance() if TreeFactory.enabled() else 0.0)
@@ -3724,7 +3752,7 @@ func start_replay() -> bool:
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
 		golfer.watch(ball, 0.7 if putting else 0.3)
-	_launch_wait = golfer.impact_delay() if golfer and not putting else 0.0
+	_launch_wait = (golfer.putt_impact_delay() if putting else golfer.impact_delay()) if golfer else 0.0
 	if _launch_wait <= 0.0:
 		sounds.play_detail(&"hit", _strike_sound)
 	return true
