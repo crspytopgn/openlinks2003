@@ -193,7 +193,7 @@ def person(d, rig):
         rb.setdefault(mine, turn @ np.array(b["origin"]))
     # Absolute turn per rig bone: its Biped direction onto the rig's.
     rot = {}
-    scale = {}  # hands and fingers: their size laid onto the rig's
+    scale = {}  # hands and fingers: their size laid onto the rig's; arms: their length
     for bone, child in POINTS_TO.items():
         if bone in rb and child in rb:
             rot[bone] = rotation_between(rb[child] - rb[bone], rig[child] - rig[bone])
@@ -246,6 +246,25 @@ def person(d, rig):
             rot[bone] = rot.get(p, np.eye(3))
             if p in scale:
                 scale[bone] = scale[p]
+    # Arms the rig's length for the person's size: the mocap's hands meet
+    # the grip with the rig's arms, so Rocketbox's longer arms (about 14%)
+    # had to bend at the elbow to get there. Each arm bone is stretched
+    # along its length only, so the arms keep their thickness.
+    size = (rb["neck_01"][1] - rb["foot_l"][1]) / (rig["neck_01"][1] - rig["foot_l"][1])
+    for s in "lr":
+        for b, c in (("upperarm_" + s, "lowerarm_" + s), ("lowerarm_" + s, "hand_" + s)):
+            if b in rb and c in rb:
+                a = rb[c] - rb[b]
+                k = size * np.linalg.norm(rig[c] - rig[b]) / np.linalg.norm(a)
+                a = a / np.linalg.norm(a)
+                scale[b] = np.eye(3) + (k - 1.0) * np.outer(a, a)
+                if os.environ.get("RB_DEBUG"):
+                    print("  %s length x%.3f" % (b, k))
+
+    def lin(b):
+        k = scale.get(b, 1.0)
+        return rot[b] @ k if isinstance(k, np.ndarray) else rot[b] * k
+
     # New joints: the person's bone lengths, laid the rig's way.
     order = ["pelvis"] + [b for b in names if b in rb and b != "pelvis"]
     rig_parent = {}
@@ -270,12 +289,30 @@ def person(d, rig):
                 else:
                     rest.append(b)
                 continue
-            new[b] = new[p] + scale.get(p, 1.0) * rot[p] @ (rb[b] - rb[p])
+            new[b] = new[p] + lin(p) @ (rb[b] - rb[p])
         if len(rest) == len(pending):
             for b in rest:
                 new[b] = rb[b]
             break
         pending = rest
+    if os.environ.get("RB_DEBUG"):
+        for b in ("spine_03", "clavicle_l", "upperarm_l", "lowerarm_l", "hand_l", "thigh_l", "calf_l", "foot_l"):
+            print("  %s turn %.1f deg" % (b, np.degrees(np.arccos(np.clip((np.trace(rot[b]) - 1) / 2, -1, 1)))))
+    # The shoulders forward to where the rig's are: the Biped's shoulder
+    # joints sit behind the neck (the rig's just in front), so the mocap's
+    # arms hung from the shoulder blades and bent forward at the elbow to
+    # reach the grip. The arms, mesh and joints, move forward together.
+    forward = {}
+    for s in "lr":
+        u = "upperarm_" + s
+        want = rig[u][2] - rig["neck_01"][2]
+        have = new[u][2] - new["neck_01"][2]
+        forward[s] = np.array([0.0, 0.0, (want - have) * float(os.environ.get("RB_SHOULDER", "1"))])
+        if os.environ.get("RB_DEBUG"):
+            print("  shoulder_%s forward %.1f cm" % (s, -100 * forward[s][2]))
+        for b in new:
+            if b.endswith("_" + s) and not b.startswith(("clavicle_", "thigh_", "calf_", "foot_", "ball_")):
+                new[b] = new[b] + forward[s]
     surfaces = []
     index = {n: i for i, n in enumerate(names)}
     for s in d["surfaces"]:
@@ -296,7 +333,7 @@ def person(d, rig):
                 r = rot.get(t, np.eye(3))
                 j0 = rb.get(t, np.zeros(3))
                 j1 = new.get(t, j0)
-                out_p[sel] += w[sel] * (scale.get(t, 1.0) * (pos[sel] - j0) @ r.T + j1)
+                out_p[sel] += w[sel] * ((pos[sel] - j0) @ lin(t).T + j1)
                 out_n[sel] += w[sel] * (nrm[sel] @ r.T)
         wsum = s["weights"].sum(1, keepdims=True)
         out_p /= np.maximum(wsum, 1e-6)
