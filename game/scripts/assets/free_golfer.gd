@@ -174,7 +174,7 @@ func apply_look(p_look: PlayerLook) -> void:
 	# A person in their cap: whatever the cap presses down (a bun, modelled
 	# hair) moves in under it (tools/golfer/person_cap.py "cap_press").
 	var part_weights := weights
-	if not who.is_empty() and part_names.has("RB_%s_cap" % look.person):
+	if not who.is_empty() and part_names.has(cap_part(look)):
 		part_weights = {"cap_press": 1.0}
 	for part_name in part_names:
 		if not parts.has_part(part_name):
@@ -249,12 +249,17 @@ static func person_info(p_look: PlayerLook, info: Dictionary) -> Dictionary:
 	return (info.get("people", {}) as Dictionary).get(p_look.person, {})
 
 
+## The person's cap part for the look's cap style (person_cap.py).
+static func cap_part(p_look: PlayerLook) -> String:
+	return "RB_%s_%s" % [p_look.person, "dadcap" if p_look.cap_style == "dad" else "cap"]
+
+
 ## A realistic person's parts: body and head, and either their hair or,
 ## with the cap on, the cap built on their own head (person_cap.py; the
 ## hair painted on the scalp still shows below it).
 static func person_parts(p_look: PlayerLook, who: Dictionary, info: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
-	var cap := "RB_%s_cap" % p_look.person
+	var cap := cap_part(p_look)
 	var capped := p_look.cap and (info.get("parts", {}) as Dictionary).has(cap)
 	for part: String in who.parts:
 		if capped and part.ends_with("_opacity"):

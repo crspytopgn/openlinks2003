@@ -40,6 +40,10 @@ const HAIR_NAMES := ["Short", "Crop", "Side part", "Ponytail", "Bob", "Long", "A
 const CAP_HAIR := ["short", "crop", "side_part", "ponytail", "bald"]
 const OUTFITS := ["polo", "sleeves", "shorts"]
 const OUTFIT_NAMES := ["Polo and trousers", "Long sleeves and trousers", "Polo and shorts"]
+## Cap styles for the realistic people (tools/golfer/person_cap.py): the
+## structured tour cap, or an unstructured low "dad cap" with a strap.
+const CAP_STYLES := ["tour", "dad"]
+const CAP_STYLE_NAMES := ["Tour cap", "Dad cap"]
 const EYES := ["brown", "hazel", "green", "blue", "grey"]
 const SHAFTS := ["steel", "graphite", "black"]
 const HEIGHT_MIN := 150.0
@@ -110,6 +114,8 @@ var cap := true  ## a golf cap (most tour players wear one)
 ## days' growth (the colour follows the hair).
 var stubble := 0.0
 var cap_colour := Color(1, 1, 1)
+## Which cap (CAP_STYLES). The sculpted Custom golfer always wears the tour cap.
+var cap_style := "tour"
 ## A white glove on the left hand.
 var glove := true
 ## Equipment: driver head colour, shaft finish, grip colour, ball colour.
@@ -173,7 +179,7 @@ func to_dict() -> Dictionary:
 		"muscle": snappedf(muscle, 0.001), "age": snappedf(age, 0.001), "face": f,
 		"skin": skin.to_html(false), "hair": hair, "hair_colour": hair_colour.to_html(false), "eyes": eyes,
 		"outfit": outfit, "top": top.to_html(false), "bottom": bottom.to_html(false), "shoes": shoes.to_html(false),
-		"cap": cap, "cap_colour": cap_colour.to_html(false), "glove": glove, "stubble": snappedf(stubble, 0.001),
+		"cap": cap, "cap_colour": cap_colour.to_html(false), "cap_style": cap_style, "glove": glove, "stubble": snappedf(stubble, 0.001),
 		"club_head": club_head.to_html(false), "shaft": shaft, "grip": grip.to_html(false), "ball": ball.to_html(false),
 		"person": person,
 	}
@@ -202,6 +208,7 @@ static func from_dict(d: Dictionary) -> PlayerLook:
 	l.shoes = _colour(d, "shoes", l.shoes)
 	l.cap = d.get("cap", true) == true
 	l.cap_colour = _colour(d, "cap_colour", l.cap_colour)
+	l.cap_style = _choice(d, "cap_style", CAP_STYLES, l.cap_style)
 	l.glove = d.get("glove", true) != false
 	l.stubble = clampf(float(d.get("stubble", 0.0)), 0.0, 1.0)
 	l.club_head = _colour(d, "club_head", l.club_head)
@@ -287,6 +294,8 @@ static func random(seed_value: int) -> PlayerLook:
 	l.cap = rng.randf() < 0.7
 	l.cap_colour = CLOTH_COLOURS[[top, bottom, 1, 1][rng.randi_range(0, 3)]][1]
 	l.shaft = SHAFTS[_pick(rng, [55, 35, 10])]
+	# Last, so the draws above stay as they were for every seed.
+	l.cap_style = "dad" if rng.randf() < 0.3 else "tour"
 	return l
 
 

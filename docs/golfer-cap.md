@@ -55,9 +55,28 @@ Review renders (Compatibility is fine for shape):
     xvfb-run godot --rendering-driver opengl3 --rendering-method gl_compatibility \
       --path game -s res://tests/golfer_cap_render.gd -- /tmp/caps
 
+## Dad cap
+
+`PlayerLook.cap_style` "dad" (creator: Outfit > Dad cap; about 3 in 10
+random golfers and spectators) wears `RB_<person>_dadcap`: an
+unstructured low-profile cotton cap. It is built the same way, but:
+
+- no stiffened front or dome: the crown follows the head, and the front
+  panels lie on the forehead;
+- it sits down on the head (hair pressed to 7.8 cm over the seam, not
+  8.5) with the brim seam 1.5 cm over the eyebrows;
+- a softer bill, 6.8 cm, 13 degrees down, its sides curved down more;
+- an adjustable strap 1.6 cm tall at the back with a half-elliptical
+  opening above it, 7 cm across and 3.5 cm tall. The crown vertices round
+  the hole are moved onto its edge so it is smooth.
+
+Both caps share one `cap_press` shape (each head vertex goes as far in as
+the tighter cap needs).
+
+    ... -s res://tests/golfer_cap_render.gd -- /tmp/caps dad
+
 ## Not done yet
 
-- No adjustable strap or opening at the back (many tour caps are fitted,
-  so this is a variation, not an error).
+- No buckle on the dad cap's strap and no binding round its opening.
 - The cap is rigid on the head bone; it doesn't move in the wind.
 - No visor option.

@@ -2,7 +2,7 @@ extends SceneTree
 ## Close-ups of every realistic person's cap for review against real photos:
 ## front, three-quarter, side, back and from above, at rest and at address,
 ## the top of the backswing and the finish. Pass the output folder after
-## "--", optionally followed by person ids.
+## "--", optionally followed by "dad" (the dad cap) and person ids.
 ##
 ##   xvfb-run godot --rendering-driver vulkan --path game \
 ##     -s res://tests/golfer_cap_render.gd -- /tmp/caps
@@ -31,6 +31,7 @@ var _jobs: Array = []
 var _job := -1
 var _wait := 0
 var _person := ""
+var _style := "tour"
 var _golfer_fresh := false
 
 
@@ -39,7 +40,10 @@ func _initialize() -> void:
 	_out = args[0] if args.size() > 0 else "/tmp/caps"
 	DirAccess.make_dir_recursive_absolute(_out)
 	for k in range(1, args.size()):
-		_people.append(args[k])
+		if args[k] == "dad":
+			_style = "dad"
+		else:
+			_people.append(args[k])
 	if _people.is_empty():
 		for p: Array in PlayerLook.PEOPLE:
 			_people.append(p[0])
@@ -86,6 +90,7 @@ func _make(person: String) -> void:
 	look.person = person
 	look.sex = PlayerLook.person_sex(person)
 	look.cap = true
+	look.cap_style = _style
 	look.cap_colour = Color(0.08, 0.1, 0.18)
 	_golfer = FreeGolfer.create(look)
 	_golfer.walk_in = false

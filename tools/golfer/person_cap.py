@@ -70,6 +70,28 @@ PEAK = {"half_span": math.radians(68), "tilt": math.radians(11), "length": 0.07,
         # the inside, it showed as a pale strip under the crown's edge.
         "band_lift": -0.002}
 
+# The cap styles (PlayerLook.CAP_STYLES): part name suffix and shape.
+# "tour": the structured mid-profile tour cap above.
+# "dad": an unstructured low-profile cap (washed cotton, no buckram): the
+# front panels lie on the forehead, the crown follows the head instead of
+# standing up as a dome, the bill is softer and curved more, and there is
+# an adjustable strap with an opening above it at the back.
+STYLES = {
+    "tour": {"part": "cap", "front_stand": FRONT_STAND, "top_full": TOP_FULL, "dome": DOME,
+             "seam": SEAM_ABOVE_BROW, "peak": PEAK, "back_opening": False},
+    # Soft cotton sits down on the head: it presses hair lower than the
+    # stiff cap (max_rise) and its front panels lie on the forehead
+    # (front_stand below the room for hair dents them in a little).
+    "dad": {"part": "dadcap", "front_stand": -0.002, "top_full": 0.0, "dome": 0.0, "max_rise": 0.078,
+            "seam": 0.015, "back_opening": True,
+            "peak": dict(PEAK, curl=0.07, tilt=math.radians(13), length=0.068, half_span=math.radians(70))},
+}
+# The dad cap's back opening over its adjustable strap (a half ellipse,
+# as on real ones): strap height, opening width and height (m).
+STRAP_H = 0.016
+OPENING_W = 0.07
+OPENING_H = 0.035
+
 
 def arrays(info, blob, part):
     e = info["parts"][part]
@@ -150,7 +172,7 @@ def raycast(origin, dirs, tri):
     return out
 
 
-def crown(tri, centre):
+def crown(tri, centre, style):
     """cap.crown's grid, fitted by casting rays at the skull instead of
     taking the furthest point in a cone (which caught the bump of the
     back of the head and left the band standing off the nape)."""
@@ -177,9 +199,10 @@ def crown(tri, centre):
     # pressed down: the crown rises at most MAX_RISE over the brim seam
     # before its structure is added.
     rise = (dirs[..., 1] * r).max()
-    if rise > MAX_RISE:
+    max_rise = style.get("max_rise", MAX_RISE)
+    if rise > max_rise:
         p = dirs * r[..., None]
-        p[..., 1] = np.where(p[..., 1] > 0, p[..., 1] * (MAX_RISE / rise), p[..., 1])
+        p[..., 1] = np.where(p[..., 1] > 0, p[..., 1] * (max_rise / rise), p[..., 1])
         r = np.linalg.norm(p, axis=2)
         dirs = p / r[..., None]
     # Stiff panels over the skull's small bumps: smooth, never inwards.
@@ -194,8 +217,8 @@ def crown(tri, centre):
         t = i / rings
         for k in range(segs):
             front = max(0.0, -math.cos(2 * math.pi * k / segs))
-            r[i, k] += FRONT_STAND * front ** 1.3 * math.sin(math.pi / 2 * min(1.0, t * 1.6)) * (1 - 0.35 * t)
-            r[i, k] += TOP_FULL * t ** 1.5
+            r[i, k] += style["front_stand"] * front ** 1.3 * math.sin(math.pi / 2 * min(1.0, t * 1.6)) * (1 - 0.35 * t)
+            r[i, k] += style["top_full"] * t ** 1.5
     for _ in range(4):
         sm = (r + np.roll(r, 1, axis=1) + np.roll(r, -1, axis=1)) / 3
         sm[1:-1] = (sm[1:-1] * 2 + sm[:-2] + sm[2:]) / 4
@@ -209,7 +232,7 @@ def crown(tri, centre):
     height = (dirs[..., 1] * r).max()
     dome = 1.0 / np.sqrt((dirs[..., 0] / ax) ** 2 + (dirs[..., 1] / height) ** 2 + (dirs[..., 2] / az) ** 2)
     up = np.clip(dirs[..., 1] / 0.25, 0.0, 1.0)  # not round the band's drop at the back
-    r = np.maximum(r, r + (dome * DOME - r) * up)
+    r = np.maximum(r, r + (dome * style["dome"] - r) * up)
     for i in range(rings - 4, rings + 1):
         w = (i - (rings - 4)) / 4
         r[i] = r[i] * (1 - w) + r[i].mean() * w
@@ -219,22 +242,104 @@ def crown(tri, centre):
 
 
 def fit(info, blob, name):
-    """The person's cap mesh and the head's cap_press offsets:
-    (pos, nrm, uv, tris, press_rows, press_offsets)."""
+    """Every style's cap mesh for the person, and the head's cap_press
+    offsets: ({style: (pos, nrm, uv, tris)}, press_rows, press_offsets,
+    landmarks)."""
     pos, tris = arrays(info, blob, "RB_%s_head" % name)
     top, nasion_y = landmarks(pos)
     brow_y = nasion_y + BROW_ABOVE_NASION
-    seam_y = brow_y + SEAM_ABOVE_BROW
     tri, keep = skull(pos, tris, brow_y - 0.06, brow_y)
-    upper = tri.reshape(-1, 3)
-    upper = upper[upper[:, 1] > seam_y]
-    lo, hi = upper.min(axis=0), upper.max(axis=0)
-    centre = np.array([(lo[0] + hi[0]) / 2, seam_y, (lo[2] + hi[2]) / 2])
-    grid = crown(tri, centre)
-    cp, cn, cu, ct, (peak_start, peak_end, band_ids) = cap_mesh.shell(grid, centre, PEAK)
-    ct = cap_mesh.orient(cp, cn, ct)
-    rows, offs = press(pos, grid, centre)
-    return cp, cn, cu, ct, rows, offs, {"top": top, "brow": brow_y, "seam": seam_y}
+    caps = {}
+    pressed = {}
+    for style_name, style in STYLES.items():
+        seam_y = brow_y + style["seam"]
+        upper = tri.reshape(-1, 3)
+        upper = upper[upper[:, 1] > seam_y]
+        lo, hi = upper.min(axis=0), upper.max(axis=0)
+        centre = np.array([(lo[0] + hi[0]) / 2, seam_y, (lo[2] + hi[2]) / 2])
+        grid = crown(tri, centre, style)
+        cp, cn, cu, ct, _ = cap_mesh.shell(grid, centre, style["peak"])
+        ct = cap_mesh.orient(cp, cn, ct)
+        if style["back_opening"]:
+            cp, cn, ct = back_opening(cp, cn, ct)
+        caps[style_name] = (cp, cn, cu, ct)
+        # One press for every style: each vertex moves as far in as the
+        # tightest crown over it needs.
+        rows, offs = press(pos, grid, centre)
+        for row, off in zip(rows, offs):
+            if row not in pressed or np.linalg.norm(off) > np.linalg.norm(pressed[row]):
+                pressed[row] = off
+    press_rows = np.array(sorted(pressed), np.int32)
+    press_offs = np.array([pressed[r] for r in press_rows], np.float32).reshape(-1, 3)
+    marks = {"top": top, "brow": brow_y, "seam": brow_y + STYLES["tour"]["seam"]}
+    return caps, press_rows, press_offs, marks
+
+
+def back_opening(pos, nrm, tris):
+    """Cuts the strap opening into the crown: a half ellipse OPENING_W
+    across and OPENING_H tall standing on a STRAP_H strap at the back.
+    Triangles inside go, and the crown vertices round the hole move onto
+    its edge so it is smooth, not stepped like the grid. Returns new
+    positions, normals and triangles."""
+    rings, segs, cols = cap_mesh.RINGS, cap_mesh.SEGMENTS, cap_mesh.SEGMENTS + 1
+    crown_n = (rings + 1) * cols
+    grid = pos[:crown_n].reshape(rings + 1, cols, 3)
+    gn = nrm[:crown_n].reshape(rings + 1, cols, 3)
+    # Height above the band and arc length round it, per crown vertex.
+    kk = np.arange(cols)
+    kk = np.where(kk > segs // 2, kk - segs, kk).astype(float)  # 0 at the back
+    seg_len = np.linalg.norm(grid[0, 1] - grid[0, 0])
+    h = grid[..., 1] - grid[0][None, :, 1]
+    s = np.broadcast_to(kk * seg_len, h.shape)
+
+    def rho(sv, hv):
+        return np.hypot(sv / (OPENING_W / 2), (hv - STRAP_H) / OPENING_H)
+
+    # Triangles whose middle is in the hole go.
+    in_crown = (tris < crown_n).all(axis=1)
+    ti, tk = np.minimum(tris // cols, rings), tris % cols
+    sm = s[ti, tk].mean(axis=1)
+    hm = h[ti, tk].mean(axis=1)
+    cut = in_crown & (rho(sm, hm) < 1) & (hm > STRAP_H)
+    kept = tris[~cut]
+    # Vertices of kept triangles that touch the hole move onto its edge,
+    # found along their column (k) between them and the strap.
+    on_edge = np.zeros(len(pos), bool)
+    for t in tris[cut]:
+        on_edge[t] = True
+    used = np.zeros(len(pos), bool)
+    used[kept.reshape(-1)] = True
+    pos, nrm = pos.copy(), nrm.copy()
+    def sample(sv, hv):
+        kf = sv / seg_len
+        k0 = int(math.floor(kf))
+        f = kf - k0
+        c0, c1 = k0 % segs, (k0 + 1) % segs
+        col = h[:, c0] * (1 - f) + h[:, c1] * f
+        j = int(np.clip(np.searchsorted(col, hv) - 1, 0, rings - 1))
+        g = float(np.clip((hv - col[j]) / max(col[j + 1] - col[j], 1e-9), 0, 1))
+
+        def at(arr):
+            lo = arr[j, c0] * (1 - f) + arr[j, c1] * f
+            hi = arr[j + 1, c0] * (1 - f) + arr[j + 1, c1] * f
+            return lo * (1 - g) + hi * g
+        n = at(gn)
+        return at(grid), n / max(np.linalg.norm(n), 1e-9)
+
+    for v in np.nonzero(on_edge & used & (np.arange(len(pos)) < crown_n))[0]:
+        i, k = divmod(int(v), cols)
+        sv, hv = float(s[i, k]), float(h[i, k])
+        r = max(float(rho(sv, hv)), 1e-6)
+        # To whichever edge is nearer: the strap's top or the arch.
+        to_strap = hv - STRAP_H
+        to_arch = abs(1 - r) * min(OPENING_W / 2, OPENING_H)
+        if hv <= STRAP_H or (r < 1 and to_strap < to_arch):
+            sv = float(np.clip(sv, -OPENING_W / 2, OPENING_W / 2))
+            hv = STRAP_H
+        else:
+            sv, hv = sv / r, STRAP_H + (hv - STRAP_H) / r
+        pos[v], nrm[v] = sample(sv, hv)
+    return pos, nrm, kept
 
 
 def press(pos, grid, centre):
@@ -270,29 +375,30 @@ def put(blob, a, dtype):
 
 
 def add(info, blob, name):
-    """Puts the person's fitted cap in the pack (RB_<name>_cap) and the
-    cap_press shape on their head."""
-    cp, cn, cu, ct, rows, offs, marks = fit(info, blob, name)
+    """Puts the person's fitted caps in the pack (RB_<name>_cap, the tour
+    cap, and RB_<name>_dadcap) and the cap_press shape on their head."""
+    caps, rows, offs, marks = fit(info, blob, name)
     head_j = info["bones"].index("head")
-    n = len(cp)
-    # Every person's cap has the same layout: the first one's uvs, bones
-    # and weights serve them all.
-    shared = info.setdefault("person_cap_shared", {})
-    if shared.get("count") != n:
-        shared.clear()
-        shared.update({"count": n, "uvs": put(blob, cu, np.float32),
-                       "bones": put(blob, np.tile([head_j, 0, 0, 0], (n, 1)), np.int32),
-                       "weights": put(blob, np.tile([1.0, 0, 0, 0], (n, 1)), np.float32)})
-    info["parts"]["RB_%s_cap" % name] = {
-        "material": "Cap", "count": n,
-        "positions": put(blob, cp, np.float32), "normals": put(blob, cn, np.float16),
-        "uvs": list(shared["uvs"]), "bones": list(shared["bones"]), "weights": list(shared["weights"]),
-        # Godot's front faces wind clockwise.
-        "indices": put(blob, ct[:, ::-1].reshape(-1), np.int32),
-        "tangents": put(blob, look_pack.tangents(cp.astype(np.float64), cn.astype(np.float64),
-                                                 cu.astype(np.float64), ct), np.float16),
-        "shapes": {},
-    }
+    for style_name, (cp, cn, cu, ct) in caps.items():
+        n = len(cp)
+        # Every cap has the same vertex layout: the first one's uvs, bones
+        # and weights serve them all.
+        shared = info.setdefault("person_cap_shared", {})
+        if shared.get("count") != n:
+            shared.clear()
+            shared.update({"count": n, "uvs": put(blob, cu, np.float32),
+                           "bones": put(blob, np.tile([head_j, 0, 0, 0], (n, 1)), np.int32),
+                           "weights": put(blob, np.tile([1.0, 0, 0, 0], (n, 1)), np.float32)})
+        info["parts"]["RB_%s_%s" % (name, STYLES[style_name]["part"])] = {
+            "material": "Cap", "count": n,
+            "positions": put(blob, cp, np.float32), "normals": put(blob, cn, np.float16),
+            "uvs": list(shared["uvs"]), "bones": list(shared["bones"]), "weights": list(shared["weights"]),
+            # Godot's front faces wind clockwise.
+            "indices": put(blob, ct[:, ::-1].reshape(-1), np.int32),
+            "tangents": put(blob, look_pack.tangents(cp.astype(np.float64), cn.astype(np.float64),
+                                                     cu.astype(np.float64), ct), np.float16),
+            "shapes": {},
+        }
     head = info["parts"]["RB_%s_head" % name]
     shapes = dict(head.get("shapes", {}))
     shapes.pop("cap_press", None)
