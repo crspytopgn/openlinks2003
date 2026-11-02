@@ -6,8 +6,12 @@ shader_type spatial;
 // - G beard: stubble (dots in the hair colour) and a shaved man's shadow;
 // - B lips: deeper and redder, a little glossier;
 // - A shine: an oilier T-zone that catches the sun.
-// Pores are a fine tiled normal map. Light scatters under the skin on
-// Forward+ (Compatibility ignores it).
+// Pores are a fine tiled normal map. On the face, a real scanned face's
+// detail (tools/golfer/face_detail.py) is laid over it: its fine lines,
+// creases and pores as a normal map and its uneven colour as a multiplier
+// (0.5 is none), over `face_rect` of the body's uvs, at three times the
+// body texture's resolution. Light scatters under the skin on Forward+
+// (Compatibility ignores it).
 // light() wraps the sun round the shadow side, red furthest, as light
 // scattered under real skin does, so the shade side of a face stays warm
 // instead of turning grey. The sky's fill is warmed the same way: the
@@ -26,6 +30,13 @@ uniform float stubble : hint_range(0.0, 1.0) = 0.0;
 uniform float shave_shadow : hint_range(0.0, 1.0) = 0.0;
 uniform float flush_strength : hint_range(0.0, 2.0) = 1.0;
 uniform float lip_strength : hint_range(0.0, 2.0) = 1.0;
+uniform sampler2D face_albedo : hint_default_white, filter_linear_mipmap;
+uniform sampler2D face_normal : hint_normal, filter_linear_mipmap;
+// The face detail's place in the body's uvs (min u, min v, max u, max v);
+// strengths 0 turn it off.
+uniform vec4 face_rect = vec4(2.0, 2.0, 3.0, 3.0);
+uniform float face_colour : hint_range(0.0, 2.0) = 0.0;
+uniform float face_relief : hint_range(0.0, 3.0) = 0.0;
 uniform float pore_scale = 40.0;
 uniform float pore_strength = 0.35;
 uniform float stubble_scale = 110.0;
@@ -55,6 +66,13 @@ float vnoise(vec2 p) {
 void fragment() {
 	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb;
 	vec4 r = texture(regions, UV);
+	vec2 fuv = (UV - face_rect.xy) / (face_rect.zw - face_rect.xy);
+	// Sampled everywhere (no branch, so mipmaps stay right at its edge),
+	// used on the face's rect only.
+	vec2 inside = step(vec2(0.0), fuv) * step(fuv, vec2(1.0));
+	float on_face = inside.x * inside.y;
+	c *= mix(vec3(1.0), texture(face_albedo, fuv).rgb * 2.0, face_colour * on_face);
+	vec2 face_n = (texture(face_normal, fuv).rg * 2.0 - 1.0) * face_relief * on_face;
 	// Blood under thin skin: less green and blue, more on lighter skin.
 	float light = clamp(dot(albedo.rgb, vec3(0.33)) * 1.4, 0.35, 1.0);
 	c *= mix(vec3(1.0), vec3(1.04, 0.84, 0.82), r.r * flush_strength * light);
@@ -71,8 +89,10 @@ void fragment() {
 	ALBEDO = c * warmth;
 	ROUGHNESS = clamp(roughness - r.a * 0.16 - r.b * 0.14 + hairs * 0.25, 0.2, 1.0);
 	SPECULAR = specular + r.a * 0.08;
-	NORMAL_MAP = texture(pores, UV * pore_scale).rgb;
-	NORMAL_MAP_DEPTH = pore_strength * (1.0 - r.b) * (1.0 - hairs);
+	vec2 p = (texture(pores, UV * pore_scale).rg * 2.0 - 1.0) * pore_strength * (1.0 - r.b);
+	vec2 n = (p + face_n) * (1.0 - hairs);
+	NORMAL_MAP = normalize(vec3(n, 1.0)) * 0.5 + 0.5;
+	NORMAL_MAP_DEPTH = 1.0;
 	SSS_STRENGTH = sss_strength;
 }
 
