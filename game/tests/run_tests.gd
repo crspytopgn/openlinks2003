@@ -3674,7 +3674,7 @@ func _test_golfer_roster() -> void:
 	_check(int(parts.info.materials.Cap.texture) >= 0 and parts.texture(int(parts.info.materials.Cap.texture)) != null,
 		"the cap has its stitched texture")
 	_check(int(parts.info.materials.Skin.get("regions", -1)) >= 0, "the skin has its region map")
-	var golfer := FreeGolfer.create(GolferRoster.look_for("Luis Navarro"))
+	var golfer := FreeGolfer.create(_custom(GolferRoster.look_for("Luis Navarro")))
 	if golfer == null:
 		return
 	var body := golfer.find_child("Body", true, false) as MeshInstance3D
@@ -3715,7 +3715,7 @@ func _test_golfer_roster() -> void:
 	golfer.free()
 	# The cap fits the skull (as a real one presses the hair flat), and the
 	# hair it covers is cut away rather than poking through.
-	var capped := FreeGolfer.create(GolferRoster.look_for("Callum Reid"))
+	var capped := FreeGolfer.create(_custom(GolferRoster.look_for("Callum Reid")))
 	var cut := capped.find_child("Hair_short", true, false) as MeshInstance3D
 	var full := parts.bake("Hair_short", GolferRoster.look_for("Callum Reid").shape_weights())
 	_check(cut != null and cut.mesh.get_surface_count() == 1, "the hair under the cap is kept below the band")
@@ -3728,6 +3728,60 @@ func _test_golfer_roster() -> void:
 	var grace: PlayerLook = GolferRoster.look_for("Grace Mensah")
 	_check(is_equal_approx(luis.face_value("jaw"), 0.35 * GolferRoster.FACE_SCALE), "roster face sliders scaled up")
 	_check(grace.face_value("jaw") < -0.4, "women's faces get a softer jaw (%.2f)" % grace.face_value("jaw"))
+	_test_people(parts)
+
+
+## `look` as the sculpted Custom golfer.
+func _custom(look: PlayerLook) -> PlayerLook:
+	look.person = ""
+	return look
+
+
+## The realistic people (tools/golfer/rocketbox.py): every pro wears one of
+## their sex, the field mixes them, a person's body takes the person shader
+## dyed in the look's colours, the cap replaces their hair, their own joint
+## offsets fit the skeleton, and old saved looks stay Custom.
+func _test_people(parts: GolferParts) -> void:
+	var people: Dictionary = parts.info.get("people", {})
+	for p: Array in PlayerLook.PEOPLE:
+		_check(people.has(p[0]), "the look pack has %s" % p[0])
+		if people.has(p[0]):
+			_check(is_equal_approx(float(people[p[0]].sex), float(p[2])), "%s's sex matches" % p[0])
+	var used := {}
+	for g in GolferRoster.golfers():
+		var look: PlayerLook = g["look"]
+		_check(PlayerLook.person_sex(look.person) == look.sex, "%s is a realistic person of their sex" % g["name"])
+		used[look.person] = true
+	_check(used.size() == PlayerLook.PEOPLE.size(), "the field uses every person (%d)" % used.size())
+	_check(PlayerLook.random_person(7).person != "", "random spectators and opponents are people")
+	_check(PlayerLook.from_dict({"sex": 0.0}).person == "", "a look saved before the people stays Custom")
+	var saved := PlayerLook.default_look()
+	saved.person = "Female_Adult_17"
+	_check(PlayerLook.from_dict(saved.to_dict()).person == "Female_Adult_17", "the person is saved with the look")
+	var look := PlayerLook.default_look()
+	look.top = Color(0.8, 0.1, 0.1)
+	look.cap = true
+	var golfer := FreeGolfer.create(look)
+	if golfer == null:
+		return
+	var body := golfer.find_child("RB_%s_body" % look.person, true, false) as MeshInstance3D
+	_check(body != null, "the default golfer is the realistic person")
+	if body != null:
+		var mat := body.material_override if body.material_override != null else body.get_surface_override_material(0)
+		_check(mat is ShaderMaterial and (mat as ShaderMaterial).shader == GolferSurface.PERSON_SHADER,
+			"a person wears the dyeing person shader")
+		if mat is ShaderMaterial:
+			var top: Color = (mat as ShaderMaterial).get_shader_parameter("top")
+			_check(top.r > top.g * 3.0, "the person's shirt is dyed the look's colour")
+	_check(golfer.find_child("RB_%s_cap" % look.person, true, false) != null, "the cap is fitted to the person's head")
+	_check(golfer.find_child("Body", true, false) == null, "no sculpted body under the person")
+	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var joints: Dictionary = people[look.person].joints
+	var h := skel.find_bone("head")
+	var moved := skel.get_bone_rest(h).origin - (golfer as FreeGolfer)._base_rests[h].origin
+	var want := Vector3(joints.head[0], joints.head[1], joints.head[2]) - Vector3(joints.neck_01[0], joints.neck_01[1], joints.neck_01[2])
+	_check(moved.distance_to(want) < 0.001, "the person's own joints fit the skeleton")
+	golfer.free()
 
 
 func _test_player_looks() -> void:

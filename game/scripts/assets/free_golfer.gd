@@ -17,6 +17,7 @@ extends GolferRig
 ## missing.
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
+const SPECTATOR_TEXTURE := 512
 const BLEND_TIME := 0.15
 const REACT_BLEND := 0.4  ## out of the finish into a reaction
 const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
@@ -62,6 +63,10 @@ const SHAFT_COLOURS := {"steel": Color(0.75, 0.76, 0.78), "graphite": Color(0.16
 var look: PlayerLook
 ## False to settle into address on the spot (the player creator's preview).
 var walk_in := true
+## Largest texture side for this golfer's look (0: the pack's own). The
+## crowd uses SPECTATOR_TEXTURE: six realistic people at full size would
+## take some 300 MB of video memory for faces seen from 20 m.
+var texture_cap := 0
 var _model: Node3D
 var _player: AnimationPlayer
 var _skeleton: Skeleton3D
@@ -91,7 +96,7 @@ var _arms: GolferArms
 
 ## Null if the model or the look pack is missing, or the model has no
 ## animations.
-static func create(p_look: PlayerLook = null) -> FreeGolfer:
+static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	if not ResourceLoader.exists(SCENE_PATH) or GolferParts.shared() == null:
 		return null
 	var scene := load(SCENE_PATH) as PackedScene
@@ -104,6 +109,7 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 		model.free()
 		return null
 	var golfer := FreeGolfer.new()
+	golfer.texture_cap = p_texture_cap
 	golfer.add_child(model)
 	golfer._model = model
 	golfer._player = player
@@ -146,8 +152,14 @@ func apply_look(p_look: PlayerLook) -> void:
 		node.queue_free()
 	_look_nodes.clear()
 	_cloth.clear_materials()
-	var weights := look.shape_weights()
-	_fit_skeleton(parts.joint_offsets(weights))
+	var who := person_info(look, parts.info)
+	var weights := look.shape_weights() if who.is_empty() else {}
+	var offsets := parts.joint_offsets(weights)
+	if not who.is_empty():
+		for bone: String in who.joints:
+			var d: Array = who.joints[bone]
+			offsets[bone] = Vector3(d[0], d[1], d[2])
+	_fit_skeleton(offsets)
 	var skin := Skin.new()
 	var glove_bones := PackedInt32Array()
 	var names := parts.bone_names()
@@ -158,20 +170,30 @@ func apply_look(p_look: PlayerLook) -> void:
 		var bone := _skeleton.find_bone(bone_name)
 		var rest := _skeleton.get_bone_global_rest(bone) if bone >= 0 else Transform3D.IDENTITY
 		skin.add_named_bind(bone_name, rest.affine_inverse())
-	for part_name in parts_for(look, parts.info):
+	var part_names := parts_for(look, parts.info) if who.is_empty() else person_parts(look, who, parts.info)
+	for part_name in part_names:
 		if not parts.has_part(part_name):
 			continue
 		var mi := MeshInstance3D.new()
 		mi.name = part_name
 		var mat_name := parts.part_material(part_name)
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
-		mi.mesh = parts.bake(part_name, weights, glove_bones if is_skin and look.glove else PackedInt32Array())
+		var gloved := (is_skin or str(parts.info.materials[mat_name].get("tint", "")) == "person") and look.glove
+		mi.mesh = parts.bake(part_name, weights, glove_bones if gloved else PackedInt32Array())
 		if part_name.begins_with("Hair_") and look.wears_cap():
 			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
 		var std := _material(parts, mat_name)
 		var mat: Material = null
-		if is_skin:
+		var tint := str(parts.info.materials[mat_name].get("tint", ""))
+		if tint == "person":
+			var pm := GolferSurface.person(std, look, _skin_regions(parts, mat_name),
+				parts.info.materials[mat_name].get("region_means", []))
+			_cloth.add_occluded(pm)
+			mat = pm
+		elif tint == "person_hair":
+			mat = _matt(std)
+		elif is_skin:
 			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name), _face_detail(parts, mat_name))
 			if mat == null:
 				mat = GolferSurface.skin(std)
@@ -205,12 +227,37 @@ func apply_look(p_look: PlayerLook) -> void:
 		_skeleton.add_child(mi)
 		mi.skeleton = NodePath("..")
 		_look_nodes.append(mi)
-	var s := clampf(look.height_cm / 100.0 / parts.standing_height(weights), 0.7, 1.4)
+	var standing := parts.standing_height(weights) if who.is_empty() else float(who.height)
+	var s := clampf(look.height_cm / 100.0 / standing, 0.7, 1.4)
 	_model.scale = Vector3.ONE * s
 	_rest = BALL * (1.0 - s)
 	if _walk == null:
 		_model.position = _rest
 	_dress_clubs()
+
+
+## The look pack's realistic person `look` asks for (info["people"]), or
+## an empty dictionary for the creator's own body.
+static func person_info(p_look: PlayerLook, info: Dictionary) -> Dictionary:
+	if p_look.person == "":
+		return {}
+	return (info.get("people", {}) as Dictionary).get(p_look.person, {})
+
+
+## A realistic person's parts: body and head, and either their hair or,
+## with the cap on, the cap fitted to their head (rocketbox.py fit_cap;
+## the hair painted on the scalp still shows below it).
+static func person_parts(p_look: PlayerLook, who: Dictionary, info: Dictionary) -> PackedStringArray:
+	var out := PackedStringArray()
+	var cap := "RB_%s_cap" % p_look.person
+	var capped := p_look.cap and (info.get("parts", {}) as Dictionary).has(cap)
+	for part: String in who.parts:
+		if capped and part.ends_with("_opacity"):
+			continue
+		out.append(part)
+	if capped:
+		out.append(cap)
+	return out
 
 
 ## The look pack parts this look shows: the body pieces its outfit doesn't
@@ -238,23 +285,23 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 	match str(m.get("tint", "")):
 		"skin":
 			var female := look.sex >= 0.5 and parts.info.has("skin_female")
-			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1)
+			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1, texture_cap)
 		"top":
-			return parts.make_material(material_name, look.top)
+			return parts.make_material(material_name, look.top, -1, texture_cap)
 		"bottom":
-			return parts.make_material(material_name, look.bottom)
+			return parts.make_material(material_name, look.bottom, -1, texture_cap)
 		"shoes":
-			return parts.make_material(material_name, look.shoes)
+			return parts.make_material(material_name, look.shoes, -1, texture_cap)
 		"hair":
-			return parts.make_material(material_name, look.hair_colour)
+			return parts.make_material(material_name, look.hair_colour, -1, texture_cap)
 		"brows":
-			return parts.make_material(material_name, look.hair_colour.darkened(0.15))
+			return parts.make_material(material_name, look.hair_colour.darkened(0.15), -1, texture_cap)
 		"cap":
-			return parts.make_material(material_name, look.cap_colour)
+			return parts.make_material(material_name, look.cap_colour, -1, texture_cap)
 	if material_name == "Eyes":
 		var eyes: Dictionary = parts.info.get("eyes", {})
-		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
-	return parts.make_material(material_name)
+		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)), texture_cap)
+	return parts.make_material(material_name, Color.WHITE, -1, texture_cap)
 
 
 ## The hair without the part the cap covers: the cap fits the skull with

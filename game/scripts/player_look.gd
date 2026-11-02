@@ -117,6 +117,20 @@ var club_head := Color(0.06, 0.06, 0.07)
 var shaft := "steel"
 var grip := Color(0.05, 0.05, 0.055)
 var ball := Color(1, 1, 1)
+## A realistic person from the look pack (tools/golfer/rocketbox.py, e.g.
+## "Male_Adult_14") in place of the sculpted body, or "" for the creator's
+## own body, face, hair and outfit. The colours, cap and glove still apply.
+var person := ""
+
+## The realistic people in the look pack (tools/golfer/rocketbox.py):
+## [id, label, sex].
+const PEOPLE := [
+	["Male_Adult_14", "Man 1", 0.0], ["Male_Adult_08", "Man 2", 0.0],
+	["Male_Adult_11", "Man 3", 0.0], ["Male_Adult_09", "Man 4", 0.0],
+	["Female_Adult_13", "Woman 1", 1.0], ["Female_Adult_17", "Woman 2", 1.0],
+]
+## A new player's golfer: the first realistic person.
+const DEFAULT_PERSON := "Male_Adult_14"
 
 
 ## The blend shape weights: shape name -> weight.
@@ -146,7 +160,7 @@ func face_value(key: String) -> float:
 
 ## True when the cap is on and the hair style suits it.
 func wears_cap() -> bool:
-	return cap and CAP_HAIR.has(hair)
+	return cap and (person != "" or CAP_HAIR.has(hair))
 
 
 func to_dict() -> Dictionary:
@@ -161,6 +175,7 @@ func to_dict() -> Dictionary:
 		"outfit": outfit, "top": top.to_html(false), "bottom": bottom.to_html(false), "shoes": shoes.to_html(false),
 		"cap": cap, "cap_colour": cap_colour.to_html(false), "glove": glove, "stubble": snappedf(stubble, 0.001),
 		"club_head": club_head.to_html(false), "shaft": shaft, "grip": grip.to_html(false), "ball": ball.to_html(false),
+		"person": person,
 	}
 
 
@@ -193,6 +208,7 @@ static func from_dict(d: Dictionary) -> PlayerLook:
 	l.shaft = _choice(d, "shaft", SHAFTS, l.shaft)
 	l.grip = _colour(d, "grip", l.grip)
 	l.ball = _colour(d, "ball", l.ball)
+	l.person = str(d.get("person", ""))
 	return l
 
 
@@ -272,6 +288,40 @@ static func random(seed_value: int) -> PlayerLook:
 	l.cap_colour = CLOTH_COLOURS[[top, bottom, 1, 1][rng.randi_range(0, 3)]][1]
 	l.shaft = SHAFTS[_pick(rng, [55, 35, 10])]
 	return l
+
+
+## A new player's look: a realistic person in the default colours.
+## (PlayerLook.new() stays the sculpted "Custom" body, so saved looks from
+## before the people keep theirs.)
+static func default_look() -> PlayerLook:
+	var l := PlayerLook.new()
+	l.person = DEFAULT_PERSON
+	return l
+
+
+## The realistic people of one sex (0 man, 1 woman), as ids.
+static func people_of(p_sex: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	for p: Array in PEOPLE:
+		if absf(float(p[2]) - p_sex) < 0.5:
+			out.append(p[0])
+	return out
+
+
+## random(), worn by a realistic person of the same sex.
+static func random_person(seed_value: int) -> PlayerLook:
+	var l := random(seed_value)
+	var choices := people_of(l.sex)
+	l.person = choices[absi(seed_value) % choices.size()]
+	return l
+
+
+## The sex of realistic person `id`, or -1 if there is none by that id.
+static func person_sex(id: String) -> float:
+	for p: Array in PEOPLE:
+		if p[0] == id:
+			return float(p[2])
+	return -1.0
 
 
 ## An index into `odds`, picked with those relative weights.
