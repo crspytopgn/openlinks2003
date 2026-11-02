@@ -5088,6 +5088,14 @@ func _test_broadcast_pieces() -> void:
 	var spot: Vector3 = moved.fixed[ShotDirector.Cam.LANDING]
 	_check(not ShotDirector.near_obstacle(wooded, spot), "landing camera stands clear of the tree (%s)" % spot)
 	_check(ShotDirector.view_clear(wooded, spot, shot.first_landing + Vector3.UP), "landing camera sees the landing")
+	# A grandstand where the pin camera would stand (the gallery's blockers).
+	var pin_spot: Vector3 = d.fixed[ShotDirector.Cam.PIN]
+	var stand := ObstacleField.new()
+	stand.add_box(pin_spot + Vector3(0, 1.0, 2.0), Basis.IDENTITY, Vector3(12.0, 3.0, 4.0), ObstacleField.Kind.SOLID)
+	stand.finalize()
+	var dodged := ShotDirector.plan(shot, pin, terrain, behind, false, 0, stand)
+	var pin_now: Vector3 = dodged.fixed[ShotDirector.Cam.PIN]
+	_check(not ShotDirector.near_obstacle(terrain, pin_now, stand), "pin camera keeps out of the grandstand (%s)" % pin_now)
 	var putt := ShotDirector.plan(shot, pin, terrain, behind, true, 0)
 	_check(putt.cut_cams.size() == 1 and putt.cut_cams[0] == ShotDirector.Cam.PUTT, "putts track the ball")
 

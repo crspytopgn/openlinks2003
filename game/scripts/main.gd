@@ -643,6 +643,7 @@ func start_hole(index: int) -> void:
 		hole_root.add_child(gallery)
 	else:
 		gallery = null
+	camera.blockers = gallery.camera_blockers if gallery != null else null
 	marks = CourseMarks.new()
 	hole_root.add_child(marks)
 	if on_range:
@@ -697,6 +698,7 @@ func start_hole(index: int) -> void:
 	if broadcast and dressed:
 		text = ""
 		hud.overlay.wipe()
+		hud.overlay.hide_shot_card()  # the last hole's holing putt
 		_tour_dots.clear()
 		_putt_from = Vector3.INF
 		_tour_map = HoleMap.build(hole) if tour else null
@@ -4075,7 +4077,7 @@ func _update_assistant() -> void:
 ## The putting panel: the practice drill and tally, the speed of the
 ## greens and the slope at the ball, and the read view.
 const PUTTING_PANEL_TOP := 136.0
-const PUTTING_PANEL_TOP_TV := 176.0
+const PUTTING_PANEL_TOP_TV := 372.0  ## below the wind dial and the shot card, which lingers into the next aim
 
 
 func _update_putting_panel() -> void:
@@ -4087,7 +4089,8 @@ func _update_putting_panel() -> void:
 	if not (state == State.AIM or state == State.SWING or (state == State.SHOT_RESULT and not tv)):
 		putting_panel.visible = false
 		return
-	# Under the wind dial, which Broadcast moves down below its LIVE bug.
+	# Under the wind dial, which Broadcast moves down below its LIVE bug, and
+	# its shot card.
 	if hud.windows == null:
 		putting_panel.offset_top = PUTTING_PANEL_TOP_TV if tv else PUTTING_PANEL_TOP
 	var lines: Array[String] = []

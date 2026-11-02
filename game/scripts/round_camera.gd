@@ -46,6 +46,8 @@ var _cut_to_landing := false
 ## TV-style cameras (ShotDirector) instead of the Links framing.
 var broadcast := false
 var director: ShotDirector
+## Things only the camera keeps out of: the gallery's grandstands.
+var blockers: ObstacleField
 var _variant := 0
 var _aim_pos := Vector3.ZERO
 var _aim_look := Vector3.ZERO
@@ -175,7 +177,7 @@ func follow(shot: ShotResult, pin := Vector3.ZERO, putting := false, variant := 
 		if variant < 0:
 			_variant += 1
 			variant = _variant
-		director = ShotDirector.plan(shot, pin, terrain, position, putting, variant)
+		director = ShotDirector.plan(shot, pin, terrain, position, putting, variant, blockers)
 		return
 	if shot.carry_m >= LANDING_VIEW_MIN_CARRY:
 		_landing_time = time_near(shot, shot.first_landing)
@@ -332,15 +334,15 @@ func _place_for_landing() -> void:
 	for side: float in [1.0, -1.0]:
 		for short: float in [LANDING_SHORT, LANDING_SHORT * 0.6, LANDING_SHORT * 1.5]:
 			var p := _above_ground(land - dir * short + right * side * LANDING_SIDE + Vector3.UP * LANDING_UP)
-			if ShotDirector.view_clear(terrain, p, land + Vector3.UP):
+			if ShotDirector.view_clear(terrain, p, land + Vector3.UP, blockers):
 				position = p
 				return
-			if fallback == Vector3.INF and not ShotDirector.near_obstacle(terrain, p):
+			if fallback == Vector3.INF and not ShotDirector.near_obstacle(terrain, p, blockers):
 				fallback = p
 	if fallback == Vector3.INF:
 		fallback = _above_ground(land - dir * LANDING_SHORT + right * LANDING_SIDE + Vector3.UP * LANDING_UP)
 		for i in 8:
-			if not ShotDirector.near_obstacle(terrain, fallback):
+			if not ShotDirector.near_obstacle(terrain, fallback, blockers):
 				break
 			fallback.y += 4.0
 	position = fallback

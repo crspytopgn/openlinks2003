@@ -31,9 +31,10 @@ const WALK_SPEED := 0.89
 const WALK_SETTLE := 0.35
 ## A move of more than this between addresses is a new ball.
 const NEW_BALL := 0.5
-## Where a putt is read from: behind the ball, on the line to the hole
-## (the target is -x), in the rig's frame.
-const READ_SPOT := Vector3(1.6, 0.0, -0.75)
+## Where a putt is read from: crouched behind the ball (the target is -x),
+## in the rig's frame, a little to his side of the line. Right on the line
+## he crouched between the putting camera and the hole, hiding both.
+const READ_SPOT := Vector3(1.3, 0.0, 0.35)
 ## Before a full shot: behind the ball, looking at the target for
 ## SURVEY_TIME seconds before walking in, as tour players do. He stands a
 ## step back and to his side of the target line rather than on it: on the
