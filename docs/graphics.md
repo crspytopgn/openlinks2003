@@ -369,6 +369,16 @@ at Medium and grass at Low.
   or 360 cards from Low to Ultra (Low has cards and no 3D people), plus one
   more for the soft contact shadows they stand on, as the 3D people do.
   They keep off greens, bunkers and water and 0.7 m apart.
+  Once `CrowdImpostors` has baked its atlas, the cards show real people
+  instead of the drawn figure: the first gallery of a session renders
+  twelve of the player creator's people (random looks, the crowd's idle,
+  arms folded, hanging, behind the back or in pockets) from eight sides
+  into a 960 by 1280 atlas, in an off-screen viewport, as TreeFactory
+  bakes its tree impostors (about 40 frames, once). Each card is turned
+  to face the play and draws the view of its person from the side the
+  camera is on, so the far crowd has faces, caps, clothes and folded arms
+  and turns properly as the camera moves. Headless runs, and the moments
+  before the bake finishes, keep the drawn figures.
 - **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
   bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
   0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set

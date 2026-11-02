@@ -504,9 +504,8 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	var quad := QuadMesh.new()
 	quad.size = Vector2(CARD_WIDTH / 1.8, 1.0)  # scaled by each person's height
 	quad.center_offset = Vector3(0.0, 0.5, 0.0)
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/crowd_card.gdshader")
-	quad.material = mat
+	# Baked real people once CrowdImpostors has its atlas, silhouettes until then.
+	quad.material = CrowdImpostors.material()
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -517,7 +516,10 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	for i in spots.size():
 		var h := clampf(rng.randfn(1.72, 0.09), 1.5, 1.98)
 		var w := rng.randf_range(0.9, 1.2)  # build: slim to broad
-		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(h * w, h, h)), spots[i]))
+		# Turned to face the play (the card picks the baked view from it).
+		var focus := hole.pin if spots[i].distance_to(hole.pin) < GREEN_SEARCH + GREEN_MARGIN + 10.0 else hole.tee
+		var yaw := facing_yaw(spots[i], focus) + rng.randf_range(-0.3, 0.3)
+		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(h * w, h, h)), spots[i]))
 		mm.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
 		var legs: Color = PlayerLook.CLOTH_COLOURS[trousers[rng.randi_range(0, trousers.size() - 1)]][1]
 		mm.set_instance_custom_data(i, Color(legs.r, legs.g, legs.b, rng.randf()))
