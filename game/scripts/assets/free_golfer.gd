@@ -91,6 +91,8 @@ var _speed := 1.0
 var _feet: GolferFeet
 var _hands: GolferHands
 var _cloth: GolferCloth
+## Forearm and neck muscles working through the swing; none on spectators.
+var _flex: GolferFlex
 var _arms: GolferArms
 
 
@@ -125,6 +127,9 @@ static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	golfer._hands.read_grips(golfer._skeleton, player)
 	golfer._cloth = GolferCloth.new()
 	golfer._skeleton.add_child(golfer._cloth)
+	if p_texture_cap == 0:
+		golfer._flex = GolferFlex.new()
+		golfer._skeleton.add_child(golfer._flex)
 	for i in golfer._skeleton.get_bone_count():
 		golfer._base_rests.append(golfer._skeleton.get_bone_rest(i))
 	for anim_name in LOOPING:
@@ -152,6 +157,8 @@ func apply_look(p_look: PlayerLook) -> void:
 		node.queue_free()
 	_look_nodes.clear()
 	_cloth.clear_materials()
+	if _flex != null:
+		_flex.clear_materials()
 	var who := person_info(look, parts.info)
 	var weights := look.shape_weights() if who.is_empty() else {}
 	var offsets := parts.joint_offsets(weights)
@@ -160,6 +167,8 @@ func apply_look(p_look: PlayerLook) -> void:
 			var d: Array = who.joints[bone]
 			offsets[bone] = Vector3(d[0], d[1], d[2])
 	_fit_skeleton(offsets)
+	if _flex != null:
+		_flex.set_person(look, look.person)
 	var skin := Skin.new()
 	var glove_bones := PackedInt32Array()
 	var names := parts.bone_names()
@@ -190,6 +199,9 @@ func apply_look(p_look: PlayerLook) -> void:
 			var pm := GolferSurface.person(std, look, _skin_regions(parts, mat_name),
 				parts.info.materials[mat_name].get("region_means", []))
 			_cloth.add_occluded(pm)
+			if _flex != null:
+				mi.mesh = GolferFlex.with_mask(mi.mesh, names, _skeleton)
+				_flex.add_material(pm)
 			mat = pm
 		elif tint == "person_hair":
 			mat = _matt(std)
@@ -199,6 +211,9 @@ func apply_look(p_look: PlayerLook) -> void:
 				mat = GolferSurface.skin(std)
 			else:
 				_cloth.add_occluded(mat)
+				if _flex != null:
+					mi.mesh = GolferFlex.with_mask(mi.mesh, names, _skeleton)
+					_flex.add_material(mat)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
 			mat = GolferSurface.hair(std)
 		elif mat_name == "Eyes" and std.albedo_texture != null:
