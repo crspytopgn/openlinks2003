@@ -17,6 +17,7 @@ extends GolferRig
 ## missing.
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
+const SPECTATOR_TEXTURE := 512
 const BLEND_TIME := 0.15
 const REACT_BLEND := 0.4  ## out of the finish into a reaction
 const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
@@ -62,6 +63,10 @@ const SHAFT_COLOURS := {"steel": Color(0.75, 0.76, 0.78), "graphite": Color(0.16
 var look: PlayerLook
 ## False to settle into address on the spot (the player creator's preview).
 var walk_in := true
+## Largest texture side for this golfer's look (0: the pack's own). The
+## crowd uses SPECTATOR_TEXTURE: six realistic people at full size would
+## take some 300 MB of video memory for faces seen from 20 m.
+var texture_cap := 0
 var _model: Node3D
 var _player: AnimationPlayer
 var _skeleton: Skeleton3D
@@ -91,7 +96,7 @@ var _arms: GolferArms
 
 ## Null if the model or the look pack is missing, or the model has no
 ## animations.
-static func create(p_look: PlayerLook = null) -> FreeGolfer:
+static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	if not ResourceLoader.exists(SCENE_PATH) or GolferParts.shared() == null:
 		return null
 	var scene := load(SCENE_PATH) as PackedScene
@@ -104,6 +109,7 @@ static func create(p_look: PlayerLook = null) -> FreeGolfer:
 		model.free()
 		return null
 	var golfer := FreeGolfer.new()
+	golfer.texture_cap = p_texture_cap
 	golfer.add_child(model)
 	golfer._model = model
 	golfer._player = player
@@ -279,23 +285,23 @@ func _material(parts: GolferParts, material_name: String) -> StandardMaterial3D:
 	match str(m.get("tint", "")):
 		"skin":
 			var female := look.sex >= 0.5 and parts.info.has("skin_female")
-			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1)
+			return parts.make_material(material_name, look.skin, int(parts.info.skin_female) if female else -1, texture_cap)
 		"top":
-			return parts.make_material(material_name, look.top)
+			return parts.make_material(material_name, look.top, -1, texture_cap)
 		"bottom":
-			return parts.make_material(material_name, look.bottom)
+			return parts.make_material(material_name, look.bottom, -1, texture_cap)
 		"shoes":
-			return parts.make_material(material_name, look.shoes)
+			return parts.make_material(material_name, look.shoes, -1, texture_cap)
 		"hair":
-			return parts.make_material(material_name, look.hair_colour)
+			return parts.make_material(material_name, look.hair_colour, -1, texture_cap)
 		"brows":
-			return parts.make_material(material_name, look.hair_colour.darkened(0.15))
+			return parts.make_material(material_name, look.hair_colour.darkened(0.15), -1, texture_cap)
 		"cap":
-			return parts.make_material(material_name, look.cap_colour)
+			return parts.make_material(material_name, look.cap_colour, -1, texture_cap)
 	if material_name == "Eyes":
 		var eyes: Dictionary = parts.info.get("eyes", {})
-		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)))
-	return parts.make_material(material_name)
+		return parts.make_material(material_name, Color.WHITE, int(eyes.get(look.eyes, -1)), texture_cap)
+	return parts.make_material(material_name, Color.WHITE, -1, texture_cap)
 
 
 ## The hair without the part the cap covers: the cap fits the skull with

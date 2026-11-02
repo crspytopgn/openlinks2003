@@ -133,7 +133,7 @@ static func _bake(tree: SceneTree) -> void:
 	for i in PEOPLE:
 		var look := PlayerLook.random_person(rng.randi())
 		look.glove = false
-		var person := FreeGolfer.create(look)
+		var person := FreeGolfer.create(look, FreeGolfer.SPECTATOR_TEXTURE)
 		if person == null:
 			break
 		person.walk_in = false

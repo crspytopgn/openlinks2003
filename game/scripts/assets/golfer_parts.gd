@@ -197,7 +197,7 @@ func _split(part: Dictionary, bones: PackedInt32Array) -> Array[PackedInt32Array
 ## The part's material, with `tint` multiplied in (the tinted materials'
 ## textures are grey detail). `texture_override` >= 0 swaps the texture
 ## (eye colours, the female skin).
-func make_material(material_name: String, tint := Color.WHITE, texture_override := -1) -> StandardMaterial3D:
+func make_material(material_name: String, tint := Color.WHITE, texture_override := -1, max_size := 0) -> StandardMaterial3D:
 	var m: Dictionary = info.materials[material_name]
 	var mat := StandardMaterial3D.new()
 	mat.resource_name = material_name
@@ -206,10 +206,10 @@ func make_material(material_name: String, tint := Color.WHITE, texture_override 
 	mat.albedo_color.a = 1.0
 	var tex := texture_override if texture_override >= 0 else int(m.texture)
 	if tex >= 0:
-		mat.albedo_texture = texture(tex)
+		mat.albedo_texture = texture(tex, max_size)
 	if int(m.normal) >= 0:
 		mat.normal_enabled = true
-		mat.normal_texture = texture(int(m.normal))
+		mat.normal_texture = texture(int(m.normal), max_size)
 	mat.roughness = float(m.roughness)
 	if float(m.cutoff) > 0.0:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
