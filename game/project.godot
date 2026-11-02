@@ -78,6 +78,10 @@ turf_tone={
 "type": "float",
 "value": 0.0
 }
+sun_travel={
+"type": "vec3",
+"value": Vector3(-0.35, -0.62, 0.7)
+}
 sky_tint={
 "type": "vec3",
 "value": Vector3(1, 1, 1)

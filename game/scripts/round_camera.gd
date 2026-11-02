@@ -16,6 +16,12 @@ const AIM_UP := 1.75
 const PUTT_BACK := 2.6
 const PUTT_UP := 1.2
 ## The aim view looks at a point this far down the line, this high.
+## The Broadcast presentation's tee and fairway view, framed like a TV
+## golf broadcast (and PGA Tour 2K25): lower, at the golfer's hip, and
+## closer, so he stands tall in the frame from his shoes up, the horizon
+## near the middle and the hole beyond compressed by the long lens.
+const BROADCAST_AIM_BACK := 3.3
+const BROADCAST_AIM_UP := 1.15
 const AIM_LOOK_AHEAD := 70.0
 const AIM_LOOK_UP := 2.0
 const AIM_MAX_LIFT := 4.0  ## the aim camera climbs (and steps back) at most this far to see over a rise
@@ -73,8 +79,9 @@ const FLYOVER_UP := 38.0
 func aim(ball: Vector3, dir: Vector3, putting: bool, reach := 0.0) -> void:
 	_shot = null
 	var lens := lens_factor(fov)
-	var back := (PUTT_BACK if putting else AIM_BACK) * lens
-	var up := (PUTT_UP if putting else AIM_UP) * (1.0 + (lens - 1.0) * 0.4)
+	var tv := broadcast and not putting
+	var back := (PUTT_BACK if putting else (BROADCAST_AIM_BACK if tv else AIM_BACK)) * lens
+	var up := (PUTT_UP if putting else (BROADCAST_AIM_UP if tv else AIM_UP)) * (1.0 + (lens - 1.0) * 0.4)
 	var pos := _above_ground(ball - dir * back + Vector3.UP * up)
 	if putting:
 		_look = ball + dir * PUTT_LOOK_AHEAD
