@@ -10,6 +10,12 @@ shader_type spatial;
 render_mode cull_disabled, skip_vertex_transform;
 
 uniform vec3 light_dir = vec3(0.4, 0.8, 0.3);
+// Baked people (CrowdImpostors): a row per view direction, a column per
+// person. Without the atlas the cards draw the silhouette below.
+uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
+uniform bool has_atlas = false;
+uniform float people = 12.0;
+uniform float frames = 8.0;
 
 varying vec3 shirt;
 varying vec4 custom;
@@ -18,6 +24,8 @@ varying float side;
 // hair), worked out once per instance so every pixel agrees.
 varying flat vec4 picks;
 varying flat vec2 picks2;
+varying flat float person;
+varying flat float frame;
 
 float hash(float n) {
 	return fract(sin(n * 12.9898) * 43758.5453);
@@ -30,7 +38,19 @@ void vertex() {
 	vec3 to_cam = vec3(cam.x - origin.x, 0.0, cam.z - origin.z);
 	to_cam = length(to_cam) > 1e-4 ? normalize(to_cam) : vec3(0.0, 0.0, 1.0);
 	vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), to_cam));
-	vec3 world = origin + right * VERTEX.x * height + vec3(0.0, VERTEX.y * height, 0.0);
+	vec2 quad = VERTEX.xy;
+	if (has_atlas) {
+		// The atlas cell is 1 m by 2 m for a 1.8 m person, wider and a
+		// little taller than the silhouette's card (0.62 m wide).
+		quad *= vec2(1.0 / 0.62, 2.0 / 1.8);
+	}
+	vec3 world = origin + right * quad.x * height + vec3(0.0, quad.y * height, 0.0);
+	// Which side of the person the camera is on, in their own frame (they
+	// face their -z): picks the baked view.
+	vec3 ax = normalize(MODEL_MATRIX[0].xyz);
+	vec3 az = normalize(MODEL_MATRIX[2].xyz);
+	float azimuth = atan(dot(to_cam, ax), dot(to_cam, az));
+	frame = mod(round(azimuth / (6.2831853 / frames)), frames);
 	VERTEX = (VIEW_MATRIX * vec4(world, 1.0)).xyz;
 	NORMAL = normalize((VIEW_MATRIX * vec4(to_cam, 0.0)).xyz);
 	shirt = COLOR.rgb;
@@ -40,6 +60,7 @@ void vertex() {
 	float seed = float(INSTANCE_ID) * 1.618 + 0.5;
 	picks = vec4(hash(seed), hash(seed + 1.0), hash(seed + 2.0), hash(seed + 3.0));
 	picks2 = vec2(hash(seed + 4.0), hash(seed + 5.0));
+	person = floor(hash(seed + 6.0) * people);
 }
 
 float box(vec2 p, vec2 c, vec2 h, float r) {
@@ -48,6 +69,19 @@ float box(vec2 p, vec2 c, vec2 h, float r) {
 }
 
 void fragment() {
+	if (has_atlas) {
+		vec2 uv = vec2((person + clamp(UV.x, 0.01, 0.99)) / people, (frame + clamp(UV.y, 0.005, 0.995)) / frames);
+		vec4 c = texture(atlas, uv);
+		if (c.a < 0.5) {
+			discard;
+		}
+		// Baked under soft daylight; the scene's light adds a little side
+		// shade on top, as for the silhouettes.
+		float across = (UV.x - 0.5) * 2.0;
+		ALBEDO = c.rgb * clamp(1.25 + 0.15 * side * across, 1.0, 1.4);
+		ROUGHNESS = 0.9;
+		SPECULAR = 0.2;
+	} else {
 	// x 0..1 across, y 0 at the feet to 1 at the top of the head.
 	vec2 p = vec2(UV.x, 1.0 - UV.y);
 	vec3 skin = mix(vec3(0.32, 0.2, 0.13), vec3(0.93, 0.74, 0.62), custom.a);
@@ -130,4 +164,5 @@ void fragment() {
 	ALBEDO = col * clamp(lit, 0.5, 1.1);
 	ROUGHNESS = 0.9;
 	SPECULAR = 0.2;
+	}
 }

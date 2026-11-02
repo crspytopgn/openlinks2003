@@ -969,6 +969,14 @@ Nothing in the round needs to change.
   fairway both drop away (on a seaside links the wind rises instead); water
   rises as the camera nears it. Somewhere warm (within 38 degrees of the
   equator) cicadas sing in the trees under the birds, loudest at midday.
+  Where the place is known the single calls are that region's own birds,
+  whole calls cut from CC0 recordings (`calls_*.ogg`, one per 3 s slot):
+  Britain and Ireland robin, blackbird, wren and wood pigeon, or on a
+  links skylark, oystercatcher and herring gull; the US South-east
+  cardinal, mockingbird and Carolina wren; the Pacific North-west American
+  robin and song and white-crowned sparrows; Australia magpie and
+  kookaburra (`FreeAmbience.calls_for`). Elsewhere they are snatches of the
+  birdsong bed.
   The time of day comes from Settings (and moves
   through the round with "Through the round"). In Broadcast and Tour the
   gallery murmurs from the tee and the green, and hushes while the player

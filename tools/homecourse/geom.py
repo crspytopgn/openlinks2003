@@ -148,6 +148,30 @@ def blob(centre, length, width, angle, seed, count=14, wobble=0.12, lobes=None):
     return pts
 
 
+def smooth_blob(centre, length, width, angle, seed, count=20, wobble=0.06, bend=0.0):
+    """A rounded organic outline for bunkers, greens and ponds: an ellipse
+    whose radius wanders only with slow harmonics (2 and 3 lobes, small),
+    sampled densely enough that the game's Catmull-Rom curve through it has
+    no corners. `bend` (in widths) curls both ends towards local +width, so
+    a greenside bunker can wrap round the green like a real one; real
+    bunkers are rounded, with no points or notches."""
+    rng = np.random.default_rng(seed)
+    harmonics = [(k, rng.uniform(-wobble, wobble), rng.uniform(0, math.tau)) for k in (2, 3)]
+    pts = []
+    ca, sa = math.cos(angle), math.sin(angle)
+    for i in range(count):
+        t = math.tau * i / count
+        r = 1.0
+        for k, amp, ph in harmonics:
+            r += amp / (k - 1) * math.cos(k * t + ph)
+        lx = math.cos(t) * length * 0.5 * r
+        lz = math.sin(t) * width * 0.5 * r
+        u = lx / (length * 0.5)
+        lz += bend * width * u * u
+        pts.append((centre[0] + lx * ca - lz * sa, centre[1] + lx * sa + lz * ca))
+    return pts
+
+
 def rounded_rect(centre, length, width, angle, seed, count=12, power=4.0):
     """A tee pad: a superellipse (rounded rectangle) with slightly uneven
     sides, as mown tee boxes are."""

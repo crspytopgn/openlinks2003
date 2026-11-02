@@ -8,9 +8,11 @@ extends Node
 ## - a bed chosen by the kind of course (parkland or woodland birdsong, a
 ##   seaside with waves and gulls, desert cicadas), kept low, and lowest in
 ##   the middle of the day: birds sing most at dawn and again towards dusk;
-## - now and then a bird calls from a tree somewhere round the player (a
-##   snatch of the birdsong, from a point 25 to 90 m off, fainter and duller
-##   the further it is), more often in the morning;
+## - now and then a bird calls from a tree somewhere round the player, from
+##   a point 25 to 90 m off, fainter and duller the further it is, more
+##   often in the morning. Where the course is in the world is known, it is
+##   one of that region's common birds (REGION_CALLS); otherwise a snatch of
+##   the birdsong bed;
 ## - a far-off road, and in the morning or afternoon now and then a
 ##   greenkeeper's mower working somewhere out of sight;
 ## - running water near ponds and creeks.
@@ -52,6 +54,23 @@ const CALL_DISTANCE := Vector2(25.0, 90.0)  ## metres from the listener
 const CALL_HEIGHT := Vector2(5.0, 14.0)  ## in a tree
 const CALL_DB := 4.0  ## at CALL_UNIT metres; fainter further off
 const CALL_UNIT := 12.0
+## Regional birdcalls (tools/audio/free_sounds.json): each file is a run of
+## single calls, one per CALL_SLOT seconds, faded in and out, so a call is
+## played from the start of a slot to its end.
+const CALL_SLOT := 3.0
+## Where each region's birds sing, (lat from, lat to, lon from, lon to), and
+## the file of their calls: Britain and Ireland (robin, blackbird, wren, wood
+## pigeon); the US South-east (cardinal, mockingbird, Carolina wren); the
+## Pacific North-west (American robin, song and white-crowned sparrows);
+## Australia (magpie, kookaburra). The first box holding a course wins.
+const REGION_CALLS := [
+	[49.5, 61.0, -11.0, 2.0, "calls_uk"],
+	[24.0, 37.0, -95.0, -75.0, "calls_us_se"],
+	[42.0, 50.0, -125.0, -116.0, "calls_pnw"],
+	[-44.0, -10.0, 112.0, 154.0, "calls_aus"],
+]
+## A seaside links in Britain and Ireland: skylark, oystercatcher, herring gull.
+const LINKS_CALLS := "calls_links"
 const TRAFFIC_DB := {Setting.PARKLAND: -31.0, Setting.WOODLAND: -36.0, Setting.SEASIDE: -60.0, Setting.DESERT: -33.0}
 const MOWER_DB := -27.0
 const MOWER_GAP := Vector2(80.0, 220.0)  ## seconds between passes
@@ -82,6 +101,8 @@ var time_of_day := 0
 ## Somewhere warm: cicadas in the trees on a hot afternoon (is_warm).
 var warm := false
 var round_progress := 0.0
+## The region's birdcalls (calls_for), or "" for snatches of the bed.
+var calls := ""
 var _bed: AudioStreamPlayer
 var _breeze: AudioStreamPlayer
 var _water: AudioStreamPlayer
@@ -108,7 +129,21 @@ static func create(course: CourseData) -> FreeAmbience:
 	var at := location_of(course)
 	a.setting = setting_for_place(course.course_name, at)
 	a.warm = is_warm(at)
+	a.calls = calls_for(at, a.setting)
 	return a
+
+
+## The file of birdcalls for a course at `at` (lat, lon) of kind
+## `p_setting`, or "" when the place isn't known or has no set of its own.
+static func calls_for(at: Vector2, p_setting: Setting) -> String:
+	if is_nan(at.x):
+		return ""
+	for box: Array in REGION_CALLS:
+		if at.x >= box[0] and at.x <= box[1] and at.y >= box[2] and at.y <= box[3]:
+			if box[4] == "calls_uk" and p_setting == Setting.SEASIDE:
+				return LINKS_CALLS
+			return box[4]
+	return ""
 
 
 ## Where in the world a course is, (latitude, longitude) in degrees, when it
@@ -176,6 +211,12 @@ func _ready() -> void:
 	_call.volume_db = CALL_DB
 	_call.attenuation_filter_cutoff_hz = 3500.0  # the air dulls far calls
 	_call.stream = _bed.stream
+	if calls != "":
+		var own := load("res://assets/sounds/%s.ogg" % calls) as AudioStream
+		if own != null:
+			if own is AudioStreamOggVorbis:
+				(own as AudioStreamOggVorbis).loop = false
+			_call.stream = own
 	add_child(_call)
 	_next_call = randf_range(2.0, 6.0)
 	_next_mower = randf_range(30.0, MOWER_GAP.y)
@@ -193,10 +234,10 @@ static func bed_db(p_setting: Setting, time: String) -> float:
 	return BIRDS_DB[time]
 
 
-## Whether the course gets birdcalls: not over the waves, nor in the desert
-## (the bed there is cicadas).
-static func has_calls(p_setting: Setting) -> bool:
-	return p_setting == Setting.PARKLAND or p_setting == Setting.WOODLAND
+## Whether the course gets birdcalls: not in the desert (the bed there is
+## cicadas), nor over the waves, except on a links with its own shore birds.
+static func has_calls(p_setting: Setting, p_calls := "") -> bool:
+	return p_setting == Setting.PARKLAND or p_setting == Setting.WOODLAND or p_calls == LINKS_CALLS
 
 
 ## The time of day changed (or the round moved on, for "Through the round").
@@ -313,7 +354,7 @@ func _process(delta: float) -> void:
 		var gap: Vector2 = CALL_GAP[time]
 		_next_call = randf_range(gap.x, gap.y)
 		# Fewer calls out in the open, where there are few trees to sing in.
-		if has_calls(setting) and randf() < 0.25 + 0.75 * woods:
+		if has_calls(setting, calls) and randf() < 0.25 + 0.75 * woods:
 			_bird_call()
 	_next_mower -= delta
 	if _next_mower <= 0.0:
@@ -332,9 +373,17 @@ func _bird_call() -> void:
 	var trees: Array[PlacedObject] = _hole.objects if _hole != null else []
 	_call.global_position = call_spot(trees, _listener())
 	var length := randf_range(CALL_SECONDS.x, CALL_SECONDS.y)
-	_call.pitch_scale = randf_range(0.94, 1.06)
+	var from := randf() * maxf(_call.stream.get_length() - length, 0.0)
+	if calls != "" and _call.stream != _bed.stream:
+		# A whole call from the region's set, at its own pitch.
+		var slots := maxi(int(_call.stream.get_length() / CALL_SLOT), 1)
+		from = (randi() % slots) * CALL_SLOT
+		length = CALL_SLOT
+		_call.pitch_scale = randf_range(0.98, 1.02)
+	else:
+		_call.pitch_scale = randf_range(0.94, 1.06)
 	_call.volume_db = -40.0
-	_call.play(randf() * maxf(_call.stream.get_length() - length, 0.0))
+	_call.play(from)
 	var old: Tween = _tweens.get(_call)
 	if old != null and old.is_valid():
 		old.kill()
