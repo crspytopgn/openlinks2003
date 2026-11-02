@@ -13,6 +13,9 @@ extends RefCounted
 ## structured cap, white or dark golf shoes and a white glove. Women wear
 ## trousers here too, as the look pack has no skort yet.
 ##
+## Each wears one of the look pack's realistic people (PlayerLook.PEOPLE)
+## in their own colours and height.
+##
 ## The names are made up; any likeness to a real player is chance.
 ## The appearance is all this file owns: how each one plays lives with the
 ## computer golfers (game/scripts/ai/), keyed by the same names.
@@ -101,7 +104,7 @@ static func look_for(golfer_name: String) -> PlayerLook:
 	var g := find(golfer_name)
 	if not g.is_empty():
 		return (g["look"] as PlayerLook).duplicate_look()
-	return PlayerLook.random(golfer_name.strip_edges().to_lower().hash())
+	return PlayerLook.random_person(golfer_name.strip_edges().to_lower().hash())
 
 
 ## The age slider for an age in years: the look pack's average body is 25,
@@ -140,6 +143,14 @@ static func _make(row: Array) -> PlayerLook:
 		l.face[key] = clampf(v, -1.0, 1.0)
 	# Tour bags and clubs: mostly black heads, graphite in the woods.
 	l.shaft = "graphite" if hash(row[0]) % 3 == 0 else "steel"
+	# Worn by a realistic person (PlayerLook.PEOPLE), taken in turn so the
+	# field mixes them; the body and face sliders above stay for Custom.
+	var same: Array = []
+	for r: Array in PROS:
+		if float(r[2]) == float(row[2]):
+			same.append(r[0])
+	var choices := PlayerLook.people_of(l.sex)
+	l.person = choices[same.find(row[0]) % choices.size()]
 	return l
 
 

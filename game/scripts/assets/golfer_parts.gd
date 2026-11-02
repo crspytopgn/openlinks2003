@@ -18,6 +18,7 @@ const NORMAL_STEPS := 100.0
 ## Baked meshes kept; a round with four players uses about 40.
 const MESH_CACHE := 96
 
+const MOBILE_TEXTURE := 1024
 static var _shared: GolferParts
 static var _load_failed := false
 
@@ -232,6 +233,11 @@ func texture(index: int) -> Texture2D:
 	# Grey-and-alpha images become RGBA: WebGL has no swizzle for them.
 	if img.get_format() != Image.FORMAT_RGB8 and img.get_format() != Image.FORMAT_RGBA8:
 		img.convert(Image.FORMAT_RGBA8 if img.detect_alpha() != Image.ALPHA_NONE else Image.FORMAT_RGB8)
+	# Phones, tablets and browsers keep a 1024 texel cap: the realistic
+	# people's 2048 maps would otherwise take ~45 MB of video memory each.
+	if (OS.has_feature("web") or OS.has_feature("mobile")) and maxi(img.get_width(), img.get_height()) > MOBILE_TEXTURE:
+		var k := float(MOBILE_TEXTURE) / maxi(img.get_width(), img.get_height())
+		img.resize(int(img.get_width() * k), int(img.get_height() * k), Image.INTERPOLATE_BILINEAR)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
 	_textures[index] = tex
