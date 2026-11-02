@@ -14,11 +14,11 @@ extends RefCounted
 ## done (and in headless runs, which render nothing, or without the golfer
 ## model) the cards keep the silhouette.
 
-const PEOPLE := 12
+const PEOPLE := 16
 const FRAMES := 8
 ## Pixels per person: a cell 1 m wide and 2 m tall. A spectator 20 m from
 ## the tee camera is about 70 px tall at 1080p, so 160 is plenty and the
-## atlas stays small (960 x 1280, 5 MB with mipmaps).
+## atlas stays small (1280 x 1280, 9 MB with mipmaps).
 const CELL := Vector2i(80, 160)
 const CELL_METRES := Vector2(1.0, 2.0)
 const SHADER := preload("res://shaders/crowd_card.gdshader")
@@ -41,6 +41,33 @@ static func material() -> ShaderMaterial:
 		_materials.append(weakref(mat))
 		_start_bake()
 	return mat
+
+
+## The people from two shots of them, over black and over white: where the
+## background shows through, the two differ by how much of it shows, which
+## gives the alpha; the shot over black is then the colour times that
+## alpha. Clear pixels come out clear black, as a transparent viewport's.
+static func _matte(black: Image, white: Image) -> Image:
+	var b := black.get_data()
+	var w := white.get_data()
+	var out := PackedByteArray()
+	out.resize(b.size())
+	for i in range(0, b.size(), 4):
+		var through := (int(w[i]) - int(b[i]) + int(w[i + 1]) - int(b[i + 1]) + int(w[i + 2]) - int(b[i + 2])) / 3
+		var a := clampi(255 - through, 0, 255)
+		if a < 8:
+			continue
+		out[i] = mini(int(b[i]) * 255 / a, 255)
+		out[i + 1] = mini(int(b[i + 1]) * 255 / a, 255)
+		out[i + 2] = mini(int(b[i + 2]) * 255 / a, 255)
+		out[i + 3] = a
+	return Image.create_from_data(black.get_width(), black.get_height(), false, Image.FORMAT_RGBA8, out)
+
+
+## True while the bake is under way: its off-screen viewport draws the
+## sixteen people for a few dozen frames.
+static func baking() -> bool:
+	return _baking and _atlas == null
 
 
 ## The baked atlas, or null before the first bake (and when headless).
@@ -67,7 +94,12 @@ static func _bake(tree: SceneTree) -> void:
 	var vp := SubViewport.new()
 	vp.name = "CrowdImpostorBake"
 	vp.own_world_3d = true
-	vp.transparent_bg = true
+	# Forward+ reads opaque people back with no alpha from a transparent
+	# viewport (only the hair, drawn blended, came through), so there the
+	# atlas is made from two shots over black and white (see _matte); the
+	# Compatibility renderer, as on the web, reads alpha back as drawn.
+	var matte := GraphicsSettings.is_forward_plus()
+	vp.transparent_bg = not matte
 	vp.size = Vector2i(PEOPLE * CELL.x, CELL.y)
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var cam := Camera3D.new()
@@ -86,6 +118,9 @@ static func _bake(tree: SceneTree) -> void:
 	env.ambient_light_color = Color(0.62, 0.66, 0.72)
 	env.ambient_light_energy = 0.75
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	if matte:
+		# A set colour (BG_CLEAR_COLOR would draw the project's clear colour).
+		env.background_mode = Environment.BG_COLOR
 	cam.environment = env
 	vp.add_child(cam)
 	var sun := DirectionalLight3D.new()
@@ -145,6 +180,7 @@ static func _bake(tree: SceneTree) -> void:
 		# their own frame (a person faces their -z).
 		for person in people:
 			person.rotation.y = -float(k) / FRAMES * TAU
+		env.background_color = Color.BLACK
 		for i in 3:
 			await RenderingServer.frame_post_draw
 		var shot := vp.get_texture().get_image()
@@ -153,6 +189,17 @@ static func _bake(tree: SceneTree) -> void:
 			_baking = false
 			return
 		shot.convert(Image.FORMAT_RGBA8)
+		if matte:
+			env.background_color = Color.WHITE
+			for i in 3:
+				await RenderingServer.frame_post_draw
+			var white := vp.get_texture().get_image()
+			if white == null or white.is_empty():
+				vp.queue_free()
+				_baking = false
+				return
+			white.convert(Image.FORMAT_RGBA8)
+			shot = _matte(shot, white)
 		img.blit_rect(shot, Rect2i(Vector2i.ZERO, shot.get_size()), Vector2i(0, k * CELL.y))
 	vp.queue_free()
 	img.generate_mipmaps()

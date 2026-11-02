@@ -62,6 +62,10 @@ static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, 
 		var at := grandstand_spot(hole)
 		if not at.is_empty():
 			g._build_grandstand(hole.terrain, at[0], at[1], seed_value)
+		if hole.par == 3:
+			var tee_at := tee_stand_spot(hole, toward)
+			if not tee_at.is_empty():
+				g._build_grandstand(hole.terrain, tee_at[0], tee_at[1], seed_value + 11, TEE_STAND_WIDTH, "TeeGrandstand")
 	g._add_murmur(hole)
 	return g
 
@@ -315,6 +319,8 @@ static func crowd_spots(hole: HoleData, lines: Array[PackedVector3Array], count:
 ## of the hole. A soft contact shadow under each pair of feet grounds them.
 const CONTACT_SHADOW := 0.9  ## metres across
 const CONTACT_STRENGTH := 0.45
+const PERSON_HEIGHT := 1.76  ## the 3D people's height, for their sun shadows
+const SUN_SHADOW_SHADER := preload("res://shaders/person_shadow.gdshader")
 
 
 ## Returns where the 3D people stand.
@@ -354,14 +360,17 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 			skeleton.add_child(arms)
 			player.set_meta(&"arms", arms)
 		_stand(player)
-	_add_contact_shadows("ContactShadows", feet)
+	_add_contact_shadows("ContactShadows", feet, hole.terrain)
 	return spots
 
 
-## A soft contact shadow under each of `feet`, all in one MultiMesh.
-func _add_contact_shadows(node_name: String, feet: PackedVector3Array) -> void:
+## A soft contact shadow under each of `feet`, all in one MultiMesh, and
+## each person's sun shadow (shaders/person_shadow.gdshader) in another;
+## `heights` are the people's heights (PERSON_HEIGHT when left out).
+func _add_contact_shadows(node_name: String, feet: PackedVector3Array, terrain: CourseTerrain, heights := PackedFloat32Array()) -> void:
 	if feet.is_empty():
 		return
+	_add_sun_shadows(node_name + "Sun", feet, terrain, heights)
 	var quad := PlaneMesh.new()
 	quad.size = Vector2(CONTACT_SHADOW, CONTACT_SHADOW)
 	var mat := ShaderMaterial.new()
@@ -379,6 +388,36 @@ func _add_contact_shadows(node_name: String, feet: PackedVector3Array) -> void:
 	shadows.multimesh = mm
 	shadows.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(shadows)
+
+
+## The sun shadows of people standing at `feet`, on the ground's slope.
+func _add_sun_shadows(node_name: String, feet: PackedVector3Array, terrain: CourseTerrain, heights: PackedFloat32Array) -> void:
+	var quad := PlaneMesh.new()
+	quad.size = Vector2.ONE
+	# The shader stretches each quad up to max_slant heights from the feet.
+	quad.custom_aabb = AABB(Vector3(-3.2, -1.5, -3.2), Vector3(6.4, 3.0, 6.4))
+	var mat := ShaderMaterial.new()
+	mat.shader = SUN_SHADOW_SHADER
+	quad.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	mm.mesh = quad
+	mm.instance_count = feet.size()
+	for i in feet.size():
+		var h := heights[i] if i < heights.size() else PERSON_HEIGHT
+		var p := feet[i]
+		var slope := Vector2.ZERO
+		if terrain != null:
+			slope = Vector2(terrain.height_at(p.x + 0.5, p.z) - terrain.height_at(p.x - 0.5, p.z),
+					terrain.height_at(p.x, p.z + 0.5) - terrain.height_at(p.x, p.z - 0.5))
+		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(h, h, h)), p))
+		mm.set_instance_custom_data(i, Color(slope.x, slope.y, 0.0, 0.0))
+	var node := MultiMeshInstance3D.new()
+	node.name = node_name
+	node.multimesh = mm
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)
 
 
 ## The rig's yaw that turns a person at `at` to face `focus`. The body
@@ -513,8 +552,10 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	mm.mesh = quad
 	mm.instance_count = spots.size()
 	var trousers := [0, 2, 3, 4, 5, 6, 1]
+	var heights := PackedFloat32Array()
 	for i in spots.size():
 		var h := clampf(rng.randfn(1.72, 0.09), 1.5, 1.98)
+		heights.append(h)
 		var w := rng.randf_range(0.9, 1.2)  # build: slim to broad
 		# Turned to face the play (the card picks the baked view from it).
 		var focus := hole.pin if spots[i].distance_to(hole.pin) < GREEN_SEARCH + GREEN_MARGIN + 10.0 else hole.tee
@@ -529,7 +570,7 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
 	# Grounded like the 3D people, one more draw for the lot.
-	_add_contact_shadows("CardShadows", spots)
+	_add_contact_shadows("CardShadows", spots, hole.terrain, heights)
 
 
 func card_count() -> int:
@@ -631,10 +672,26 @@ const STAND_WIDTH := 24.0
 const STAND_RAIL := 1.05
 ## How far behind the green rope the front of the stand stands.
 const STAND_BACK := 6.0
+## The tee stand: narrower, past the crowd cards beside the tee rope, and
+## where along the tee to try it (metres ahead of the tee markers).
+const TEE_STAND_WIDTH := 16.0
+const TEE_STAND_GAP := 1.5
+const TEE_STAND_ALONG: Array[float] = [12.0, 4.0, 20.0]
 const STAND_SEAT := 0.55  ## seat width per spectator
 const STAND_FULL := 0.8  ## share of seats taken
 const STEP_COLOUR := Color(0.78, 0.79, 0.8)
+## The open back of each row under the seat plank, in shade: it draws the
+## lines between the rows that make a stand read as seating, not a ramp.
+const RISER_COLOUR := Color(0.5, 0.51, 0.52)
 const SKIRT_COLOUR := Color(0.13, 0.3, 0.19)
+## The white tube rails along the front, sides and back (tour stands are
+## railed all round), and the gap between their posts.
+const RAIL_COLOUR := Color(0.9, 0.91, 0.9)
+const RAIL_TUBE := 0.05
+const RAIL_POST_GAP := 2.0
+## Seated people show from the top of the head to the hips (the row in
+## front hides the rest): that share of a CrowdImpostors cell.
+const SEATED_CUT := 0.48
 
 
 static func stand_depth() -> float:
@@ -656,24 +713,42 @@ static func grandstand_spot(hole: HoleData) -> Array:
 	return []
 
 
-static func _stand_clear(hole: HoleData, front: Vector3, facing: Vector3) -> bool:
+## Where a smaller grandstand fits beside the tee, past the crowd along
+## the tee rope and a little ahead of the tee, looking across at the
+## golfer: [front centre, facing], or empty if nothing fits either side.
+## Tour par 3s often have one (the tee shot is the show there).
+static func tee_stand_spot(hole: HoleData, toward: Vector3) -> Array:
+	var t := hole.terrain
+	var dir := Vector3(toward.x - hole.tee.x, 0.0, toward.z - hole.tee.z)
+	dir = Vector3(0, 0, 1) if dir.length() < 0.01 else dir.normalized()
+	var side := Vector3.UP.cross(dir)
+	for along: float in TEE_STAND_ALONG:
+		for s: float in [1.0, -1.0]:
+			var out := side * s
+			var front := hole.tee + dir * along + out * (TEE_SIDE + CARD_FAR + TEE_STAND_GAP)
+			if _stand_clear(hole, front, -out, TEE_STAND_WIDTH):
+				return [Vector3(front.x, t.height_at(front.x, front.z), front.z), -out]
+	return []
+
+
+static func _stand_clear(hole: HoleData, front: Vector3, facing: Vector3, width := STAND_WIDTH) -> bool:
 	var side := Vector3.UP.cross(facing)
 	var depth := stand_depth() + 1.0
 	for i in 5:
 		for j in 3:
-			var p := front + side * ((i / 4.0 - 0.5) * STAND_WIDTH) - facing * (j / 2.0 * depth)
+			var p := front + side * ((i / 4.0 - 0.5) * width) - facing * (j / 2.0 * depth)
 			var s := hole.terrain.surface_at(p.x, p.z)
 			if s == Surface.Type.WATER or s == Surface.Type.SAND or s == Surface.Type.GREEN:
 				return false
 	var centre := front - facing * (depth * 0.5)
-	var reach := Vector2(STAND_WIDTH * 0.5, depth * 0.5).length() + 3.0
+	var reach := Vector2(width * 0.5, depth * 0.5).length() + 3.0
 	for o in hole.objects:
 		if Vector2(o.position.x - centre.x, o.position.z - centre.z).length() < reach:
 			return false
 	return true
 
 
-func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, seed_value: int) -> void:
+func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, seed_value: int, width := STAND_WIDTH, node_name := "Grandstand") -> void:
 	var side := Vector3.UP.cross(facing)
 	var depth := stand_depth()
 	# Level on the highest ground under it, so no corner sinks into a slope.
@@ -681,16 +756,16 @@ func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, 
 	var low := front.y
 	for i in 3:
 		for j in 3:
-			var p := front + side * ((i / 2.0 - 0.5) * STAND_WIDTH) - facing * (j / 2.0 * depth)
+			var p := front + side * ((i / 2.0 - 0.5) * width) - facing * (j / 2.0 * depth)
 			var h := terrain.height_at(p.x, p.z)
 			base = maxf(base, h)
 			low = minf(low, h)
 	var stand := Node3D.new()
-	stand.name = "Grandstand"
+	stand.name = node_name
 	add_child(stand)
 	stand.transform = Transform3D(Basis(side, Vector3.UP, -facing), Vector3(front.x, base, front.z))
 	# In the stand's frame: x across, y up, +z back (away from the green).
-	var w := STAND_WIDTH * 0.5
+	var w := width * 0.5
 	var floor_y := low - base - 0.3
 	var top := STAND_FIRST + (STAND_ROWS - 1) * STAND_RISE
 	var steps := SurfaceTool.new()
@@ -700,14 +775,22 @@ func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, 
 		var z0 := r * STAND_TREAD
 		# The tread and, below it, the riser down to the row in front.
 		_quad(steps, Vector3(-w, y, z0), Vector3(w, y, z0), Vector3(w, y, z0 + STAND_TREAD), Vector3(-w, y, z0 + STAND_TREAD))
-		_quad(steps, Vector3(-w, y - STAND_RISE, z0), Vector3(w, y - STAND_RISE, z0), Vector3(w, y, z0), Vector3(-w, y, z0))
 	steps.generate_normals()
 	stand.add_child(_mesh(steps, STEP_COLOUR, 0.45))
+	var risers := SurfaceTool.new()
+	risers.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for r in STAND_ROWS:
+		var y := STAND_FIRST + r * STAND_RISE
+		var z0 := r * STAND_TREAD
+		_quad(risers, Vector3(-w, y - STAND_RISE, z0), Vector3(w, y - STAND_RISE, z0), Vector3(w, y, z0), Vector3(-w, y, z0))
+	risers.generate_normals()
+	stand.add_child(_mesh(risers, RISER_COLOUR, 0.7))
 	var skirt := SurfaceTool.new()
 	skirt.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# The front hoarding, the back wall and the rail.
+	# The front hoarding, and the back skirted up to the top row: above it
+	# only the rail, so a sun from behind the stand still lights the seats.
 	_quad(skirt, Vector3(-w, floor_y, -0.02), Vector3(w, floor_y, -0.02), Vector3(w, STAND_FIRST + 0.1, -0.02), Vector3(-w, STAND_FIRST + 0.1, -0.02))
-	_quad(skirt, Vector3(w, floor_y, depth), Vector3(-w, floor_y, depth), Vector3(-w, top + STAND_RAIL, depth), Vector3(w, top + STAND_RAIL, depth))
+	_quad(skirt, Vector3(w, floor_y, depth), Vector3(-w, floor_y, depth), Vector3(-w, top, depth), Vector3(w, top, depth))
 	# The two sides, stepped with the rows.
 	for sx: float in [-w, w]:
 		for r in STAND_ROWS:
@@ -723,14 +806,54 @@ func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, 
 				_quad(skirt, a, b, c, d)
 	skirt.generate_normals()
 	stand.add_child(_mesh(skirt, SKIRT_COLOUR, 0.8))
-	_seat_crowd(stand, seed_value)
+	stand.add_child(_mesh(_rails(w, depth, top), RAIL_COLOUR, 0.35))
+	_seat_crowd(stand, seed_value, width)
 
 
-func _seat_crowd(stand: Node3D, seed_value: int) -> void:
+## The stand's rails in its own frame: a top and a middle rail with posts
+## along the front over the hoarding, up both stepped sides and along the
+## back.
+static func _rails(w: float, depth: float, top: float) -> SurfaceTool:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var runs: Array = []
+	var front_y := STAND_FIRST + 0.1
+	runs.append([Vector3(-w, front_y, -0.02), Vector3(w, front_y, -0.02)])
+	runs.append([Vector3(-w, top, depth), Vector3(w, top, depth)])
+	for sx: float in [-w, w]:
+		runs.append([Vector3(sx, front_y, -0.02), Vector3(sx, top, depth - STAND_TREAD)])
+		runs.append([Vector3(sx, top, depth - STAND_TREAD), Vector3(sx, top, depth)])
+	for run: Array in runs:
+		var a: Vector3 = run[0]
+		var b: Vector3 = run[1]
+		for k: float in [STAND_RAIL, STAND_RAIL * 0.5]:
+			_bar(st, a + Vector3.UP * k, b + Vector3.UP * k)
+		var posts := maxi(1, ceili(a.distance_to(b) / RAIL_POST_GAP))
+		for i in posts + 1:
+			var p := a.lerp(b, float(i) / posts)
+			_bar(st, p, p + Vector3.UP * STAND_RAIL)
+	st.generate_normals()
+	return st
+
+
+## A square tube RAIL_TUBE across from `a` to `b`.
+static func _bar(st: SurfaceTool, a: Vector3, b: Vector3) -> void:
+	var along := (b - a).normalized()
+	var u := Vector3.UP if absf(along.y) < 0.9 else Vector3.RIGHT
+	var x := along.cross(u).normalized() * RAIL_TUBE * 0.5
+	var y := along.cross(x).normalized() * RAIL_TUBE * 0.5
+	var c := [x + y, -x + y, -x - y, x - y]
+	for i in 4:
+		var p: Vector3 = c[i]
+		var q: Vector3 = c[(i + 1) % 4]
+		_quad(st, a + q, a + p, b + p, b + q)
+
+
+func _seat_crowd(stand: Node3D, seed_value: int, width: float) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value + 3
 	var seats: Array[Vector3] = []
-	var per_row := int(STAND_WIDTH / STAND_SEAT) - 1
+	var per_row := int(width / STAND_SEAT) - 1
 	for r in STAND_ROWS:
 		for k in per_row:
 			if rng.randf() < STAND_FULL:
@@ -738,52 +861,42 @@ func _seat_crowd(stand: Node3D, seed_value: int) -> void:
 				seats.append(Vector3(x, STAND_FIRST + r * STAND_RISE, r * STAND_TREAD + 0.35))
 	if seats.is_empty():
 		return
-	# Seated people, seen from the green: a torso in the shirt's colour and
-	# a head, as one instanced mesh each. At grandstand distance from the
-	# cameras that reads as a crowd without paying for full people.
-	var torso := CapsuleMesh.new()
-	torso.radius = 0.2
-	torso.height = 0.62
-	torso.radial_segments = 8
-	torso.rings = 2
-	var head := SphereMesh.new()
-	head.radius = 0.11
-	head.height = 0.24
-	head.radial_segments = 8
-	head.rings = 4
-	var torsos := _instances(torso, seats.size())
-	var heads := _instances(head, seats.size())
-	for i in seats.size():
-		var at := seats[i]
-		var lean := Basis(Vector3.RIGHT, rng.randf_range(-0.12, 0.05)).scaled(Vector3(1.0, 1.0, 0.7))
-		torsos.set_instance_transform(i, Transform3D(lean, at + Vector3(0, 0.33, 0)))
-		torsos.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
-		heads.set_instance_transform(i, Transform3D(Basis.IDENTITY, at + Vector3(rng.randf_range(-0.02, 0.02), 0.78, -0.02)))
-		var cap := rng.randf() < 0.4
-		var skin: Color = PlayerLook.SKIN_TONES[rng.randi_range(0, PlayerLook.SKIN_TONES.size() - 1)][1]
-		heads.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1] if cap else skin)
-	for mm in [torsos, heads]:
-		var mi := MultiMeshInstance3D.new()
-		mi.multimesh = mm
-		var mat := StandardMaterial3D.new()
-		mat.vertex_color_use_as_albedo = true
-		mat.roughness = 0.9
-		mi.material_override = mat
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		stand.add_child(mi)
-
-
-static func _instances(mesh: Mesh, n: int) -> MultiMesh:
+	# Seated people: the crowd cards' baked people (CrowdImpostors), head
+	# to hips, all facing the green, as one instanced card each. At
+	# grandstand distance from the cameras that reads as a full stand
+	# without paying for 3D people.
+	var quad := QuadMesh.new()
+	quad.size = Vector2(CARD_WIDTH / 1.8, 1.0)  # scaled by each person's height
+	quad.center_offset = Vector3(0.0, 0.5, 0.0)
+	var mat := CrowdImpostors.material()
+	mat.set_shader_parameter("cut", SEATED_CUT)
+	quad.material = mat
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
-	mm.mesh = mesh
-	mm.instance_count = n
-	return mm
+	mm.use_custom_data = true
+	mm.mesh = quad
+	mm.instance_count = seats.size()
+	for i in seats.size():
+		var h := clampf(rng.randfn(1.72, 0.09), 1.5, 1.98)
+		var at := seats[i] + Vector3(0, 0.02, rng.randf_range(-0.04, 0.04))
+		# The people face the stand's -z (the green), turned a little.
+		var yaw := rng.randf_range(-0.25, 0.25)
+		mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(h, h, h)), at))
+		mm.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
+		var legs: Color = PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1]
+		mm.set_instance_custom_data(i, Color(legs.r, legs.g, legs.b, rng.randf()))
+	var mi := MultiMeshInstance3D.new()
+	mi.name = "Seated"
+	mi.multimesh = mm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	stand.add_child(mi)
 
 
+## Two triangles a b c, a c d; the normal (generate_normals) points to the
+## side from which a, b, c, d run anticlockwise.
 static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
-	for v in [a, c, b, a, d, c]:
+	for v in [a, b, c, a, c, d]:
 		st.add_vertex(v)
 
 
@@ -795,6 +908,10 @@ static func _mesh(st: SurfaceTool, colour: Color, roughness: float) -> MeshInsta
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat
+	# A real stand's seat planks have open gaps and an open back, so the sun
+	# comes through between the rows; solid steps shadowing each other
+	# would put the whole stand in shade whenever the sun is behind it.
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
 

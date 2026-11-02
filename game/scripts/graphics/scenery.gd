@@ -379,6 +379,9 @@ func _apply_time() -> void:
 	_time = time_light(_time_setting, _round_progress) if _photo else TIMES["afternoon"]
 	var elevation: float = _time.elevation if _photo else CLASSIC_SUN_ELEVATION
 	sun.rotation_degrees = Vector3(-elevation, float(_time.bearing), 0.0)
+	# Which way the sunlight travels, for the shadows drawn by shaders
+	# (the crowd's, shaders/person_shadow.gdshader).
+	RenderingServer.global_shader_parameter_set("sun_travel", -sun.transform.basis.z)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
 	RenderingServer.global_shader_parameter_set("turf_tone", (1.0 if GraphicsSettings.is_forward_plus() else 1.35) if _photo else 0.0)
 	if not _photo:

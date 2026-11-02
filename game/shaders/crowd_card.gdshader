@@ -16,6 +16,11 @@ uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
 uniform bool has_atlas = false;
 uniform float people = 12.0;
 uniform float frames = 8.0;
+// The share of the person drawn, from the top of the head down: 1 for
+// someone standing, about half for someone seated in a grandstand (head to
+// hips; the row in front hides the rest). The card's origin is then at the
+// lowest point drawn.
+uniform float cut = 1.0;
 
 varying vec3 shirt;
 varying vec4 custom;
@@ -38,7 +43,7 @@ void vertex() {
 	vec3 to_cam = vec3(cam.x - origin.x, 0.0, cam.z - origin.z);
 	to_cam = length(to_cam) > 1e-4 ? normalize(to_cam) : vec3(0.0, 0.0, 1.0);
 	vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), to_cam));
-	vec2 quad = VERTEX.xy;
+	vec2 quad = VERTEX.xy * vec2(1.0, cut);
 	if (has_atlas) {
 		// The atlas cell is 1 m by 2 m for a 1.8 m person, wider and a
 		// little taller than the silhouette's card (0.62 m wide).
@@ -52,7 +57,11 @@ void vertex() {
 	float azimuth = atan(dot(to_cam, ax), dot(to_cam, az));
 	frame = mod(round(azimuth / (6.2831853 / frames)), frames);
 	VERTEX = (VIEW_MATRIX * vec4(world, 1.0)).xyz;
-	NORMAL = normalize((VIEW_MATRIX * vec4(to_cam, 0.0)).xyz);
+	// Facing the camera and tipped up to the sky: a card is flat, so lit
+	// by its facing alone it goes black whenever the sun is behind the
+	// person, where a real person still catches light on the head and
+	// shoulders and from the sky.
+	NORMAL = normalize((VIEW_MATRIX * vec4(to_cam + vec3(0.0, 1.2, 0.0), 0.0)).xyz);
 	shirt = COLOR.rgb;
 	custom = INSTANCE_CUSTOM;
 	// Which way the light falls across the figure, for a little modelling.
@@ -70,11 +79,16 @@ float box(vec2 p, vec2 c, vec2 h, float r) {
 
 void fragment() {
 	if (has_atlas) {
-		vec2 uv = vec2((person + clamp(UV.x, 0.01, 0.99)) / people, (frame + clamp(UV.y, 0.005, 0.995)) / frames);
+		vec2 uv = vec2((person + clamp(UV.x, 0.01, 0.99)) / people, (frame + clamp(UV.y * cut, 0.005, 0.995)) / frames);
 		vec4 c = texture(atlas, uv);
-		if (c.a < 0.5) {
+		// The bake's background is clear black, so a smaller mip level
+		// holds each person's colour times how much of the texel they
+		// cover: divide that back out, or far people fade to black blobs,
+		// and keep a texel half covered or more so they don't thin away.
+		if (c.a < 0.4) {
 			discard;
 		}
+		c.rgb = min(c.rgb / c.a, vec3(1.0));
 		// Baked under soft daylight; the scene's light adds a little side
 		// shade on top, as for the silhouettes.
 		float across = (UV.x - 0.5) * 2.0;
@@ -83,7 +97,7 @@ void fragment() {
 		SPECULAR = 0.2;
 	} else {
 	// x 0..1 across, y 0 at the feet to 1 at the top of the head.
-	vec2 p = vec2(UV.x, 1.0 - UV.y);
+	vec2 p = vec2(UV.x, 1.0 - UV.y * cut);
 	vec3 skin = mix(vec3(0.32, 0.2, 0.13), vec3(0.93, 0.74, 0.62), custom.a);
 	// Per-person variety from the instance data, in the shares seen in tour
 	// gallery photos: about half in a cap or visor, a third with their arms

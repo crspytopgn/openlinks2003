@@ -2141,6 +2141,18 @@ func _test_gallery() -> void:
 	_check(g.card_count() > 0 and g.card_count() <= Gallery.CARDS_BY_QUALITY[3], "crowd cards fill in behind the 3D people (%d)" % g.card_count())
 	var card_shadows := g.get_node_or_null("CardShadows") as MultiMeshInstance3D
 	_check(card_shadows != null and card_shadows.multimesh.instance_count == g.card_count(), "every crowd card stands on a contact shadow")
+	var sun_shadows := g.get_node_or_null("CardShadowsSun") as MultiMeshInstance3D
+	_check(sun_shadows != null and sun_shadows.multimesh.instance_count == g.card_count(), "every crowd card casts a sun shadow")
+	var person_shadows := g.get_node_or_null("ContactShadowsSun") as MultiMeshInstance3D
+	_check(g.crowd_count() == 0 or (person_shadows != null and person_shadows.multimesh.instance_count == g.crowd_count()), "every 3D spectator casts a sun shadow")
+	var tee_stand := Gallery.tee_stand_spot(hole, hole.pin)
+	if not tee_stand.is_empty():
+		var tee_front: Vector3 = tee_stand[0]
+		var to_line := Vector3(hole.pin.x - hole.tee.x, 0.0, hole.pin.z - hole.tee.z).normalized()
+		var off := tee_front - hole.tee
+		var across := (off - to_line * off.dot(to_line))
+		across.y = 0.0
+		_check(across.length() > Gallery.TEE_SIDE + Gallery.CARD_FAR, "the tee grandstand stands back past the crowd by the tee rope")
 	var cards := Gallery.card_spots(hole, lines, spots, 120, 7)
 	var spaced := cards.size() > 0
 	for i in cards.size():

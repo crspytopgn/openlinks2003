@@ -379,25 +379,49 @@ at Medium and grass at Low.
   come from the instance id in the vertex shader, so every pixel of a card
   agrees. All the cards are one MultiMesh, so one draw call: 80, 160, 260
   or 360 cards from Low to Ultra (Low has cards and no 3D people), plus one
-  more for the soft contact shadows they stand on, as the 3D people do.
+  more for the soft contact shadows they stand on, as the 3D people do,
+  and one more for their sun shadows (below).
   They keep off greens, bunkers and water and 0.7 m apart.
   Once `CrowdImpostors` has baked its atlas, the cards show real people
   instead of the drawn figure: the first gallery of a session renders
-  twelve of the player creator's people (random looks, the crowd's idle,
+  sixteen of the player creator's people (random looks, the crowd's idle,
   arms folded, hanging, behind the back or in pockets) from eight sides
-  into a 960 by 1280 atlas, in an off-screen viewport, as TreeFactory
+  into a 1280 by 1280 atlas, in an off-screen viewport, as TreeFactory
   bakes its tree impostors (about 40 frames, once). Each card is turned
   to face the play and draws the view of its person from the side the
   camera is on, so the far crowd has faces, caps, clothes and folded arms
   and turns properly as the camera moves. Headless runs, and the moments
   before the bake finishes, keep the drawn figures.
+- **Crowd sun shadows** (`shaders/person_shadow.gdshader`): the 3D people
+  and the cards cast no real shadows (hundreds of people in the shadow
+  maps would cost too much, and Compatibility's shadows stop near the
+  camera), so each spectator gets a soft person-shaped patch on the ground
+  that falls away from the sun: legs, body, neck and head, as long as the
+  sun's height makes it (at most 2.6 times their height), sharp at the
+  feet and softer towards the head, lying on the slope under them. The
+  sun's direction comes from the `sun_travel` global uniform, which
+  Scenery sets with the time of day. One MultiMesh for the 3D people and
+  one for the cards, in both renderers.
 - **Grandstand** (`Gallery`, par 3s and the last hole): a temporary
   bleacher stand behind the green, 24 m wide, with 8 rows 0.85 m deep rising
   0.42 m. The first row is 1.0 m up behind a dark green hoarding. It is set
   6 m behind the green rope and turned up to 50 degrees to clear water,
-  sand, greens and trees, or left out if none of those fit. About 80% of
-  the seats are filled with seated fans (a torso in a shirt colour and a
-  head or cap), which costs two instanced draw calls.
+  sand, greens and trees, or left out if none of those fit. Par 3s also get
+  a 16 m stand beside the tee, past the crowd along the tee rope, looking
+  across at the golfer (TV par 3s are framed that way). The aluminium
+  seat planks are light and the open backs under them in shade, so the
+  rows read; white tube rails (a top and a middle rail on posts 2 m
+  apart) run along the front, up both stepped sides and along the back.
+  About 80% of the seats are filled with the crowd cards' baked people
+  (`CrowdImpostors`), drawn from the head to the hips (the row in front
+  hides the rest; the cards' `cut` uniform), all facing the green: one
+  instanced draw call per stand.
+- **Broadcast tee view** (`RoundCamera.aim`): in the Broadcast
+  presentation the view behind the ball stands lower and closer
+  (`BROADCAST_AIM_UP`, `BROADCAST_AIM_BACK`), at the golfer's hip as TV
+  and PGA Tour 2K25 frame a tee shot: he stands tall in the frame from his
+  shoes to his cap, with the horizon near the middle. Classic Links keeps
+  the original's higher view; putts are unchanged.
 
 ## Performance budget
 
