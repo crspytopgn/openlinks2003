@@ -325,6 +325,129 @@ def narrow(glb, rig):
     return True
 
 
+# The overlapping grip, as close-ups of tour players' hands show it. fit()
+# left the right hand floating: its palm 2 cm off the left thumb, its
+# fingers spread and passing through the left hand, its little finger on
+# the grip, because the hand lay diagonally (its knuckles 31 degrees off
+# the shaft) and each finger bent its own way. Here the right hand is set
+# again from its own landmarks: its palm faces the left palm over the left
+# thumb, its knuckles lie nearer along the shaft so the grip runs across
+# the base of the fingers, and the fingers' first joints close about the
+# knuckle line, as a hand closes, so they stay side by side round the grip. The little finger's knuckle is
+# level with the left index finger's, so the little finger rests on top of
+# the left hand (stopping where it meets the left fingers) instead of on
+# the grip. The right elbow stays soft (tour players' trail arm is a
+# little bent at address, never locked); the collarbone comes down and in
+# to give the arm the reach.
+KNUCKLE_TILT = -20.0  # degrees from the shaft, the index knuckle lower
+KNUCKLE_OFF = 0.003  # metres past touching the grip
+TRAIL_ELBOW = 10.0  # degrees of bend in the right elbow at address
+MAX_SHOULDER_GIVE = 14.0  # degrees the right collarbone may turn
+
+
+def _palm(rig, P):
+    """The right palm's centre line (wrist to middle knuckle) and radius."""
+    return P[rig.index["hand_r"]], P[rig.index["middle_01_r"]], PALM_HALF
+
+
+def _closest(a0, a1, b0, b1):
+    """Closest points between segments a and b (sampled along a)."""
+    best = None
+    for u in np.linspace(0.0, 1.0, 21):
+        p = a0 + (a1 - a0) * u
+        d = b1 - b0
+        t = float(np.clip(np.dot(p - b0, d) / np.dot(d, d), 0.0, 1.0))
+        q = b0 + d * t
+        if best is None or np.linalg.norm(p - q) < np.linalg.norm(best[0] - best[1]):
+            best = (p, q)
+    return best
+
+
+def give_shoulder(rig, R, root, s, target, bend):
+    """Turns the collarbone of side s so the arm reaches target with its
+    elbow bent `bend` degrees (up to MAX_SHOULDER_GIVE). World rotations."""
+    clav, upper = rig.index[f"clavicle_{s}"], rig.index[f"upperarm_{s}"]
+    R = list(R)
+    total = 0.0
+    for _ in range(6):
+        _, P = rig.world(rig.locals(R), root)
+        l1 = np.linalg.norm(P[rig.index[f"lowerarm_{s}"]] - P[upper])
+        l2 = np.linalg.norm(P[rig.index[f"hand_{s}"]] - P[rig.index[f"lowerarm_{s}"]])
+        want = np.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * np.cos(np.radians(bend)))
+        d = np.linalg.norm(target - P[upper])
+        if d - want < 0.0005:
+            break
+        v = P[upper] - P[clav]
+        moved = P[upper] + pose.unit(target - P[upper]) * (d - want)
+        turn = between(v, pose.unit(moved - P[clav]) * np.linalg.norm(v))
+        deg = np.degrees(np.arccos(np.clip((np.trace(turn) - 1) / 2, -1.0, 1.0)))
+        if total + deg > MAX_SHOULDER_GIVE:
+            if deg < 1e-6:
+                break
+            axis = np.cross(v, moved - P[clav])
+            turn = pose.rot(axis, MAX_SHOULDER_GIVE - total)
+            deg = MAX_SHOULDER_GIVE - total
+        total += deg
+        R[clav] = turn @ R[clav]
+        R = _carry(rig, R, clav, turn)
+        if total >= MAX_SHOULDER_GIVE - 1e-6:
+            break
+    return R
+
+
+def overlap(glb, rig, club_dir):
+    """Re-grips the right hand of every ref_ address clip as an overlapping
+    grip (see the constants above). Marks the .glb; returns False if done."""
+    from mocap_swing import two_bone, write_clip
+
+    cj = rig.index["club"]
+    club_node = glb.doc["nodes"][rig.joints[cj]]
+    if club_node.get("extras", {}).get("overlap_grip"):
+        return False
+    hr, hl = rig.index["hand_r"], rig.index["hand_l"]
+    _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
+    base = rig.world(*rig.sample(glb, "ref_address"))
+    left_hand, right_hand = _Hand(rig, rest, "l", base), _Hand(rig, rest, "r", base)
+    # The right hand's rest frame: across its knuckles and its palm.
+    k0 = pose.unit(rest[rig.index["index_01_r"]] - rest[rig.index["pinky_01_r"]])
+    n0 = pose.unit(right_hand.palm - k0 * np.dot(right_hand.palm, k0))
+    rest0 = np.column_stack([k0, n0, np.cross(k0, n0)])
+    for ref in REFS:
+        if not glb.animation(ref):
+            continue
+        local, root = rig.sample(glb, ref)
+        R, P = rig.world(local, root)
+        R = list(R)
+        origin, shaft = P[cj], R[cj] @ club_dir
+        left = finger_capsules(rig, R, P, "l")
+        # Palm facing the left palm, the knuckles nearly along the shaft
+        # (the index knuckle lower), so the grip lies across the fingers.
+        n1 = -(R[hl] @ left_hand.palm)
+        n1 = pose.unit(n1 - shaft * np.dot(n1, shaft))
+        k1 = pose.rot(n1, KNUCKLE_TILT) @ shaft
+        hand = np.column_stack([k1, n1, np.cross(k1, n1)]) @ rest0.T
+        # The little finger's knuckle level with the left index finger's,
+        # just off the grip, so the little finger lies over the left hand.
+        t = float(np.dot(P[rig.index["index_01_l"]] - origin, shaft))
+        knuckle = origin + shaft * t - n1 * (grip_radius(t) + FINGER_HALF[1] + KNUCKLE_OFF)
+        target = knuckle - hand @ (rest[rig.index["pinky_01_r"]] - rest[hr])
+        R = give_shoulder(rig, R, root, "r", target, TRAIL_ELBOW)
+        P = list(rig.world(rig.locals(R), root)[1])
+        two_bone(rig, R, P, "upperarm_r", "lowerarm_r", "hand_r", target)
+        R[hr] = hand
+        R = wrap_fingers(rig, R, root, origin, shaft, sides="r", obstacles=left, knuckle_hinge=True,
+                         obstacle_fingers=("pinky",))
+        R, P = rig.world(rig.locals(R), root)
+        a0, a1, ra = _palm(rig, P)
+        palm_gap = min(np.linalg.norm(np.subtract(*_closest(a0, a1, b0, b1))) - ra - rb for b0, b1, rb in left[1:3])
+        write_clip(glb, rig, ref, np.zeros(1, np.float32), [rig.locals(R)], np.array([root], np.float32), filtered=False)
+        print(f"{ref}: overlapping grip (palm {palm_gap * 1000:.0f} mm off the left thumb, right elbow "
+              f"{180 - _angle(P[rig.index['upperarm_r']] - P[rig.index['lowerarm_r']], P[hr] - P[rig.index['lowerarm_r']]):.0f} deg, "
+              f"hand {np.linalg.norm(P[hr] - target) * 1000:.0f} mm short)")
+    club_node.setdefault("extras", {})["overlap_grip"] = 1
+    return True
+
+
 def between(a, b):
     a, b = pose.unit(a), pose.unit(b)
     axis = np.cross(a, b)
@@ -334,17 +457,23 @@ def between(a, b):
     return pose.rot(axis, np.degrees(np.arctan2(s, c)))
 
 
-def wrap_fingers(rig, R, root, origin, shaft):
-    """World rotations with every finger bent round the grip."""
+def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_hinge=False, obstacle_fingers=FINGERS):
+    """World rotations with every finger of `sides` bent round the grip,
+    each stopping where it first touches the grip or one of `obstacles`
+    (capsules: start, end, radius, checked for obstacle_fingers only), such
+    as the other hand's fingers.
+    With knuckle_hinge the four fingers bend about the line across their
+    knuckles, as a hand closes, so they stay side by side; otherwise each
+    bone bends straight towards the shaft."""
     R = list(R)
     loc = rig.locals(R)
-    for s in "lr":
+    for s in sides:
         for finger in FINGERS:
             for seg in (1, 2, 3):
                 loc[rig.index[f"{finger}_0{seg}_{s}"]] = np.eye(3)
     R, P = rig.world(loc, root)
     R = list(R)
-    for s in "lr":
+    for s in sides:
         R = _aim_thumb(rig, R, root, origin, shaft, s)
         for finger in FINGERS:
             for seg in (1, 2, 3):
@@ -364,15 +493,23 @@ def wrap_fingers(rig, R, root, origin, shaft):
                 if np.linalg.norm(rho) < 1e-6:
                     continue
                 hinge = np.cross(pose.unit(vec), -pose.unit(rho))
+                if knuckle_hinge and finger != "thumb" and seg == 1:
+                    across = pose.unit(P[rig.index[f"index_01_{s}"]] - P[rig.index[f"pinky_01_{s}"]])
+                    hinge = across if np.dot(across, hinge) >= 0.0 else -across
                 if np.linalg.norm(hinge) < 1e-6:
                     continue
                 hinge = pose.unit(hinge)
                 half = THUMB_HALF if finger == "thumb" else FINGER_HALF[seg]
 
                 def gap(deg):
-                    tail = head + pose.rot(hinge, deg) @ vec - origin
+                    v = pose.rot(hinge, deg) @ vec
+                    tail = head + v - origin
                     t = float(np.dot(tail, shaft))
-                    return np.linalg.norm(tail - shaft * t) - grip_radius(t) - half
+                    g = np.linalg.norm(tail - shaft * t) - grip_radius(t) - half
+                    for a, b, r in (obstacles if finger in obstacle_fingers else ()):
+                        for u in (0.5, 1.0):
+                            g = min(g, _to_segment(head + u * v, a, b) - r - half)
+                    return g
 
                 best = 0.0
                 if gap(0.0) < 0.0:
@@ -397,9 +534,27 @@ def wrap_fingers(rig, R, root, origin, shaft):
     return R
 
 
+def _to_segment(p, a, b):
+    d = b - a
+    t = float(np.clip(np.dot(p - a, d) / np.dot(d, d), 0.0, 1.0))
+    return float(np.linalg.norm(p - (a + d * t)))
+
+
+def finger_capsules(rig, R, P, s):
+    """Each finger bone of hand `s` as a capsule (start, end, radius)."""
+    out = []
+    for finger in FINGERS:
+        for seg in (1, 2, 3):
+            j = rig.index[f"{finger}_0{seg}_{s}"]
+            end = P[rig.index[f"{finger}_0{seg + 1}_{s}"]] if seg < 3 else P[j] + R[j] @ (0.8 * rig.offsets[j])
+            out.append((P[j], end, THUMB_HALF if finger == "thumb" else FINGER_HALF[seg]))
+    return out
+
+
 def _aim_thumb(rig, R, root, origin, shaft, s):
     """Lays the thumb down the grip: its straight tip aimed at the grip's
-    surface level with the index finger's middle joint, on the thumb's side."""
+    surface level with the index finger's middle joint (the right thumb, a
+    short thumb, level with its knuckle), on the thumb's side."""
     R, P = rig.world(rig.locals(R), root)
     R = list(R)
     j = rig.index[f"thumb_01_{s}"]
@@ -407,7 +562,7 @@ def _aim_thumb(rig, R, root, origin, shaft, s):
     tip = P[rig.index[f"thumb_03_{s}"]] + R[rig.index[f"thumb_03_{s}"]] @ (0.8 * rig.offsets[rig.index[f"thumb_03_{s}"]])
     rel = head - origin
     radial = pose.unit(rel - shaft * np.dot(rel, shaft))
-    t = float(np.dot(P[rig.index[f"index_02_{s}"]] - origin, shaft)) - 0.005
+    t = float(np.dot(P[rig.index[f"index_0{2 if s == 'l' else 1}_{s}"]] - origin, shaft)) - 0.005
     target = origin + shaft * t + radial * (grip_radius(t) + THUMB_HALF)
     turn = between(tip - head, target - head)
     R[j] = turn @ R[j]
