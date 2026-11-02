@@ -8,6 +8,7 @@ shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
 #include "res://shaders/golfer_occlusion.gdshaderinc"
+#include "res://shaders/golfer_flex.gdshaderinc"
 
 uniform sampler2D texture_albedo : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D texture_normal : hint_roughness_normal, filter_linear_mipmap_anisotropic, repeat_enable;
@@ -33,7 +34,16 @@ vec3 dye(vec3 tex, vec3 target, float mean) {
 	return target * 0.7 * clamp(pow(lum / max(mean, 0.01), 1.8), 0.15, 1.8);
 }
 
+// Skin, 1, where the regions map has none of the shirt, trousers or shoes.
+float skin_of(vec3 r) {
+	return 1.0 - clamp(max(r.r, max(r.g, r.b)) * 2.0, 0.0, 1.0);
+}
+
 void vertex() {
+	float skin = flex_on > 0.0 ? skin_of(textureLod(regions, UV, 3.0).rgb * recolour) : 0.0;
+	flex_v = vec4(UV2.x, UV2.y * skin, COLOR.b * skin, 0.0);
+	flex_cs = COLOR.rg * 2.0 - 1.0;
+	VERTEX += NORMAL * flex_swell(flex_v, flex_cs);
 	occ_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	occ_normal = mat3(MODEL_MATRIX) * NORMAL;
 }
@@ -41,13 +51,18 @@ void vertex() {
 void fragment() {
 	vec3 tex = texture(texture_albedo, UV).rgb;
 	vec3 m = texture(regions, UV).rgb * recolour;
+	vec4 flex = flex_fragment(flex_v * vec4(1.0, skin_of(m), skin_of(m), 1.0), flex_cs, NORMAL, VIEW_MATRIX);
+	NORMAL = flex.xyz;
 	vec3 c = tex;
 	c = mix(c, dye(tex, top.rgb, region_means.x), m.r);
 	c = mix(c, dye(tex, bottom.rgb, region_means.y), m.g);
 	c = mix(c, dye(tex, shoes.rgb, region_means.z), m.b);
 	float occ = body_occlusion(occ_pos, occ_normal);
 	AO = occ;
-	ALBEDO = c * mix(1.0, occ, contact_share);
+	ALBEDO = c * mix(1.0, occ, contact_share) * flex.w;
+	if (flex_debug > 0.0) {
+		ALBEDO = flex_debug_colour(flex_v, flex_cs);
+	}
 	if (use_normal) {
 		NORMAL_MAP = texture(texture_normal, UV).rgb;
 	}

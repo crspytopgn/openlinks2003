@@ -83,6 +83,7 @@ func _initialize() -> void:
 	_run("free_golfer", _test_free_golfer)
 	_run("photo_golfer", _test_photo_golfer)
 	_run("golfer_cloth", _test_golfer_cloth)
+	_run("golfer_flex", _test_golfer_flex)
 	_run("golfer_arms", _test_golfer_arms)
 	_run("player_looks", _test_player_looks)
 	_run("golfer_roster", _test_golfer_roster)
@@ -3456,6 +3457,51 @@ func _test_golfer_cloth() -> void:
 	var navy := Color(0.08, 0.12, 0.25)
 	_check(GolferSurface.real_albedo(navy) == navy, "dark cloth is left alone")
 	_check(GolferSurface.cloth_rim(Color.WHITE) < GolferSurface.cloth_rim(navy), "pale cloth gets less rim glow than dark")
+
+
+## GolferFlex: the grip tightens fast into the strike and eases off
+## slowly; the forearm and neck frames face the right way; a realistic
+## person's forearms and neck get their place on the limb baked in.
+func _test_golfer_flex() -> void:
+	var g := GolferFlex.GRIP_REST
+	for i in 12:  # 0.2 s of the hands at 8 m/s
+		g = GolferFlex.step_grip(g, 8.0, 0.0, 1.0 / 60.0)
+	_check(g > 0.9, "the grip is near full just before the strike (%.2f)" % g)
+	var eased := g
+	for i in 12:  # 0.2 s of the hands slowing in the finish
+		eased = GolferFlex.step_grip(eased, 0.0, 0.0, 1.0 / 60.0)
+	_check(eased > 0.5 and eased < g, "and eases off slowly after it (%.2f)" % eased)
+	var golfer := FreeGolfer.create(PlayerLook.default_look())
+	if golfer == null:
+		return
+	var sk: Skeleton3D = golfer._skeleton
+	var l := GolferFlex.frame_of(sk, "l")
+	var r := GolferFlex.frame_of(sk, "r")
+	# The rig faces -z with its left at -x; at address the palms face each
+	# other, the left one towards +x.
+	_check((l.front as Vector3).x > 0.3 and (r.front as Vector3).x < -0.3, "the palms face each other (%s, %s)" % [l.front, r.front])
+	_check(float(l.sign) == -float(r.sign), "the forearms' angles are mirrored")
+	var n := GolferFlex.frame_of(sk, "n")
+	_check((n.axis as Vector3).y > 0.9 and float(n.length) > 0.12, "the neck runs up (%.2f m)" % float(n.length))
+	var baked := 0
+	for node in golfer.find_children("RB_*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		var arrays := mi.mesh.surface_get_arrays(0)
+		if arrays[Mesh.ARRAY_TEX_UV2] == null:
+			continue
+		baked += 1
+		var uv2: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+		var cols: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		var left := 0
+		var right := 0
+		var neck := 0
+		for i in uv2.size():
+			left += 1 if uv2[i].y > 0.5 else 0
+			right += 1 if uv2[i].y < -0.5 else 0
+			neck += 1 if cols[i].b > 0.5 else 0
+		_check(left > 10 and right > 10 or neck > 10, "%s has forearms (%d, %d) or a neck (%d) mapped" % [mi.name, left, right, neck])
+	_check(baked >= 2 and golfer._flex.materials.size() >= 2, "the body and the head flex (%d)" % baked)
+	golfer.free()
 
 
 ## GolferArms: an arm point inside the chest is moved out to its surface,

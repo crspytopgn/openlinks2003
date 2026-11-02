@@ -19,6 +19,7 @@ shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, sss_mode_skin;
 
 #include "res://shaders/golfer_occlusion.gdshaderinc"
+#include "res://shaders/golfer_flex.gdshaderinc"
 
 uniform vec4 albedo : source_color = vec4(1.0);
 uniform sampler2D texture_albedo : source_color, filter_linear_mipmap, repeat_enable;
@@ -66,12 +67,17 @@ float vnoise(vec2 p) {
 }
 
 void vertex() {
+	flex_v = vec4(UV2.x, UV2.y, COLOR.b, 0.0) * (flex_on > 0.0 ? 1.0 : 0.0);
+	flex_cs = COLOR.rg * 2.0 - 1.0;
+	VERTEX += NORMAL * flex_swell(flex_v, flex_cs);
 	occ_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	occ_normal = mat3(MODEL_MATRIX) * NORMAL;
 }
 
 void fragment() {
-	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb;
+	vec4 flex = flex_fragment(flex_v, flex_cs, NORMAL, VIEW_MATRIX);
+	NORMAL = flex.xyz;
+	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb * flex.w;
 	vec4 r = texture(regions, UV);
 	vec2 fuv = (UV - face_rect.xy) / (face_rect.zw - face_rect.xy);
 	// Sampled everywhere (no branch, so mipmaps stay right at its edge),
