@@ -37,6 +37,7 @@ const SKIN_SHADER := preload("res://shaders/golfer_skin.gdshader")
 const HAIR_SHADER := preload("res://shaders/golfer_hair.gdshader")
 const FINE_HAIR_SHADER := preload("res://shaders/golfer_fine_hair.gdshader")
 const EYE_SHADER := preload("res://shaders/golfer_eye.gdshader")
+const PERSON_SHADER := preload("res://shaders/golfer_person.gdshader")
 
 
 static func skin(mat: StandardMaterial3D) -> StandardMaterial3D:
@@ -127,6 +128,28 @@ static func hair(mat: StandardMaterial3D) -> ShaderMaterial:
 	m.set_shader_parameter("albedo", mat.albedo_color)
 	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
 	m.set_shader_parameter("cutoff", mat.alpha_scissor_threshold)
+	return m
+
+
+## A realistic person's painted body (skin and clothes in one texture,
+## tools/golfer/rocketbox.py) as golfer_person.gdshader: the shirt,
+## trousers and shoes dyed the look's colours where the pack has a regions
+## map, matt, with the body's own shade.
+static func person(mat: StandardMaterial3D, look: PlayerLook, regions: Texture2D, means: Array) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.resource_name = mat.resource_name
+	m.shader = PERSON_SHADER
+	m.set_shader_parameter("texture_albedo", mat.albedo_texture)
+	m.set_shader_parameter("use_normal", mat.normal_enabled and mat.normal_texture != null)
+	m.set_shader_parameter("texture_normal", mat.normal_texture)
+	m.set_shader_parameter("roughness", maxf(mat.roughness, 0.8))
+	m.set_shader_parameter("regions", regions)
+	m.set_shader_parameter("recolour", 1.0 if regions != null else 0.0)
+	if means.size() == 3:
+		m.set_shader_parameter("region_means", Vector3(means[0], means[1], means[2]))
+	m.set_shader_parameter("top", real_albedo(look.top))
+	m.set_shader_parameter("bottom", real_albedo(look.bottom))
+	m.set_shader_parameter("shoes", real_albedo(look.shoes))
 	return m
 
 

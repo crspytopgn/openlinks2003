@@ -47,3 +47,36 @@ data is free for use in research and commercial projects worldwide."
 
 The data used in this project was obtained from mocap.cs.cmu.edu. The
 database was created with funding from NSF EIA-0196217.
+
+## Realistic people (Microsoft Rocketbox)
+
+The realistic golfers in `free_golfer_parts.olg` (parts `RB_*`, listed in
+`PlayerLook.PEOPLE`) are avatars from the Microsoft Rocketbox library
+(https://github.com/microsoft/Microsoft-Rocketbox): `Male_Adult_08`,
+`Male_Adult_09`, `Male_Adult_11`, `Male_Adult_14`, `Female_Adult_13` and
+`Female_Adult_17`. `tools/golfer/rocketbox.py` moves their meshes and skin
+weights onto this golfer's skeleton, resizes their textures, adds the
+clothes-region masks used to dye them, and fits the golf cap to each head.
+They are used under the MIT licence:
+
+> MIT License
+>
+> Copyright (c) Microsoft Corporation.
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE
