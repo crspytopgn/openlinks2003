@@ -218,10 +218,12 @@ func make_material(material_name: String, tint := Color.WHITE, texture_override 
 	return mat
 
 
-## Image `index` of the pack as a mipmapped texture (decoded once).
-func texture(index: int) -> Texture2D:
-	if _textures.has(index):
-		return _textures[index]
+## Image `index` of the pack as a mipmapped texture (decoded once), at
+## most `max_size` pixels across if that is above 0.
+func texture(index: int, max_size := 0) -> Texture2D:
+	var key: Variant = index if max_size <= 0 else Vector2i(index, max_size)
+	if _textures.has(key):
+		return _textures[key]
 	var entry: Dictionary = info.images[index]
 	var bytes := _slice(entry.data)
 	var img := Image.new()
@@ -232,9 +234,12 @@ func texture(index: int) -> Texture2D:
 	# Grey-and-alpha images become RGBA: WebGL has no swizzle for them.
 	if img.get_format() != Image.FORMAT_RGB8 and img.get_format() != Image.FORMAT_RGBA8:
 		img.convert(Image.FORMAT_RGBA8 if img.detect_alpha() != Image.ALPHA_NONE else Image.FORMAT_RGB8)
+	if max_size > 0 and maxi(img.get_width(), img.get_height()) > max_size:
+		var k := float(max_size) / maxi(img.get_width(), img.get_height())
+		img.resize(maxi(1, roundi(img.get_width() * k)), maxi(1, roundi(img.get_height() * k)), Image.INTERPOLATE_CUBIC)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
-	_textures[index] = tex
+	_textures[key] = tex
 	return tex
 
 
