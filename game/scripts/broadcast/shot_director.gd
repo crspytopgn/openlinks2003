@@ -29,6 +29,7 @@ const KEEP_ABOVE_GROUND := 1.2
 ## A fixed camera keeps this far from any tree trunk, canopy or building,
 ## so it never stands inside a tree with the screen full of leaves.
 const CLEAR_M := 3.0
+const PROBE_M := 40.0
 
 ## Cut times (seconds into the shot) and the camera each one switches to.
 var cut_times := PackedFloat32Array()
@@ -180,14 +181,18 @@ func _clear_above(p: Vector3) -> Vector3:
 	return q
 
 
-## True when a tree, canopy or building is within CLEAR_M of `p`.
+## True when `p` is inside or under a tree canopy or building, or one is
+## within CLEAR_M of it sideways. Segments that start inside an obstacle
+## don't hit it, so the test comes in towards `p`: straight down from high
+## above (anything over `p`, including one it stands inside) and from
+## CLEAR_M away on each side (a trunk or wall right next to it).
 static func near_obstacle(t: CourseTerrain, p: Vector3) -> bool:
 	if t == null or t.obstacles == null:
 		return false
-	for o: Vector3 in [Vector3(CLEAR_M, 0, 0), Vector3(-CLEAR_M, 0, 0), Vector3(0, 0, CLEAR_M), Vector3(0, 0, -CLEAR_M), Vector3(0, CLEAR_M, 0), Vector3(0, -CLEAR_M, 0)]:
-		# A segment that starts inside an obstacle doesn't hit it, so come in
-		# from outside towards `p`.
-		if not t.obstacle_hit(p + o, p).is_empty():
+	if not t.obstacle_hit(p + Vector3.UP * PROBE_M, p).is_empty():
+		return true
+	for dir: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+		if not t.obstacle_hit(p + dir * CLEAR_M, p).is_empty():
 			return true
 	return false
 
