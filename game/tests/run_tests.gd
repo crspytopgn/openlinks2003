@@ -3406,7 +3406,19 @@ func _test_golfer_cloth() -> void:
 		if n == "Cap":
 			_check(not (mi.material_override is ShaderMaterial and (mi.material_override as ShaderMaterial).shader == GolferCloth.SHADER), "the cap stays put")
 	_check(moving >= 3 and golfer._cloth.materials.size() >= moving, "shirt, trousers and collar move (%d)" % moving)
+	# The body shades itself (golfer_occlusion.gdshaderinc): the clothes and
+	# the skin take the capsules, as many as the shader has.
+	_check(golfer._cloth.occluded.size() > golfer._cloth.materials.size(), "the clothes and the skin take the body's own shade (%d)" % golfer._cloth.occluded.size())
+	_check(GolferCloth.OCCLUDERS.size() == 11, "the body is 11 capsules, as golfer_occlusion.gdshaderinc expects")
 	golfer.free()
+	# Real white cloth, not a burnt-out glowing white; colours keep their hue.
+	var white := GolferSurface.real_albedo(Color.WHITE)
+	_check(is_equal_approx(white.r, GolferSurface.WHITEST) and is_equal_approx(white.b, GolferSurface.WHITEST), "white cloth is real white (%.2f)" % white.r)
+	var pink := GolferSurface.real_albedo(Color(1.0, 0.55, 0.7))
+	_check(is_equal_approx(pink.g / pink.r, 0.55), "a bright colour dims but keeps its hue")
+	var navy := Color(0.08, 0.12, 0.25)
+	_check(GolferSurface.real_albedo(navy) == navy, "dark cloth is left alone")
+	_check(GolferSurface.cloth_rim(Color.WHITE) < GolferSurface.cloth_rim(navy), "pale cloth gets less rim glow than dark")
 
 
 ## GolferArms: an arm point inside the chest is moved out to its surface,

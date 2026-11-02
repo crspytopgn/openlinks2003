@@ -149,6 +149,8 @@ func apply_look(p_look: PlayerLook) -> void:
 			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name))
 			if mat == null:
 				mat = GolferSurface.skin(std)
+			else:
+				_cloth.add_occluded(mat)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
 			mat = GolferSurface.hair(std)
 		elif mat_name == "Eyes" and std.albedo_texture != null:
@@ -165,6 +167,7 @@ func apply_look(p_look: PlayerLook) -> void:
 			if part_name.begins_with("Buttons_"):
 				cloth.set_shader_parameter("roughness", std.roughness)
 			_cloth.add_material(cloth)
+			_cloth.add_occluded(cloth)
 			mat = cloth
 		else:
 			mat = GolferSurface.cloth(std) if _is_cloth(parts, mat_name) else _matt(std)
@@ -305,6 +308,7 @@ static func _is_cloth(parts: GolferParts, material_name: String) -> bool:
 ## Cloth, skin and hair as matt as they are in daylight: shinier materials
 ## look like plastic under the Photoreal sun.
 static func _matt(mat: StandardMaterial3D) -> StandardMaterial3D:
+	mat.albedo_color = GolferSurface.real_albedo(mat.albedo_color)
 	mat.roughness = maxf(mat.roughness, 0.8)
 	mat.metallic_specular = minf(mat.metallic_specular, 0.3)
 	return mat

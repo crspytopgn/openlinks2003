@@ -14,6 +14,8 @@ shader_type spatial;
 // albedo is warmed by `warmth` and the sun's light divided by it again.
 render_mode blend_mix, depth_draw_opaque, cull_back, sss_mode_skin;
 
+#include "res://shaders/golfer_occlusion.gdshaderinc"
+
 uniform vec4 albedo : source_color = vec4(1.0);
 uniform sampler2D texture_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D regions : hint_default_black, filter_linear_mipmap;
@@ -52,6 +54,11 @@ float vnoise(vec2 p) {
 	return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x), mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0)), f.x), f.y);
 }
 
+void vertex() {
+	occ_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	occ_normal = mat3(MODEL_MATRIX) * NORMAL;
+}
+
 void fragment() {
 	vec3 c = texture(texture_albedo, UV).rgb * albedo.rgb;
 	vec4 r = texture(regions, UV);
@@ -68,7 +75,9 @@ void fragment() {
 	float dots = texture(stubble_dots, UV * stubble_scale).r;
 	float hairs = clamp(beard * stubble * (0.9 + dots * 1.5), 0.0, 0.95);
 	c = mix(c, beard_colour.rgb, hairs);
-	ALBEDO = c * warmth;
+	float occ = body_occlusion(occ_pos, occ_normal);
+	AO = occ;
+	ALBEDO = c * warmth * mix(1.0, occ, contact_share);
 	ROUGHNESS = clamp(roughness - r.a * 0.16 - r.b * 0.14 + hairs * 0.25, 0.2, 1.0);
 	SPECULAR = specular + r.a * 0.08;
 	NORMAL_MAP = texture(pores, UV * pore_scale).rgb;
