@@ -80,7 +80,7 @@ class Bag:
     def __init__(self, name, lite):
         self.pr = Prop(name)
         self.lite = lite
-        self.k = 0.07 if lite else 0.55
+        self.k = 0.07 if lite else 0.42
 
     def shape(self, key, s, lo, hi, step, faces):
         if self.lite:

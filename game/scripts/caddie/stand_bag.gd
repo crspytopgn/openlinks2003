@@ -5,7 +5,7 @@ extends MeshInstance3D
 ## (tools/props/build_stand_bag.py, docs/props.md). 88 cm tall with a 4-way
 ## top, a driver, 3-wood and hybrid under headcovers, nine irons and a
 ## putter. Low quality and the Web build use the light version (about 8k
-## triangles against about 60k); Godot adds distance LODs to both.
+## triangles against about 50k); Godot adds distance LODs to both.
 ## Not shown with a caddie (they carry the staff bag, GolfBag) or the golf
 ## buggy (the clubs ride on it).
 
