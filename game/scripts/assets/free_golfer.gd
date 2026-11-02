@@ -18,7 +18,6 @@ extends GolferRig
 
 const SCENE_PATH := "res://assets/golfer/free_golfer.glb"
 const BLEND_TIME := 0.15
-const REACT_BLEND := 0.4  ## out of the finish into a reaction
 const LOOPING: Array[StringName] = [&"address", &"address_iron", &"address_putt", &"walk"]
 ## Clips with an iron version (`_iron`): a shorter, more upright club, so he
 ## stands closer to the ball and bends over more.
@@ -33,10 +32,6 @@ const NEW_BALL := 0.5
 ## Where a putt is read from: behind the ball, on the line to the hole
 ## (the target is -x), in the rig's frame.
 const READ_SPOT := Vector3(1.6, 0.0, -0.75)
-## Before a full shot: behind the ball on the target line, looking at the
-## target for SURVEY_TIME seconds before walking in, as tour players do.
-const SURVEY_SPOT := Vector3(2.2, 0.0, -0.75)
-const SURVEY_TIME := 1.6
 ## Where the ball sits in the rig (GolferRig): a taller or shorter golfer is
 ## scaled about this point, so the club still meets the ball.
 const BALL := Vector3(0.0, 0.0, -0.75)
@@ -151,7 +146,7 @@ func apply_look(p_look: PlayerLook) -> void:
 		var std := _material(parts, mat_name)
 		var mat: Material = null
 		if is_skin:
-			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name), _face_detail(parts, mat_name))
+			mat = GolferSurface.skin_shader(std, look, _skin_regions(parts, mat_name))
 			if mat == null:
 				mat = GolferSurface.skin(std)
 		elif str(parts.info.materials[mat_name].get("tint", "")) == "hair" and std.albedo_texture != null:
@@ -297,19 +292,6 @@ static func _skin_regions(parts: GolferParts, material_name: String) -> Texture2
 	return parts.texture(index) if index >= 0 else null
 
 
-## The look pack's scanned face detail for the skin shader at
-## GolferSurface.face_detail's tier, or empty (that tier is off, or an
-## older pack).
-static func _face_detail(parts: GolferParts, material_name: String) -> Dictionary:
-	var fd: Variant = parts.info.materials[material_name].get("face_detail")
-	if GolferSurface.face_detail <= 0 or not fd is Dictionary:
-		return {}
-	var size := 0 if GolferSurface.face_detail >= 2 else 512
-	var r: Array = fd.rect
-	return {"albedo": parts.texture(int(fd.albedo), size), "normal": parts.texture(int(fd.normal), size),
-		"rect": Vector4(r[0], r[1], r[2], r[3])}
-
-
 ## Whether a part is clothing that moves (the cap stays put on the head).
 static func _moves(parts: GolferParts, part_name: String, material_name: String) -> bool:
 	var tint := str(parts.info.materials[material_name].get("tint", ""))
@@ -426,15 +408,6 @@ func play(animation: StringName) -> void:
 		_play(clip, BLEND_TIME)
 
 
-func react(animation: StringName, delay: float) -> void:
-	if not is_inside_tree() or not _player.has_animation(animation):
-		return
-	var during := _player.current_animation
-	get_tree().create_timer(delay).timeout.connect(func() -> void:
-		if is_instance_valid(self) and _player.current_animation == during:
-			_play(animation, REACT_BLEND))
-
-
 ## Plays a clip, the right hand following onto the club or off it.
 func _play(clip: StringName, blend: float) -> void:
 	_player.play(clip, blend)
@@ -455,7 +428,7 @@ func set_ground(height: Callable, sink: float = 0.0) -> void:
 
 ## Walks forward to the address spot, then settles into the clip. Before a
 ## putt the golfer reads it first, crouched behind the ball looking down the
-## line; before a full shot he stands behind the ball looking at the target.
+## line.
 func _walk_in(clip: StringName) -> void:
 	_walk = create_tween()
 	var from := Vector3(0, 0, WALK_FROM)
@@ -465,17 +438,6 @@ func _walk_in(clip: StringName) -> void:
 		_play(&"read", BLEND_TIME)
 		_walk.tween_interval(_player.get_animation(&"read").length - WALK_SETTLE)
 		from = READ_SPOT
-		var heading := -from.normalized()
-		var yaw := atan2(-heading.x, -heading.z)
-		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE))
-		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
-	elif _player.has_animation(&"survey"):
-		# Behind the ball looking down the target line, then in.
-		_model.position = _rest + SURVEY_SPOT
-		_model.rotation.y = PI / 2.0
-		_play(&"survey", BLEND_TIME)
-		_walk.tween_interval(SURVEY_TIME)
-		from = SURVEY_SPOT
 		var heading := -from.normalized()
 		var yaw := atan2(-heading.x, -heading.z)
 		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE))

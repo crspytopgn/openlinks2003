@@ -3340,20 +3340,8 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"survey", &"fore_left", &"fore_right", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"address_iron", &"backswing_iron", &"swing_iron"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
-	# "Fore": a full shot (aim +z, so the golfer's right is -x) ending well
-	# right, well left, out of bounds, or fine; never on a putt.
-	var fore := ShotResult.new()
-	fore.rest = Vector3(-40.0, 0.0, 200.0)
-	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_right", "a shot 40 m right points right")
-	fore.rest = Vector3(45.0, 0.0, 180.0)
-	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_left", "a shot 45 m left points left")
-	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), true) == &"", "no fore on a putt")
-	fore.rest = Vector3(-10.0, 0.0, 220.0)
-	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"", "no fore 10 m off line")
-	fore.outcome = ShotResult.Outcome.OUT_OF_BOUNDS
-	_check(GolfRound.fore_reaction(fore, Vector3.ZERO, Vector3(0, 0, 1), false) == &"fore_right", "out of bounds points after it")
 	var made := PlaceholderGolferAssets.new().create_golfer()
 	_check(made is FreeGolfer, "the placeholder assets use the free golfer")
 	made.free()
@@ -3657,16 +3645,6 @@ func _test_golfer_roster() -> void:
 	var mat: Material = body.get_surface_override_material(0) if body.mesh.get_surface_count() > 1 else body.material_override
 	_check(mat is ShaderMaterial and is_equal_approx(float((mat as ShaderMaterial).get_shader_parameter("stubble")), 0.7),
 		"the skin shader shows the pro's stubble")
-	var fd: Variant = parts.info.materials.Skin.get("face_detail")
-	_check(fd is Dictionary and parts.texture(int(fd.normal)) != null and parts.texture(int(fd.albedo), 512).get_width() == 512,
-		"the skin has the scanned face detail, and a half-size copy for the web")
-	_check(mat is ShaderMaterial and (mat as ShaderMaterial).get_shader_parameter("face_normal") is Texture2D
-		and float((mat as ShaderMaterial).get_shader_parameter("face_relief")) > 0.5,
-		"the face shows the scan's pores and lines")
-	var tier := GolferSurface.face_detail
-	GolferSurface.face_detail = 0
-	_check(FreeGolfer._face_detail(parts, "Skin").is_empty(), "Low quality leaves the face detail out")
-	GolferSurface.face_detail = tier
 	var hair := golfer.find_child("Hair_side_part", true, false) as MeshInstance3D
 	_check(hair != null and hair.material_override is ShaderMaterial, "hair uses the hair shader")
 	var lashes := golfer.find_child("Eyelashes", true, false) as MeshInstance3D

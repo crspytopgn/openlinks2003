@@ -417,6 +417,10 @@ def build(dem, mpp):
         b = nxt - holes[(i + 1) % len(holes)].first * 16.0 + right_of(holes[(i + 1) % len(holes)].first) * sgn * 12.0
         if i + 1 >= len(holes):
             continue
+        # Where the next tee is a few steps from the green there is no
+        # path to lay: a short stub only curls into the green's bunkers.
+        if np.linalg.norm(b - a) < MIN_PATH:
+            continue
         # A gentle curve (quadratic Bezier), as cart paths are laid.
         mid = (a + b) * 0.5 + right_of((b - a) / max(np.linalg.norm(b - a), 1.0)) * 10.0
         n = max(4, int(np.linalg.norm(b - a) / 6.0))
@@ -552,6 +556,9 @@ def flat(pts):
     for p in pts:
         out.extend([round(float(p[0]), 2), round(float(p[1]), 2)])
     return out
+
+
+MIN_PATH = 25.0  # metres: a shorter way from a green to the next tee needs no cart path
 
 
 def write_course(path, holes, shapes, paths, objects, area, cols, rows, height):

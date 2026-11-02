@@ -324,6 +324,10 @@ func _update_splat() -> void:
 	_material.set_shader_parameter("splat_size", Vector2(_sw, _sh) * RES)
 
 
+## The surfaces a cart path is not drawn over (it stops at their edge).
+const PATH_NOT_ON := [Surface.Type.SAND, Surface.Type.GREEN, Surface.Type.WATER]
+
+
 ## Cart paths draped on the ground, and bridges with their rails.
 func build_paths() -> Node3D:
 	var root := Node3D.new()
@@ -360,11 +364,20 @@ func _path_mesh(p: CoursePath) -> MeshInstance3D:
 			verts.append(Vector3(r.x, height_at(r.x, r.y) + 0.05, r.y))
 		uvs.append(Vector2(0.0, along / p.width))
 		uvs.append(Vector2(1.0, along / p.width))
+	# A cart path on the ground stops at a bunker, green or pond rather
+	# than being draped over it (as a flat grey slab across the sand).
+	var clear := PackedByteArray()
+	for v in verts.size():
+		clear.append(1 if p.bridge or not PATH_NOT_ON.has(surface_at(verts[v].x, verts[v].z)) else 0)
 	var indices := PackedInt32Array()
 	for k in samples.size() - 1:
 		var a := 2 * k
+		if clear[a] == 0 or clear[a + 1] == 0 or clear[a + 2] == 0 or clear[a + 3] == 0:
+			continue
 		_add_tri(indices, verts, a, a + 2, a + 1)
 		_add_tri(indices, verts, a + 1, a + 2, a + 3)
+	if indices.is_empty():
+		return MeshInstance3D.new()  # all of it over sand, a green or water
 	var normals := PackedVector3Array()
 	normals.resize(verts.size())
 	normals.fill(Vector3.UP)

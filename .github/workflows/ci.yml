@@ -145,10 +145,7 @@ jobs:
       # can tell when a newer launcher is on main.
       - name: Launcher tests
         run: |
-          # Godot 4.4.1 sometimes segfaults on a first headless import of the
-          # launcher's fonts (main run 557 too); the tests below still have to
-          # pass, so one more try is safe.
-          ~/godot/godot --headless --path launcher --import || ~/godot/godot --headless --path launcher --import
+          ~/godot/godot --headless --path launcher --import
           ~/godot/godot --headless --path launcher -s res://tests/run_tests.gd 2>&1 | tee launcher-tests.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" launcher-tests.log; then exit 1; fi
           grep -q "LAUNCHER TESTS PASSED" launcher-tests.log

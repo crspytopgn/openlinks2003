@@ -859,16 +859,6 @@ STAND_CLIPS = {
     # Standing at ease: weight shifts and breathing (the caddie, the
     # waiting golfers, the gallery). Upright (STAND_UPRIGHT).
     "idle": dict(take="77_02", start=100, end=740, facing=(0.0, 0.0, -1.0), loop=0.5, upright=True),
-    # Standing behind the ball looking down the target line before a full
-    # shot, club in hand, as tour players do before walking in.
-    "survey": dict(take="77_02", start=100, end=400, facing=(0.0, 0.0, -1.0), upright=True, carry=True),
-    # "Fore!": a full shot heading well offline. The free (right) arm points
-    # after the ball, the head turned with it, the club low in the left
-    # hand (POINT_KEYS), as tour players do while the ball is in the air.
-    "fore_right": dict(take="77_02", start=100, end=400, facing=(-0.7, 0.0, -0.7), upright=True, carry=True,
-                       point=(-0.55, 0.3, -0.78)),
-    "fore_left": dict(take="77_02", start=100, end=400, facing=(-0.95, 0.0, 0.3), upright=True, carry=True,
-                      point=(-0.6, 0.3, 0.74)),
     # Crouching behind the ball to read a putt, putter in hand.
     "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
 }
@@ -958,42 +948,6 @@ def fist_pump(rig, rots, poss, root, t, hold_l, local0):
     return rots
 
 
-# (seconds, share of the way to the point): up quickly, held while the
-# ball flies, then down.
-POINT_KEYS = [(0.0, 0.0), (0.35, 1.0), (1.6, 1.0), (2.2, 0.0)]
-POINT_REACH = 0.97  # of the arm's length: nearly straight
-
-
-def fore_point(rig, rots, poss, t, direction, local0):
-    """The right arm pointing along `direction` (POINT_KEYS), the head
-    turned to look the same way."""
-    for (t0, a), (t1, b) in zip(POINT_KEYS, POINT_KEYS[1:]):
-        if t <= t1:
-            u = float(np.clip((t - t0) / (t1 - t0), 0.0, 1.0))
-            w = a + (b - a) * u * u * (3 - 2 * u)
-            break
-    else:
-        w = POINT_KEYS[-1][1]
-    if w <= 0.0:
-        return rots
-    up = np.array([0.0, 1.0, 0.0])
-    shoulder, elbow, hand = (poss[rig.index[n]] for n in ("upperarm_r", "lowerarm_r", "hand_r"))
-    arm = np.linalg.norm(elbow - shoulder) + np.linalg.norm(hand - elbow)
-    target = hand * (1 - w) + (shoulder + direction * arm * POINT_REACH) * w
-    reach_pole(rig, rots, poss, "upperarm_r", "lowerarm_r", "hand_r", target, -up)
-    rots[rig.index["hand_r"]] = rots[rig.index["lowerarm_r"]]
-    # The head after the ball: half the turn in the neck, half in the head.
-    face = rots[rig.index["head"]] @ np.array([0.0, 0.0, -1.0])
-    turn = math.degrees(math.atan2(face[2], face[0]) - math.atan2(direction[2], direction[0]))
-    turn = (turn + 180.0) % 360.0 - 180.0
-    for name in ("neck_01", "head"):
-        spin = pose.rot(up, 0.5 * w * turn)
-        for j in descendants(rig, name):
-            if rots[j] is not None:
-                rots[j] = spin @ rots[j]
-    return fill(rig, rots, local0, keep=True)
-
-
 def stand_upright(rig, poss, root, targets, narrow, lift, ankle_rest):
     """Feet on the ground STAND_GAP apart and the hips at the height that
     leaves the straighter leg at STAND_REACH of its length (STAND_GAP)."""
@@ -1079,9 +1033,6 @@ def retarget_stand(glb, rig, clip, cache):
             curl = 1.0 if (clip.get("carry") and name.endswith("_l")) else 0.35
             if clip.get("pump") and name.endswith("_r"):
                 curl = 1.7  # a fist: tighter than round the grip
-            if clip.get("point") and name.endswith("_r"):
-                # The index finger out, the others curled in.
-                curl = {"index": 0.0, "thumb": 1.0}.get(name.split("_")[0], 2.6)
             relaxed[j] = pose.slerp(np.eye(3), grip_local[j], curl)
     relaxed[rig.index["club"]] = grip_local[rig.index["club"]]  # how it sits in the hand
     club_dir = club_direction(glb, rig)
@@ -1136,9 +1087,6 @@ def retarget_stand(glb, rig, clip, cache):
                 pel = rig.index["pelvis"]
                 hold_l = (rots[pel].T @ (poss[rig.index["hand_l"]] - poss[pel]), rots[pel].T @ rots[rig.index["hand_l"]])
             rots = fist_pump(rig, rots, poss, root, i / fps, hold_l, local0)
-        if clip.get("point"):
-            rots, poss = rig.world(rig.locals(rots), root)
-            rots = fore_point(rig, rots, poss, i / fps, pose.unit(np.array(clip["point"], dtype=float)), local0)
         if clip.get("carry"):
             # The club in the left hand: head low in front, or held up
             # when the hand is raised above the shoulder.
