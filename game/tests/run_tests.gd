@@ -3787,6 +3787,18 @@ func _test_people(parts: GolferParts) -> void:
 			var top: Color = (mat as ShaderMaterial).get_shader_parameter("top")
 			_check(top.r > top.g * 3.0, "the person's shirt is dyed the look's colour")
 	_check(golfer.find_child("RB_%s_cap" % look.person, true, false) != null, "the cap is fitted to the person's head")
+	# Every person's cap band sits on their head (tools/golfer/person_cap.py):
+	# the old stretched cap stood 25 to 35 mm off it in places.
+	for p: Array in PlayerLook.PEOPLE:
+		for style: String in ["cap", "dadcap"]:
+			_check_cap_band(parts, p[0], style)
+	var dad := PlayerLook.default_look()
+	dad.cap_style = "dad"
+	_check(PlayerLook.from_dict(dad.to_dict()).cap_style == "dad", "the cap style is saved with the look")
+	var dad_golfer := FreeGolfer.create(dad)
+	_check(dad_golfer.find_child("RB_%s_dadcap" % dad.person, true, false) != null, "a dad cap look wears the dad cap")
+	_check(dad_golfer.find_child("RB_%s_cap" % dad.person, true, false) == null, "and not the tour cap")
+	dad_golfer.free()
 	_check(golfer.find_child("Body", true, false) == null, "no sculpted body under the person")
 	var skel := golfer.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
 	var joints: Dictionary = people[look.person].joints
@@ -3795,6 +3807,25 @@ func _test_people(parts: GolferParts) -> void:
 	var want := Vector3(joints.head[0], joints.head[1], joints.head[2]) - Vector3(joints.neck_01[0], joints.neck_01[1], joints.neck_01[2])
 	_check(moved.distance_to(want) < 0.001, "the person's own joints fit the skeleton")
 	golfer.free()
+
+
+## The crown's lower edge of a person's cap sits on their head (the old
+## stretched cap stood 25 to 35 mm off it in places).
+func _check_cap_band(parts: GolferParts, person: String, style: String) -> void:
+	var cap_mesh := parts.bake("RB_%s_%s" % [person, style], {})
+	var head_mesh := parts.bake("RB_%s_head" % person, {"cap_press": 1.0})
+	if cap_mesh == null or head_mesh == null:
+		_check(false, "%s has a %s and a head" % [person, style])
+		return
+	var cap_v: PackedVector3Array = cap_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var head_v: PackedVector3Array = head_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var worst := 0.0
+	for k in 60:  # the crown's lower edge (cap.py SEGMENTS)
+		var near := INF
+		for v in head_v:
+			near = minf(near, cap_v[k].distance_to(v))
+		worst = maxf(worst, near)
+	_check(worst < 0.02, "%s's %s band sits on the head (%.1f mm at most)" % [person, style, worst * 1000.0])
 
 
 func _test_player_looks() -> void:

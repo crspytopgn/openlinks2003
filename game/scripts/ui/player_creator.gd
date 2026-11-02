@@ -313,6 +313,8 @@ func _build_clothes_tab() -> void:
 	_cap_note.text = "The cap is left off with this hair style."
 	_cap_note.modulate = Color(1, 1, 1, 0.6)
 	box.add_child(_cap_note)
+	_choices(box, PlayerLook.CAP_STYLES, PlayerLook.CAP_STYLE_NAMES,
+		func() -> String: return look.cap_style, func(v: String) -> void: look.cap_style = v)
 	_swatches(box, PlayerLook.CLOTH_COLOURS, func() -> Color: return look.cap_colour,
 		func(c: Color) -> void: look.cap_colour = c)
 
