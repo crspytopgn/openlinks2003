@@ -6,8 +6,9 @@ extends GolferRig
 ## are in the glTF written by tools/golfer/build_free_golfer.py, moving with
 ## motion capture retargeted by tools/golfer/mocap_swing.py: the address
 ## (with a look at the target), swing, putt, walk and reactions. At each new
-## ball the golfer walks up to it before settling over it; on the green they
-## first crouch behind the ball to read the putt. GolferFeet plants the feet
+## ball the golfer takes the club from the stand bag, walks round behind the
+## ball to look down the line and steps in; on the green they first crouch
+## behind the ball to read the putt. GolferFeet plants the feet
 ## on slopes, GolferLook turns the head to follow the ball and
 ## GolferHands keeps the right hand on the club for any body shape;
 ## GolferArms keeps the arms out of a deeper chest than the mocap actor's.
@@ -42,6 +43,16 @@ const READ_SPOT := Vector3(1.3, 0.0, 0.35)
 ## screen.
 const SURVEY_SPOT := Vector3(1.1, 0.0, 0.5)
 const SURVEY_TIME := 1.6
+## Taking the club from the stand bag (pull_club, mocap_swing.py PULL_KEYS):
+## the golfer stands on the bag's pocket side facing the way it leans, the
+## bag's foot at PULL_BAG_FOOT in the rig's frame (as in the bake), lifts a
+## club out by the shaft under its head (they stand heads up) and takes the
+## grip in the left hand. The club shows from PULL_GRAB s, when the right
+## hand closes on it.
+## A bag further than PULL_MAX from the address spot is left alone.
+const PULL_BAG_FOOT := Vector3(0.40, 0.0, 0.06)
+const PULL_GRAB := 0.62
+const PULL_MAX := 6.0
 ## Where the club meets the ball, seconds into the clip at normal speed:
 ## swing and swing_iron start at the top (mocap_swing.py downswing), the
 ## putt at address (back + downswing).
@@ -85,6 +96,11 @@ var _putting := false
 ## height (it is scaled about the ball).
 var _rest := Vector3.ZERO
 var _walk: Tween
+var _bag: Node3D
+## Taking the club from the bag or walking from it (busy()).
+var _busy := false
+## Which way he faces walking from the bag (rotation.y, unwrapped).
+var _walk_yaw := 0.0
 var _last_spot := Vector3.INF
 var _look: GolferLook
 ## This golfer's swing tempo (TEMPO_MIN..TEMPO_MAX), from the look.
@@ -574,36 +590,54 @@ func set_ground(height: Callable, sink: float = 0.0) -> void:
 		_feet.sink = sink
 
 
+func set_bag(bag: Node3D) -> void:
+	_bag = bag
+
+
+func busy() -> bool:
+	return _busy
+
+
 ## Walks forward to the address spot, then settles into the clip. Before a
 ## putt the golfer reads it first, crouched behind the ball looking down the
 ## line; before a full shot he stands behind the ball looking at the target.
 func _walk_in(clip: StringName) -> void:
 	_walk = create_tween()
+	_busy = false
 	# The stride and the walk across the ground at the same pace, so the
 	# feet don't slide.
 	var pace := 1.0 + _rng.randf_range(-SPEED_JITTER, SPEED_JITTER)
 	var from := Vector3(0, 0, WALK_FROM)
-	if clip == &"address_putt" and _player.has_animation(&"read"):
+	var putt := clip == &"address_putt"
+	var last := 0.0  # which way he walks in (rotation.y, unwrapped)
+	if putt and _player.has_animation(&"read"):
 		_model.position = _rest + READ_SPOT
 		_model.rotation.y = PI / 2.0  # facing the hole (-x)
 		_play(&"read", BLEND_TIME)
 		_walk.tween_interval(_player.get_animation(&"read").length - WALK_SETTLE)
 		from = READ_SPOT
 		var heading := -from.normalized()
-		var yaw := atan2(-heading.x, -heading.z)
+		last = atan2(-heading.x, -heading.z)
 		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
-		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
-	elif _player.has_animation(&"survey"):
-		# Behind the ball looking down the target line, then in.
-		_model.position = _rest + SURVEY_SPOT
-		_model.rotation.y = PI / 2.0
-		_play(&"survey", BLEND_TIME)
+		_walk.tween_property(_model, "rotation:y", last, WALK_SETTLE)
+	elif not putt and _player.has_animation(&"survey"):
+		# The club from the bag and round behind the ball, or there already;
+		# then looking down the target line, and in.
+		var turned := PI / 2.0
+		if _pull_club(pace):
+			_walk.tween_callback(func() -> void: _play(&"survey", WALK_SETTLE))
+			turned = _near_yaw(_walk_yaw, PI / 2.0)
+			_walk.tween_property(_model, "rotation:y", turned, WALK_SETTLE)
+		else:
+			_model.position = _rest + SURVEY_SPOT
+			_model.rotation.y = PI / 2.0
+			_play(&"survey", BLEND_TIME)
 		_walk.tween_interval(SURVEY_TIME + _rng.randf_range(-SURVEY_JITTER, SURVEY_JITTER))
 		from = SURVEY_SPOT
 		var heading := -from.normalized()
-		var yaw := atan2(-heading.x, -heading.z)
+		last = _near_yaw(turned, atan2(-heading.x, -heading.z))
 		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
-		_walk.tween_property(_model, "rotation:y", yaw, WALK_SETTLE)
+		_walk.tween_property(_model, "rotation:y", last, WALK_SETTLE)
 	else:
 		_model.position = _rest + from
 		_play(&"walk", BLEND_TIME, pace)
@@ -611,13 +645,74 @@ func _walk_in(clip: StringName) -> void:
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(clip):
 			_play(clip, WALK_SETTLE))
-	_walk.tween_property(_model, "rotation:y", 0.0, WALK_SETTLE)
+	_walk.tween_property(_model, "rotation:y", _near_yaw(last, 0.0), WALK_SETTLE)
+
+
+## Stands the golfer at the bag and has him draw the club out of it
+## (pull_club), then walk to the survey spot behind the ball. False (and
+## nothing done) without a bag nearby or the clip.
+func _pull_club(pace: float) -> bool:
+	if _bag == null or not is_instance_valid(_bag) or not _bag.visible or not _bag.is_inside_tree() \
+			or not _player.has_animation(&"pull_club"):
+		return false
+	var spot := pull_spot(global_transform.affine_inverse() * _bag.global_transform, _model.scale.x)
+	var at := Vector3(spot.origin.x, _rest.y, spot.origin.z)
+	if at.distance_to(_rest) > PULL_MAX:
+		return false
+	var yaw := spot.basis.get_euler().y
+	_model.position = at
+	_model.rotation.y = yaw
+	_hide_clubs()
+	_play(&"pull_club", BLEND_TIME)
+	var speed := _speed
+	_walk.tween_interval(PULL_GRAB / speed)
+	_walk.tween_callback(func() -> void: _show_putter(_putting))
+	_walk.tween_interval(maxf(0.0, (_player.get_animation(&"pull_club").length - PULL_GRAB) / speed - WALK_SETTLE))
+	# Round to the survey spot, turning as he sets off.
+	var to := _rest + SURVEY_SPOT
+	var heading := to - at
+	heading.y = 0.0
+	var walk_yaw := _near_yaw(yaw, atan2(-heading.x, -heading.z))
+	_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
+	_walk.tween_property(_model, "rotation:y", walk_yaw, WALK_SETTLE)
+	_walk.tween_property(_model, "position", to, heading.length() / (WALK_SPEED * pace))
+	_walk_yaw = walk_yaw
+	_busy = true
+	_walk.tween_callback(func() -> void: _busy = false)
+	return true
+
+
+## Where the golfer stands to take a club from a bag at `bag` (the bag's
+## transform in this golfer's frame) and which way he faces: the bag's foot
+## at PULL_BAG_FOOT (times the model's `size`) in his frame, at his right
+## front, facing the way the bag leans (its -z), as in the baked clip.
+static func pull_spot(bag: Transform3D, size: float) -> Transform3D:
+	var lean := -bag.basis.z
+	lean.y = 0.0
+	if lean.length_squared() < 1e-6:
+		lean = Vector3.FORWARD
+	lean = lean.normalized()
+	var b := Basis(Vector3.UP, atan2(-lean.x, -lean.z))
+	return Transform3D(b, bag.origin - b * (PULL_BAG_FOOT * size))
+
+
+## `yaw` turned by whole turns to within half a turn of `from`, so a tween
+## between them takes the short way round.
+static func _near_yaw(from: float, yaw: float) -> float:
+	return from + angle_difference(from, yaw)
+
+
+## Empty-handed on the way to the bag.
+func _hide_clubs() -> void:
+	for node in _driver + _iron_meshes + _putter:
+		node.visible = false
 
 
 func _stop_walk() -> void:
 	if _walk and _walk.is_valid():
 		_walk.kill()
 	_walk = null
+	_busy = false
 	if _model:
 		_model.position = _rest
 		_model.rotation.y = 0.0

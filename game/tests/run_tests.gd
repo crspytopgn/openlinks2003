@@ -3354,8 +3354,23 @@ func _test_free_golfer() -> void:
 	_check(golfer != null, "free_golfer.glb loads with an AnimationPlayer")
 	if golfer == null:
 		return
-	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"survey", &"fore_left", &"fore_right", &"address_iron", &"backswing_iron", &"swing_iron"]:
+	for anim_name in [&"address", &"address_putt", &"backswing", &"swing", &"putt", &"celebrate", &"fist_pump", &"slump", &"upset", &"walk", &"idle", &"read", &"survey", &"fore_left", &"fore_right", &"address_iron", &"backswing_iron", &"swing_iron", &"pull_club"]:
 		_check(golfer.has_animation(anim_name), "free golfer has %s" % anim_name)
+	# Taking the club from the stand bag: he stands so the bag's foot is
+	# where it was in the bake, facing the way the bag leans, wherever the
+	# bag was set down; a bag across the course is left alone.
+	var ball_at := Vector3(0.0, 0.0, -0.75)
+	var bag_at := ball_at + Vector3(0, 0, 1) * StandBag.BEHIND_M + Vector3(-1, 0, 0) * StandBag.AHEAD_M
+	var bag_xf := Transform3D(Basis.looking_at((bag_at - ball_at).normalized(), Vector3.UP), bag_at)
+	var at_bag := FreeGolfer.pull_spot(bag_xf, 1.0)
+	var lean := -bag_xf.basis.z
+	lean.y = 0.0
+	_check((at_bag * FreeGolfer.PULL_BAG_FOOT).distance_to(bag_at) < 1e-4
+			and (at_bag.basis * Vector3.FORWARD).dot(lean.normalized()) > 0.9999,
+			"at the bag he stands with it at his right front, facing the way it leans")
+	_check(at_bag.origin.distance_to(Vector3.ZERO) < FreeGolfer.PULL_MAX and at_bag.origin.z > 0.5,
+			"the bag spot is a few steps behind his address (%.2f m)" % at_bag.origin.length())
+	_check(not golfer.busy(), "a golfer not walking in is not busy")
 	# Tempo: each look its own, the same every time, within the tour range;
 	# the ball waits for the club (the swing starts at the top).
 	var quick := PlayerLook.new()
