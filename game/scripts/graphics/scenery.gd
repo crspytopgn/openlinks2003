@@ -56,6 +56,9 @@ const ROUND_TIMES := [[0.0, "morning"], [0.35, "midday"], [0.7, "afternoon"], [1
 var environment: Environment
 var sun: DirectionalLight3D
 var backdrop: CourseBackdrop
+## The hills and woods beyond a course with no horizon panorama, or null.
+var far: FarScenery
+var _quality := GraphicsSettings.Quality.HIGH
 var _free_sky: Material  ## the photographed sky (FreeAssets), or null
 var _backdrop_sky: Material  ## the plain sky behind the course's backdrop
 var _photo := false
@@ -204,6 +207,9 @@ func apply(settings: GraphicsSettings) -> void:
 	environment.ssr_max_steps = 48
 	environment.fog_aerial_perspective = 0.5 if photo else 0.3
 	_photo = photo
+	_quality = settings.quality
+	if far != null:
+		far.apply_quality(_quality)
 	_time_setting = settings.time_of_day
 	_apply_time()
 	_sun_energy = sun.light_energy
@@ -248,10 +254,33 @@ func set_backdrop(horizon: Image, course_sky := 0) -> void:
 	_choose_sky()
 
 
+## Puts the far hills and woods round `course` when it has no horizon
+## panorama of its own (its own panorama already shows the land round it).
+func set_far_scenery(course: CourseData) -> void:
+	if far != null:
+		far.queue_free()
+		far = null
+	if course == null or course.horizon != null:
+		return
+	far = FarScenery.create(course)
+	if far == null:
+		return
+	add_child(far)
+	far.apply_quality(_quality)
+	_choose_sky()
+
+
 ## Photoreal lighting shows the photographed cloud sky with distance haze
 ## behind the course's horizon instead of the disc's sky, unless the player
-## picked a sky; Classic keeps the course's own.
+## picked a sky; Classic keeps the course's own. The far scenery fades into
+## the same haze.
 func _choose_sky() -> void:
+	_pick_sky()
+	if far != null:
+		far.set_haze(environment.fog_light_color, environment.fog_density, 1.0 if _photo else 2.2)
+
+
+func _pick_sky() -> void:
 	var real := _photo and _free_sky != null and not (backdrop != null and backdrop.chosen and backdrop.has_sky)
 	_apply_weather()
 	if backdrop != null:

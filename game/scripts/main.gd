@@ -451,6 +451,7 @@ func start_round() -> void:
 	hud.hand_over.close()
 	card = scoring.cards[0]
 	scenery.set_backdrop(course.horizon, course.sky)
+	scenery.set_far_scenery(course)
 	if ambience != null:
 		ambience.queue_free()
 		ambience = null

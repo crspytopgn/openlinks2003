@@ -59,7 +59,12 @@ with verdicts) are in `unusual-graphics-ideas.md`.
    melts into haze, with distant hills and treelines. Ours are flat, low
    panoramas with hard edges. Plan: layered haze (aerial perspective on
    terrain and trees), far terrain and treeline cards, and skies matched to
-   the sun.
+   the sun. Done for courses without a horizon panorama (Kettle Hollow,
+   designed and real courses): `FarScenery` draws four rings of wooded
+   hills and farmland round the course, each hazier than the one in front,
+   with their feet lost in ground haze (calibrated on Geograph photos of
+   Knole Park and Sundridge Park). Low quality draws two rings, Medium
+   three, High and Ultra four with crown detail on the near ones.
 8. **Crowd and props (realism lead, product lead).** 2K25 has 3D crowds,
    grandstands, ropes, signage and tee markers. Plan: varied 3D crowd
    meshes (CC0) close to the camera and cards further out, plus ropes,
