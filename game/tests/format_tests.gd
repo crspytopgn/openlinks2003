@@ -19,6 +19,7 @@ func run_all() -> Array[String]:
 	_test_d3f()
 	_test_hud_art()
 	_test_backdrop()
+	_test_far_scenery()
 	_test_env_sound()
 	_test_ambience_loop()
 	return failures
@@ -745,6 +746,40 @@ func _test_backdrop() -> void:
 	var mean := CourseBackdrop._row_mean(img, 0, 4)
 	# RGBA8 rounds 0.5 to 128/255.
 	check(absf(mean.r - 0.2) < 0.01 and absf(mean.g - 0.5) < 0.01 and absf(mean.b - 0.2) < 0.01, "backdrop colour")
+
+
+func _test_far_scenery() -> void:
+	# The rings stand beyond the course, nearest first, and inside the
+	# round camera's far plane from the course's farthest corner, even for
+	# a big one (Kettle Hollow's ground is 1,100 m from middle to corner).
+	for half in [300.0, 1100.0, 1400.0]:
+		var r := FarScenery.radii(half)
+		check(r[0] > half + 200.0, "far scenery beyond the course (%d m)" % half)
+		if half <= 1100.0:
+			check(r[r.size() - 1] + half < FarScenery.CAMERA_FAR, "far scenery inside the far plane (%d m)" % half)
+		for i in r.size() - 1:
+			check(r[i + 1] > r[i], "far scenery rings in order (%d m)" % half)
+	# Each ring's outline wraps round without a step, and has hills and
+	# crowns, not a flat line.
+	var img := FarScenery.profiles(7, FarScenery.radii(800.0))
+	check(img.get_width() == FarScenery.PROFILE_WIDTH and img.get_height() == FarScenery.LAYERS.size(), "far scenery profile size")
+	for y in img.get_height():
+		var a := img.get_pixel(0, y).r
+		var b := img.get_pixel(img.get_width() - 1, y).r
+		check(absf(a - b) < 0.06, "far scenery ring %d wraps (%.3f, %.3f)" % [y, a, b])
+		var lo := 1.0
+		var hi := 0.0
+		for x in range(0, img.get_width(), 8):
+			lo = minf(lo, img.get_pixel(x, y).r)
+			hi = maxf(hi, img.get_pixel(x, y).r)
+		check(hi - lo > 0.3, "far scenery ring %d has hills (%.2f to %.2f)" % [y, lo, hi])
+	# Farther rings are hazier, and thicker fog makes them all hazier.
+	var last := 0.0
+	for l: Dictionary in FarScenery.LAYERS:
+		var h := FarScenery.distance_haze(0.00042, l.air)
+		check(h > last and h < 0.9, "far scenery haze grows with distance")
+		last = h
+	check(FarScenery.distance_haze(0.0009, 2000.0) > FarScenery.distance_haze(0.0004, 2000.0), "far scenery haze follows the fog")
 
 
 func _test_env_sound() -> void:
