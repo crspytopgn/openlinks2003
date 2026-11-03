@@ -57,7 +57,8 @@ at Medium and grass at Low.
   warm sun against fill about a fifth as bright (from the sky on Forward+,
   a 60% stronger flat fill on Compatibility, as real shade is far lighter
   than ours measured), a sky-coloured shade fill on the ground, rough and
-  fescue in Compatibility (`shade_fill`, `Scenery._update_shade_fill`:
+  fescue (`shade_fill`, `Scenery._update_shade_fill`; on Forward+ too,
+  more gently, as its own shade was also near black under trees:
   even skylight added as emission and the lit albedo scaled to match, so
   sunlit turf keeps its brightness while tree shade reads about 55% as
   bright as sun, a darker, bluer green, as in real photos, where its tone
