@@ -96,8 +96,10 @@ HOLES = [
          tilt=(1.7, -0.7), tier=(0.45, 0.4), seed=97),
 ]
 STROKE_INDEX = [7, 3, 15, 5, 13, 1, 17, 9, 11]
-# Forward of the back tee, the middle and forward tees, in metres.
-TEE_STEPS = {3: (14, 30), 4: (26, 58), 5: (30, 66)}
+# Forward of the back tee, the middle and forward tees, in metres. Each tee
+# is its own raised pad with mown grass between, so the steps leave a gap of
+# 6 m or more between pads (their banks meet but don't overlap the tops).
+TEE_STEPS = {3: (22, 40), 4: (26, 58), 5: (30, 66)}
 
 
 # --- Elevation --------------------------------------------------------------
@@ -223,7 +225,7 @@ def build(dem, mpp):
             p, d = h.at(step)
             # Each tee a little off the line, as real ones are staggered.
             p = p + right_of(d) * rng.uniform(-2.5, 2.5) * (k > 0)
-            length = (16, 13, 10)[k] if h.par > 3 else (20, 16, 12)[k]
+            length = (16, 13, 10)[k] if h.par > 3 else (16, 13, 11)[k]
             pad = geom.rounded_rect(p, length, (10, 9, 8)[k], math.atan2(d[1], d[0]), spec["seed"] * 7 + k)
             shapes.append((TEE, pad))
             h.tees.append(p)
@@ -355,15 +357,19 @@ def build(dem, mpp):
             height[box] += 1.1 * np.exp(-r * 1.5)
 
     for pad, p in tee_list:
-        # Tee pads: level, 0.4 m proud, with banks about 1 in 4.
+        # Tee complexes are graded before the pads go on: the ground under
+        # and round each one is eased toward the 20 m blur, so a pad never
+        # sits on a lump. The pad itself (level top, raised, mown banks) is
+        # built by the game from the tee's outline (TeePads), so courses made
+        # in the designer get the same pads.
         poly = geom.outline(pad)
-        box = (np.abs(X - p[0]) < 25) & (np.abs(Z - p[1]) < 25)
+        box = (np.abs(X - p[0]) < 30) & (np.abs(Z - p[1]) < 30)
         xs, zs = X[box], Z[box]
         sd = geom.signed_distance(poly, xs, zs)
-        here = height[box]
-        level = here[sd < 0].mean() + 0.4 if (sd < 0).any() else here.mean()
-        w = 1.0 - geom.smoothstep(0.0, 3.5, sd)
-        height[box] = here * (1 - w) + level * w
+        w = 0.8 * (1.0 - geom.smoothstep(2.0, 12.0, sd))
+        height[box] = height[box] * (1 - w) + smooth[box] * w
+
+    add_mounding(holes, shapes, X, Z, height)
 
     for h in holes:
         if h.pond is None:
@@ -431,6 +437,66 @@ def build(dem, mpp):
     objects = place_trees(holes, shapes, X, Z, height, area)
 
     return holes, shapes, paths, objects, area, cols, rows, height
+
+
+# Mounding: parkland courses roll between the holes. Framing mounds sit in
+# the rough off the fairway edges, a metre or so high and long along the
+# hole, with sides kept at 1 in 4 or gentler so they can be mown; the
+# ground between the holes gets soft hummocks. Nothing rises within a few
+# metres of a fairway, green, tee, bunker or pond, so those still play as
+# graded.
+MOUND_HEIGHT = (0.8, 1.9)  # metres
+MOUND_ALONG = (9.0, 15.0)  # metres, Gaussian sigma along the hole
+MOUND_ACROSS = (6.0, 9.0)  # metres, across it
+MOUND_SPACING = (38.0, 62.0)  # metres between mounds along a hole
+MOUND_CLEAR = (3.0, 18.0)  # metres off the playing surfaces: none, then full height
+
+
+def add_mounding(holes, shapes, X, Z, height):
+    rng = np.random.default_rng(1928)
+    # Distance to the nearest playing surface.
+    clear = np.full(X.shape, np.inf)
+    for surf, pts in shapes:
+        if surf not in (FAIRWAY, GREEN, TEE, SAND, WATER):
+            continue
+        poly = geom.outline(pts)
+        lo = poly.min(0) - MOUND_CLEAR[1]
+        hi = poly.max(0) + MOUND_CLEAR[1]
+        m = (X >= lo[0]) & (X <= hi[0]) & (Z >= lo[1]) & (Z <= hi[1])
+        clear[m] = np.minimum(clear[m], geom.signed_distance(poly, X[m], Z[m]))
+    near = np.full(X.shape, np.inf)
+    for h in holes:
+        d, _ = geom.polyline_distance(h.line, X, Z)
+        near = np.minimum(near, d)
+
+    mound = np.zeros(X.shape)
+    count = 0
+    for h in holes:
+        spec = h.spec
+        half = spec["fw"][0] * 0.5 if spec["fw"] is not None else 15.0
+        s = rng.uniform(55.0, 80.0)
+        side = rng.choice((-1.0, 1.0))
+        while s < h.length - 25.0:
+            p, d = h.at(s)
+            if rng.random() < 0.7:
+                side = -side
+            c = p + right_of(d) * side * (half + rng.uniform(10.0, 22.0))
+            amp = rng.uniform(*MOUND_HEIGHT)
+            sa, sc = rng.uniform(*MOUND_ALONG), rng.uniform(*MOUND_ACROSS)
+            ang = math.atan2(d[1], d[0]) + rng.uniform(-0.3, 0.3)
+            box = (np.abs(X - c[0]) < sa * 3.2) & (np.abs(Z - c[1]) < sa * 3.2)
+            lx = (X[box] - c[0]) * math.cos(ang) + (Z[box] - c[1]) * math.sin(ang)
+            lz = -(X[box] - c[0]) * math.sin(ang) + (Z[box] - c[1]) * math.cos(ang)
+            mound[box] += amp * np.exp(-0.5 * ((lx / sa) ** 2 + (lz / sc) ** 2))
+            count += 1
+            s += rng.uniform(*MOUND_SPACING)
+    # Hummocks between the holes, away from the lines of play.
+    between = geom.smoothstep(32.0, 60.0, near)
+    hummock = (0.55 * geom.value_noise(X, Z, 34.0, 41) + 0.25 * geom.value_noise(X, Z, 16.0, 42)) * between
+    add = (mound + hummock) * geom.smoothstep(*MOUND_CLEAR, clear)
+    gz, gx = np.gradient(add, CELL)
+    print(f"mounding: {count} mounds, highest {add.max():.2f} m, steepest added slope {np.hypot(gx, gz).max() * 100:.0f} %")
+    height += add
 
 
 def place_trees(holes, shapes, X, Z, height, area):

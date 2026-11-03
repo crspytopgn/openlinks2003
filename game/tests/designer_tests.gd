@@ -24,7 +24,99 @@ func run_all() -> Array[String]:
 	_test_bad_files()
 	_test_water_surface()
 	_test_splat_and_stakes()
+	_test_tee_pads()
 	return failures
+
+
+## Tee boxes are raised level pads with mown banks, and the ball plays the
+## same triangles that are drawn.
+func _test_tee_pads() -> void:
+	var c := DesignedCourse.blank(Vector2(200, 200))
+	# Ground falling 6 % toward -z, as on a hillside.
+	for j in c.rows:
+		for i in c.cols:
+			c.heights[j * c.cols + i] = 0.06 * c.sample_pos(i, j).y
+	var t := DesignedTerrain.new(c)
+	var tee := CourseShape.oval(Surface.Type.TEE, Vector2(0, 0), Vector2(7, 4.5), 0.3, 12)
+	c.shapes.append(tee)
+	t.update_surfaces(tee.bounds())
+	var level := TeePads.level_of(c, tee)
+	check(t._pads.pads.size() == 1, "one tee pad insert")
+	for p in [Vector2(0, 0), Vector2(3, 1), Vector2(-4, -1), Vector2(1, -2.5)]:
+		check(absf(t.height_at(p.x, p.y) - level) < 0.005, "the tee top is level at %s" % p)
+	check(absf(level - c.base_height(0, 0) - TeePads.RAISE) < 0.08, "raised about %.2f m above the ground" % TeePads.RAISE)
+	# Down each side from the edge: a clean shoulder, banks no steeper than
+	# 1 in 3, and the ground untouched beyond the bank.
+	for dir in [Vector2(0, -1), Vector2(0, 1), Vector2(1, 0), Vector2(-1, 0), Vector2(0.7, -0.7)]:
+		var edge := Vector2.ZERO
+		while tee.signed_distance(edge) < 0.0:
+			edge += dir * 0.02
+		var steepest := 0.0
+		var prev := t.height_at(edge.x, edge.y)
+		for k in range(1, 70):
+			var q: Vector2 = edge + dir * (k * 0.1)
+			var y := t.height_at(q.x, q.y)
+			steepest = maxf(steepest, absf(y - prev) / 0.1)
+			prev = y
+		check(steepest <= 0.34, "bank no steeper than 1 in 3 toward %s (%.2f)" % [dir, steepest])
+		var far: Vector2 = edge + dir * (TeePads.REACH + 0.5)
+		check(absf(t.height_at(far.x, far.y) - c.base_height(far.x, far.y)) < 0.002, "ground untouched beyond the bank")
+		if dir == Vector2(0, -1):
+			var below: Vector2 = edge + dir
+			check(t.height_at(below.x, below.y) < level - 0.15, "a clean drop off the low side's shoulder")
+	# The insert joins the grid with no step.
+	var pad: TeePads.Pad = t._pads.pads[0]
+	var lo := c.sample_pos(pad.cells.position.x, pad.cells.position.y)
+	var hi := c.sample_pos(pad.cells.end.x, pad.cells.end.y)
+	var worst := 0.0
+	for k in 41:
+		var f := k / 40.0
+		for e in [[Vector2(lerpf(lo.x, hi.x, f), lo.y), Vector2(0, 1)], [Vector2(lerpf(lo.x, hi.x, f), hi.y), Vector2(0, -1)],
+				[Vector2(lo.x, lerpf(lo.y, hi.y, f)), Vector2(1, 0)], [Vector2(hi.x, lerpf(lo.y, hi.y, f)), Vector2(-1, 0)]]:
+			var a: Vector2 = e[0] + e[1] * 0.01
+			var b: Vector2 = e[0] - e[1] * 0.01
+			worst = maxf(worst, absf(t.height_at(a.x, a.y) - t.height_at(b.x, b.y)))
+	check(worst < 0.003, "the pad joins the ground round it (%.4f m)" % worst)
+	var missed := 0
+	for k in 400:
+		var q := Vector2(lerpf(lo.x, hi.x, randf()), lerpf(lo.y, hi.y, randf()))
+		if is_nan(pad.height_at(q)):
+			missed += 1
+	check(missed == 0, "the ball finds the pad's triangles everywhere on it (%d missed)" % missed)
+	# What is drawn is what the ball plays: every vertex and triangle middle
+	# of the ground mesh over the pad is at height_at().
+	var off := 0.0
+	var covered := 0.0
+	var backwards := 0
+	var n := t.chunk_count()
+	for cj in n.y:
+		for ci in n.x:
+			var arrays := t.chunk_mesh(Vector2i(ci, cj)).surface_get_arrays(0)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for k in range(0, idx.size(), 3):
+				var m := (verts[idx[k]] + verts[idx[k + 1]] + verts[idx[k + 2]]) / 3.0
+				if m.x < lo.x or m.x > hi.x or m.z < lo.y or m.z > hi.y:
+					continue
+				off = maxf(off, absf(t.height_at(m.x, m.z) - m.y))
+				var ab := Vector2(verts[idx[k + 1]].x - verts[idx[k]].x, verts[idx[k + 1]].z - verts[idx[k]].z)
+				var ac := Vector2(verts[idx[k + 2]].x - verts[idx[k]].x, verts[idx[k + 2]].z - verts[idx[k]].z)
+				covered += absf(ab.cross(ac)) * 0.5
+				if ab.cross(ac) < 0.0:
+					backwards += 1
+				for e in 3:
+					var v := verts[idx[k + e]]
+					off = maxf(off, absf(t.height_at(v.x, v.z) - v.y))
+	check(off < 0.001, "the drawn tee is the one the ball plays (%.4f m)" % off)
+	check(backwards == 0, "every triangle over the pad faces up (%d face down)" % backwards)
+	var rect_area := (hi.x - lo.x) * (hi.y - lo.y)
+	check(absf(covered - rect_area) < rect_area * 0.001, "the ground over the pad has no holes (%.1f of %.1f m2)" % [covered, rect_area])
+	# Moving the tee moves its pad.
+	var old := tee.bounds()
+	tee.translate(Vector2(40, 0))
+	t.update_surfaces(old.merge(tee.bounds()))
+	check(absf(t.height_at(0, 0) - c.base_height(0, 0)) < 0.002, "a moved tee leaves the ground as it was")
+	check(absf(t.height_at(40, 0) - TeePads.level_of(c, tee)) < 0.005, "and its pad goes with it")
 
 
 ## The ground's splat map is the surface raster, and ponds get stakes.

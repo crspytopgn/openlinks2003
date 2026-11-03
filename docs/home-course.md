@@ -57,7 +57,8 @@ beside the first tee.
 | 9 | 5 | 517 | Dogleg left past a pond, home |
 
 Each hole has three tee boxes (back, middle and forward, 26 to 66 m apart
-on the 4s and 5s), staggered a little off the line, as real ones are. The
+on the 4s and 5s, 22 and 40 m on the 3s), staggered a little off the line,
+as real ones are. The
 stroke index follows difficulty (6 and 2, the long dogleg 4s, are 1 and 3).
 
 ## Shapes and figures
@@ -69,7 +70,8 @@ template.
 
 | Feature | What it is | Figures used |
 |---|---|---|
-| Tees | Rounded rectangles (superellipses), 8 to 10 m wide, 10 to 20 m long, raised 0.4 m with 1-in-4 banks | Typical tee pads |
+| Tees | Rounded rectangles (superellipses), 8 to 10 m wide, 10 to 16 m long, each its own pad 6 m or more from the next; the game raises each 0.45 m as a level platform with a clean shoulder and 1-in-4 banks (`TeePads`, see course-designer.md) | USGA: tee banks 1 in 3 or gentler for mowing; tee complexes graded into the ground a few metres round |
+| Mounding | 53 framing mounds 0.8 to 1.9 m high in the rough 10 to 22 m off the fairway edges, long along the hole (Gaussian, 9 to 15 m along, 6 to 9 m across), every 38 to 62 m; soft hummocks (about 0.5 m) between the holes; nothing rises within 3 m of a fairway, green, tee, bunker or pond, and the added slope is at most 22 % (1 in 4.5) | Parkland framing mounds, kept mowable |
 | Fairways | Ribbons along the line with edges that wander independently and rounded ends; from about 120 m off the back tee to the green front | 34 to 36 m (37 to 39 yd) in the landing zone, narrowing to 23 to 25 m at the approach |
 | Rough | A band of semi-rough about 15 m either side of the fairway, deep rough beyond | First cut and intermediate rough as mown on parkland courses |
 | Greens | Organic pear shapes, long along the approach | 484 to 624 square metres (5,200 to 6,700 sq ft; the US average is about 6,000) |

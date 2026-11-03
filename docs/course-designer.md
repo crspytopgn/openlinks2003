@@ -90,10 +90,23 @@ browser's own storage for the site). **Open** lists the saved courses.
 `CourseTerrain` the round plays on:
 
 - **Heights** come from the sculpted grid (one sample every 2 m, bilinear
-  between them), then the areas shape them: tee boxes become level pads
-  0.25 m above their mean height, blended over 3 m; bunkers are dug 0.7 m in
+  between them), then the areas shape them: bunkers are dug 0.7 m in
   with a 2 m lip; ponds are sunk below a water line 0.3 m under the lowest
-  point of their bank.
+  point of their bank; tee boxes become raised pads (below).
+- **Tee pads** (`TeePads`, `game/scripts/designer/tee_pads.gd`): each tee
+  is a level platform 0.45 m above the mean ground round its edge, mown out
+  to a shoulder that rounds over in 0.4 m, with banks at 1 in 4 (the USGA's
+  limit for mowable tee banks is 1 in 3) that are built up on the low side
+  of a slope and cut in on the high side, and ease into the ground within
+  6.5 m. A bank that sharp falls between the 2 m grid points, so the grid
+  cells under each tee (or each group of tees whose banks meet) are cut out
+  of the ground mesh and replaced by an insert: rings of points every 0.6 m
+  following the outline down the bank, triangulated. `height_at()` reads
+  the insert's own triangles, so the ball plays exactly the surface that is
+  drawn (designer_tests checks every vertex and triangle middle to 1 mm,
+  that the insert has no holes and that it meets the grid with no step).
+  The insert's edge is made of grid vertices beyond any bank, so it joins
+  the ground round it seamlessly.
 - **Surfaces** come from a raster of the areas at 0.5 m, painted in layer
   order whatever order they were drawn in: deep rough, out of bounds, rough,
   fairway, fringe, tee, green, sand, water (later layers cover earlier ones).
