@@ -1,29 +1,29 @@
 class_name BallTracer
 extends MeshInstance3D
-## The TV shot tracer: a glowing ribbon along the ball's path that always
+## The TV shot tracer: a thin line along the ball's path that always
 ## faces the camera, widening with distance so it reads from anywhere, and
-## fading towards the tail. A soft halo that falls off to nothing at its
-## edges, a hot core and a flare at the ball, as TV and PGA Tour 2K25
-## tracers draw it. Plain unshaded vertex colours blended over the picture
-## (added light washes out to white against a bright sky), so it draws the
-## same on Forward+ and Compatibility; the core goes a little past full so
-## the Forward+ glow blooms it.
+## fading towards the tail. A solid core in a narrow soft edge, with only a
+## small soft dot at the ball, as Toptracer draws it on TV: no neon halo or
+## fireball, which read as an arcade effect. Plain unshaded vertex colours
+## blended over the picture (added light washes out to white against a
+## bright sky), so it draws the same on Forward+ and Compatibility, and it
+## stays under full brightness so the Forward+ glow doesn't bloom it.
 
 const COLOR := Color(1.0, 0.32, 0.18)
-const CORE := Color(1.0, 0.85, 0.55)
+const CORE := Color(1.0, 0.62, 0.45)  ## a red line with a lighter middle, not a white-hot one
 ## Width grows with distance from the camera, so the line keeps the same
 ## few pixels on screen near and far, as TV tracers do (about a 4 px core in
 ## a 14 px halo at 720p). The floor only stops it vanishing right at the
 ## lens; a wide floor drew a thick bar up the middle of the chase cam.
 const MIN_WIDTH := 0.004
 const WIDTH_PER_METRE := 0.003  ## half-width of the core, per metre from the camera
-const HALO := 3.0  ## the halo's half-width, in core half-widths
-const HEAD_FLARE := 3.0  ## the flare's radius at the ball, in core half-widths
+const HALO := 1.8  ## the soft edge's half-width, in core half-widths
+const HEAD_FLARE := 1.6  ## the dot's radius at the ball, in core half-widths
 const MIN_STEP_M := 0.05  ## closer samples are dropped (they flip the ribbon)
 const MAX_POINTS := 400  ## older samples are skipped evenly beyond this
 
 ## The ribbon's colours and width; set_style changes them (the Tour
-## presentation draws a taller teal tracer).
+## presentation draws it teal, a little wider).
 var color := COLOR
 var core := CORE
 var width_scale := 1.0
@@ -45,7 +45,7 @@ func _init() -> void:
 func set_style(tour: bool) -> void:
 	color = Color(0.15, 0.85, 0.8) if tour else COLOR
 	core = Color(0.75, 1.0, 0.95) if tour else CORE
-	width_scale = 1.6 if tour else 1.0
+	width_scale = 1.2 if tour else 1.0
 
 
 func clear() -> void:
@@ -71,8 +71,8 @@ func draw(points: PackedVector3Array, upto: int, head: Vector3, eye: Vector3, fo
 	_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	# The halo, then the core over it: each a strip three vertices wide,
 	# bright along the middle and black (nothing, when added) at the edges.
-	_ribbon(path, eye, forward, HALO * width_scale, Color(color, 0.42))
-	_ribbon(path, eye, forward, width_scale, Color(core * 1.25, 1.0))
+	_ribbon(path, eye, forward, HALO * width_scale, Color(color, 0.35))
+	_ribbon(path, eye, forward, width_scale, Color(core, 0.95))
 	_flare(head + Vector3.UP * 0.05, eye)
 	_mesh.surface_end()
 
@@ -115,7 +115,7 @@ func _ribbon(path: PackedVector3Array, eye: Vector3, forward: Vector3, scale: fl
 		prev_c = c
 
 
-## A round glow at the ball, facing the camera.
+## A small soft dot at the ball, facing the camera.
 func _flare(at: Vector3, eye: Vector3) -> void:
 	var to_eye := (eye - at).normalized()
 	var right := to_eye.cross(Vector3.UP)
@@ -124,7 +124,7 @@ func _flare(at: Vector3, eye: Vector3) -> void:
 	right = right.normalized()
 	var up := right.cross(to_eye).normalized()
 	var r := half_width(at, eye) * HEAD_FLARE * width_scale
-	var centre := Color(core * 1.4, 0.95)
+	var centre := Color(core, 0.8)
 	var rim := Color(core, 0.0)
 	var segments := 16
 	for k in segments:

@@ -7,8 +7,10 @@ extends MeshInstance3D
 ## so reading the break is still up to the player.
 ##
 ## Three looks (`style`): Links 2003's plain yellow grid, its grid coloured
-## by height (low blue, high red), and the TV grid coloured by steepness
-## with the downhill ticks.
+## by height (low blue, high red), and the TV grid: faint white lines, as TV
+## green reads and PGA Tour 2K25 draw them, warming only to a soft amber
+## and then a muted red where the green gets steep, with the downhill ticks.
+## The Links looks keep the game's own bright colours.
 
 enum Style { YELLOW, HEIGHT, SLOPE }
 
@@ -16,9 +18,9 @@ const SPACING := 1.0
 const MARGIN := 4.0  ## metres past the ball and the hole
 const MAX_HALF := 18.0
 const LIFT := 0.03
-const FLAT := Color(0.55, 0.8, 1.0, 0.55)
-const MEDIUM := Color(1.0, 0.9, 0.3, 0.7)
-const STEEP := Color(1.0, 0.3, 0.2, 0.85)
+const FLAT := Color(1.0, 1.0, 1.0, 0.3)
+const MEDIUM := Color(1.0, 0.88, 0.6, 0.45)
+const STEEP := Color(0.95, 0.5, 0.38, 0.6)
 const STEEP_PERCENT := 4.0
 const YELLOW := Color(1.0, 0.9, 0.2, 0.7)
 const LOW := Color(0.2, 0.45, 1.0, 0.75)

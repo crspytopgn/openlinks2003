@@ -785,10 +785,14 @@ the physics, the swing and the scoring are the same in both.
   ball) and `RoundCamera` follows it. Putts get a low tracking camera.
 - `RoundCamera.start_flyover()`: each hole opens with a flight from behind
   the tee, along the hole's route, down to the green. A click skips it.
-- `scripts/broadcast/ball_tracer.gd`: the shot tracer, a camera-facing
-  ribbon with a soft halo, a hot core and a flare at the ball, widened
-  across the camera's view so it stays solid where the ball flies at the
-  lens.
+- `scripts/broadcast/ball_tracer.gd`: the shot tracer, a thin
+  camera-facing red line with a narrow soft edge and a small dot at the
+  ball, as Toptracer draws it on TV, widened across the camera's view so it
+  stays solid where the ball flies at the lens.
+- The aim marker is drawn as a sim draws it (`GolfRound.AIM_STYLE_SIM`): a
+  thin, see-through white ring on the grass, and on putts a small ring that
+  just rims the cup. Classic Links keeps the game's bold yellow ring
+  (`AIM_STYLE_CLASSIC`).
 - `scripts/ui/glass.gd`, `glass_theme.gd`, `frosted_glass.gd`: the glass
   look of the menus and HUD, our own take on the translucent "liquid glass"
   of current phone and TV interfaces: rounded panels whose picture behind
@@ -804,7 +808,8 @@ the physics, the swing and the scoring are the same in both.
   long holed putt or a shot to tap-in range) plays the shot again from new
   camera angles, in slow motion round the landing and the cup.
 - `scripts/broadcast/green_grid.gd`: on the green, a grid draped over the
-  real terrain, coloured by slope, with downhill ticks. G hides it. It
+  real terrain, with downhill ticks: faint white lines that warm to a soft
+  amber and a muted red only where the green is steep. G hides it. It
   shows the slopes, not the putt's line.
 - `scripts/broadcast/broadcast_overlay.gd`: the TV graphics, drawn from
   plain shapes: the score bug, the shot panel, a lower third as each player
@@ -841,7 +846,7 @@ ticker with:
   path and an aim target, with the distance, slope and aim in a panel;
 - a tall hole map down the right (`HoleMap.build`) with a dot where every
   shot on the hole finished, coloured by player;
-- a wider teal tracer.
+- a slightly wider teal tracer.
 
 Golfer voice lines (`scripts/audio/golfer_voice.gd`) play at impact, in
 flight and on landing as well as after the ball stops. The timing is our

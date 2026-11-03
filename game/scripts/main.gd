@@ -227,6 +227,18 @@ var trail: MeshInstance3D
 var aim_marker: MeshInstance3D
 const AIM_FLAT := 0.1  ## height of the aim ring over its width
 const AIM_LIFT := 0.03  ## metres the ring floats above the grass
+const PUTT_AIM_LIFT := 0.01  ## the sim putt ring's, on the short green
+## The aim ring's look. Classic Links keeps the game's bold yellow ring, a
+## fifth of its radius wide, and a 50 cm hoop over the cup on putts. The
+## Broadcast and Tour presentations draw it as a sim does (PGA Tour 2K25,
+## TV aim graphics): a thin, see-through white line on the grass, and on
+## putts a small ring that just rims the 10.8 cm cup instead of hiding it.
+## Keys: colour, inner (inner radius over outer) and putt (the putt ring's
+## radius, metres); full shots keep their size (_update_aim_marker).
+const AIM_STYLE_CLASSIC := {"colour": Color(1.0, 0.9, 0.2, 0.75), "inner": 0.8, "putt_inner": 0.8, "putt": 0.25}
+const AIM_STYLE_SIM := {"colour": Color(1.0, 1.0, 1.0, 0.5), "inner": 0.92, "putt_inner": 0.86, "putt": 0.09}
+var _aim_ring: TorusMesh
+var _aim_mat: StandardMaterial3D
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
 var golfer: GolferRig  ## the golfer playing now: one of _golfers
 ## Each player's golfer this hole; players who look the same share one.
@@ -2195,6 +2207,8 @@ func _start_drive(next: int) -> bool:
 	if caddie != null:
 		caddie.step_aside()
 	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
+	_aim_ring.inner_radius = aim_style(broadcast).inner
+	_aim_mat.albedo_color = aim_style(broadcast).colour
 	aim_marker.scale = _aim_marker_scale(2.5)
 	aim_marker.visible = true
 	ball.visible = true
@@ -2980,15 +2994,18 @@ func _build_world() -> void:
 	add_child(assistant)
 
 	aim_marker = MeshInstance3D.new()
-	var ring := TorusMesh.new()
-	ring.inner_radius = 0.8
-	ring.outer_radius = 1.0
-	aim_marker.mesh = ring
-	var ring_mat := StandardMaterial3D.new()
-	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.albedo_color = Color(1.0, 0.9, 0.2, 0.75)
-	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	aim_marker.material_override = ring_mat
+	_aim_ring = TorusMesh.new()
+	_aim_ring.inner_radius = AIM_STYLE_CLASSIC.inner
+	_aim_ring.outer_radius = 1.0
+	_aim_ring.rings = 96
+	_aim_ring.ring_segments = 8
+	aim_marker.mesh = _aim_ring
+	aim_marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aim_mat = StandardMaterial3D.new()
+	_aim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_aim_mat.albedo_color = AIM_STYLE_CLASSIC.colour
+	_aim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	aim_marker.material_override = _aim_mat
 	add_child(aim_marker)
 
 	drop_marker = MeshInstance3D.new()
@@ -3537,19 +3554,29 @@ static func _aim_marker_scale(size: float) -> Vector3:
 	return Vector3(size, AIM_FLAT * size, size)
 
 
+## The aim ring's look for the presentation: AIM_STYLE_SIM for Broadcast
+## and Tour, AIM_STYLE_CLASSIC for Classic Links.
+static func aim_style(sim: bool) -> Dictionary:
+	return AIM_STYLE_SIM if sim else AIM_STYLE_CLASSIC
+
+
 func _update_aim_marker() -> void:
 	var club := clubs[club_index]
 	var dir := _aim_dir()
 	var reach := 0.0
 	var size := 1.0
+	var style := aim_style(broadcast)
+	_aim_mat.albedo_color = style.colour
+	_aim_ring.inner_radius = style.putt_inner if club.is_putter else style.inner
 	if club.is_putter:
 		reach = minf(_flat_distance(ball_at, hole.pin), club.total_m)
-		size = 0.25
+		size = style.putt
 	else:
 		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
-	p.y = hole.terrain.height_at(p.x, p.z) + AIM_LIFT
+	# On a mown green a putt's ring lies on the grass, not floating over the cup.
+	p.y = hole.terrain.height_at(p.x, p.z) + (PUTT_AIM_LIFT if club.is_putter and broadcast else AIM_LIFT)
 	aim_marker.position = p
 	aim_marker.scale = _aim_marker_scale(size)
 	aim_marker.visible = true
@@ -3582,7 +3609,8 @@ func _update_hud() -> void:
 	hud.info.text = text
 	hud.show_wind(wind, aim_deg)
 	# The aim marker sits on the ground where the shot is aimed.
-	var rise := aim_marker.position.y - 0.08 - ball_at.y if aim_marker.visible else 0.0
+	var aim_at := aim_marker.position
+	var rise := hole.terrain.height_at(aim_at.x, aim_at.z) - 0.05 - ball_at.y if aim_marker.visible else 0.0
 	var reach_text := "%d yd" % roundi(_club_reach() * YARDS_PER_METRE)
 	if club.is_putter:
 		reach_text = pin_text
