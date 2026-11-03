@@ -28,6 +28,14 @@ const VARIANTS := [
 ]
 const FRAMES := 8
 const FRAME_PIXELS := 256
+## Frame size at tree level 2 and up (High and Ultra, and capable iPads
+## and browsers). The Broadcast tee camera is a long lens, so a tree just
+## past the impostor distance (70 m at level 2) stands about 500 pixels
+## tall at 1080p: from 256-pixel frames its crown came out blurred and
+## blocky, which was most of what made the far tree lines on the iPad look
+## cheap. The atlas goes from 2048x2304 to 3072x3456 (about 56 MB with
+## mipmaps instead of 25), still inside WebGL's 4096 limit.
+const FRAME_PIXELS_HIGH := 384
 ## Distance at which a tree turns into its impostor, per GraphicsSettings
 ## tree level (0 = classic trees, no 3D).
 const IMPOSTOR_DISTANCE: Array[float] = [0.0, 35.0, 70.0, 120.0]
@@ -59,6 +67,11 @@ static var _next := {}
 static var _instanced_meshes: Array[ArrayMesh] = []
 static var _instanced_impostor: ShaderMaterial
 static var _impostor_quad: QuadMesh
+
+
+## The impostor atlas's frame size in pixels for the current tree level.
+static func frame_pixels() -> int:
+	return FRAME_PIXELS_HIGH if level >= 2 else FRAME_PIXELS
 
 
 static func enabled() -> bool:
@@ -600,7 +613,8 @@ static func _bake(tree: SceneTree) -> void:
 	vp.name = "TreeImpostorBake"
 	vp.own_world_3d = true
 	vp.transparent_bg = true
-	vp.size = Vector2i(FRAMES * FRAME_PIXELS, rows * FRAME_PIXELS)
+	var px := frame_pixels()
+	vp.size = Vector2i(FRAMES * px, rows * px)
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var cam := Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
