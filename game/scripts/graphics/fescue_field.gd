@@ -19,6 +19,13 @@ const BUILDS_PER_FRAME := 2
 const DENSITY := [0.0, 0.4, 0.6, 0.8]
 const RADIUS := [0.0, 90.0, 140.0, 180.0]
 const SURFACES := [Surface.Type.DEEP_ROUGH]
+## The ground normal's x and z, times this and the tuft's height, are the
+## card's up axis x and z (see build_chunk and shaders/fescue.gdshader).
+const NORMAL_LEAN := 0.01
+## A far tuft's brightness against a near one's (shaders/fescue.gdshader
+## far_gain), per renderer.
+const FAR_GAIN_COMPAT := 1.2
+const FAR_GAIN_FORWARD_PLUS := 0.7
 
 var terrain: CourseTerrain
 var level := 0
@@ -110,6 +117,10 @@ static func build_chunk(t: CourseTerrain, key: Vector2i, density: float) -> Mult
 		if not SURFACES.has(t.surface_at(x, z)):
 			continue
 		var c := t.ground_color_at(x, z)
+		# The ground's slope rides along in the card's up axis as a tiny
+		# lean (NORMAL_LEAN of the height, under a centimetre), so the
+		# shader can light the tuft as the ground under it is lit.
+		var up := t.normal_at(x, z)
 		var o := n * 16
 		var cs := cos(yaw)
 		var sn := sin(yaw)
@@ -117,9 +128,9 @@ static func build_chunk(t: CourseTerrain, key: Vector2i, density: float) -> Mult
 		buffer[o + 1] = 0.0
 		buffer[o + 2] = sn * w
 		buffer[o + 3] = x
-		buffer[o + 4] = 0.0
+		buffer[o + 4] = up.x * NORMAL_LEAN * h
 		buffer[o + 5] = h
-		buffer[o + 6] = 0.0
+		buffer[o + 6] = up.z * NORMAL_LEAN * h
 		buffer[o + 7] = t.height_at(x, z) - 0.03
 		buffer[o + 8] = -sn * w
 		buffer[o + 9] = 0.0
@@ -150,6 +161,9 @@ static func material() -> ShaderMaterial:
 		_mat.set_shader_parameter("atlas", FreeAssets.tree_texture("fescue.png"))
 		# Compatibility has no sky fill: lift the cards as GrassField does.
 		_mat.set_shader_parameter("brightness", 1.0 if GraphicsSettings.is_forward_plus() else 1.25)
+		# Far tufts against their own near brightness, so a distant bank
+		# matches the sunlit ground beside it (tuned on hole 2's hillside).
+		_mat.set_shader_parameter("far_gain", FAR_GAIN_FORWARD_PLUS if GraphicsSettings.is_forward_plus() else FAR_GAIN_COMPAT)
 	return _mat
 
 

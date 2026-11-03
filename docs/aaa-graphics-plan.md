@@ -17,6 +17,51 @@ with Mesa lavapipe (`apt-get install mesa-vulkan-drivers`,
 Rarely used tricks (view-dependent mowing stripes, heat shimmer and more,
 with verdicts) are in `unusual-graphics-ideas.md`.
 
+## Round 3 gaps, 2026-11-03 evening
+
+Every round 2 item has landed. This audit rendered Kettle Hollow hole 2
+at 1920x1080 three ways: Photoreal in Forward+ (desktop), Photoreal in
+Compatibility (web), and Natural in Compatibility, which is the look a
+capable iPad or browser starts on (High quality, trees level 2, MSAA 2x).
+Each view (the tee, the golfer from 3 m, a 140 m approach and a 6 m putt)
+was checked at full size and against 2K25 4K press shots. Ranked by how
+much each item moves the picture:
+
+1. **Fescue banks read as polka dots (graphics thread).** From the tee the
+   long grass on the hills was separate bright yellow-green clumps on a
+   darker, greyer ground, worst in Forward+ (clumps about 50% brighter than
+   the ground between them). 2K25's fescue is one continuous, wispy bank.
+   Done: past about 45 m the tufts spread up to 2.6 times wider so they
+   close into a bank; past 25 to 90 m each tuft takes a dry olive colour at
+   a set share of its own brightness (`far_gain`, per renderer) instead of
+   the yellow it had; the base of a near tuft is darker than its tips, as
+   blades shade each other; and each tuft is lit by the slope under it
+   (the ground normal rides in the card's up axis, FescueField.NORMAL_LEAN).
+2. **Far trees on the iPad (graphics thread).** At trees level 2 the
+   crowns turn into impostors at 70 m, and the long Broadcast lens makes a
+   tree there about 500 pixels tall: the 256-pixel impostor frames came out
+   blurred and blocky. Done: level 2 and up bakes 384-pixel frames
+   (TreeFactory.FRAME_PIXELS_HIGH; the atlas is 3072x3456, inside WebGL's
+   4096 limit). Still open: impostors are lit flat, so a crown shows large
+   flat patches of one green.
+3. **Pines read as topiary (graphics thread).** The pines behind the tee
+   are smooth egg and lollipop shapes, grey with haze. Real Scots pines and
+   2K25's have a bare trunk most of the way up and an open, layered crown.
+4. **Pale, milky web sky (graphics thread).** In Compatibility the sky at
+   the top of the frame measured sRGB (171, 209, 240) against 2K25's
+   (97, 159, 205): the extra brightness and the haze over the sky
+   (fog_sky_affect 0.25) wash it out, and the whole web frame reads low
+   in contrast next to 2K25's strong sun and long shadows.
+5. **Near turf and greens (graphics thread).** From the golfer close-up the
+   tee is an even smear with soft blotches, and the green carries the same
+   wide stripes and blotches as the fairway. 2K25's green is a finer,
+   smoother, slightly lighter surface with a clear collar.
+6. **Close crowd in Compatibility (realism lead).** The front row of the
+   gallery, a few metres away, still has pale flat skin and glowing light
+   trousers.
+7. **Green grid (broadcast UI).** On the putt view the slope grid breaks
+   into dashed, aliased segments, with red dashes on the steeper fringe.
+
 ## Round 2 gaps, 2026-11-03
 
 Almost every item in round 1 (below) has landed. This list comes from a
