@@ -286,7 +286,8 @@ static func profiles(seed: int, ring_radii: PackedFloat32Array) -> Image:
 			var clump := 0.8 + 0.3 * clumps.get_noise_2dv(at)
 			var canopy := tree * clump * (0.6 + 0.4 * bump)
 			# Copses still dot the fields here and there.
-			var copse := tree * smoothstep(0.32, 0.4, clumps.get_noise_2dv(at * 0.8 + Vector2(913.0, 0.0))) * (0.6 + 0.4 * bump)
+			# Domed, as a clump of crowns is: steep at its edges, round on top.
+			var copse := tree * 0.85 * sqrt(smoothstep(0.3, 0.5, clumps.get_noise_2dv(at * 0.25 + Vector2(913.0, 0.0)))) * (0.8 + 0.2 * bump)
 			var trees := lerpf(copse, canopy, w)
 			var hgt := ground + maxf(trees, 0.5)
 			img.set_pixel(x, i, Color(clampf(hgt / top, 0.0, 1.0), w, clampf(trees / top, 0.0, 1.0)))
