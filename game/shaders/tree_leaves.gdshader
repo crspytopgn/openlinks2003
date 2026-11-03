@@ -36,6 +36,11 @@ uniform vec2 leaf_grid = vec2(3.0, 2.0); // leaves in the leaf texture
 uniform float leaf_cells = 7.0;
 uniform vec3 leaf_tint = vec3(0.54, 0.64, 0.4);
 uniform float fill = 0.12; // TreeFactory raises it for Compatibility
+// Sky light coming through the leaves (Forward+ only, set by TreeFactory):
+// in shade a real crown stays green, as the leaves pass on yellow-green
+// light, where sky ambient alone turned it blue-grey.
+uniform float transmit = 0.0;
+const vec3 TRANSMIT_TINT = vec3(0.8, 1.1, 0.45);
 // How light the leaves inside the crown are (1 as lit as the outside).
 // Forward+ darkens them more: its sky light would otherwise flatten the
 // crown into one bright mass, where a real one has deep shade inside.
@@ -91,10 +96,19 @@ void fragment() {
 	if (core && has_spray && !needles) {
 		// The crown's shaded middle: solid inside a round outline that the
 		// spray's leaves make ragged.
-		vec4 sp = texture(leaf_spray, UV * 0.5 + floor(fract(info.r * 7.31) * 2.0) * 0.5);
+		vec2 quarter = vec2(floor(fract(info.r * 7.31) * 2.0) * 0.5);
+		vec4 sp = texture(leaf_spray, UV * 0.5 + quarter);
 		float r = length(UV - 0.5);
 		alpha = r < 0.3 || (r < 0.5 && sp.a > 0.4) ? 1.0 : 0.0;
-		col = sp.rgb * leaf_tint * 2.0;
+		// The spray is black between its leaves, and the solid middle
+		// (r < 0.3) drew those gaps as black, square-stepped holes in the
+		// crown. Show deeper leaves there instead: the spray again, shifted
+		// and in shade, over a dark leaf green, as when you look into a crown.
+		vec4 avg = textureLod(leaf_spray, quarter + 0.25, 8.0);
+		vec4 deep = texture(leaf_spray, fract(UV * 1.7 + 0.31) * 0.5 + quarter);
+		vec3 behind = mix(avg.rgb / max(avg.a, 0.2) * 0.3, deep.rgb / max(deep.a, 0.3) * 0.55, smoothstep(0.2, 0.6, deep.a));
+		vec3 leaf = mix(behind, sp.rgb / max(sp.a, 0.3), smoothstep(0.2, 0.6, sp.a));
+		col = leaf * leaf_tint * 2.0;
 	} else if (core && needles) {
 		// Core cards: a solid, shaded mass inside the crown, so the gaps
 		// between needles show foliage rather than sky.
@@ -249,7 +263,7 @@ void fragment() {
 		// Light from the sky and through neighbouring leaves, which the
 		// renderer's ambient misses (Compatibility has no sky fill), so a
 		// crown's shaded side stays green instead of black.
-		EMISSION = col * fill;
+		EMISSION = col * fill + col * transmit * TRANSMIT_TINT;
 	}
 	ALPHA = alpha;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;

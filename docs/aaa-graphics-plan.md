@@ -32,6 +32,13 @@ picture.
    Forward+. In 2K25 and in real photos, the sunlit side of a crown is the
    brightest green in the frame. The near crowns also show black,
    square-stepped holes. This is the single biggest "cheap" signal left.
+   Shadows and SSAO turned out not to be the cause (switching them off
+   changed nothing): the crowns lit only by the sky went blue-grey.
+   First step done: in Forward+ the leaves and impostors pass on
+   yellow-green sky light (`transmit`, TreeFactory.TRANSMIT_FORWARD_PLUS),
+   and the black holes are gone (the crown cores drew the black gaps of
+   the leaf spray; they now show deeper, shaded leaves). Still to do:
+   brighter sunlit sides and more variety of colour between crowns.
 2. **Trees, close up (graphics thread).** Under the crowns you see long,
    straight, level limbs of constant thickness, like poles, and the same
    three broadleaf shapes repeated in rows. Real parkland trees have limbs
