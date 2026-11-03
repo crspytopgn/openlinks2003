@@ -5,15 +5,24 @@ extends SceneTree
 ## and checks that the sky is blue and the ground green. Then opens the
 ## course designer and saves a screenshot of it too (out-designer.jpg), and
 ## close-ups of the free golfer at the top, just before impact and at the
-## finish (out-golfer.jpg).
+## finish (out-golfer.jpg). In between it lines up a 3 m putt on the same
+## green in the Broadcast and then the Classic presentation and saves each
+## frame and a full-size crop round the cup (out-putt*.jpg), so the aim ring
+## and green grid can be checked at real pixels.
 ##
 ##   godot --path game --rendering-method gl_compatibility -s res://tests/render_check.gd -- out.png
 
 const FLYOVER_FRAME := 20
 const SHOT_FRAME := 40
 const CAPTURE_FRAME := 100
-const DESIGNER_FRAME := 150
-const GOLFER_FRAME := 160
+## The putt: set up, saved (Broadcast), set up again in Classic, saved.
+const PUTT_FRAME := 110
+const PUTT_SHOT_FRAME := 140
+const PUTT_CLASSIC_SHOT_FRAME := 170
+const PUTT_FEET := 10.0
+const BUSY := [GolfRound.State.FLIGHT, GolfRound.State.SHOT_RESULT, GolfRound.State.DROP, GolfRound.State.DRIVE]
+const DESIGNER_FRAME := 220
+const GOLFER_FRAME := 230
 ## Free golfer poses for the close-up: clip and seconds into it.
 const GOLFER_POSES := [[&"backswing", 0.93], [&"swing", 0.25], [&"swing", 0.29], [&"swing", 1.2]]
 ## Performance budget for the round, per frame, checked at the flyover and
@@ -93,6 +102,24 @@ func _process(_delta: float) -> bool:
 	elif _frames == CAPTURE_FRAME:
 		if not _capture():
 			return true
+		_settle = 0
+	elif _frames == PUTT_FRAME and _game.state in BUSY and _settle < 20:
+		# Finish the tee shot first.
+		_settle += 1
+		_game.auto_play_step()
+		_frames -= 1
+	elif _frames == PUTT_FRAME:
+		print("putt: after %d frames waiting, state %d" % [_settle, _game.state])
+		_game.start_hole(1)
+		_game.camera.end_flyover()
+		_line_up_putt()
+	elif _frames == PUTT_SHOT_FRAME:
+		_save_putt("-putt")
+		_game.graphics.presentation = GraphicsSettings.Presentation.CLASSIC
+		_game._apply_graphics()
+		_line_up_putt()
+	elif _frames == PUTT_CLASSIC_SHOT_FRAME:
+		_save_putt("-putt-classic")
 		_game.queue_free()
 		_designer = (load("res://scenes/course_designer.tscn") as PackedScene).instantiate()
 		root.add_child(_designer)
@@ -115,6 +142,32 @@ func _process(_delta: float) -> bool:
 		return true
 	return false
 
+
+
+## Puts the ball PUTT_FEET from the hole on the line back to the tee and
+## readies the putt.
+func _line_up_putt() -> void:
+	var pin := _game.hole.pin
+	var back := Vector3(_game.hole.tee.x - pin.x, 0.0, _game.hole.tee.z - pin.z).normalized()
+	var at := pin + back * PUTT_FEET * 0.3048
+	at.y = _game.hole.terrain.height_at(at.x, at.z)
+	_game.ball_at = at
+	_game._prepare_shot(true)
+	print("putt: lie %s, putter %s, aim ring %s" % [Surface.name_of(_game.lie), _game.clubs[_game.club_index].is_putter, _game.aim_marker.scale])
+
+
+## The putt view, and a full-size 480x270 crop round the cup beside it.
+func _save_putt(suffix: String) -> void:
+	var img := root.get_texture().get_image()
+	_save_jpg(img, suffix)
+	var cam := root.get_camera_3d()
+	if img == null or img.is_empty() or cam == null:
+		return
+	var at := cam.unproject_position(_game.hole.pin)
+	var crop := Rect2i(Vector2i(at) - Vector2i(240, 150), Vector2i(480, 270))
+	crop.position = crop.position.clamp(Vector2i.ZERO, img.get_size() - crop.size)
+	var cut := img.get_region(crop)
+	cut.save_jpg(_out.get_basename() + suffix + "-cup.jpg", 0.92)
 
 
 ## A plain lit stage with the free golfer, seen from in front.

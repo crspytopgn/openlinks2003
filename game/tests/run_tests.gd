@@ -5114,6 +5114,17 @@ func _test_broadcast_pieces() -> void:
 	grid.build(terrain, Vector3(0, 0, 0), Vector3(0, 0, 8))
 	_check(grid.mesh.get_surface_count() == 1, "green grid builds")
 	grid.free()
+	# The sim look (Broadcast, Tour): faint white grid on flat ground, a thin
+	# white aim ring, and a putt ring that rims the cup instead of a hoop.
+	_check(GreenGrid.slope_color(0.0).s < 0.05 and GreenGrid.slope_color(0.0).a <= 0.4, "TV grid is faint white on flat ground")
+	var sim_aim := GolfRound.aim_style(true)
+	var links_aim := GolfRound.aim_style(false)
+	var putt_r: float = sim_aim.putt
+	var putt_in: float = sim_aim.putt_inner
+	_check(putt_r * putt_in > 0.054 + 0.01 and putt_r < 0.5 * float(links_aim.putt), "sim putt ring rims the 108 mm cup, far smaller than Links' (%.3f m)" % putt_r)
+	_check(float(sim_aim.inner) > float(links_aim.inner) and (sim_aim.colour as Color).a < (links_aim.colour as Color).a and (sim_aim.colour as Color).s < 0.05,
+		"sim aim ring is a thinner, fainter white line")
+	_check(BallTracer.CORE.r <= 1.0 and BallTracer.HEAD_FLARE < 2.0, "tracer has no hot core or fireball")
 
 	var course := PlaceholderCourseLoader.new().load_course("")
 	var map := HoleMap.make(course.holes[0])
