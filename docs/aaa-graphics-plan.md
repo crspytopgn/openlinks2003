@@ -76,7 +76,9 @@ picture.
    even skylight in Compatibility and scales the lit albedo to match.
    Shade measured 10% of sunlit (sRGB G), now about 55%, as in Geograph
    photos of tree shadows on fairways. The cause was the tone curve and
-   grade crushing the flat fill's shade, not the fill itself.
+   grade crushing the flat fill's shade, not the fill itself. Forward+
+   tree shade was near black too, so it gets a gentler shade_fill
+   (FORWARD_SHADE_RATIO 0.35).
 5. **Tee boxes and ground shape (home-course builder).** 2K25's tees are
    raised, flat, closely mown platforms with a clean edge, and the ground
    round them rolls. Ours blend into the fairway, and the ground between

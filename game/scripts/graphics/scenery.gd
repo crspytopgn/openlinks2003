@@ -468,24 +468,29 @@ func _apply_weather() -> void:
 ## with only the flat fill its shade came out near black (about 10%); 0.75
 ## here gives the photos' 55% on screen.
 const COMPAT_SHADE_RATIO := 0.75
+## The same for Forward+. Its sky light fills the shade, but under the
+## grade and SSAO tree shade still came out near black beside sunlit
+## grass; 0.35 brings it to a darker green as in the photos (tuned on
+## lavapipe renders of hole 2's tree line).
+const FORWARD_SHADE_RATIO := 0.35
 ## The colour of that fill: skylight, a little bluer than the flat fill.
 const SHADE_FILL_COLOR := Color(0.84, 0.92, 0.98)
 
 
 ## Sets the `shade_fill` global the ground, rough and fescue shaders use
-## (shaders/ground_shade.gdshaderinc): in Photoreal on Compatibility, an
+## (shaders/ground_shade.gdshaderinc): in Photoreal, an
 ## even sky-coloured light added to the ground (rgb, as a share of its
 ## albedo) and how much the sun-and-fill lighting is scaled down to make
 ## room for it (a), so sunlit turf stays as bright as before and only the
-## shade lifts. Off (0, 0, 0, 1) in Forward+, whose sky light already
-## fills the shade, and in Classic lighting.
+## shade lifts. Off (0, 0, 0, 1) in Classic lighting.
 func _update_shade_fill() -> void:
 	var fill := Vector4(0.0, 0.0, 0.0, 1.0)
-	if _photo and not GraphicsSettings.is_forward_plus():
+	if _photo:
+		var ratio := FORWARD_SHADE_RATIO if GraphicsSettings.is_forward_plus() else COMPAT_SHADE_RATIO
 		var amb := environment.ambient_light_energy * environment.ambient_light_color.get_luminance()
 		# Flat ground in sun (floored so a low sun doesn't blow it up).
 		var lit := amb + sun.light_energy * maxf(sin(deg_to_rad(-sun.rotation_degrees.x)), 0.25)
-		var extra := maxf((COMPAT_SHADE_RATIO * lit - amb) / (1.0 - COMPAT_SHADE_RATIO), 0.0)
+		var extra := maxf((ratio * lit - amb) / (1.0 - ratio), 0.0)
 		var keep := lit / (lit + extra)
 		var c := SHADE_FILL_COLOR * (extra * keep / SHADE_FILL_COLOR.get_luminance())
 		fill = Vector4(c.r, c.g, c.b, keep)
