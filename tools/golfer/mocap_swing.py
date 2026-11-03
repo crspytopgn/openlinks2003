@@ -870,7 +870,9 @@ STAND_CLIPS = {
     "fore_left": dict(take="77_02", start=100, end=400, facing=(-0.95, 0.0, 0.3), upright=True, carry=True,
                       point=(-0.6, 0.3, 0.74)),
     # Crouching behind the ball to read a putt, putter in hand.
-    "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True),
+    # The take is the actor bending to the floor (back ~70 deg forward,
+    # head at the ground); read_crouch turns it into a golfer's read.
+    "read": dict(take="77_08", start=150, end=460, facing=(0.0, 0.0, -1.0), carry=True, read=True),
 }
 # Standing upright, as photos of people waiting on a tee show: the actor's
 # feet come out 2.6 cm above the ground (his ankle joints sit higher than
@@ -882,6 +884,23 @@ STAND_CLIPS = {
 STAND_GAP = 0.24
 STAND_REACH = 0.9975
 STAND_GAZE = -6.0
+# Reading a putt, as photos of tour players crouched behind the ball show:
+# a squat with the hips a little above the knees (READ_HIP, hip joints
+# over the ankles) and READ_BACK behind the heels, the knees forward over
+# the toes and a touch apart (READ_KNEE_OUT), the back READ_LEAN from
+# upright, the forearms by the knees with both hands on the putter's grip
+# and its head resting on the green in front, and the eyes down
+# the line to the hole (READ_GAZE). READ_SWAY keeps that share of the
+# actor's bob and lean so the hold breathes.
+READ_HIP = 0.40
+READ_BACK = 0.14
+READ_KNEE_OUT = 0.3
+READ_LEAN = 32.0
+READ_GAZE = -14.0
+READ_HANDS_AHEAD = 0.12
+READ_SOLE_REACH = 0.83  # club joint to the putter's sole along the shaft
+READ_SWAY = 0.3
+READ_ACTOR_LEAN = 72.0  # the actor's mean lean while down, degrees
 CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
 CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
@@ -1016,18 +1035,97 @@ def stand_upright(rig, poss, root, targets, narrow, lift, ankle_rest):
     return out, root
 
 
-def level_gaze(rig, rots, local0):
-    """Turns the neck and head so the face looks STAND_GAZE below level:
-    the neck takes half, the head the rest."""
+def level_gaze(rig, rots, local0, gaze=STAND_GAZE):
+    """Turns the neck and head so the face looks `gaze` degrees below
+    level: the neck takes half, the head the rest."""
     rots = list(rots)
     for name, share in (("neck_01", 0.5), ("head", 1.0)):
         fwd = rots[rig.index["head"]] @ np.array([0.0, 0.0, -1.0])
         pitch = math.degrees(math.atan2(fwd[1], math.hypot(fwd[0], fwd[2])))
-        turn = pose.rot(np.cross(fwd, [0.0, 1.0, 0.0]), (STAND_GAZE - pitch) * share)
+        turn = pose.rot(np.cross(fwd, [0.0, 1.0, 0.0]), (gaze - pitch) * share)
         rots[rig.index[name]] = turn @ rots[rig.index[name]]
         if name == "neck_01":
             rots[rig.index["head"]] = turn @ rots[rig.index["head"]]
     return fill(rig, rots, local0, keep=True)
+
+
+def crouch_weight(hip_drop):
+    """0 standing to 1 down in the read, from how far the actor's hips have
+    dropped (in units of his standing hip height)."""
+    w = float(np.clip((hip_drop - 0.05) / 0.2, 0.0, 1.0))
+    return w * w * (3 - 2 * w)
+
+
+def read_crouch(rig, rots, root, targets, facing, w, actor_lean):
+    """The actor's bend to the floor reshaped into a golfer reading a putt
+    (READ_*), by w: the back raised, the hips over the heels at READ_HIP;
+    the legs are bent to the feet afterwards (read_legs)."""
+    rots = list(rots)
+    up = np.array([0.0, 1.0, 0.0])
+    side = pose.unit(np.cross(up, facing))
+    _, poss = rig.world(rig.locals(rots), root)
+    trunk = poss[rig.index["neck_01"]] - poss[rig.index["pelvis"]]
+    lean = READ_LEAN + READ_SWAY * (actor_lean - READ_ACTOR_LEAN)
+    want = pose.rot(side, lean) @ up
+    # want tilts toward the facing for a positive lean; flip if not.
+    if np.dot(want, facing) < 0:
+        want = pose.rot(side, -lean) @ up
+    full = between(trunk, want)
+    # Spread over the spine so it bends, not kinks.
+    for name, share in (("spine_01", 0.4), ("spine_02", 0.35), ("spine_03", 0.25)):
+        turn = pose.slerp(np.eye(3), full, w * share)
+        for k in descendants(rig, name):
+            rots[k] = turn @ rots[k]
+    mid = (targets["l"] + targets["r"]) / 2
+    want_root = mid - facing * READ_BACK
+    want_root[1] = min(targets["l"][1], targets["r"][1]) + READ_HIP
+    hip = (poss[rig.index["thigh_l"]] + poss[rig.index["thigh_r"]]) / 2
+    root = np.array(root, dtype=float)
+    return rots, root + (want_root - hip) * w
+
+
+def read_legs(rig, rots, root, targets, facing):
+    """Knees forward over the toes, a touch apart (READ_KNEE_OUT)."""
+    _, poss = rig.world(rig.locals(rots), root)
+    mid = (poss[rig.index["thigh_l"]] + poss[rig.index["thigh_r"]]) / 2
+    for s in ("l", "r"):
+        out = poss[rig.index[f"thigh_{s}"]] - mid
+        out[1] = 0.0
+        out = pose.unit(out)
+        foot = rots[rig.index[f"foot_{s}"]]
+        reach_pole(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s], facing + out * READ_KNEE_OUT)
+        rots[rig.index[f"foot_{s}"]] = foot
+    return rots
+
+
+def read_hands(rig, rots, root, facing, club_dir, ground, putt_grip):
+    """The left hand on the putter's grip just in front of the knees, its
+    head resting on the green ahead (READ_SOLE_REACH from the club joint
+    down the shaft), and the right hand below it on the grip as at the
+    putting address (putt_grip: the right hand in the club's frame)."""
+    rots = list(rots)
+    up = np.array([0.0, 1.0, 0.0])
+    _, poss = rig.world(rig.locals(rots), root)
+    knees = (poss[rig.index["calf_l"]] + poss[rig.index["calf_r"]]) / 2
+    side = pose.unit(np.cross(up, facing))
+
+    def reach(s, at):
+        out = side if np.dot(side, poss[rig.index[f"upperarm_{s}"]] - poss[rig.index["spine_03"]]) > 0 else -side
+        reach_pole(rig, rots, poss, f"upperarm_{s}", f"lowerarm_{s}", f"hand_{s}", at, out - up * 0.5)
+        return rig.world(rig.locals(rots), root)[1]
+
+    poss = reach("l", knees + facing * READ_HANDS_AHEAD + up * 0.02)
+    c = rig.index["club"]
+    drop = float(np.clip((poss[c][1] - ground) / READ_SOLE_REACH, 0.2, 1.0))
+    shaft = facing * math.sqrt(1 - drop * drop) - up * drop
+    turn = between(rots[c] @ club_dir, shaft)
+    for k in descendants(rig, "hand_l"):
+        rots[k] = turn @ rots[k]
+    _, poss = rig.world(rig.locals(rots), root)
+    offset, rel = putt_grip
+    poss = reach("r", poss[c] + rots[c] @ offset)
+    rots[rig.index["hand_r"]] = rots[c] @ rel
+    return rots
 
 
 def retarget_stand(glb, rig, clip, cache):
@@ -1086,6 +1184,12 @@ def retarget_stand(glb, rig, clip, cache):
     relaxed[rig.index["club"]] = grip_local[rig.index["club"]]  # how it sits in the hand
     club_dir = club_direction(glb, rig)
     facing = pose.unit(np.array(clip["facing"], dtype=float))
+    if clip.get("read"):
+        # The right hand on the putter as at the putting address.
+        p_local, p_root = rig.sample(glb, "ref_address_putt")
+        p_rots, p_poss = rig.world(p_local, p_root)
+        c, hr = rig.index["club"], rig.index["hand_r"]
+        putt_grip = (p_rots[c].T @ (p_poss[hr] - p_poss[c]), p_rots[c].T @ p_rots[hr])
 
     out_rots, out_root = [], []
     for i, f in enumerate(frames):
@@ -1123,13 +1227,26 @@ def retarget_stand(glb, rig, clip, cache):
                 lift0 = min(targets["l"][1], targets["r"][1]) - ankle_rest
             targets, root = stand_upright(rig, poss, root, targets, STAND_GAP / gap0, lift0, ankle_rest)
             _, poss = rig.world(rig.locals(rots), root)
-        for s in ("l", "r"):
-            foot = rots[rig.index[f"foot_{s}"]]
-            two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s])
-            rots[rig.index[f"foot_{s}"]] = foot
+        if clip.get("read"):
+            trunk = m_poss[bvh.index["Neck"]] - m_poss[bvh.index["Hips"]]
+            actor_lean = math.degrees(math.acos(float(np.clip(pose.unit(trunk)[1], -1.0, 1.0))))
+            foot0 = m_poss0[bvh.index["LeftFoot"]][1]
+            crouch = crouch_weight((hips0[1] - m_poss[bvh.index["Hips"]][1]) / (hips0[1] - foot0))
+            rots, root = read_crouch(rig, rots, root, targets, facing, crouch, actor_lean)
+            _, poss = rig.world(rig.locals(rots), root)
+            rots = read_legs(rig, rots, root, targets, facing)
+        else:
+            for s in ("l", "r"):
+                foot = rots[rig.index[f"foot_{s}"]]
+                two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s])
+                rots[rig.index[f"foot_{s}"]] = foot
         rots = fill(rig, rots, local0, keep=True)
         if clip.get("upright"):
             rots = level_gaze(rig, rots, local0)
+        if clip.get("read"):
+            rots = level_gaze(rig, rots, local0, STAND_GAZE + (READ_GAZE - STAND_GAZE) * crouch)
+            ground = min(targets["l"][1], targets["r"][1]) - ankle_rest
+            held = fill(rig, read_hands(rig, rots, root, facing, club_dir, ground, putt_grip), local0, keep=True)
         if clip.get("pump"):
             rots, poss = rig.world(rig.locals(rots), root)
             if i == 0:
@@ -1151,6 +1268,11 @@ def retarget_stand(glb, rig, clip, cache):
             want = pose.unit(low * (1 - w * w * (3 - 2 * w)) + pose.unit(up + 0.5 * facing) * w * w * (3 - 2 * w))
             rots[h] = between(rots[rig.index["club"]] @ club_dir, want) @ rots[h]
             rots = fill(rig, rots, local0, keep=True)
+        if clip.get("read"):
+            # Down in the read the hands are on the putter (read_hands).
+            for s in ("l", "r"):
+                for k in [rig.index[f"upperarm_{s}"], rig.index[f"lowerarm_{s}"]] + descendants(rig, f"hand_{s}"):
+                    rots[k] = pose.slerp(rots[k], held[k], crouch)
         out_rots.append(rig.locals(rots))
         out_root.append(root)
     if clip.get("loop"):
