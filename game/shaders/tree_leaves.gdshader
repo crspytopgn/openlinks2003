@@ -27,6 +27,9 @@ uniform bool has_twig = false;
 uniform vec3 twig_tint = vec3(0.62, 0.72, 0.6);
 uniform bool needles = false;
 uniform bool bake = false;
+// With `bake`: the normal (camera space, 0..1) goes out instead of the
+// colour, for the impostors' normal atlas.
+uniform bool bake_normal = false;
 // Drawn in a MultiMesh of a course's trees: beyond tree_impostor_distance
 // from the camera an instance collapses to a point and its impostor shows.
 uniform bool instanced = false;
@@ -283,6 +286,10 @@ void fragment() {
 	if (!core && !(has_spray && !needles)) {
 		// Faded with distance like the leaf shading above (dot pattern).
 		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1 * (1.0 - far));
+	}
+	if (bake_normal) {
+		ALBEDO = vec3(0.0);
+		EMISSION = normalize(NORMAL) * 0.5 + 0.5;
 	}
 }
 

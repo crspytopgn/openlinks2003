@@ -23,6 +23,7 @@ const VARIANTS := [
 	[Species.BROADLEAF, 53],
 	[Species.PINE, 5],
 	[Species.PINE, 19],
+	[Species.PINE, 30],
 	[Species.BUSH, 3],
 	[Species.BUSH, 29],
 ]
@@ -33,8 +34,9 @@ const FRAME_PIXELS := 256
 ## past the impostor distance (70 m at level 2) stands about 500 pixels
 ## tall at 1080p: from 256-pixel frames its crown came out blurred and
 ## blocky, which was most of what made the far tree lines on the iPad look
-## cheap. The atlas goes from 2048x2304 to 3072x3456 (about 56 MB with
-## mipmaps instead of 25), still inside WebGL's 4096 limit.
+## cheap. With ten variants the atlas goes from 2048x2560 to 3072x3840
+## (about 63 MB with mipmaps instead of 28), still inside WebGL's 4096
+## limit; the normal atlas is half that size each way, in RGB (about 12 MB).
 const FRAME_PIXELS_HIGH := 384
 ## Distance at which a tree turns into its impostor, per GraphicsSettings
 ## tree level (0 = classic trees, no 3D).
@@ -59,6 +61,7 @@ static var _meshes: Array[ArrayMesh] = []
 static var _sizes: PackedFloat32Array = []
 static var _materials := {}
 static var _atlas: ImageTexture
+static var _normal_atlas: ImageTexture  ## the impostors' normals, half size
 static var _impostor_mats: Array[ShaderMaterial] = []
 static var _baking := false
 static var _baked := false
@@ -199,7 +202,7 @@ static func _ensure_instanced() -> void:
 		return
 	for v in VARIANTS.size():
 		var m := _meshes[v].duplicate() as ArrayMesh
-		m.surface_set_material(0, material("instanced_bark"))
+		m.surface_set_material(0, material("instanced_pine_bark" if VARIANTS[v][0] == Species.PINE else "instanced_bark"))
 		m.surface_set_material(1, material("instanced_needles" if VARIANTS[v][0] == Species.PINE else "instanced_leaves"))
 		_instanced_meshes.append(m)
 	_instanced_impostor = ShaderMaterial.new()
@@ -210,6 +213,7 @@ static func _ensure_instanced() -> void:
 	_instanced_impostor.set_shader_parameter("transmit", _impostor_transmit())
 	if _atlas != null:
 		_instanced_impostor.set_shader_parameter("atlas", _atlas)
+		_set_normals(_instanced_impostor)
 	_impostor_quad = QuadMesh.new()
 	_impostor_quad.size = Vector2.ONE
 	_impostor_quad.center_offset = Vector3(0, 0.5, 0)
@@ -285,7 +289,7 @@ static func build_mesh(species: Species, seed_value: int) -> ArrayMesh:
 	var leaves := SurfaceTool.new()
 	leaves.begin(Mesh.PRIMITIVE_TRIANGLES)
 	if species == Species.PINE:
-		_grow_pine(rng, bark, leaves)
+		_grow_pine(rng, bark, leaves, seed_value % 3)
 	elif species == Species.BUSH:
 		_grow_bush(rng, bark, leaves)
 	else:
@@ -293,7 +297,7 @@ static func build_mesh(species: Species, seed_value: int) -> ArrayMesh:
 	var m := ArrayMesh.new()
 	bark.commit(m)
 	leaves.commit(m)
-	m.surface_set_material(0, material("bark"))
+	m.surface_set_material(0, material("pine_bark" if species == Species.PINE else "bark"))
 	m.surface_set_material(1, material("needles" if species == Species.PINE else "leaves"))
 	return m
 
@@ -405,47 +409,132 @@ static func _in_ball(rng: RandomNumberGenerator) -> Vector3:
 	return d * pow(rng.randf(), 0.6)
 
 
-static func _grow_pine(rng: RandomNumberGenerator, bark: SurfaceTool, leaves: SurfaceTool) -> void:
-	var height := rng.randf_range(13.0, 17.0)
-	var radius := 0.2 + height * 0.01
-	var top := Vector3(rng.randf_range(-0.2, 0.2), height, rng.randf_range(-0.2, 0.2))
-	_tube(bark, Vector3.ZERO, top * 0.5, radius * 1.2, radius * 0.6, 7)
-	_tube(bark, top * 0.5, top, radius * 0.6, 0.02, 6)
-	var centre := Vector3(0, height * 0.5, 0)
-	var reach := Vector2(height * 0.24, height * 0.5)
-	var y := height * rng.randf_range(0.22, 0.3)
-	while y < height * 0.97:
-		var t := y / height
-		var spokes := rng.randi_range(5, 7)
-		var twist := rng.randf() * TAU
-		var length := (1.0 - t) * height * 0.28 + 0.5
-		var axis := top * t
-		for i in spokes:
-			var yaw := twist + (float(i) + rng.randf_range(-0.25, 0.25)) / spokes * TAU
-			var droop := rng.randf_range(-0.35, 0.05)
-			var dir := Vector3(cos(yaw), droop, sin(yaw)).normalized()
-			var end := axis + dir * length
-			_tube(bark, axis, end, 0.05 + 0.04 * (1.0 - t), 0.015, 4)
-			# Sprigs lie along the branch, flattish, overlapping.
-			var pieces := maxi(1, ceili(length / 1.3))
-			for p in pieces:
-				var a := axis.lerp(end, float(p) / pieces)
-				var b := axis.lerp(end, float(p + 1) / pieces + 0.15)
-				var mid := (a + b) * 0.5 + Vector3(0, 0.08, 0)
-				var across := dir.cross(Vector3.UP).normalized()
-				var along := (b - a).normalized()
-				var crown := Vector3(axis.x, mid.y, axis.z) + Vector3(0, -0.6, 0)
-				var half := (b - a).length() * 0.5 + 0.25
-				# Two sprigs crossed along the branch, so it has body from
-				# the side as well as from above.
-				for turn in [-0.5, 0.5]:
-					var side := across.rotated(along, turn + rng.randf_range(-0.2, 0.2))
-					_leaf_card(leaves, rng, mid, crown, reach, 0.55, half, side, along)
-		y += rng.randf_range(0.75, 1.05) * (1.0 - t * 0.3)
-	_core(leaves, rng, centre + Vector3(0, -height * 0.1, 0), Vector3(reach.x * 0.55, height * 0.32, reach.x * 0.55))
-	# The leader at the top.
-	_leaf_card(leaves, rng, top - Vector3(0, 0.6, 0), centre, reach, 0.35, 0.6, Vector3.RIGHT, Vector3.UP)
-	_leaf_card(leaves, rng, top - Vector3(0, 0.6, 0), centre, reach, 0.35, 0.6, Vector3.BACK, Vector3.UP)
+## A Scots pine, as in photos of heathland and parkland pines: a tall,
+## bare trunk that wanders a little and turns orange up top, with a few
+## dead stubs where the lower limbs fell, and a high, open crown of a
+## handful of heavy limbs. Each limb climbs out and turns up at the end,
+## where its needles sit in flat, layered pads with sky between them,
+## darker underneath. Three forms: open-grown (a wide crown from about
+## half way up), grown in a stand (a long bare trunk and a small, high
+## crown), and wind-leaned.
+static func _grow_pine(rng: RandomNumberGenerator, bark: SurfaceTool, leaves: SurfaceTool, form: int) -> void:
+	var height := rng.randf_range(15.0, 17.0) if form != 1 else rng.randf_range(16.0, 17.5)
+	var crown_base := [rng.randf_range(0.46, 0.52), rng.randf_range(0.62, 0.68), rng.randf_range(0.5, 0.56)][form] as float
+	var spread := [0.31, 0.24, 0.28][form] as float  # crown radius / height
+	var lean := Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized()
+	var lean_m := [rng.randf_range(0.3, 0.7), rng.randf_range(0.2, 0.5), rng.randf_range(1.4, 2.0)][form] as float
+	# The trunk: a gentle wander through four points, leaning off the root.
+	var spine: Array[Vector3] = []
+	for k in 5:
+		var t := float(k) / 4.0
+		var wobble := Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25)) * (0.0 if k == 0 else 1.0)
+		spine.append(Vector3(0, height * t, 0) + lean * lean_m * pow(t, 1.3) + wobble)
+	var r0 := 0.12 + height * 0.009
+	for k in 4:
+		var t0 := float(k) / 4.0
+		var t1 := float(k + 1) / 4.0
+		var flare := 1.35 if k == 0 else 1.0
+		_tube(bark, spine[k], spine[k + 1], r0 * (1.0 - t0 * 0.8) * flare, r0 * (1.0 - t1 * 0.8) + 0.02, 8 if k < 2 else 6)
+	var trunk_at := func(t: float) -> Vector3:
+		var f := clampf(t, 0.0, 1.0) * 4.0
+		var k := mini(int(f), 3)
+		return spine[k].lerp(spine[k + 1], f - k)
+	# Dead stubs on the bare trunk, short and drooping.
+	for k in rng.randi_range(3, 6):
+		var t := rng.randf_range(0.25, crown_base - 0.03)
+		var yaw := rng.randf() * TAU
+		var a: Vector3 = trunk_at.call(t)
+		_tube(bark, a, a + Vector3(cos(yaw), rng.randf_range(-0.35, 0.05), sin(yaw)) * rng.randf_range(0.3, 0.8), 0.05, 0.015, 4)
+	var reach := height * spread
+	var crown_mid := Vector3(lean.x * lean_m, height * (crown_base + 1.0) * 0.5, lean.z * lean_m)
+	var crown_reach := Vector2(reach, height * (1.0 - crown_base) * 0.5)
+	var limbs := [rng.randi_range(8, 9), rng.randi_range(6, 7), rng.randi_range(7, 8)][form] as int
+	var twist := rng.randf() * TAU
+	for i in limbs:
+		var u := (float(i) + rng.randf_range(-0.3, 0.3)) / maxf(limbs - 1, 1)
+		u = clampf(u, 0.0, 1.0)
+		var t := lerpf(crown_base - 0.02, 0.88, u)
+		var start: Vector3 = trunk_at.call(t)
+		# Limbs go round the trunk about the golden angle, and a leaned tree
+		# carries more of them on its downwind side.
+		var yaw := twist + i * 2.4 + rng.randf_range(-0.4, 0.4)
+		var out := Vector3(cos(yaw), 0, sin(yaw))
+		if form == 2:
+			out = (out + lean * 0.9).normalized()
+		var rise := lerpf(rng.randf_range(0.2, 0.5), rng.randf_range(0.7, 1.1), u)
+		var length := reach * rng.randf_range(0.8, 1.05) * (1.0 - u * 0.45)
+		var dir := (out + Vector3(0, rise, 0)).normalized()
+		var knee := start + dir * length * rng.randf_range(0.5, 0.6)
+		var bend := (out * 0.8 + Vector3(0, rise + rng.randf_range(0.3, 0.6), 0) + Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))).normalized()
+		var end := knee + bend * length * rng.randf_range(0.45, 0.55)
+		var lr := r0 * (0.5 - u * 0.2)
+		_tube(bark, start, knee, lr, lr * 0.65, 5)
+		_tube(bark, knee, end, lr * 0.65, 0.03, 4)
+		var pad := reach / 3.2
+		_pine_pad(leaves, rng, end + Vector3(0, 0.15, 0), pad * rng.randf_range(1.15, 1.45), out, crown_mid, crown_reach)
+		# Side branches from the knee, each with its own smaller pad.
+		# A pad on the knee too, so the limb carries foliage along its outer half.
+		_pine_pad(leaves, rng, knee + bend * 0.3 + Vector3(0, 0.2, 0), pad * rng.randf_range(0.7, 0.9), out, crown_mid, crown_reach)
+		for j in 2:
+			var side := out.cross(Vector3.UP) * (1.0 if j == 0 else -1.0) * rng.randf_range(0.6, 1.0)
+			var sdir := (out * 0.6 + side + Vector3(0, rng.randf_range(0.1, 0.4), 0)).normalized()
+			var a := start.lerp(knee, rng.randf_range(0.6, 1.0))
+			var b := a + sdir * length * rng.randf_range(0.35, 0.5)
+			_tube(bark, a, b, lr * 0.35, 0.02, 4)
+			_pine_pad(leaves, rng, b + Vector3(0, 0.1, 0), pad * rng.randf_range(0.8, 1.05), sdir, crown_mid, crown_reach)
+	# The top: a few pads round the leader make the flat-topped dome of an
+	# old pine.
+	var top: Vector3 = trunk_at.call(1.0)
+	for k in 4:
+		var yaw := twist + k * TAU / 4.0 + rng.randf_range(-0.5, 0.5)
+		var off := Vector3(cos(yaw), 0, sin(yaw)) * reach * rng.randf_range(0.15, 0.35)
+		_pine_pad(leaves, rng, top + off - Vector3(0, rng.randf_range(0.4, 1.0), 0), reach / 3.2 * rng.randf_range(0.9, 1.1), off.normalized(), crown_mid, crown_reach)
+
+
+## A pad of pine needles: tufts on the ends of the twigs, held out and up,
+## so a pad reads as a flat, layered plate of foliage with a darker
+## underside, the look of a pine's crown from any distance. Normals point
+## up and out of the pad (its top takes the sun); COLOR.g is how far out
+## in the whole crown the pad is, so pads deep inside sit in shade.
+static func _pine_pad(leaves: SurfaceTool, rng: RandomNumberGenerator, at: Vector3, radius: float, out: Vector3,
+		crown_mid: Vector3, crown_reach: Vector2) -> void:
+	var thick := radius * 0.5
+	var light_from := at - Vector3(0, radius * 0.9, 0) - out * radius * 0.4
+	var count := int(6.0 + radius * 5.5)
+	var o := at - crown_mid
+	var depth := clampf(Vector3(o.x / crown_reach.x, o.y / crown_reach.y, o.z / crown_reach.x).length(), 0.0, 1.0)
+	for k in count:
+		var q := _in_ball(rng) * Vector3(radius, thick, radius)
+		var p := at + q
+		var flat := Vector3(q.x, 0, q.z)
+		var along := (flat.normalized() if flat.length() > 0.1 else out) + out * 0.4
+		along = (along.normalized() + Vector3(0, rng.randf_range(0.15, 0.6), 0)).normalized()
+		var across := along.cross(Vector3.UP).normalized()
+		# Most tufts lie flat-ish; some stand up, so a pad has body from the side.
+		var tilt := rng.randf_range(-0.35, 0.35) if rng.randf() < 0.6 else rng.randf_range(0.9, 1.3) * (1.0 if rng.randf() < 0.5 else -1.0)
+		across = across.rotated(along, tilt)
+		var size := rng.randf_range(0.85, 1.1) * clampf(radius / 1.4, 0.7, 1.2)
+		_needle_card(leaves, rng, p, light_from, depth, (q.y / thick) * 0.5 + 0.5, 0.45 * size, 0.62 * size, across, along)
+	# A flat, dark core, so the gaps between tufts show foliage, not sky.
+	_core(leaves, rng, at - Vector3(0, thick * 0.15, 0), Vector3(radius * 0.55, thick * 0.4, radius * 0.55))
+
+
+## A needle card at `p`: normal away from `light_from`, COLOR.g from how
+## deep in the crown its pad is (`depth`) and how high in its pad
+## (`up`, 0 the underside).
+static func _needle_card(st: SurfaceTool, rng: RandomNumberGenerator, p: Vector3, light_from: Vector3, depth: float,
+		up: float, half_w: float, half_h: float, across: Vector3, along: Vector3) -> void:
+	var normal := (p - light_from).normalized()
+	var outer := clampf(lerpf(0.35, 1.0, depth) * lerpf(0.55, 1.0, up), 0.0, 1.0)
+	var a := across.normalized() * half_w
+	var b := along.normalized() * half_h
+	var color := Color(rng.randf(), outer, clampf(p.y / 15.0, 0.2, 1.0) * (0.4 + 0.6 * outer), 1.0)
+	var corners := [[p - a - b, Vector2(0, 1)], [p + a - b, Vector2(1, 1)], [p + a + b, Vector2(1, 0)], [p - a + b, Vector2(0, 0)]]
+	for k: int in [0, 2, 1, 0, 3, 2]:
+		st.set_color(color)
+		st.set_normal(normal)
+		st.set_uv(corners[k][1])
+		st.add_vertex(corners[k][0])
 
 
 ## A tapered tube from `a` to `b` with UVs in metres (around, along).
@@ -527,12 +616,22 @@ static func _core(st: SurfaceTool, rng: RandomNumberGenerator, centre: Vector3, 
 static func material(which: String) -> ShaderMaterial:
 	if _materials.has(which):
 		return _materials[which]
-	var bake := which.begins_with("bake_")
+	var bake_normal := which.begins_with("bakenormal_")
+	var bake := which.begins_with("bake_") or bake_normal
 	var instanced := which.begins_with("instanced_")
-	var kind := which.trim_prefix("bake_").trim_prefix("instanced_")
+	var kind := which.trim_prefix("bakenormal_").trim_prefix("bake_").trim_prefix("instanced_")
 	var mat := ShaderMaterial.new()
-	if kind == "bark":
+	if kind.ends_with("bark"):
 		mat.shader = BARK_SHADER
+		if kind == "pine_bark":
+			# A pine's trunk stands in the sun below its high crown, and the
+			# bark goes from grey-brown plates at the foot to thin, flaking
+			# orange up the stem (Scots pine).
+			mat.set_shader_parameter("shade_from", 9.0)
+			mat.set_shader_parameter("shade_to", 14.0)
+			mat.set_shader_parameter("upper_tint", Vector3(1.45, 0.98, 0.72))
+			mat.set_shader_parameter("upper_from", 4.0)
+			mat.set_shader_parameter("upper_to", 8.5)
 		var albedo := FreeAssets.tree_texture("bark_albedo.jpg")
 		if albedo != null:
 			mat.set_shader_parameter("bark_color", albedo)
@@ -571,6 +670,7 @@ static func material(which: String) -> ShaderMaterial:
 			mat.set_shader_parameter("leaf_spray", spray)
 			mat.set_shader_parameter("has_spray", true)
 	mat.set_shader_parameter("bake", bake)
+	mat.set_shader_parameter("bake_normal", bake_normal)
 	mat.set_shader_parameter("instanced", instanced)
 	_materials[which] = mat
 	return mat
@@ -592,6 +692,11 @@ static func _add_impostor(root: Node3D) -> void:
 	imp.scale = Vector3.ONE * _sizes[variant]
 	imp.visibility_range_begin = distance
 	imp.visibility_range_begin_margin = 4.0
+	# No sun shadow from the impostor: the shadow pass draws the quad, not
+	# the tree, and it laid hard-edged dark wedges and a vertical seam
+	# across the crowns behind it (Natural look on the iPad). The ground
+	# under a far tree is shaded by GroundShade, like the batched impostors.
+	imp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(imp)
 
 
@@ -635,13 +740,14 @@ static func _bake(tree: SceneTree) -> void:
 		for k in FRAMES:
 			var mi := MeshInstance3D.new()
 			mi.mesh = _meshes[v]
-			mi.set_surface_override_material(0, material("bake_bark"))
+			mi.set_surface_override_material(0, material("bake_pine_bark" if VARIANTS[v][0] == Species.PINE else "bake_bark"))
 			mi.set_surface_override_material(1, material("bake_needles" if VARIANTS[v][0] == Species.PINE else "bake_leaves"))
 			mi.scale = Vector3.ONE / _sizes[v]
 			mi.position = Vector3(k + 0.5 - FRAMES * 0.5, rows - 1 - v, 0)
 			# Copy k shows the tree as seen from azimuth k * 360 / FRAMES.
 			mi.rotation.y = -float(k) / FRAMES * TAU
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.set_meta("variant", v)
 			vp.add_child(mi)
 	tree.root.add_child.call_deferred(vp)
 	# WebGL (Compatibility on the web) needs the viewport to keep drawing for
@@ -652,6 +758,18 @@ static func _bake(tree: SceneTree) -> void:
 	for i in 8:
 		await RenderingServer.frame_post_draw
 	var img := vp.get_texture().get_image()
+	# Then the same views again with each leaf's and branch's normal as its
+	# colour, so the impostors take the sun clump by clump as the full
+	# trees do, instead of as one flat patch of green.
+	for mi in vp.get_children():
+		if mi is MeshInstance3D:
+			var v: int = mi.get_meta("variant")
+			var pine: bool = VARIANTS[v][0] == Species.PINE
+			mi.set_surface_override_material(0, material("bakenormal_pine_bark" if pine else "bakenormal_bark"))
+			mi.set_surface_override_material(1, material("bakenormal_needles" if pine else "bakenormal_leaves"))
+	for i in 8:
+		await RenderingServer.frame_post_draw
+	var normals := vp.get_texture().get_image()
 	vp.queue_free()
 	if img == null or img.is_empty():
 		_baking = false
@@ -659,10 +777,19 @@ static func _bake(tree: SceneTree) -> void:
 	img.convert(Image.FORMAT_RGBA8)
 	img.generate_mipmaps()
 	_atlas = ImageTexture.create_from_image(img)
+	_normal_atlas = null
+	if normals != null and not normals.is_empty():
+		# Half size: the light changes clump by clump, not leaf by leaf.
+		normals.convert(Image.FORMAT_RGB8)
+		@warning_ignore("integer_division")
+		normals.resize(normals.get_width() / 2, normals.get_height() / 2, Image.INTERPOLATE_BILINEAR)
+		normals.generate_mipmaps()
+		_normal_atlas = ImageTexture.create_from_image(normals)
 	for v in rows:
 		var mat := ShaderMaterial.new()
 		mat.shader = IMPOSTOR_SHADER
 		mat.set_shader_parameter("atlas", _atlas)
+		_set_normals(mat)
 		mat.set_shader_parameter("frames", float(FRAMES))
 		mat.set_shader_parameter("rows", float(rows))
 		mat.set_shader_parameter("row", float(v))
@@ -671,12 +798,18 @@ static func _bake(tree: SceneTree) -> void:
 	_baked = true
 	if _instanced_impostor != null:
 		_instanced_impostor.set_shader_parameter("atlas", _atlas)
+		_set_normals(_instanced_impostor)
 	_update_distance()
 	for ref in _waiting:
 		var node := ref.get_ref() as Node3D
 		if node != null and is_instance_valid(node):
 			_add_impostor(node)
 	_waiting.clear()
+
+
+static func _set_normals(mat: ShaderMaterial) -> void:
+	mat.set_shader_parameter("normals", _normal_atlas)
+	mat.set_shader_parameter("has_normals", _normal_atlas != null)
 
 
 static func _impostor_transmit() -> float:

@@ -2,12 +2,17 @@
 // face the camera and shows the baked view of the tree nearest the
 // camera's direction. The atlas has a row per tree variant and FRAMES
 // views per row, frame k seen from azimuth k * 360 / frames in the tree's
-// own frame. Lit with a rounded normal so it shades like the crown of the
-// full tree.
+// own frame. A second, half-size atlas holds the same views' normals
+// (TreeFactory bakes both), so an impostor takes the sun clump by clump,
+// pad by pad, as the full tree does: sunlit tops and sides, shaded
+// undersides and hollows. Lit with the leaves' soft foliage light.
 shader_type spatial;
 render_mode cull_disabled;
 
 uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
+// Baked as colour like the atlas, so read back through the same sRGB curve.
+uniform sampler2D normals : source_color, filter_linear_mipmap, repeat_disable;
+uniform bool has_normals = false;
 uniform float frames = 8.0;
 uniform float rows = 1.0;
 uniform float row = 0.0;
@@ -27,6 +32,10 @@ global uniform float tree_impostor_distance;
 
 varying float frame;
 varying vec3 tint;
+// The billboard's axes in view space, to turn the baked normals.
+varying vec3 axis_x;
+varying vec3 axis_y;
+varying vec3 axis_z;
 
 #include "res://shaders/tree_tint.gdshaderinc"
 varying float atlas_row;
@@ -60,6 +69,9 @@ void vertex() {
 		vec4(0.0, 0.0, 1.0, 0.0),
 		vec4(0.0, 0.0, 0.0, 1.0));
 	MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);
+	axis_x = normalize(MODELVIEW_MATRIX[0].xyz);
+	axis_y = normalize(MODELVIEW_MATRIX[1].xyz);
+	axis_z = normalize(MODELVIEW_MATRIX[2].xyz);
 }
 
 void fragment() {
@@ -85,5 +97,22 @@ void fragment() {
 	BACKLIGHT = c.rgb * 0.4;
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;
-	NORMAL = normalize(vec3((UV.x - 0.5) * 1.4, (0.5 - UV.y) * 1.0 + 0.4, 1.0));
+	vec3 n = normalize(vec3((UV.x - 0.5) * 1.4, (0.5 - UV.y) * 1.0 + 0.4, 1.0));
+	if (has_normals) {
+		vec3 baked = texture(normals, uv).rgb * 2.0 - 1.0;
+		// Gaps the half-size atlas blurs into the edge come out short:
+		// fall back to the rounded normal there.
+		n = normalize(mix(n, baked, smoothstep(0.3, 0.7, length(baked))));
+	}
+	NORMAL = normalize(axis_x * n.x + axis_y * n.y + axis_z * n.z);
+}
+
+// The leaves' soft foliage light (tree_leaves.gdshader), so a tree keeps
+// its light when it turns into its impostor.
+void light() {
+	float ndl = dot(NORMAL, LIGHT);
+	float wrap = clamp((ndl + 0.5) / 1.5, 0.0, 1.0);
+	float through = pow(clamp(dot(-VIEW, LIGHT), 0.0, 1.0), 2.0) * 0.7 + clamp(-ndl, 0.0, 1.0) * 0.25;
+	vec3 glow = vec3(0.95, 1.05, 0.85);
+	DIFFUSE_LIGHT += (wrap + through * glow) * ATTENUATION * LIGHT_COLOR / PI;
 }
