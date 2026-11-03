@@ -2807,6 +2807,10 @@ func _start_computer_turn() -> void:
 func _process_computer(delta: float) -> void:
 	if pause_menu.visible or settings_panel.visible:
 		return
+	# Its routine starts once it has its club from the bag and is behind
+	# the ball.
+	if golfer and golfer.busy() and not _computer_ready:
+		return
 	_computer_timer += delta
 	var cpu := opponents[shooter]
 	# Each golfer's own pre-shot routine: a quick player is over the ball and
@@ -3511,8 +3515,10 @@ func _place_golfer() -> void:
 	var in_sand := hole.terrain.surface_at(ball_at.x, ball_at.z) == Surface.Type.SAND
 	golfer.set_ground(hole.terrain.height_at, FEET_IN_SAND if in_sand else 0.0)
 	golfer.set_shot(clubs[club_index], _flat_distance(ball_at, hole.pin))
-	golfer.play(&"address")
+	# The bag first: at a new ball the golfer takes his club out of it.
 	_place_stand_bag()
+	golfer.set_bag(stand_bag if stand_bag != null and stand_bag.visible else null)
+	golfer.play(&"address")
 
 
 ## The stand bag for this quality (the light one on Low and the Web), or

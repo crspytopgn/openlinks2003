@@ -50,3 +50,16 @@ func react(_animation: StringName, _delay: float) -> void:
 ## `sink` digs the feet in that many metres (a bunker stance).
 func set_ground(_height: Callable, _sink: float = 0.0) -> void:
 	pass
+
+
+## The player's stand bag for this shot (null with a caddie or the buggy),
+## set before play(&"address") at a new ball: a rig can take its club out
+## of it before walking in.
+func set_bag(_bag: Node3D) -> void:
+	pass
+
+
+## True while the golfer is still taking the club from the bag or walking
+## from it: the computer golfers wait for it before their routine.
+func busy() -> bool:
+	return false

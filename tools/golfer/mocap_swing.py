@@ -767,7 +767,9 @@ def smooth(quats):
     return out / np.linalg.norm(out, axis=1, keepdims=True)
 
 
-def write_clip(glb, rig, name, times, rots, root, filtered=True):
+def write_clip(glb, rig, name, times, rots, root, filtered=True, moves=None):
+    """`moves`: joint index to its translations, for joints that move in
+    their parent (the club drawn from the bag in the right hand)."""
     t_acc = glb.add(times, minmax=True)
     t_one = None
     samplers, channels = [], []
@@ -784,6 +786,9 @@ def write_clip(glb, rig, name, times, rots, root, filtered=True):
         channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "rotation"}})
     samplers.append({"input": t_acc, "output": glb.add(root), "interpolation": "LINEAR"})
     channels.append({"sampler": len(samplers) - 1, "target": {"node": rig.joints[0], "path": "translation"}})
+    for j, values in (moves or {}).items():
+        samplers.append({"input": t_acc, "output": glb.add(np.asarray(values, np.float32)), "interpolation": "LINEAR"})
+        channels.append({"sampler": len(samplers) - 1, "target": {"node": rig.joints[j], "path": "translation"}})
     glb.set_animation({"name": name, "samplers": samplers, "channels": channels})
 
 
@@ -862,6 +867,10 @@ STAND_CLIPS = {
     # Standing behind the ball looking down the target line before a full
     # shot, club in hand, as tour players do before walking in.
     "survey": dict(take="77_02", start=100, end=400, facing=(0.0, 0.0, -1.0), upright=True, carry=True),
+    # Taking the club out of the stand bag at his right front (PULL_KEYS),
+    # standing at ease, before walking round behind the ball.
+    "pull_club": dict(take="77_02", start=420, end=720, facing=(0.0, 0.0, -1.0), upright=True, carry=True,
+                      pull=True),
     # "Fore!": a full shot heading well offline. The free (right) arm points
     # after the ball, the head turned with it, the club low in the left
     # hand (POINT_KEYS), as tour players do while the ball is in the air.
@@ -1011,6 +1020,160 @@ def fore_point(rig, rots, poss, t, direction, local0):
             if rots[j] is not None:
                 rots[j] = spin @ rots[j]
     return fill(rig, rots, local0, keep=True)
+
+
+# Taking a club from the stand bag, as tour footage shows: the clubs stand
+# heads up, so the golfer steps up to the bag (at his right front, facing
+# the way it leans), takes a club by the shaft under its head with the right
+# hand, draws it up along the bag until the grip clears the cuff, swings the
+# grip across to the left hand, which takes it, and lets go with the right;
+# the club then drops head down into the carry. Golfer frame: the bag's foot
+# at PULL_BAG_FOOT, its top leaning forward (StandBag.MOUTH: 0.82 m up,
+# 0.30 m back on its legs). The game stands the golfer there
+# (FreeGolfer.PULL_BAG_FOOT and PULL_GRAB, kept equal).
+PULL_BAG_FOOT = np.array([0.40, 0.0, 0.06])
+PULL_BAG_TOP = np.array([0.0, 0.82, -0.30])
+PULL_HOLD_ABOVE = 0.10  # the right hand on the shafts this far above the cuff
+PULL_HOLD_NEAR = 0.05  # a club in the top's near side, towards the golfer
+PULL_HOLD = 0.62  # the right hand this far up the shaft from the left's grip
+# Where the left hand takes the grip, the club across the body (grip low
+# at the left, head up to the right), in the golfer frame.
+PULL_CATCH_AT = np.array([-0.08, 0.98, -0.28])
+PULL_CATCH_DIR = np.array([0.6, 0.6, -0.35])
+# Then the head comes round in front of him (clear of the bag at his right)
+# before it drops into the carry: (seconds, share of the turn to the front).
+PULL_FRONT_DIR = np.array([0.05, 0.25, -1.0])
+PULL_TURN = [(1.9, 0.0), (2.2, 1.0)]
+# (seconds, metres drawn up the bag, share of the swing across to the catch)
+PULL_KEYS = [(0.62, 0.0, 0.0), (0.75, 0.0, 0.0), (1.35, 0.72, 0.0), (1.55, 0.80, 0.25), (1.75, 0.80, 1.0)]
+PULL_GRAB = 0.62  # the right hand closes on the shaft: the club shows from here
+PULL_CATCH = 1.75  # the left hand closes on the grip
+# (seconds, weight) of the right hand on the club, the left hand reaching
+# for the grip (then carrying it, easing into the carry pose by the end).
+PULL_RIGHT = [(0.0, 0.0), (0.5, 1.0), (1.9, 1.0), (2.3, 0.0)]
+PULL_LEFT = [(0.0, 0.0), (1.45, 0.0), (1.75, 1.0), (2.2, 1.0), (2.5, 0.0)]
+PULL_LEAN = 18.0  # degrees the trunk bends to the bag while the hand is down
+PULL_LOOK = 0.8  # share of the head's turn to the hands
+
+
+def smooth_keys(keys, t):
+    """Values at t through (time, *values) keys, eased in and out."""
+    if t <= keys[0][0]:
+        return keys[0][1:]
+    if t >= keys[-1][0]:
+        return keys[-1][1:]
+    i = max(j for j in range(len(keys) - 1) if keys[j][0] <= t)
+    u = (t - keys[i][0]) / (keys[i + 1][0] - keys[i][0])
+    u = u * u * (3 - 2 * u)
+    return tuple(a + (b - a) * u for a, b in zip(keys[i][1:], keys[i + 1][1:]))
+
+
+def pull_club_at(t):
+    """The club joint (the left hand's grip) and the shaft's direction (grip
+    to head) while the right hand has it, in the golfer frame."""
+    axis = pose.unit(PULL_BAG_TOP)
+    hold0 = PULL_BAG_FOOT + PULL_BAG_TOP + axis * PULL_HOLD_ABOVE + np.array([-PULL_HOLD_NEAR, 0.0, 0.0])
+    lift, swing = smooth_keys(PULL_KEYS, t)
+    in_bag = hold0 + axis * lift - axis * PULL_HOLD
+    across = pose.unit(PULL_CATCH_DIR)
+    shaft = pose.unit(axis * (1 - swing) + across * swing)
+    grip = in_bag * (1 - swing) + PULL_CATCH_AT * swing
+    return grip, shaft
+
+
+def pull_club(rig, rots, root, t, club_dir, local0, grip_local, right_rel):
+    """Takes the club from the bag (PULL_KEYS) over the carry pose `rots`.
+    Returns the world rotations and the club joint's translation in the
+    left hand (its rest offset once the left hand holds it)."""
+    up = np.array([0.0, 1.0, 0.0])
+    c, hl, hr = rig.index["club"], rig.index["hand_l"], rig.index["hand_r"]
+    (wr,) = smooth_keys(PULL_RIGHT, t)
+    (wl,) = smooth_keys(PULL_LEFT, t)
+    held = t < PULL_CATCH
+    # Fingers: the right closed on the shaft while it holds, the left open
+    # until it takes the grip.
+    local = list(local0)
+    for j, name in enumerate(rig.names):
+        if name.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb"):
+            if name.endswith("_r"):
+                local[j] = pose.slerp(np.eye(3), grip_local[j], 0.35 + 0.65 * wr)
+            elif held:
+                local[j] = pose.slerp(np.eye(3), grip_local[j], 0.35 + 0.65 * wl)
+    base = fill(rig, list(rots), local, keep=True)
+    pose_ = list(base)
+    # Bend at the waist towards the bag while the hand is down at its top.
+    lift = smooth_keys(PULL_KEYS, t)[0]
+    down = float(np.clip(1.0 - lift / 0.45, 0.0, 1.0)) * wr * (1.0 if held else 0.0)
+    hold0 = PULL_BAG_FOOT + PULL_BAG_TOP
+    lean_axis = pose.unit(np.cross(up, pose.unit(hold0 * np.array([1.0, 0.0, 1.0]))))
+    bend = pose.rot(lean_axis, PULL_LEAN * down)
+    for j in descendants(rig, "spine_01"):
+        pose_[j] = bend @ pose_[j]
+    _, poss = rig.world(rig.locals(pose_), root)
+    # The club: where the right hand has it, or in the left hand; turned
+    # from its rest (identity) so it doesn't roll with the actor.
+    if held:
+        grip_at, shaft = pull_club_at(max(t, PULL_GRAB))
+    else:
+        grip_at, shaft = PULL_CATCH_AT, pose.unit(PULL_CATCH_DIR)
+    club_rot = between(club_dir, shaft)
+    catch_rot = between(club_dir, pose.unit(PULL_CATCH_DIR))
+    (turn,) = smooth_keys(PULL_TURN, t)
+    if turn > 0.0:
+        catch_rot = pose.slerp(catch_rot, between(club_dir, pose.unit(PULL_FRONT_DIR)), turn)
+    arms = list(pose_)
+    if wr > 1e-4:
+        rel_p, rel_r = right_rel
+        # Letting go, the hand stays by where it held the club.
+        g, cr = (grip_at, club_rot) if held else (PULL_CATCH_AT, catch_rot)
+        arms[hr] = cr @ rel_r
+        want = g + cr @ rel_p
+        for _ in range(3):
+            _, poss = rig.world(rig.locals(arms), root)
+            keep = arms[hr]
+            reach_pole(rig, arms, poss, "upperarm_r", "lowerarm_r", "hand_r", want, np.array([1.0, -0.6, 0.4]))
+            arms[hr] = keep
+            arms = fill(rig, arms, local, keep=True)
+            arms[hr] = keep
+    if wl > 1e-4:
+        g, cr = PULL_CATCH_AT, catch_rot
+        arms[hl] = cr @ grip_local[c].T
+        want = g - arms[hl] @ rig.offsets[c]
+        for _ in range(3):
+            _, poss = rig.world(rig.locals(arms), root)
+            keep = arms[hl]
+            reach_pole(rig, arms, poss, "upperarm_l", "lowerarm_l", "hand_l", want, np.array([-1.0, -0.6, 0.4]))
+            arms[hl] = keep
+            arms = fill(rig, arms, local, keep=True)
+            arms[hl] = keep
+    out = list(pose_)
+    for s_, w in (("r", wr), ("l", wl)):
+        for name in (f"upperarm_{s_}", f"lowerarm_{s_}", f"hand_{s_}"):
+            j = rig.index[name]
+            out[j] = pose.slerp(pose_[j], arms[j], w)
+    out = fill(rig, out, local, keep=True)
+    # Eyes on the work: the right hand, then the grip coming to the left.
+    _, poss = rig.world(rig.locals(out), root)
+    focus = poss[hr] if t < 1.5 else grip_at
+    look_w = PULL_LOOK * float(np.clip((2.3 - t) / 0.4, 0.0, 1.0)) * float(np.clip(t / 0.3, 0.0, 1.0))
+    eye = poss[rig.index["head"]]
+    look = pose.unit(focus - eye)
+    for name, share in (("neck_01", 0.45), ("head", 1.0)):
+        face = out[rig.index["head"]] @ np.array([0.0, 0.0, -1.0])
+        angle = math.degrees(math.acos(float(np.clip(np.dot(face, look), -1.0, 1.0))))
+        if angle < 1e-3:
+            continue
+        turn = pose.rot(pose.unit(np.cross(face, look)), angle * share * look_w)
+        for k in descendants(rig, name):
+            out[k] = turn @ out[k]
+    out = fill(rig, out, local, keep=True)
+    # The club where the right hand holds it; its own joint moves in the
+    # left hand's frame for that (a translation channel).
+    if held:
+        _, poss = rig.world(rig.locals(out), root)
+        out[c] = club_rot
+        return out, out[hl].T @ (grip_at - poss[hl])
+    return out, rig.offsets[c].copy()
 
 
 def stand_upright(rig, poss, root, targets, narrow, lift, ankle_rest):
@@ -1192,6 +1355,7 @@ def retarget_stand(glb, rig, clip, cache):
         putt_grip = (p_rots[c].T @ (p_poss[hr] - p_poss[c]), p_rots[c].T @ p_rots[hr])
 
     out_rots, out_root = [], []
+    club_moves = []
     for i, f in enumerate(frames):
         m_rots, m_poss = bvh.frame(f)
         origin = origin0 + drift * i
@@ -1268,6 +1432,19 @@ def retarget_stand(glb, rig, clip, cache):
             want = pose.unit(low * (1 - w * w * (3 - 2 * w)) + pose.unit(up + 0.5 * facing) * w * w * (3 - 2 * w))
             rots[h] = between(rots[rig.index["club"]] @ club_dir, want) @ rots[h]
             rots = fill(rig, rots, local0, keep=True)
+        if clip.get("pull"):
+            if i == 0:
+                a_local, a_root = rig.sample(glb, "ref_address")
+                a_rots, a_poss = rig.world(a_local, a_root)
+                ac = rig.index["club"]
+                ahr = rig.index["hand_r"]
+                along = float(np.dot(a_rots[ac].T @ (a_poss[ahr] - a_poss[ac]), club_dir))
+                # The right hand as it holds the grip at address, moved up
+                # the shaft to PULL_HOLD.
+                right_rel = (a_rots[ac].T @ (a_poss[ahr] - a_poss[ac]) + club_dir * (PULL_HOLD - along),
+                             a_rots[ac].T @ a_rots[ahr])
+            rots, club_t = pull_club(rig, rots, root, i / fps, club_dir, local0, grip_local, right_rel)
+            club_moves.append(club_t)
         if clip.get("read"):
             # Down in the read the hands are on the putter (read_hands).
             for s in ("l", "r"):
@@ -1282,8 +1459,11 @@ def retarget_stand(glb, rig, clip, cache):
     keep = list(range(0, len(frames), step))
     if keep[-1] != len(frames) - 1:
         keep.append(len(frames) - 1)
+    moved = {}
+    if club_moves:
+        moved[rig.index["club"]] = np.array([club_moves[i] for i in keep], np.float32)
     return (np.array([times[i] for i in keep], np.float32), [out_rots[i] for i in keep],
-            np.array([out_root[i] for i in keep], np.float32))
+            np.array([out_root[i] for i in keep], np.float32), moved)
 
 
 def main():
@@ -1306,10 +1486,11 @@ def main():
     clubs.swap(glb, rig)
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
-            times, rots, root = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
+            times, rots, root, moved = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
         else:
             times, rots, root = retarget(glb, rig, CLIPS[name], args.cache)
-        write_clip(glb, rig, name, times, rots, root)
+            moved = {}
+        write_clip(glb, rig, name, times, rots, root, moves=moved)
         print(f"{name}: {len(times)} keys, {times[-1]:.2f} s")
     glb.save(args.out or args.glb)
 

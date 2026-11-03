@@ -159,6 +159,14 @@ func set_ground(height: Callable, sink: float = 0.0) -> void:
 	_fallback.set_ground(height, sink)
 
 
+func set_bag(bag: Node3D) -> void:
+	_fallback.set_bag(bag)
+
+
+func busy() -> bool:
+	return _fallback.busy()
+
+
 ## Shows the current clip `seconds` in (for renders and tests).
 func seek(seconds: float) -> void:
 	_time = seconds
