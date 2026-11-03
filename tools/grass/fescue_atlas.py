@@ -4,10 +4,11 @@
     python3 tools/grass/fescue_atlas.py OUT.png
 
 Out of play, a links or parkland course leaves its slopes as tall fescue:
-fine blades 40 to 80 cm, green at the base and straw-gold towards the
-tips, with seed stalks above them, leaning every way and bending at the
-top. From the tee that reads as a soft, wispy, golden-green pile over the
-hills, where a flat ground texture reads as felt. This draws four such
+a low mass of fine grey-green blades, some of them straw towards the tips,
+leaning every way and bending at the top, with thin stalks of pale buff
+seed heads standing above them. From the tee that reads as a soft, wispy,
+tawny-green pile over the hills, where a flat ground texture reads as felt
+(and thick straw-gold blades read as yellow dots). This draws four such
 tufts (2 x 2, each 512 px for a tuft 1 m wide and 1 m tall), alpha the
 blades, colour bled into the gaps for clean mipmaps. Nothing is photographed
 or downloaded, so it needs only Pillow.
@@ -21,10 +22,14 @@ from PIL import Image, ImageDraw, ImageFilter
 
 CELL = 512
 GRID = 2
-BASE = (74, 92, 44)  # green at the root
-MID = (128, 136, 70)
-TIP = (196, 178, 112)  # straw at the tips
-SEED = (170, 140, 86)
+# Real summer fescue (Geograph photos of links and heathland roughs): a
+# grey-green mass of wiry blades, only some of them straw at the tips, and
+# above it thin stalks carrying pale buff seed heads that catch the light.
+BASE = (52, 66, 34)  # deep green, shaded, at the root
+MID = (104, 118, 72)  # grey-green
+TIP = (170, 162, 118)  # dry, pale straw
+SEED = (196, 178, 134)  # pale buff panicles
+STALK = (150, 142, 100)
 
 
 def _mix(a, b, t):
@@ -32,8 +37,8 @@ def _mix(a, b, t):
 
 
 def _blade_colour(t, dry, shade):
-    c = _mix(BASE, MID, min(t * 1.6, 1.0)) if t < 0.6 else _mix(MID, TIP, (t - 0.6) / 0.4)
-    c = _mix(c, TIP, dry * 0.6)
+    c = _mix(BASE, MID, min(t * 1.8, 1.0)) if t < 0.55 else _mix(MID, TIP, (t - 0.55) / 0.45 * 0.5)
+    c = _mix(c, TIP, dry * 0.75 * t)
     return tuple(max(0, min(255, int(v * shade))) for v in c)
 
 
@@ -44,18 +49,20 @@ def _tuft(rng: random.Random) -> Image.Image:
     d = ImageDraw.Draw(img)
     root_x = s * 0.5
     blades = []
-    for _ in range(rng.randint(150, 190)):
-        rx = root_x + rng.gauss(0, s * 0.07)
-        height = rng.uniform(0.35, 0.82) * s
-        lean = rng.gauss(0, 0.25)
+    # Fine blades, most of them in a low, dense mass, a few long ones.
+    for _ in range(rng.randint(220, 260)):
+        rx = root_x + rng.gauss(0, s * 0.09)
+        height = (rng.uniform(0.25, 0.55) if rng.random() < 0.7 else rng.uniform(0.55, 0.78)) * s
+        lean = rng.gauss(0, 0.3)
         bend = rng.uniform(0.2, 0.9) * (1 if lean >= 0 else -1)
-        blades.append((rng.random(), rx, height, lean, bend, rng.random() < 0.3, False))
-    for _ in range(rng.randint(10, 18)):
-        rx = root_x + rng.gauss(0, s * 0.05)
-        blades.append((rng.random(), rx, rng.uniform(0.75, 0.97) * s, rng.gauss(0, 0.18), rng.uniform(-0.15, 0.15), True, True))
+        blades.append((rng.random(), rx, height, lean, bend, rng.random() < 0.25, False))
+    # Seed stalks standing clear above the blades.
+    for _ in range(rng.randint(14, 22)):
+        rx = root_x + rng.gauss(0, s * 0.07)
+        blades.append((rng.random(), rx, rng.uniform(0.7, 0.97) * s, rng.gauss(0, 0.15), rng.uniform(-0.2, 0.2), True, True))
     blades.sort()  # depth: back to front
     for depth, rx, height, lean, bend, dry, stalk in blades:
-        shade = 0.62 + 0.38 * depth
+        shade = 0.55 + 0.45 * depth
         steps = 14
         pts = []
         for i in range(steps + 1):
@@ -64,21 +71,29 @@ def _tuft(rng: random.Random) -> Image.Image:
             x = rx + (lean * t + bend * t * t * t * 0.5) * height * 0.6
             y = s - 4 - height * (t - 0.18 * abs(bend) * t * t * t)
             pts.append((x, y, t))
-        width0 = 7 if not stalk else 4
+        width0 = 4 if not stalk else 3
         for i in range(steps):
             x0, y0, t0 = pts[i]
             x1, y1, t1 = pts[i + 1]
-            w = max(1, int(round(width0 * (1.0 - t0 * 0.85))))
-            d.line([(x0, y0), (x1, y1)], fill=_blade_colour(t0, 1.0 if dry else 0.0, shade) + (255,), width=w)
+            w = max(1, int(round(width0 * (1.0 - t0 * 0.7))))
+            col = _mix(STALK, TIP, t0) if stalk else _blade_colour(t0, 1.0 if dry else 0.0, shade)
+            if stalk:
+                col = tuple(int(v * (0.7 + 0.3 * depth)) for v in col)
+            d.line([(x0, y0), (x1, y1)], fill=col + (255,), width=w)
         if stalk:
-            # A loose seed head: small grains along the top fifth.
+            # An open panicle: short spikelets hanging off the top fifth,
+            # on hair-thin branches, so it reads as a light, airy head.
             x, y, _t = pts[-1]
-            for k in range(rng.randint(7, 12)):
-                u = k / 10.0
-                gx = x + rng.gauss(0, 7) - lean * u * 30
-                gy = y + u * height * 0.18
-                r = rng.uniform(3, 5)
-                d.ellipse([gx - r, gy - r * 1.8, gx + r, gy + r * 1.8], fill=tuple(int(v * shade) for v in SEED) + (255,))
+            for k in range(rng.randint(6, 10)):
+                u = k / 9.0
+                bx = x - lean * u * 30
+                by = y + u * height * 0.2
+                side = rng.choice((-1, 1))
+                ex = bx + side * rng.uniform(6, 18)
+                ey = by + rng.uniform(4, 14)
+                d.line([(bx, by), (ex, ey)], fill=tuple(int(v * shade) for v in STALK) + (255,), width=1)
+                r = rng.uniform(1.8, 2.6)
+                d.ellipse([ex - r, ey - r * 2.2, ex + r, ey + r * 2.2], fill=tuple(min(255, int(v * (0.8 + 0.2 * depth))) for v in SEED) + (255,))
     return img.resize((CELL, CELL), Image.LANCZOS)
 
 

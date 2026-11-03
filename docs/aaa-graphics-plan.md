@@ -53,11 +53,23 @@ picture.
    shorter, darker-tipped tufts that blend into the ground colour, a first
    cut between fairway and rough, and fescue clumps built from thin blades
    and seed heads rather than yellow blobs.
+   Done 2026-11-03: the near rough is an even sward (jittered grid, 13
+   tufts a square metre near the camera at High, sparser beyond where the
+   tufts sink away) of finer, shorter blades that darken down into the
+   tuft; designed courses paint a 1.8 m first cut with 4 cm grass; the
+   fescue atlas is grey-green with pale seed heads on thin stalks, denser
+   and blended into the ground further off. Checked at 1:1 from the tee,
+   in the rough and on the fescue bank.
 4. **Shade fill (graphics thread).** In Compatibility, tree shadows on the
    fairway are near black, with no sky light in them. In real photos the
    shade under a tree is a darker, bluer green, never black. Plan: lift the
    shadow floor with sky-coloured ambient on terrain and grass in
    Compatibility.
+   Done 2026-11-03: `shade_fill` (ground, rough and fescue shaders) adds
+   even skylight in Compatibility and scales the lit albedo to match.
+   Shade measured 10% of sunlit (sRGB G), now about 55%, as in Geograph
+   photos of tree shadows on fairways. The cause was the tone curve and
+   grade crushing the flat fill's shade, not the fill itself.
 5. **Tee boxes and ground shape (home-course builder).** 2K25's tees are
    raised, flat, closely mown platforms with a clean edge, and the ground
    round them rolls. Ours blend into the fairway, and the ground between
