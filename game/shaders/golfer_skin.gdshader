@@ -100,8 +100,8 @@ void fragment() {
 	float hairs = clamp(beard * stubble * (0.9 + dots * 1.5), 0.0, 0.95);
 	c = mix(c, beard_colour.rgb, hairs);
 	float occ = body_occlusion(occ_pos, occ_normal);
-	AO = occ;
-	ALBEDO = c * warmth * mix(1.0, occ, contact_share);
+	AO = occ * people_fill(occ_normal);
+	ALBEDO = c * warmth * mix(1.0, occ, contact_share) * people_light.x;
 	ROUGHNESS = clamp(roughness - r.a * 0.16 - r.b * 0.14 + hairs * 0.25, 0.2, 1.0);
 	SPECULAR = specular + r.a * 0.08;
 	vec2 p = (texture(pores, UV * pore_scale).rg * 2.0 - 1.0) * pore_strength * (1.0 - r.b);

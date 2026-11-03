@@ -38,6 +38,10 @@ swing={
 
 [shader_globals]
 
+people_light={
+"type": "vec3",
+"value": Vector3(1, 1, 0)
+}
 wind_vector={
 "type": "vec2",
 "value": Vector2(0, 0)
