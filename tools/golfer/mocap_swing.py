@@ -792,6 +792,21 @@ def write_clip(glb, rig, name, times, rots, root, filtered=True, moves=None):
     glb.set_animation({"name": name, "samplers": samplers, "channels": channels})
 
 
+def club_still(glb, rig):
+    """Every clip but the ones that move the club in the hand (pull_club)
+    holds it at its rest offset with a one-key translation channel: Godot
+    keeps a track's last value in clips without that track, so a pull cut
+    short would leave the club out of the hand."""
+    node = rig.joints[rig.index["club"]]
+    rest = np.asarray([rig.offsets[rig.index["club"]]], np.float32)
+    for anim in glb.doc["animations"]:
+        if any(ch["target"]["node"] == node and ch["target"]["path"] == "translation" for ch in anim["channels"]):
+            continue
+        t = glb.add(np.zeros(1, np.float32), minmax=True)
+        anim["samplers"].append({"input": t, "output": glb.add(rest), "interpolation": "LINEAR"})
+        anim["channels"].append({"sampler": len(anim["samplers"]) - 1, "target": {"node": node, "path": "translation"}})
+
+
 def glance(rig, rots, t, at):
     """Turns the head and neck towards the target (-x) and back: at is
     (start, seconds turning, seconds held, degrees)."""
@@ -1492,6 +1507,7 @@ def main():
             moved = {}
         write_clip(glb, rig, name, times, rots, root, moves=moved)
         print(f"{name}: {len(times)} keys, {times[-1]:.2f} s")
+    club_still(glb, rig)
     glb.save(args.out or args.glb)
 
 
