@@ -1,0 +1,39 @@
+# Re-runs CI jobs that GitHub cancelled because no hosted runner picked them
+# up. The macOS arm64 pool is often short of capacity: a queued job is
+# offered to runners for about 15 minutes, then cancelled with "The job was
+# not acquired by Runner of type hosted even after multiple attempts". The
+# job itself takes under a minute, so a re-run is all it needs.
+#
+# Only jobs that never started (cancelled with no runner) count, so a
+# manual cancel or a real failure is left alone. At most two retries.
+name: CI retry
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  retry:
+    name: Re-run jobs that never got a runner
+    if: github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-run unacquired jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.conclusion == "cancelled" and (.runner_name // "") == "")] | map(.name) | join(", ")')
+          if [ -z "$jobs" ]; then
+            echo "Nothing to retry: no job was left without a runner."
+            exit 0
+          fi
+          echo "Re-running run $RUN_ID (attempt $ATTEMPT): $jobs never got a runner."
+          gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs"
