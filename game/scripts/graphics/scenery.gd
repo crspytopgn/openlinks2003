@@ -27,6 +27,13 @@ const CLASSIC_SUN_ELEVATION := 38.0
 const COMPAT_EXPOSURE_LIFT := 1.3
 ## Photoreal fill light in Compatibility relative to the time of day's.
 const COMPAT_FILL_LIFT := 1.6
+## The photographed sky in Photoreal on the Compatibility renderer: its
+## brightness, saturation above the horizon band (photo_sky.gdshader
+## sky_depth) and how much distance haze lies over it. Fitted so the top of
+## the tee view lands near 2K25's and real tee shots' deep blue.
+const COMPAT_SKY_ENERGY := 0.95
+const COMPAT_SKY_DEPTH := 1.1
+const COMPAT_SKY_FOG := 0.08
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light
@@ -294,13 +301,16 @@ func _pick_sky() -> void:
 		# A little haze over the sky too, so the far land melts into it;
 		# less in Forward+, where it turned the whole sky milky (most of all
 		# from the flyover's height).
-		environment.fog_sky_affect = (0.08 if GraphicsSettings.is_forward_plus() else 0.25) if real else 0.0
+		# Compatibility keeps it as light as Forward+: at 0.25 the web sky
+		# measured sRGB (171, 209, 240) at the top of the tee view against
+		# 2K25's (97, 159, 205), and the far scenery has its own haze.
+		environment.fog_sky_affect = (0.08 if GraphicsSettings.is_forward_plus() else COMPAT_SKY_FOG) if real else 0.0
 		if _free_sky is ShaderMaterial:
-			# Brighter in Compatibility, which has no sky fill light.
 			var sky_mat := _free_sky as ShaderMaterial
-			# Brighter in Compatibility, which has no sky fill light.
-			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else 1.5)
-			sky_mat.set_shader_parameter("sky_depth", 1.4 if GraphicsSettings.is_forward_plus() else 1.0)
+			# Compatibility has no sky fill light, so its sky is drawn a
+			# little brighter than Forward+'s, but no longer pale and milky.
+			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else COMPAT_SKY_ENERGY)
+			sky_mat.set_shader_parameter("sky_depth", 1.4 if GraphicsSettings.is_forward_plus() else COMPAT_SKY_DEPTH)
 			sky_mat.set_shader_parameter("tint", _time.sky)
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
 			sky_mat.set_shader_parameter("glow", _time.glow)

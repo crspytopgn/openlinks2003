@@ -24,6 +24,10 @@ const GRADES := [
 ## course.
 const PHOTO_NEUTRAL := [1.0, 1.08, 1.12, Color(1.02, 1.0, 0.97), Color(0.95, 0.98, 1.04)]
 const PHOTO_CURVE := 0.6
+## Extra contrast in Photoreal on the Compatibility renderer, after the
+## learned grade (so the grade's fit is untouched): the web frame read flat
+## next to 2K25's strong sun and dark shade. 1 = none.
+const COMPAT_FINISH_CONTRAST := 1.2
 
 ## Heat shimmer at 1080p, in pixels, for a 50 degree lens and a high sun
 ## (Photoreal only). A long lens magnifies it (RoundCamera.lens_factor).
@@ -76,6 +80,7 @@ func apply(s: GraphicsSettings) -> void:
 	var photo := s.lighting == GraphicsSettings.Lighting.PHOTOREAL
 	var g: Array = PHOTO_NEUTRAL if photo and s.grade == GraphicsSettings.Grade.NEUTRAL else GRADES[s.grade]
 	_mat.set_shader_parameter("curve", PHOTO_CURVE if photo else 0.0)
+	_mat.set_shader_parameter("finish_contrast", COMPAT_FINISH_CONTRAST if photo and not GraphicsSettings.is_forward_plus() else 1.0)
 	_mat.set_shader_parameter("sharpen", GraphicsSettings.SHARPEN_LEVELS[s.sharpen])
 	_mat.set_shader_parameter("exposure", g[0])
 	_mat.set_shader_parameter("contrast", g[1])
