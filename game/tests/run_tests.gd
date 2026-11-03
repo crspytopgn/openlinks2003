@@ -2244,6 +2244,7 @@ func _test_grass() -> void:
 	_check(tufts > 100, "grass grows in the rough (%d tufts)" % tufts)
 	_check(outside == 0, "no grass on fairways, greens or sand")
 	_check(GrassField.tuft_mesh().get_surface_count() == 1, "tuft mesh")
+	_check(not GrassField._is_far(10.0, 55.0) and GrassField._is_far(50.0, 55.0), "dense grass near the camera, sparser further out")
 	var field := GrassField.new()
 	field.setup(t, 1)
 	field.update_around(tee + Vector3(0, 2, 60))
@@ -3828,6 +3829,17 @@ func _test_people(parts: GolferParts) -> void:
 		used[look.person] = true
 	_check(used.size() == PlayerLook.PEOPLE.size(), "the field uses every person (%d)" % used.size())
 	_check(PlayerLook.random_person(7).person != "", "random spectators and opponents are people")
+	var capped := 0
+	var white := 0
+	for i in 400:
+		var fan := PlayerLook.spectator(i * 7919 + 1)
+		if fan.cap:
+			capped += 1
+			if fan.cap_colour == Color(1, 1, 1):
+				white += 1
+	_check(capped > 140 and capped < 220, "about half the gallery wears a cap (%d of 400)" % capped)
+	_check(white * 5 < capped, "few of the gallery's caps are white (%d of %d)" % [white, capped])
+	_check(Scenery.people_light(true, false).x < 1.0 and Scenery.people_light(true, true) == Vector3(1, 1, 0), "people take back the web build's turf lift only")
 	_check(PlayerLook.from_dict({"sex": 0.0}).person == "", "a look saved before the people stays Custom")
 	var saved := PlayerLook.default_look()
 	saved.person = "Female_Adult_17"

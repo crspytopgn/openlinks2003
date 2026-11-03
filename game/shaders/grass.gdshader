@@ -56,21 +56,28 @@ void vertex() {
 }
 
 void fragment() {
-	// Each blade its own shade, a few dry and straw-coloured; dark down
-	// in the tuft, where little light gets in, and sun-bleached at the tips.
-	vec3 straw = vec3(dot(base_color, vec3(0.3, 0.6, 0.1))) * vec3(1.25, 1.1, 0.6);
-	vec3 c = mix(base_color, straw, blade.y * 0.7) * mix(0.8, 1.15, blade.x);
-	// Capped well below white: pale disc rough lifted for Compatibility
-	// would otherwise pass the glow threshold and bloom into a white haze.
-	vec3 near = c * mix(0.85, 1.2, smoothstep(0.0, 1.0, height)) * vec3(0.97, 1.03, 0.9);
-	// Sun-bleached, slightly yellower tips catch the eye on top of the turf.
-	near *= mix(vec3(1.0), vec3(1.18, 1.14, 0.9), smoothstep(0.6, 1.0, height) * blade_relief);
-	vec3 far = base_color * mix(0.92, 1.05, blade.x);
+	// Each blade its own shade, a few dry and straw-coloured. Real rough
+	// is darkest down in the tuft, where the blades shade each other, and
+	// its tips are a deeper, cooler green than the mown turf beside it
+	// (they're older leaf, and seen edge-on): a dense, dark fur that
+	// blends into the ground rather than bright tips stuck on top of it.
+	vec3 straw = vec3(dot(base_color, vec3(0.3, 0.6, 0.1))) * vec3(1.2, 1.08, 0.7);
+	vec3 c = mix(base_color, straw, blade.y * 0.45) * mix(0.82, 1.12, blade.x);
+	float root = smoothstep(0.0, 0.55, height);
+	float tip = smoothstep(0.6, 1.0, height);
+	vec3 near = c * mix(0.72, 1.05, root) * mix(vec3(1.0), vec3(0.94, 0.97, 0.97), tip);
+	// Forward+ lights each blade on its own: there the tips catch a
+	// little sun (blade_relief) instead.
+	near *= mix(vec3(1.0), vec3(1.1, 1.1, 1.0), tip * blade_relief);
+	vec3 far = base_color * mix(0.88, 1.0, blade.x) * mix(0.8, 1.0, root);
 	// Toned like the turf under it (turf_tone), or the blades stand out.
 	vec3 turf = tone_turf(mix(near, far, blend));
 	turf = mix(vec3(dot(turf, vec3(0.2126, 0.7152, 0.0722))), turf, saturation);
-	ALBEDO = min(turf * brightness, vec3(0.6))
-		* ground_shading(root_xz, length(VERTEX));
+	// Capped well below white: pale disc rough lifted for Compatibility
+	// would otherwise pass the glow threshold and bloom into a white haze.
+	vec3 albedo = min(turf * brightness, vec3(0.6));
+	ALBEDO = albedo * shade_fill.a * ground_shading(root_xz, length(VERTEX));
+	EMISSION = albedo * shade_fill.rgb;
 	// Both faces lit like the ground: without this the back faces flip
 	// their normal and go dark (Compatibility shows it most).
 	float turn = blade.x * 6.2831;

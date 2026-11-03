@@ -25,6 +25,8 @@ const PHOTO_EXPOSURE := 1.0
 const CLASSIC_SUN_ELEVATION := 38.0
 ## Photoreal exposure in Compatibility relative to Forward+ (see _apply_time).
 const COMPAT_EXPOSURE_LIFT := 1.3
+## Photoreal fill light in Compatibility relative to the time of day's.
+const COMPAT_FILL_LIFT := 1.6
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light
@@ -413,6 +415,7 @@ func _apply_time() -> void:
 	RenderingServer.global_shader_parameter_set("sun_travel", -sun.transform.basis.z)
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(1, 1, 1))
 	RenderingServer.global_shader_parameter_set("turf_tone", (1.0 if GraphicsSettings.is_forward_plus() else 1.35) if _photo else 0.0)
+	RenderingServer.global_shader_parameter_set("people_light", people_light(_photo, GraphicsSettings.is_forward_plus()))
 	if not _photo:
 		environment.ambient_light_color = AMBIENT
 		return
@@ -423,7 +426,7 @@ func _apply_time() -> void:
 	# or shade goes near black.
 	# (Measured against real course photos: our shade was far darker than
 	# real shade, and the whole frame about a stop under.)
-	var fill: float = _time.fill_fwd if GraphicsSettings.is_forward_plus() else _time.fill * 1.6
+	var fill: float = _time.fill_fwd if GraphicsSettings.is_forward_plus() else _time.fill * COMPAT_FILL_LIFT
 	environment.ambient_light_energy = PHOTO_AMBIENT_ENERGY * fill
 	if _gi:
 		# The bounced light does much of the fill's work.
@@ -437,11 +440,59 @@ func _apply_time() -> void:
 	RenderingServer.global_shader_parameter_set("sky_tint", Vector3(sky.r, sky.g, sky.b))
 
 
+## How the golfer shaders light people (shaders/golfer_occlusion.gdshaderinc
+## people_light): the lifts above are for the turf, and on a person they
+## read as pale, flat skin and light cloth that blooms, so in Compatibility
+## at Photoreal people take them back and get their fill light more from
+## above than below, as from a sky. Forward+ and Classic leave people be.
+static func people_light(photo: bool, forward_plus: bool) -> Vector3:
+	if not photo or forward_plus:
+		return Vector3(1.0, 1.0, 0.0)
+	return Vector3(1.0 / COMPAT_EXPOSURE_LIFT, 1.0 / COMPAT_FILL_LIFT, 1.0)
+
+
 ## Photoreal light follows a sky the player picked: under cloud the sun
 ## dims and its shadows soften while the sky's fill light grows; a sunrise
 ## or sunset sky warms the sun. Classic and the photographed sky keep the
 ## light apply() set.
 func _apply_weather() -> void:
+	_apply_weather_light()
+	_update_shade_fill()
+
+
+## How bright shade is against sunlit ground in Photoreal on the
+## Compatibility renderer, before the tone curve and grade. In Geograph
+## photos of sunny courses, grass in a tree's shade reads about 55% as
+## bright as grass in sun (sRGB green), a darker, bluer green. Compatibility
+## has no sky light, and its tone curve and grade push the darks down, so
+## with only the flat fill its shade came out near black (about 10%); 0.75
+## here gives the photos' 55% on screen.
+const COMPAT_SHADE_RATIO := 0.75
+## The colour of that fill: skylight, a little bluer than the flat fill.
+const SHADE_FILL_COLOR := Color(0.84, 0.92, 0.98)
+
+
+## Sets the `shade_fill` global the ground, rough and fescue shaders use
+## (shaders/ground_shade.gdshaderinc): in Photoreal on Compatibility, an
+## even sky-coloured light added to the ground (rgb, as a share of its
+## albedo) and how much the sun-and-fill lighting is scaled down to make
+## room for it (a), so sunlit turf stays as bright as before and only the
+## shade lifts. Off (0, 0, 0, 1) in Forward+, whose sky light already
+## fills the shade, and in Classic lighting.
+func _update_shade_fill() -> void:
+	var fill := Vector4(0.0, 0.0, 0.0, 1.0)
+	if _photo and not GraphicsSettings.is_forward_plus():
+		var amb := environment.ambient_light_energy * environment.ambient_light_color.get_luminance()
+		# Flat ground in sun (floored so a low sun doesn't blow it up).
+		var lit := amb + sun.light_energy * maxf(sin(deg_to_rad(-sun.rotation_degrees.x)), 0.25)
+		var extra := maxf((COMPAT_SHADE_RATIO * lit - amb) / (1.0 - COMPAT_SHADE_RATIO), 0.0)
+		var keep := lit / (lit + extra)
+		var c := SHADE_FILL_COLOR * (extra * keep / SHADE_FILL_COLOR.get_luminance())
+		fill = Vector4(c.r, c.g, c.b, keep)
+	RenderingServer.global_shader_parameter_set("shade_fill", fill)
+
+
+func _apply_weather_light() -> void:
 	sun.light_energy = _sun_energy
 	sun.light_color = _sun_color
 	environment.ambient_light_energy = _ambient_energy

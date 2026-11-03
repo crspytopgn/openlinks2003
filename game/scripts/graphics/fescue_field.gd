@@ -1,8 +1,8 @@
 class_name FescueField
 extends Node3D
 ## Tall fescue on the course's deep rough, out to a long way from the
-## camera. Out of play a course lets its slopes grow long: fine grass 45 to
-## 85 cm tall, green at the base and straw-gold at the tips. Without it the
+## camera. Out of play a course lets its slopes grow long: fine grey-green
+## grass 40 to 75 cm tall, some of it straw, with pale seed heads above. Without it the
 ## built-in course's hills read as green felt from the tee (most of a hole's
 ## ground is deep rough). Each tuft is three crossed cards from the fescue
 ## atlas (FreeAssets "fescue.png", tools/grass/fescue_atlas.py), in 32 m
@@ -16,7 +16,7 @@ const CHUNK := 32.0
 const BUILDS_PER_FRAME := 2
 ## Per Grass level (Off, Low, Medium, High): tufts per square metre of deep
 ## rough, and how far out they grow.
-const DENSITY := [0.0, 0.25, 0.35, 0.45]
+const DENSITY := [0.0, 0.4, 0.6, 0.8]
 const RADIUS := [0.0, 90.0, 140.0, 180.0]
 const SURFACES := [Surface.Type.DEEP_ROUGH]
 
@@ -104,8 +104,8 @@ static func build_chunk(t: CourseTerrain, key: Vector2i, density: float) -> Mult
 		var x := origin.x + rng.randf() * CHUNK
 		var z := origin.y + rng.randf() * CHUNK
 		var yaw := rng.randf() * TAU
-		var h := rng.randf_range(0.45, 0.85)
-		var w := h * rng.randf_range(1.1, 1.5)
+		var h := rng.randf_range(0.4, 0.75)
+		var w := h * rng.randf_range(1.0, 1.3)
 		var pick := rng.randf()
 		if not SURFACES.has(t.surface_at(x, z)):
 			continue

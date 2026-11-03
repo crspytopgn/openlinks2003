@@ -38,6 +38,10 @@ swing={
 
 [shader_globals]
 
+people_light={
+"type": "vec3",
+"value": Vector3(1, 1, 0)
+}
 wind_vector={
 "type": "vec2",
 "value": Vector2(0, 0)
@@ -77,6 +81,10 @@ billboard_photo={
 turf_tone={
 "type": "float",
 "value": 0.0
+}
+shade_fill={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 1)
 }
 sun_travel={
 "type": "vec3",

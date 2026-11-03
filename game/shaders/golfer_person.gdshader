@@ -57,9 +57,12 @@ void fragment() {
 	c = mix(c, dye(tex, top.rgb, region_means.x), m.r);
 	c = mix(c, dye(tex, bottom.rgb, region_means.y), m.g);
 	c = mix(c, dye(tex, shoes.rgb, region_means.z), m.b);
+	// No brighter than real white cloth (GolferSurface.WHITEST): the deep
+	// folds' highlights on a light colour otherwise reach pure white.
+	c *= min(1.0, 0.8 / max(max(c.r, c.g), max(c.b, 1e-3)));
 	float occ = body_occlusion(occ_pos, occ_normal);
-	AO = occ;
-	ALBEDO = c * mix(1.0, occ, contact_share) * flex.w;
+	AO = occ * people_fill(occ_normal);
+	ALBEDO = c * mix(1.0, occ, contact_share) * flex.w * people_light.x;
 	if (flex_debug > 0.0) {
 		ALBEDO = flex_debug_colour(flex_v, flex_cs);
 	}
@@ -68,6 +71,8 @@ void fragment() {
 	}
 	ROUGHNESS = roughness;
 	SPECULAR = 0.3;
-	RIM = rim;
+	// The fibres' rim light shows on dark cloth, but on light cloth only
+	// adds a glowing halo round the outline (GolferSurface.cloth_rim).
+	RIM = rim * (1.0 - 0.75 * clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)) / 0.8, 0.0, 1.0));
 	RIM_TINT = 0.7;
 }

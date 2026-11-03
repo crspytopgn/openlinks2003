@@ -452,6 +452,10 @@ func ground_color_at(x: float, z: float) -> Color:
 	return _color_at(x, z)
 
 
+func first_cut_at(x: float, z: float) -> bool:
+	return _splat_code(x, z) == FIRST_CUT_CODE
+
+
 func _color_at(x: float, z: float) -> Color:
 	var s := surface_at(x, z)
 	if s == Surface.Type.ROUGH:

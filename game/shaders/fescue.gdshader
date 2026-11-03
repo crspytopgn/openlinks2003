@@ -1,6 +1,6 @@
 // Tall fescue on the hills (FescueField): out-of-play deep rough grown as
-// tufts of fine grass 45 to 85 cm tall, green at the base and straw-gold
-// at the tips, from the fescue atlas (tools/grass/fescue_atlas.py). Each
+// tufts of fine grey-green grass 40 to 75 cm tall with pale seed heads
+// standing above it, from the fescue atlas (tools/grass/fescue_atlas.py). Each
 // instance is three crossed cards; INSTANCE_CUSTOM.rgb is the ground's
 // colour under it (sRGB) and .a picks the tuft and the sway phase. Fades in
 // past the near 3D tufts (so a ball in the rough by the camera stays in
@@ -44,23 +44,26 @@ void vertex() {
 void fragment() {
 	vec2 uv = (vec2(mod(cell, 2.0), floor(cell / 2.0)) + clamp(UV, vec2(0.004), vec2(0.996))) * 0.5;
 	vec4 t = texture(atlas, uv);
-	// Smaller mips thin the blades out under the alpha test: hold them up.
+	// Smaller mips thin the blades out under the alpha test: hold them up a
+	// little, but not so much that a far tuft closes into a solid blob.
 	vec2 texels = vec2(textureSize(atlas, 0)) * 0.5;
 	float lod = log2(max(max(length(dFdx(UV) * texels), length(dFdy(UV) * texels)), 1.0));
-	if (t.a * (1.0 + lod * 0.12) < 0.5) {
+	if (t.a * (1.0 + lod * 0.07) < 0.5) {
 		discard;
 	}
-	// The blades' own colour, pulled a little towards the ground's, so a
-	// hillside of fescue sits on its rough rather than pasted on.
-	// Half the ground's own olive, half the blades' green and straw
-	// (darkened: the blades are thin and shade each other), so from the tee
-	// the slope reads as long, tawny grass over its rough, not as gold blobs.
-	vec3 c = mix(base_color * 1.05, t.rgb * 0.58, 0.45);
+	// The blades' own grey-green and straw, pulled towards the ground's
+	// colour, so a hillside of fescue sits on its rough rather than pasted
+	// on; further off (higher mips) more of the ground's, as the thin
+	// blades and the grass between them blur into one.
+	float far = clamp(lod / 4.0, 0.0, 1.0);
+	vec3 c = mix(t.rgb * 0.85, base_color * 1.05, mix(0.4, 0.65, far)) * vec3(1.04, 1.0, 0.9);
 	// Each tuft a little lighter or darker, greener or drier, so a slope is
 	// patchy as real long grass is.
 	float v = fract(cell * 0.37 + root_xz.x * 0.173 + root_xz.y * 0.291);
-	c *= mix(0.78, 1.1, v) * mix(vec3(1.0), vec3(1.06, 1.02, 0.86), step(0.7, v));
-	ALBEDO = min(c * brightness, vec3(0.7)) * ground_shading(root_xz, length(VERTEX));
+	c *= mix(0.8, 1.08, v) * mix(vec3(1.0), vec3(1.05, 1.02, 0.9), step(0.75, v));
+	vec3 albedo = min(c * brightness, vec3(0.7));
+	ALBEDO = albedo * shade_fill.a * ground_shading(root_xz, length(VERTEX));
+	EMISSION = albedo * shade_fill.rgb;
 	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;

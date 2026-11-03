@@ -230,6 +230,15 @@ func _test_starter_surfaces() -> void:
 	while t.surface_at(edge.x, edge.y) == Surface.Type.GREEN:
 		edge.y -= 0.25
 	check(t.surface_at(edge.x, edge.y - 0.6) == Surface.Type.FRINGE, "fringe round the green")
+	# A first cut beside the fairway: drawn and grown shorter, played as rough.
+	var f: Vector2 = pts.fairway
+	var side := f
+	while t.surface_at(side.x, side.y) == Surface.Type.FAIRWAY:
+		side.x += 0.25
+	var cut := side + Vector2(0.75, 0.0)
+	var beyond := side + Vector2(DesignedTerrain.FIRST_CUT_WIDTH + 2.0, 0.0)
+	check(t.surface_at(cut.x, cut.y) == Surface.Type.ROUGH and t.first_cut_at(cut.x, cut.y), "first cut beside the fairway plays as rough")
+	check(not t.first_cut_at(beyond.x, beyond.y) and not t.first_cut_at(f.x, f.y), "first cut only in a band at the fairway's edge")
 	var visual := t.build_visual()
 	var n := t.chunk_count()
 	check(visual.get_child_count() == n.x * n.y + 3, "a mesh per chunk, the apron, the paths and the water")

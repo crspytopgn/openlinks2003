@@ -48,3 +48,20 @@ float body_occlusion(vec3 p, vec3 normal) {
 	}
 	return clamp(open, 0.3, 1.0);
 }
+
+// Daylight on a person in Compatibility (the web build). At Photoreal,
+// Scenery lifts that renderer's exposure (COMPAT_EXPOSURE_LIFT) and its fill
+// light for the turf, and the fill is one flat colour from every side (no
+// sky light, no SSAO). On a person that reads as pale, washed-out skin, flat
+// shading and light trousers bright enough to bloom at their edges.
+// people_light (Scenery.apply_people_light) takes it back for people:
+// x scales the albedo (undoing the exposure lift), y the fill light, and
+// z how much more of the fill comes from above than below, as a real
+// sky's does. (1, 1, 0) leaves them as they are (Forward+, Classic).
+global uniform vec3 people_light;
+
+// The share of the fill light a surface facing world normal `normal` gets.
+float people_fill(vec3 normal) {
+	float up = normalize(normal).y * 0.5 + 0.5;
+	return people_light.y * mix(1.0, mix(0.45, 1.3, up), people_light.z);
+}

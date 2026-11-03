@@ -332,8 +332,7 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 	var feet := PackedVector3Array()
 	var spots := crowd_spots(hole, lines, count, seed_value)
 	for spot: Array in spots:
-		var look := PlayerLook.random_person(rng.randi())
-		look.glove = false  # spectators don't wear a golf glove
+		var look := PlayerLook.spectator(rng.randi())
 		var person := FreeGolfer.create(look, FreeGolfer.SPECTATOR_TEXTURE)
 		if person == null:
 			break  # no golfer model or look pack: ropes only

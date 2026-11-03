@@ -60,6 +60,13 @@ func normal_at(x: float, z: float) -> Vector3:
 	return Vector3(-dx, 2.0 * e, -dz).normalized()
 
 
+## True in the first cut: the band of rough beside a fairway mown a little
+## longer than the fairway and shorter than the rough. Looks only: it plays
+## as rough (surface_at says ROUGH).
+func first_cut_at(_x: float, _z: float) -> bool:
+	return false
+
+
 ## Roughly the colour the ground is drawn with here (sRGB), which the 3D
 ## grass (GrassField) takes on so it blends into the ground under it.
 func ground_color_at(x: float, z: float) -> Color:

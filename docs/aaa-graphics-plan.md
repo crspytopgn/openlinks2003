@@ -37,14 +37,21 @@ picture.
    First step done: in Forward+ the leaves and impostors pass on
    yellow-green sky light (`transmit`, TreeFactory.TRANSMIT_FORWARD_PLUS),
    and the black holes are gone (the crown cores drew the black gaps of
-   the leaf spray; they now show deeper, shaded leaves). Still to do:
-   brighter sunlit sides and more variety of colour between crowns.
+   the leaf spray; they now show deeper, shaded leaves). Second step
+   done: every tree has its own leaf colour from a hash of where it
+   stands (`tree_tint.gdshaderinc`, yellower to darker and bluer, shared
+   by the full tree and its impostor), and Forward+ leaves are a bluer
+   green, so sunlit sides read green rather than lime. Still open: 2K25's
+   sunlit highlights carry more blue (sky sheen on the leaves).
 2. **Trees, close up (graphics thread).** Under the crowns you see long,
    straight, level limbs of constant thickness, like poles, and the same
    three broadleaf shapes repeated in rows. Real parkland trees have limbs
    that fork and taper and disappear into leaves, and every tree looks
    different. Plan: limbs that fork and bend and carry leaves along their
-   length, not only at the tips, and more broadleaf variants.
+   length, not only at the tips, and more broadleaf variants. Done: limbs
+   kink and fork at a knee, taper to the tip, carry sprays at each fork,
+   and sit in the crown's shade (the bark darkens with height); five
+   broadleaf variants instead of three.
 3. **Rough and fescue (graphics thread).** The rough's 3D tufts are evenly
    scattered, bright-tipped cards that read like stickers on a flat ground
    texture. The deep rough banks read as a field of yellow dots. 2K25's
@@ -53,11 +60,23 @@ picture.
    shorter, darker-tipped tufts that blend into the ground colour, a first
    cut between fairway and rough, and fescue clumps built from thin blades
    and seed heads rather than yellow blobs.
+   Done 2026-11-03: the near rough is an even sward (jittered grid, 13
+   tufts a square metre near the camera at High, sparser beyond where the
+   tufts sink away) of finer, shorter blades that darken down into the
+   tuft; designed courses paint a 1.8 m first cut with 4 cm grass; the
+   fescue atlas is grey-green with pale seed heads on thin stalks, denser
+   and blended into the ground further off. Checked at 1:1 from the tee,
+   in the rough and on the fescue bank.
 4. **Shade fill (graphics thread).** In Compatibility, tree shadows on the
    fairway are near black, with no sky light in them. In real photos the
    shade under a tree is a darker, bluer green, never black. Plan: lift the
    shadow floor with sky-coloured ambient on terrain and grass in
    Compatibility.
+   Done 2026-11-03: `shade_fill` (ground, rough and fescue shaders) adds
+   even skylight in Compatibility and scales the lit albedo to match.
+   Shade measured 10% of sunlit (sRGB G), now about 55%, as in Geograph
+   photos of tree shadows on fairways. The cause was the tone curve and
+   grade crushing the flat fill's shade, not the fill itself.
 5. **Tee boxes and ground shape (home-course builder).** 2K25's tees are
    raised, flat, closely mown platforms with a clean edge, and the ground
    round them rolls. Ours blend into the fairway, and the ground between
@@ -69,10 +88,17 @@ picture.
    and hummocks between the holes (docs/home-course.md).
 6. **The golfer in Compatibility (golfer threads).** In Forward+ the golfer
    holds up well. In Compatibility his skin goes pale and flat and his
-   light trousers glow at the edges (bloom).
+   light trousers glow at the edges (bloom). Done: the cause was
+   Compatibility's exposure and fill lifts, which are tuned for the turf.
+   People now take them back and get their fill more from above than
+   below (Scenery.people_light, shaders/golfer_occlusion.gdshaderinc), and
+   dyed cloth stops at real white with less rim light on light colours.
 7. **Crowd variety (realism lead).** At a distance the gallery is fine,
    but many heads read as the same white cap. Plan: more cap and hair
-   colours, and bare heads.
+   colours, and bare heads. Done: spectators (PlayerLook.spectator) wear a
+   cap only 45% of the time, in gallery colours led by navy and black
+   (white about one in eleven), half of them dad caps. The rest show their
+   own hair. Hair colour on the realistic people is still their own.
 
 How this was checked: an uncommitted harness renders each view with the
 look forced to Photoreal and quality to Ultra (Compatibility takes about

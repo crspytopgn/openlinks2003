@@ -80,7 +80,8 @@ void fragment() {
 		float near = 1.0 - smoothstep(30.0, 150.0, dist);
 		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, n.y, 0.0)).xyz * normal_strength * near);
 	}
-	ALBEDO = col * ground_shading(world_pos.xz, dist);
+	ALBEDO = col * shade_fill.a * ground_shading(world_pos.xz, dist);
+	EMISSION = col * shade_fill.rgb;
 	ROUGHNESS = max(rough, 0.92);
 	SPECULAR = 0.1;  // matt ground, no sheen
 }

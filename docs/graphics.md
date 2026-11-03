@@ -56,7 +56,12 @@ at Medium and grass at Low.
   uses the AgX tone map (natural highlights, no lime greens), a strong,
   warm sun against fill about a fifth as bright (from the sky on Forward+,
   a 60% stronger flat fill on Compatibility, as real shade is far lighter
-  than ours measured), turf toned to real course photos (`turf_tone.gdshaderinc`:
+  than ours measured), a sky-coloured shade fill on the ground, rough and
+  fescue in Compatibility (`shade_fill`, `Scenery._update_shade_fill`:
+  even skylight added as emission and the lit albedo scaled to match, so
+  sunlit turf keeps its brightness while tree shade reads about 55% as
+  bright as sun, a darker, bluer green, as in real photos, where its tone
+  curve and grade had crushed it to about 10%, near black), turf toned to real course photos (`turf_tone.gdshaderinc`:
   about 30% less saturated and nudged to olive; 50 photos measured in Lab),
   stronger aerial perspective, a lower 30 degree afternoon sun for long
   shadows (Classic keeps Links' 38 degrees), a natural grade (saturation
@@ -99,9 +104,16 @@ at Medium and grass at Low.
   chunks a frame. Tufts take the colour of the ground under them
   (`CourseTerrain.ground_color_at`), bend with the wind and shrink away at
   the edge of the radius, so there's no visible line. Low, Medium and High
-  reach 22, 36 and 55 m. A tuft is eight thin blades of three triangles,
-  each with its own shade and about one in five dry and straw-coloured,
-  dark at the root and bleached at the tip. Visual only: the ball never
+  reach 22, 36 and 55 m, with 4, 8 and 13 tufts a square metre on a
+  jittered grid (an even sward, not clumps and bare patches) out to 45% of
+  the reach and a quarter of that beyond, where the tufts are sinking into
+  the ground; a chunk is rebuilt when it crosses that line. A tuft is
+  twelve thin blades of three triangles spread over its footprint, each
+  with its own shade and about one in ten dry, dark down in the tuft and
+  a deeper, cooler green at the tip, so the rough reads as a dense, dark
+  fur rather than bright tips on the ground. Heights follow real cuts: the
+  first cut 3.5 to 5 cm (`CourseTerrain.first_cut_at`), rough 6 to 11 cm,
+  deep rough 12 to 22 cm. Visual only: the ball never
   sees it. The shader
   must not use `specular_disabled`: in Compatibility (the web build) that
   drops the sun from the blades and they go dark. Compatibility also has no
@@ -166,14 +178,19 @@ at Medium and grass at Low.
   million triangles, 50 to 960 MB each) are too heavy to ship.
 - **Tall fescue** (`FescueField`, `shaders/fescue.gdshader`): the deep
   rough, which is most of a hole's ground out of play, grows tufts of long
-  grass 45 to 85 cm tall from about 15 m (fading in to 45 m, past the near
+  grass 40 to 75 cm tall from about 15 m (fading in to 45 m, past the near
   3D tufts, so a ball in the rough by the camera stays in view) out to 90,
-  140 or 180 m by the Grass setting, 0.25 to 0.45 tufts a square metre.
+  140 or 180 m by the Grass setting, 0.4 to 0.8 tufts a square metre.
   Each tuft is three crossed cards from the fescue atlas, which
   `tools/grass/fescue_atlas.py` draws (no download, needs Pillow; run by
-  fetch_free_assets.py): fine blades green at the root and straw at the
-  tips, leaning and bending, with seed stalks above. The cards take half
-  the ground's colour and vary tuft to tuft, sway in the wind, take the
+  fetch_free_assets.py): a low mass of fine grey-green blades, a quarter
+  of them straw towards the tip, leaning and bending, with thin stalks of
+  pale buff seed heads standing above (as in Geograph photos of summer
+  links rough; the first atlas, all straw-gold and thick, read as yellow
+  dots from the tee). The cards take about half the ground's colour, more
+  further off (higher mips) where the blades blur together, hold their
+  blades up under the alpha test only a little so a far tuft doesn't close
+  into a blob, and vary tuft to tuft, sway in the wind, take the
   baked tree shade, and are built in 32 m chunks, two a frame, as the
   camera moves. Without it the built-in course's hills read as green felt.
 - **Baked ground shade** (`GroundShade`, `shaders/ground_shade*`): when a
@@ -217,7 +234,9 @@ at Medium and grass at Low.
   mowing stripes along the hole on fairways, greens and tees (7 m wide,
   from the mesh's UV: x across the hole, -y the stripe strength, so other
   meshes get none); a first cut of slightly darker rough 2.5 m wide
-  beside the fairway (colour only, the ball plays it as rough); bunkers
+  beside the fairway (colour only, the ball plays it as rough; designed
+  courses, the built-in one included, paint one 1.8 m wide,
+  `DesignedTerrain.FIRST_CUT_WIDTH`, and grow shorter 3D grass on it); bunkers
   with a trimmed, slightly ragged edge sharpened from the sand weight
   (the sand colour taken back out of the grass beside it) and a shaded
   lip of turf; and with 3D trees on, a wood round the edge of the ground,

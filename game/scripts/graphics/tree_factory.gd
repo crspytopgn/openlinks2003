@@ -19,6 +19,8 @@ const VARIANTS := [
 	[Species.BROADLEAF, 11],
 	[Species.BROADLEAF, 23],
 	[Species.BROADLEAF, 37],
+	[Species.BROADLEAF, 41],
+	[Species.BROADLEAF, 53],
 	[Species.PINE, 5],
 	[Species.PINE, 19],
 	[Species.BUSH, 3],
@@ -302,6 +304,7 @@ static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leave
 		height * (0.33 if oak else 0.38))  # crown radii: across, up
 	var count := rng.randi_range(10, 12) if oak else rng.randi_range(8, 10)
 	var tips: Array[Vector3] = []
+	var inner: Array[Vector3] = []
 	for i in count:
 		var along := rng.randf_range(0.0, 1.0)
 		var start := fork.lerp(top, along * 0.75)
@@ -310,20 +313,37 @@ static func _grow_broadleaf(rng: RandomNumberGenerator, bark: SurfaceTool, leave
 		var rise := lerpf(rng.randf_range(-0.05, 0.25), rng.randf_range(0.5, 0.9), along)
 		var dir := Vector3(cos(yaw), rise, sin(yaw)).normalized()
 		var length := reach.x * rng.randf_range(0.75, 1.0) * (1.1 - along * 0.4)
-		var end := start + dir * length
-		_tube(bark, start, end, radius * 0.45 * (1.0 - along * 0.4), 0.03, 5)
-		for j in 4:
-			var at := start.lerp(end, rng.randf_range(0.3, 0.85))
-			var side := (dir + Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(0.0, 0.6), rng.randf_range(-0.8, 0.8))).normalized()
-			var twig := at + side * length * rng.randf_range(0.3, 0.5)
-			_tube(bark, at, twig, 0.05, 0.015, 4)
+		# A real limb is no straight pole: it kinks where it forks, turning
+		# up and out, tapers all the way, and carries leaves along its
+		# length, so from below it vanishes into the crown.
+		var base_r := radius * 0.45 * (1.0 - along * 0.4)
+		var knee := start + dir * length * rng.randf_range(0.4, 0.55)
+		var bend := (dir + Vector3(rng.randf_range(-0.35, 0.35), rng.randf_range(0.15, 0.45), rng.randf_range(-0.35, 0.35))).normalized()
+		var end := knee + bend * length * rng.randf_range(0.5, 0.62)
+		_tube(bark, start, knee, base_r, base_r * 0.6, 5)
+		_tube(bark, knee, end, base_r * 0.6, 0.03, 5)
+		# The fork: a second, thinner limb from the knee, off to one side.
+		var side_dir := (dir.cross(Vector3.UP).normalized() * (1.0 if rng.randf() < 0.5 else -1.0) * rng.randf_range(0.5, 0.9) + bend + Vector3.UP * 0.2).normalized()
+		var fork_end := knee + side_dir * length * rng.randf_range(0.35, 0.5)
+		_tube(bark, knee, fork_end, base_r * 0.42, 0.025, 4)
+		tips.append(fork_end)
+		for j in 3:
+			var on_knee := rng.randf() < 0.5
+			var a := start.lerp(knee, rng.randf_range(0.5, 0.95)) if on_knee else knee.lerp(end, rng.randf_range(0.2, 0.8))
+			var twig_dir := (bend + Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(0.0, 0.6), rng.randf_range(-0.8, 0.8))).normalized()
+			var twig := a + twig_dir * length * rng.randf_range(0.25, 0.4)
+			_tube(bark, a, twig, 0.045, 0.012, 3)
 			tips.append(twig)
 		tips.append(end)
+		inner.append(knee)
 	tips.append(top)
 	# Sprays of small leaf cards round the branch tips, filling the crown
 	# with clumps that leave gaps of sky between them.
 	for tip in tips:
 		_clump(leaves, rng, tip, 1.5, 16, 0.7, 1.0, centre, reach)
+	# Smaller sprays round each fork hide the limbs inside the crown.
+	for knee in inner:
+		_clump(leaves, rng, knee, 1.1, 8, 0.6, 0.9, centre, reach)
 	# A few inner cards so the crown isn't hollow when seen through, and a
 	# solid shaded core behind them.
 	for k in 26:
@@ -518,7 +538,7 @@ static func material(which: String) -> ShaderMaterial:
 		mat.set_shader_parameter("fill", 0.06 if fwd else 0.3)
 		mat.set_shader_parameter("inner_shade", 0.5 if fwd else 0.62)
 		if fwd:
-			mat.set_shader_parameter("leaf_tint", Vector3(0.36, 0.5, 0.3))
+			mat.set_shader_parameter("leaf_tint", Vector3(0.3, 0.5, 0.34))
 			if not bake:
 				mat.set_shader_parameter("transmit", TRANSMIT_FORWARD_PLUS)
 		var twig := FreeAssets.tree_texture("twig_albedo.jpg")
