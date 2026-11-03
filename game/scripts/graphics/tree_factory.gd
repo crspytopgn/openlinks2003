@@ -37,6 +37,10 @@ const FAR_ONLY := 8
 const LEAF_SHADER := preload("res://shaders/tree_leaves.gdshader")
 const BARK_SHADER := preload("res://shaders/tree_bark.gdshader")
 const IMPOSTOR_SHADER := preload("res://shaders/tree_impostor.gdshader")
+## Forward+: sky light passed on through the leaves (the shaders' transmit),
+## so crowns in shade stay green instead of going blue-grey. Compatibility
+## has its own fill (see material()) and keeps 0.
+const TRANSMIT_FORWARD_PLUS := 0.5
 
 ## Set by GolfRound from the graphics settings: 0 keeps the classic trees.
 static var level := 0
@@ -188,6 +192,7 @@ static func _ensure_instanced() -> void:
 	_instanced_impostor.set_shader_parameter("frames", float(FRAMES))
 	_instanced_impostor.set_shader_parameter("rows", float(VARIANTS.size()))
 	_instanced_impostor.set_shader_parameter("instanced", true)
+	_instanced_impostor.set_shader_parameter("transmit", _impostor_transmit())
 	if _atlas != null:
 		_instanced_impostor.set_shader_parameter("atlas", _atlas)
 	_impostor_quad = QuadMesh.new()
@@ -514,6 +519,8 @@ static func material(which: String) -> ShaderMaterial:
 		mat.set_shader_parameter("inner_shade", 0.5 if fwd else 0.62)
 		if fwd:
 			mat.set_shader_parameter("leaf_tint", Vector3(0.36, 0.5, 0.3))
+			if not bake:
+				mat.set_shader_parameter("transmit", TRANSMIT_FORWARD_PLUS)
 		var twig := FreeAssets.tree_texture("twig_albedo.jpg")
 		var twig_alpha := FreeAssets.tree_texture("twig_opacity.png")
 		if twig != null and twig_alpha != null and kind == "needles":
@@ -625,6 +632,7 @@ static func _bake(tree: SceneTree) -> void:
 		mat.set_shader_parameter("frames", float(FRAMES))
 		mat.set_shader_parameter("rows", float(rows))
 		mat.set_shader_parameter("row", float(v))
+		mat.set_shader_parameter("transmit", _impostor_transmit())
 		_impostor_mats.append(mat)
 	_baked = true
 	if _instanced_impostor != null:
@@ -635,6 +643,10 @@ static func _bake(tree: SceneTree) -> void:
 		if node != null and is_instance_valid(node):
 			_add_impostor(node)
 	_waiting.clear()
+
+
+static func _impostor_transmit() -> float:
+	return TRANSMIT_FORWARD_PLUS if GraphicsSettings.is_forward_plus() else 0.0
 
 
 ## The baked atlas, or null before the first bake (and when headless).

@@ -16,6 +16,10 @@ uniform float row = 0.0;
 // camera the instance collapses, as the full tree shows there, unless the
 // custom data's green marks a tree that is only ever an impostor.
 uniform bool instanced = false;
+// Sky light through the leaves, as in tree_leaves.gdshader (the atlas holds
+// plain albedo, so it is added here).
+uniform float transmit = 0.0;
+const vec3 TRANSMIT_TINT = vec3(0.8, 1.1, 0.45);
 
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
@@ -71,6 +75,7 @@ void fragment() {
 	c.rgb *= mix(0.45, 1.0, smoothstep(0.08, 0.45, 1.0 - UV.y));
 	c.rgb = mix(c.rgb, haze, far);
 	ALBEDO = c.rgb;
+	EMISSION = c.rgb * transmit * TRANSMIT_TINT * (1.0 - far);
 	BACKLIGHT = c.rgb * 0.4;
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;
