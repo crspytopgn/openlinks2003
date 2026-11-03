@@ -41,7 +41,7 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 const LATERAL_WATER := true
 const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
-const HINT_AIM_TOUCH := "Swipe down, then flick up briskly and straight: swing    Tap: meter    Buttons: menu, club, aim"
+const HINT_AIM_TOUCH := "Swing button: tap for the meter, or drag down from it then flick up    Tap the course: aim there    Buttons: menu, club, aim"
 const HINT_TOUCH_SWING := "Keep your finger down: drag it back, then flick it up briskly and straight"
 const HINT_AIM_PAD := "    Pad: right stick swing, A meter, D-pad club, LB fine aim"
 const HINT_STICK_SWING := "Right stick: pull it back, then push it forward briskly and straight    B: call it off"
@@ -196,6 +196,15 @@ var _touch_started_meter := false
 var _touch_ms := -100000
 ## Mouse clicks this soon after a touch are taken as made up from it.
 const TOUCH_MOUSE_IGNORE_MS := 800
+## On a touch screen the swing starts only from the Swing button, and only
+## this long after the shot is set up, so the tap that moved the game on to
+## it (or a second, impatient one) can't start the meter by accident.
+const TOUCH_SWING_READY_MS := 700
+## The aim may move this far (degrees) before the gallery steps out of the
+## new line of play.
+const GALLERY_RECLEAR_DEG := 6.0
+var _aim_ready_ms := 0
+var _gallery_aim := 1000.0
 ## A shot's flight can't be skipped this early, so the tap or click that
 ## struck the ball (or a made-up copy of it) doesn't skip straight to the
 ## landing.
@@ -965,6 +974,9 @@ func _process(delta: float) -> void:
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
 	hud.meter.visible = state != State.DROP and state != State.DRIVE
+	hud.swing_button.visible = hud.touch_pad.visible and state == State.AIM and not _replaying \
+		and not hud.hand_over.visible and not paused and shooter < opponents.size() and opponents[shooter] == null and not _is_remote()
+	hud.swing_button.armed = Time.get_ticks_msec() >= _aim_ready_ms and not camera.flying()
 	if state != State.AIM and hud.overlay != null:
 		hud.overlay.end_hole_card()  # the hole card must not sit over the shot
 	if online != null:
@@ -1213,9 +1225,12 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 		# The mouse events a touch screen makes up (the engine's, and on
 		# iPad Safari's own): the finger has its own swing and meter taps,
 		# so while aiming, swinging or watching the flight only the touch
-		# counts. Otherwise one tap would click the meter twice.
-		return state == State.AIM or state == State.SWING or state == State.FLIGHT \
-			or ms.is_swinging() or _touch_index >= 0
+		# counts. Otherwise one tap would click the meter twice. The same
+		# goes for every other moment of the round (_touch_swing_input
+		# moves the game on from the touch itself): the made-up click
+		# arrives first, so letting it through would, say, end the shot
+		# result and then have the touch start the next swing at once.
+		return true
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var mb := event as InputEventMouseButton
 		if ms.is_swinging():
@@ -1360,6 +1375,12 @@ func _input(event: InputEvent) -> void:
 		return
 	_touch_ms = Time.get_ticks_msec()
 	if settings_panel.visible or pause_menu.visible or hud.hand_over.visible:
+		# A finger lifted over a menu still ends its touch, or the next
+		# touches would all be taken for a second finger and ignored.
+		if event is InputEventScreenTouch and not (event as InputEventScreenTouch).pressed \
+				and (event as InputEventScreenTouch).index == _touch_index:
+			_touch_index = -1
+			_touch_started_meter = false
 		return
 	if _touch_swing_input(event):
 		get_viewport().set_input_as_handled()
@@ -1370,19 +1391,50 @@ func _input(event: InputEvent) -> void:
 func _over_button(at: Vector2) -> bool:
 	if hud.touch_pad.covers(at):
 		return true
-	for n: Node in hud.find_children("*", "BaseButton", true, false):
-		var c := n as Control
-		if c.is_visible_in_tree() and c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(at):
-			return true
+	for layer: Node in get_children():
+		if not (layer is CanvasLayer or layer is Control):
+			continue
+		for kind: String in TOUCH_CONTROLS:
+			for n: Node in layer.find_children("*", kind, true, false):
+				var c := n as Control
+				if c.is_visible_in_tree() and c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(at):
+					return true
 	return false
 
 
-## A finger on a touch screen. Each tap is a PowerStroke click the moment the
-## finger lands: the first starts the meter, the second sets the power and
-## the third the accuracy, as Links 2003's clicks. Dragging back from the
-## first touch instead turns it into the mouse swing (AnalogSwing turns the
-## drag into the mouse's movement). While the ball flies, a tap skips to the
-## landing, but not straight after the strike.
+## The kinds of control that take a tap themselves: buttons, text boxes,
+## sliders and lists.
+const TOUCH_CONTROLS: Array[String] = ["BaseButton", "LineEdit", "TextEdit", "Range", "ItemList", "Tree", "TabBar"]
+
+
+## A tap on the course while aiming aims there (right-click's job with a
+## mouse), on the Tour hole map too.
+func _touch_aim(at: Vector2) -> void:
+	if opponents[shooter] != null:
+		return
+	if tour:
+		var on_map: Variant = hud.tour.map_spot(hud.tour.get_global_transform_with_canvas().affine_inverse() * at)
+		if on_map != null:
+			var xz := on_map as Vector2
+			aim_at(Vector3(xz.x, hole.terrain.height_at(xz.x, xz.y), xz.y))
+			return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var hit: Variant = ClickAim.ray_ground(hole.terrain, cam.project_ray_origin(at), cam.project_ray_normal(at))
+	if hit != null:
+		aim_at(hit as Vector3)
+
+
+## A finger on a touch screen. The swing starts only from the Swing button
+## (hud.swing_button), a moment after the shot is set up; a tap elsewhere on
+## the course aims there. Each tap is then a PowerStroke click the moment
+## the finger lands: the first (on the button) starts the meter, the second
+## sets the power and the third the accuracy, as Links 2003's clicks.
+## Dragging back from the button instead turns it into the mouse swing
+## (AnalogSwing turns the drag into the mouse's movement). While the ball
+## flies, a tap skips to the landing, but not straight after the strike;
+## after the shot a tap anywhere moves on. Each touch does one thing only.
 func _touch_swing_input(event: InputEvent) -> bool:
 	var ms := hud.mouse_swing
 	if event is InputEventScreenTouch:
@@ -1390,19 +1442,29 @@ func _touch_swing_input(event: InputEvent) -> bool:
 		if t.pressed:
 			if _touch_index >= 0 or _over_button(t.position):
 				return false
+			if _replaying:
+				_on_swing_pressed()  # ends the replay
+				return true
 			match state:
 				State.AIM:
-					if _can_start_swing():
+					if hud.scorecard.visible:
+						hud.scorecard.visible = false
+					elif camera.flying():
+						_on_swing_pressed()  # ends the flyover
+					elif not hud.swing_button.covers(t.position):
+						_touch_aim(t.position)
+					elif _can_start_swing() and Time.get_ticks_msec() >= _aim_ready_ms:
 						_touch_index = t.index
 						_touch_from = t.position
-					_on_swing_pressed()  # or ends a flyover or replay
-					_touch_started_meter = _touch_index >= 0 and hud.meter.is_swinging()
+						_on_swing_pressed()
+						_touch_started_meter = hud.meter.is_swinging()
 					return true
 				State.SWING:
 					if not ms.is_swinging():
 						hud.meter.click()
 					return true
-				State.FLIGHT:
+				State.FLIGHT, State.SHOT_RESULT, State.DROP, State.COMPUTER, State.HOLE_DONE, State.ROUND_DONE:
+					# A tap anywhere moves on, over the scorecard as well.
 					_on_swing_pressed()
 					return true
 			return false
@@ -1832,6 +1894,11 @@ func _prepare_shot(snap_camera: bool) -> void:
 		hud.hint.text += HINT_FREE_DROP
 	_place_ball(ball_at)
 	_place_golfer()
+	_touch_index = -1
+	_touch_started_meter = false
+	_aim_ready_ms = Time.get_ticks_msec() + TOUCH_SWING_READY_MS
+	_gallery_aim = 1000.0
+	_clear_gallery_line()
 	if gallery != null and is_instance_valid(gallery):
 		gallery.watch_point(ball_at + Vector3.UP * 1.2)
 	read_view = GreenRead.View.PLAY
@@ -1905,6 +1972,7 @@ func _process_aim(delta: float) -> void:
 	if Input.is_action_pressed("ui_right"):
 		turn -= 1.0
 	if turn == 0.0:
+		_clear_gallery_line()
 		return
 	var rate := PUTT_AIM_RATE_DEG if clubs[club_index].is_putter else AIM_RATE_DEG
 	if Input.is_key_pressed(KEY_SHIFT) or _pad_held(JOY_BUTTON_LEFT_SHOULDER):
@@ -1914,6 +1982,17 @@ func _process_aim(delta: float) -> void:
 	_update_aim_marker()
 	_update_hud()
 	_aim_camera(false)
+
+
+## Keeps the gallery out of the line of play (Gallery.clear_line): when
+## the shot is set up, and again once the aim has settled on a new line.
+func _clear_gallery_line() -> void:
+	if gallery == null or not is_instance_valid(gallery):
+		return
+	if absf(angle_difference(deg_to_rad(aim_deg), deg_to_rad(_gallery_aim))) < deg_to_rad(GALLERY_RECLEAR_DEG):
+		return
+	_gallery_aim = aim_deg
+	gallery.clear_line(ball_at, _aim_dir(), _flat_distance(ball_at, hole.pin) - 3.0)
 
 
 static func _pad_held(button: JoyButton) -> bool:

@@ -50,6 +50,7 @@ static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, 
 	var g := Gallery.new()
 	g.camera_blockers = ObstacleField.new()
 	g.name = "Gallery"
+	g._terrain = hole.terrain
 	var lines := tee_lines(hole.terrain, hole.tee, toward)
 	lines.append_array(green_lines(hole.terrain, hole.pin, hole.tee))
 	g._build_ropes(hole.terrain, lines)
@@ -352,6 +353,8 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		person.rotation.y = facing_yaw(at, focus) + rng.randf_range(-0.25, 0.25)
 		person.set_meta(&"lean", rng.randf_range(-0.2, 0.2))
 		feet.append(at)
+		_people.append(person)
+		_people_home.append(at)
 		var player := person.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		if player == null:
 			continue
@@ -567,6 +570,7 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 		mm.set_instance_color(i, PlayerLook.CLOTH_COLOURS[rng.randi_range(0, PlayerLook.CLOTH_COLOURS.size() - 1)][1])
 		var legs: Color = PlayerLook.CLOTH_COLOURS[trousers[rng.randi_range(0, trousers.size() - 1)]][1]
 		mm.set_instance_custom_data(i, Color(legs.r, legs.g, legs.b, rng.randf()))
+	_card_home = spots
 	var node := MultiMeshInstance3D.new()
 	node.name = "CrowdCards"
 	node.multimesh = mm
@@ -574,6 +578,115 @@ func _build_cards(hole: HoleData, lines: Array[PackedVector3Array], people: Arra
 	add_child(node)
 	# Grounded like the 3D people, one more draw for the lot.
 	_add_contact_shadows("CardShadows", spots, hole.terrain, heights)
+
+
+# --- Keeping the line of play clear --------------------------------------
+
+## Spectators never stand in the line of play: as marshals move a gallery
+## on tour, anyone between the camera behind the golfer and the target
+## steps out to the side before the shot. The clear lane runs CLEAR_BEHIND
+## metres back from the ball and up to CLEAR_AHEAD down the aim (no further
+## than the target, so the gallery behind a green still frames it), and is
+## CLEAR_HALF metres either side at the ball, opening CLEAR_SPREAD metres
+## per metre further out (about 10 degrees).
+const CLEAR_BEHIND := 14.0
+const CLEAR_AHEAD := 80.0
+const CLEAR_HALF := 3.0
+const CLEAR_SPREAD := 0.18
+const CLEAR_MARGIN := 0.8
+
+var _terrain: CourseTerrain
+var _people: Array[FreeGolfer] = []
+var _people_home := PackedVector3Array()
+var _card_home := PackedVector3Array()
+var _bases := {}  ## MultiMesh -> its instances' first bases
+
+
+## How far a spectator at `p` steps sideways to leave the lane from `ball`
+## along `dir` (flat, unit length) clear for `ahead` metres; zero when they
+## are already out of it.
+static func clear_offset(p: Vector3, ball: Vector3, dir: Vector3, ahead: float) -> Vector3:
+	var rel := Vector3(p.x - ball.x, 0.0, p.z - ball.z)
+	var along := rel.dot(dir)
+	if along < -CLEAR_BEHIND or along > ahead:
+		return Vector3.ZERO
+	var side := Vector3.UP.cross(dir)
+	var across := rel.dot(side)
+	var half := CLEAR_HALF + maxf(along, 0.0) * CLEAR_SPREAD
+	if absf(across) >= half:
+		return Vector3.ZERO
+	var s := 1.0 if across >= 0.0 else -1.0
+	return side * (s * (half + CLEAR_MARGIN) - across)
+
+
+## Moves the crowd (3D people and cards, with their shadows) out of the
+## lane for a shot from `ball` along `dir`, `ahead` metres long, and puts
+## everyone else back where they first stood. Anyone whose new spot would
+## be in water, sand or on a green leaves the picture instead.
+func clear_line(ball: Vector3, dir: Vector3, ahead: float) -> void:
+	if _terrain == null:
+		return
+	dir = Vector3(dir.x, 0.0, dir.z)
+	if dir.length() < 1e-4:
+		return
+	dir = dir.normalized()
+	ahead = clampf(ahead, 0.0, CLEAR_AHEAD)
+	var shadow := _multimesh("ContactShadows")
+	var sun := _multimesh("ContactShadowsSun")
+	for i in _people.size():
+		var person := _people[i]
+		if not is_instance_valid(person):
+			continue
+		var at := _spot_out_of_lane(_people_home[i], ball, dir, ahead)
+		person.visible = at != Vector3.INF
+		if at == Vector3.INF:
+			at = _people_home[i]
+		person.position = at
+		_move_instance(shadow, i, at + Vector3.UP * 0.02, person.visible)
+		_move_instance(sun, i, at, person.visible)
+	var cards := _multimesh("CrowdCards")
+	var card_shadow := _multimesh("CardShadows")
+	var card_sun := _multimesh("CardShadowsSun")
+	for i in _card_home.size():
+		var at := _spot_out_of_lane(_card_home[i], ball, dir, ahead)
+		var shown := at != Vector3.INF
+		if not shown:
+			at = _card_home[i]
+		_move_instance(cards, i, at, shown)
+		_move_instance(card_shadow, i, at + Vector3.UP * 0.02, shown)
+		_move_instance(card_sun, i, at, shown)
+
+
+## Where someone first standing at `home` stands for this shot, or INF
+## when there is nowhere nearby out of the lane to go.
+func _spot_out_of_lane(home: Vector3, ball: Vector3, dir: Vector3, ahead: float) -> Vector3:
+	var off := clear_offset(home, ball, dir, ahead)
+	if off == Vector3.ZERO:
+		return home
+	var p := home + off
+	var s := _terrain.surface_at(p.x, p.z)
+	if s == Surface.Type.WATER or s == Surface.Type.SAND or s == Surface.Type.GREEN:
+		return Vector3.INF
+	return Vector3(p.x, _terrain.height_at(p.x, p.z), p.z)
+
+
+func _multimesh(node_name: String) -> MultiMesh:
+	var node := get_node_or_null(node_name) as MultiMeshInstance3D
+	return node.multimesh if node != null else null
+
+
+## Moves instance `i` of `mm` to `at`, keeping its turn and size, or folds
+## it away to nothing when it isn't `shown`.
+func _move_instance(mm: MultiMesh, i: int, at: Vector3, shown: bool) -> void:
+	if mm == null or i >= mm.instance_count:
+		return
+	if not _bases.has(mm):
+		var first: Array[Basis] = []
+		for k in mm.instance_count:
+			first.append(mm.get_instance_transform(k).basis)
+		_bases[mm] = first
+	var basis: Basis = _bases[mm][i]
+	mm.set_instance_transform(i, Transform3D(basis if shown else basis.scaled(Vector3.ZERO), at))
 
 
 func card_count() -> int:
