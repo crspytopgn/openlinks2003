@@ -76,12 +76,18 @@ picture.
    even skylight in Compatibility and scales the lit albedo to match.
    Shade measured 10% of sunlit (sRGB G), now about 55%, as in Geograph
    photos of tree shadows on fairways. The cause was the tone curve and
-   grade crushing the flat fill's shade, not the fill itself.
+   grade crushing the flat fill's shade, not the fill itself. Forward+
+   tree shade was near black too, so it gets a gentler shade_fill
+   (FORWARD_SHADE_RATIO 0.35).
 5. **Tee boxes and ground shape (home-course builder).** 2K25's tees are
    raised, flat, closely mown platforms with a clean edge, and the ground
    round them rolls. Ours blend into the fairway, and the ground between
    holes is smooth. Plan: raised tee pads and gentle mounding in
-   tools/homecourse, checked against the physics terrain.
+   tools/homecourse, checked against the physics terrain. Done: tees are
+   level pads 0.45 m proud with a clean shoulder and 1-in-4 banks, drawn
+   and played on the same fine triangles (TeePads, on every designed and
+   real-world course), and Kettle Hollow has framing mounds in the rough
+   and hummocks between the holes (docs/home-course.md).
 6. **The golfer in Compatibility (golfer threads).** In Forward+ the golfer
    holds up well. In Compatibility his skin goes pale and flat and his
    light trousers glow at the edges (bloom). Done: the cause was
