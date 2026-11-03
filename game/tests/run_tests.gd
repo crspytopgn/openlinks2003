@@ -2244,6 +2244,7 @@ func _test_grass() -> void:
 	_check(tufts > 100, "grass grows in the rough (%d tufts)" % tufts)
 	_check(outside == 0, "no grass on fairways, greens or sand")
 	_check(GrassField.tuft_mesh().get_surface_count() == 1, "tuft mesh")
+	_check(not GrassField._is_far(10.0, 55.0) and GrassField._is_far(50.0, 55.0), "dense grass near the camera, sparser further out")
 	var field := GrassField.new()
 	field.setup(t, 1)
 	field.update_around(tee + Vector3(0, 2, 60))

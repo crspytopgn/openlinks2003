@@ -10,6 +10,12 @@ global uniform float ground_shade_near;
 // drifted by cloud_offset metres with the wind.
 global uniform float cloud_shadow;
 global uniform vec2 cloud_offset;
+// Sky light in the shade where the renderer has none (Compatibility, set
+// by Scenery._update_shade_fill): rgb is added as emission, a share of the
+// unshaded albedo, and a scales the albedo the sun and flat fill light, so
+// sunlit ground keeps its brightness while shade becomes a darker, bluer
+// green rather than near black. (0, 0, 0, 1) leaves the ground as it was.
+global uniform vec4 shade_fill;
 
 float cloud_hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));

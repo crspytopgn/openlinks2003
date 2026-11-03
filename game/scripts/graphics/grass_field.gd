@@ -10,20 +10,29 @@ extends Node3D
 const SHADER := preload("res://shaders/grass.gdshader")
 const CHUNK := 12.0
 const BUILDS_PER_FRAME := 2
-## Per level (Off, Low, Medium, High): tufts per square metre of rough, and
-## how far from the camera the grass reaches.
-const DENSITY := [0.0, 2.0, 4.0, 7.0]
+## Per level (Off, Low, Medium, High): tufts per square metre of rough
+## near the camera, and how far from the camera the grass reaches. Chunks
+## further out than NEAR of the reach (where the tufts are sinking into
+## the ground and only a few pixels tall) grow FAR_SHARE as many, so the
+## near rough can be a dense fur, as in real rough and in 2K25, for about
+## the triangles the old even scatter cost.
+const DENSITY := [0.0, 4.0, 8.0, 13.0]
 const RADIUS := [0.0, 22.0, 36.0, 55.0]
-## Tuft height range (m) per surface.
+const NEAR := 0.45
+const FAR_SHARE := 0.25
+## Tuft height range (m) per surface: real first cut is mown at about
+## 4 cm, rough at 6 to 10 cm, and the deep rough is left longer.
 const HEIGHTS := {
-	Surface.Type.ROUGH: Vector2(0.07, 0.15),
-	Surface.Type.DEEP_ROUGH: Vector2(0.16, 0.3),
+	Surface.Type.ROUGH: Vector2(0.06, 0.11),
+	Surface.Type.DEEP_ROUGH: Vector2(0.12, 0.22),
 }
-const BLADES := 8
+const FIRST_CUT_HEIGHT := Vector2(0.035, 0.05)
+const BLADES := 12
 
 var terrain: CourseTerrain
 var level := 0
 var _chunks := {}  ## Vector2i -> MultiMeshInstance3D (null for an empty chunk)
+var _far := {}  ## Vector2i -> true for a chunk built at the far density
 
 static var _tuft: ArrayMesh
 static var _mat: ShaderMaterial
@@ -41,6 +50,7 @@ func setup(t: CourseTerrain, grass_level: int) -> void:
 		if node != null:
 			node.queue_free()
 	_chunks.clear()
+	_far.clear()
 	var r: float = RADIUS[level]
 	# Tufts sink into the ground from a third of the way out: a few pixels
 	# across, they read as dark clumps (clover) rather than rough.
@@ -61,26 +71,45 @@ func update_around(eye: Vector3) -> void:
 			if node != null:
 				node.queue_free()
 			_chunks.erase(key)
+			_far.erase(key)
 	var wanted: Array[Vector2i] = []
 	var reach := ceili(r / CHUNK)
 	var at := Vector2i(floori(eye.x / CHUNK), floori(eye.z / CHUNK))
 	for dz in range(-reach, reach + 1):
 		for dx in range(-reach, reach + 1):
 			var key := at + Vector2i(dx, dz)
-			if not _chunks.has(key) and _chunk_centre(key).distance_to(here) < r + CHUNK * 0.71:
+			var d := _chunk_centre(key).distance_to(here)
+			if d >= r + CHUNK * 0.71:
+				continue
+			# Missing, or built at the other density for where it now is.
+			if not _chunks.has(key) or _far.has(key) != _is_far(d, r):
 				wanted.append(key)
 	wanted.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return _chunk_centre(a).distance_squared_to(here) < _chunk_centre(b).distance_squared_to(here))
 	for i in mini(BUILDS_PER_FRAME, wanted.size()):
 		var key := wanted[i]
-		var mm := build_chunk(terrain, key, DENSITY[level])
+		var far := _is_far(_chunk_centre(key).distance_to(here), r)
+		var mm := build_chunk(terrain, key, DENSITY[level] * (FAR_SHARE if far else 1.0))
 		var node: MultiMeshInstance3D = null
 		if mm != null:
 			node = MultiMeshInstance3D.new()
 			node.multimesh = mm
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(node)
+		var old: Node = _chunks.get(key)
+		if old != null:
+			old.queue_free()
 		_chunks[key] = node
+		if far:
+			_far[key] = true
+		else:
+			_far.erase(key)
+
+
+## True when a chunk `d` metres out grows at the far density.
+static func _is_far(d: float, reach: float) -> bool:
+	# The chunk's nearest corner is up to 0.71 CHUNK closer than its centre.
+	return d - CHUNK * 0.71 > reach * NEAR
 
 
 ## Number of chunks built so far, empty ones included.
@@ -97,23 +126,27 @@ static func _chunk_centre(key: Vector2i) -> Vector2:
 static func build_chunk(t: CourseTerrain, key: Vector2i, density: float) -> MultiMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key)
-	var tries := roundi(CHUNK * CHUNK * density)
+	# One tuft in each cell of a grid, jittered: an even sward, where
+	# purely random places leave clumps and bare patches.
+	var side := maxi(1, roundi(CHUNK * sqrt(density)))
+	var cell := CHUNK / side
+	var tries := side * side
 	var buffer := PackedFloat32Array()
 	buffer.resize(tries * 16)
 	var n := 0
 	var origin := Vector2(key) * CHUNK
 	for i in tries:
-		var x := origin.x + rng.randf() * CHUNK
-		var z := origin.y + rng.randf() * CHUNK
+		var x := origin.x + (i % side + rng.randf()) * cell
+		var z := origin.y + (floorf(float(i) / side) + rng.randf()) * cell
 		var yaw := rng.randf() * TAU
 		var size := rng.randf()
 		var phase := rng.randf()
 		var surface := t.surface_at(x, z)
 		if not HEIGHTS.has(surface):
 			continue
-		var hr: Vector2 = HEIGHTS[surface]
+		var hr: Vector2 = FIRST_CUT_HEIGHT if surface == Surface.Type.ROUGH and t.first_cut_at(x, z) else HEIGHTS[surface]
 		var h := lerpf(hr.x, hr.y, size)
-		var w := 0.25 + size * 0.15
+		var w := 0.3 + size * 0.2
 		var c := t.ground_color_at(x, z)
 		var o := n * 16
 		var cs := cos(yaw)
@@ -189,12 +222,14 @@ static func tuft_mesh() -> ArrayMesh:
 	var indices := PackedInt32Array()
 	for b in BLADES:
 		var a := rng.randf() * TAU
-		var root := Vector3(cos(a), 0.0, sin(a)) * rng.randf() * 0.3
+		# Spread over the whole footprint (sqrt: even, not bunched at the
+		# middle), so neighbouring tufts knit into one sward.
+		var root := Vector3(cos(a), 0.0, sin(a)) * sqrt(rng.randf()) * 0.45
 		var face := rng.randf() * TAU
-		var side := Vector3(cos(face), 0.0, sin(face)) * rng.randf_range(0.022, 0.032)
-		var lean := Vector3(cos(a), 0.0, sin(a)) * rng.randf_range(0.1, 0.45)
-		var tall := rng.randf_range(0.45, 1.0)
-		var dry := 1.0 if rng.randf() < 0.18 else rng.randf() * 0.3
+		var side := Vector3(cos(face), 0.0, sin(face)) * rng.randf_range(0.014, 0.022)
+		var lean := Vector3(cos(a), 0.0, sin(a)) * rng.randf_range(0.05, 0.35)
+		var tall := rng.randf_range(0.5, 1.0)
+		var dry := 1.0 if rng.randf() < 0.1 else rng.randf() * 0.25
 		var blade := Vector2(rng.randf(), dry)
 		var base := verts.size()
 		verts.append_array(PackedVector3Array([root - side, root + side,

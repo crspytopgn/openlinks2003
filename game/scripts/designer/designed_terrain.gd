@@ -14,6 +14,13 @@ extends CourseTerrain
 const RES := 0.5  ## metres per surface raster cell
 const CHUNK := 32  ## height cells per mesh chunk side
 const FRINGE_WIDTH := 1.8
+## The first cut: rough within this many metres of a fairway is mown a
+## little longer than the fairway (about one mower's width, as on real
+## courses). It plays as rough; only the look and the 3D grass differ.
+const FIRST_CUT_WIDTH := 1.8
+## Raster code of the first cut, after the Surface.Type codes.
+const FIRST_CUT_CODE := 9
+const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
 const TEE_RAISE := 0.25
 const TEE_BLEND := 3.0
 const BUNKER_DEPTH := 0.7
@@ -178,7 +185,17 @@ func surface_at(x: float, z: float) -> int:
 		return Surface.Type.OUT_OF_BOUNDS
 	var c := mini(int((x - a.position.x) / RES), _sw - 1)
 	var r := mini(int((z - a.position.y) / RES), _sh - 1)
-	return _surf[r * _sw + c]
+	var s := _surf[r * _sw + c]
+	return Surface.Type.ROUGH if s == FIRST_CUT_CODE else s
+
+
+func first_cut_at(x: float, z: float) -> bool:
+	var a := course.area
+	if not a.has_point(Vector2(x, z)):
+		return false
+	var c := mini(int((x - a.position.x) / RES), _sw - 1)
+	var r := mini(int((z - a.position.y) / RES), _sh - 1)
+	return _surf[r * _sw + c] == FIRST_CUT_CODE
 
 
 ## Cart paths give a free drop, as on the game's own courses.
@@ -291,8 +308,8 @@ func material() -> ShaderMaterial:
 			mown.append(float(MOWN.get(i, 0.0)))
 			widths.append(float(STRIPE_METRES.get(i, 0.0)))
 			cut.append(Materials.terrain_cut(i))
-		# The splat's tenth entry (a first cut) isn't painted on designed courses.
-		cols.append(Vector3(COLORS[Surface.Type.ROUGH].r, COLORS[Surface.Type.ROUGH].g, COLORS[Surface.Type.ROUGH].b))
+		# The splat's tenth entry: the first cut.
+		cols.append(Vector3(FIRST_CUT_COLOR.r, FIRST_CUT_COLOR.g, FIRST_CUT_COLOR.b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
 		mown.append(0.0)
 		widths.append(0.0)
@@ -726,6 +743,25 @@ func _raster(px: Rect2i) -> void:
 					for ring in Geometry2D.offset_polygon(s.outline(), FRINGE_WIDTH):
 						_fill(ring, Surface.Type.FRINGE, px)
 	_surf = _img.get_data()
+	_first_cut(px)
+	_img.set_data(_sw, _sh, false, Image.FORMAT_R8, _surf)
+
+
+## Marks the rough within FIRST_CUT_WIDTH of each fairway (not of cart
+## paths) inside `px` as the first cut, in the raster bytes `_surf`.
+func _first_cut(px: Rect2i) -> void:
+	var o := course.area.position
+	var world := Rect2(o + Vector2(px.position) * RES, Vector2(px.size) * RES)
+	var rough := Surface.Type.ROUGH
+	for s in course.shapes:
+		if s.surface != Surface.Type.FAIRWAY or not s.is_valid() or not s.bounds().grow(FIRST_CUT_WIDTH).intersects(world):
+			continue
+		for poly in Geometry2D.offset_polygon(s.outline(), FIRST_CUT_WIDTH):
+			for span in _spans(poly, px):
+				var row: int = span.x * _sw
+				for c in range(span.y, span.z + 1):
+					if _surf[row + c] == rough:
+						_surf[row + c] = FIRST_CUT_CODE
 
 
 static func _code(surface: int) -> Color:
@@ -734,6 +770,15 @@ static func _code(surface: int) -> Color:
 
 ## Scanline fill of a polygon into the raster, clipped to `px`.
 func _fill(poly: PackedVector2Array, surface: int, px: Rect2i) -> void:
+	var color := _code(surface)
+	for span in _spans(poly, px):
+		_img.fill_rect(Rect2i(span.y, span.x, span.z - span.y + 1, 1), color)
+
+
+## The raster cells inside a polygon, clipped to `px`, as (row, first
+## column, last column) runs.
+func _spans(poly: PackedVector2Array, px: Rect2i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
 	var o := course.area.position
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
@@ -742,7 +787,6 @@ func _fill(poly: PackedVector2Array, surface: int, px: Rect2i) -> void:
 		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
 	var r0 := maxi(px.position.y, floori((lo.y - o.y) / RES))
 	var r1 := mini(px.end.y - 1, ceili((hi.y - o.y) / RES))
-	var color := _code(surface)
 	var n := poly.size()
 	var xs := PackedFloat32Array()
 	for r in range(r0, r1 + 1):
@@ -758,7 +802,8 @@ func _fill(poly: PackedVector2Array, surface: int, px: Rect2i) -> void:
 			var c0 := maxi(px.position.x, ceili((xs[k] - o.x) / RES - 0.5))
 			var c1 := mini(px.end.x - 1, floori((xs[k + 1] - o.x) / RES - 0.5))
 			if c1 >= c0:
-				_img.fill_rect(Rect2i(c0, r, c1 - c0 + 1, 1), color)
+				out.append(Vector3i(r, c0, c1))
+	return out
 
 
 ## Recomputes the shaped heights inside `cells` from the sculpted ones.
@@ -825,6 +870,8 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 	for s in COLORS.size():
 		palette.append(COLORS[s])
 		wts.append(Materials.terrain_weights(s))
+	palette.append(FIRST_CUT_COLOR)
+	wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
 	for j in range(cells.position.y, cells.end.y):
 		var r := mini(j * step, _sh - 1)
 		var row := r * _sw
@@ -875,7 +922,7 @@ func _make_tint() -> void:
 ## keeping roughly the game's brightness. Deep shade, crowns and water in
 ## the photo are left out.
 func _photo_tinted(col: Color, surface: int, k: int) -> Color:
-	var amount: float = PHOTO_TINT[surface]
+	var amount: float = PHOTO_TINT[Surface.Type.ROUGH if surface == FIRST_CUT_CODE else surface]
 	if amount <= 0.0:
 		return col
 	var t := Color8(_tint[k * 3], _tint[k * 3 + 1], _tint[k * 3 + 2])

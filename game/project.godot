@@ -82,6 +82,10 @@ turf_tone={
 "type": "float",
 "value": 0.0
 }
+shade_fill={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 1)
+}
 sun_travel={
 "type": "vec3",
 "value": Vector3(-0.35, -0.62, 0.7)

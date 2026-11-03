@@ -188,7 +188,9 @@ void fragment() {
 	}
 	// The scan's normals (OpenGL: x right, y up the image, which is -z).
 	NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(n.x, 0.0, -n.y, 0.0)).xyz * normal_strength * near);
-	ALBEDO = clamp(tone_turf(col), vec3(0.0), vec3(1.0)) * ground_shading(p, dist);
+	vec3 albedo = clamp(tone_turf(col), vec3(0.0), vec3(1.0));
+	ALBEDO = albedo * shade_fill.a * ground_shading(p, dist);
+	EMISSION = albedo * shade_fill.rgb;
 	// Turf, sand and paths are matt: no sheen from the sun or the sky.
 	ROUGHNESS = clamp(rough, 0.9, 1.0);
 	SPECULAR = 0.1;

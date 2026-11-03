@@ -294,5 +294,7 @@ void fragment() {
 	float damp = sand * (1.0 - smoothstep(0.55, 0.98, sand + edge_noise * 0.2));
 	col *= mix(1.0, 0.9 - 0.22 * damp, sand);
 	col *= 1.0 + 0.07 * rake * sand * (0.6 + 0.4 * value_noise(p * 0.4));
-	ALBEDO = clamp(tone_turf(col), vec3(0.0), vec3(1.0)) * ground_shading(p, length(VERTEX));
+	vec3 albedo = clamp(tone_turf(col), vec3(0.0), vec3(1.0));
+	ALBEDO = albedo * shade_fill.a * ground_shading(p, length(VERTEX));
+	EMISSION = albedo * shade_fill.rgb;
 }
