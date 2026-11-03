@@ -40,7 +40,7 @@ uniform float fill = 0.12; // TreeFactory raises it for Compatibility
 // in shade a real crown stays green, as the leaves pass on yellow-green
 // light, where sky ambient alone turned it blue-grey.
 uniform float transmit = 0.0;
-const vec3 TRANSMIT_TINT = vec3(0.8, 1.1, 0.45);
+const vec3 TRANSMIT_TINT = vec3(0.7, 1.1, 0.6);
 // How light the leaves inside the crown are (1 as lit as the outside).
 // Forward+ darkens them more: its sky light would otherwise flatten the
 // crown into one bright mass, where a real one has deep shade inside.
@@ -55,8 +55,10 @@ global uniform float foliage_sway;
 global uniform float tree_impostor_distance;
 
 varying vec4 info;
+varying vec3 tint;
 
 #include "res://shaders/tree_wind.gdshaderinc"
+#include "res://shaders/tree_tint.gdshaderinc"
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -66,6 +68,7 @@ float hash(vec2 p) {
 
 void vertex() {
 	info = COLOR;
+	tint = bake ? vec3(1.0) : crown_tint(MODEL_MATRIX[3].xyz);
 	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
 		VERTEX = vec3(0.0);
 	}
@@ -253,6 +256,7 @@ void fragment() {
 	// L 29, a -10, b 16): less chroma and a cooler lift brings our crowns
 	// (with the outline fix above) from 19/-9/14 to about 28/-12/19.
 	col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.7) * vec3(1.05, 1.13, 1.32);
+	col *= tint;
 	// Inner leaves sit in the crown's own shade.
 	col *= core ? (needles ? 1.0 : 0.62) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {

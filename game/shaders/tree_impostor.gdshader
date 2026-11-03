@@ -19,17 +19,21 @@ uniform bool instanced = false;
 // Sky light through the leaves, as in tree_leaves.gdshader (the atlas holds
 // plain albedo, so it is added here).
 uniform float transmit = 0.0;
-const vec3 TRANSMIT_TINT = vec3(0.8, 1.1, 0.45);
+const vec3 TRANSMIT_TINT = vec3(0.7, 1.1, 0.6);
 
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
 global uniform float tree_impostor_distance;
 
 varying float frame;
+varying vec3 tint;
+
+#include "res://shaders/tree_tint.gdshaderinc"
 varying float atlas_row;
 
 void vertex() {
 	vec3 root = MODEL_MATRIX[3].xyz;
+	tint = crown_tint(root);
 	vec3 to_camera = (vec4(INV_VIEW_MATRIX[3].xyz - root, 0.0) * MODEL_MATRIX).xyz;
 	float azimuth = atan(to_camera.x, to_camera.z);
 	frame = mod(round(azimuth / (6.2831853 / frames)), frames);
@@ -66,6 +70,8 @@ void fragment() {
 	if (c.a < 0.5) {
 		discard;
 	}
+	// The tree's own leaf colour; the trunk at the bottom is left alone.
+	c.rgb *= mix(vec3(1.0), tint, smoothstep(0.75, 0.55, UV.y));
 	// Aerial perspective: far tree lines lose colour and lift towards the
 	// sky's blue, layer behind layer, so the distance reads as depth.
 	float far = smoothstep(60.0, 350.0, length(VERTEX)) * 0.6;

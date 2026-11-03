@@ -37,14 +37,21 @@ picture.
    First step done: in Forward+ the leaves and impostors pass on
    yellow-green sky light (`transmit`, TreeFactory.TRANSMIT_FORWARD_PLUS),
    and the black holes are gone (the crown cores drew the black gaps of
-   the leaf spray; they now show deeper, shaded leaves). Still to do:
-   brighter sunlit sides and more variety of colour between crowns.
+   the leaf spray; they now show deeper, shaded leaves). Second step
+   done: every tree has its own leaf colour from a hash of where it
+   stands (`tree_tint.gdshaderinc`, yellower to darker and bluer, shared
+   by the full tree and its impostor), and Forward+ leaves are a bluer
+   green, so sunlit sides read green rather than lime. Still open: 2K25's
+   sunlit highlights carry more blue (sky sheen on the leaves).
 2. **Trees, close up (graphics thread).** Under the crowns you see long,
    straight, level limbs of constant thickness, like poles, and the same
    three broadleaf shapes repeated in rows. Real parkland trees have limbs
    that fork and taper and disappear into leaves, and every tree looks
    different. Plan: limbs that fork and bend and carry leaves along their
-   length, not only at the tips, and more broadleaf variants.
+   length, not only at the tips, and more broadleaf variants. Done: limbs
+   kink and fork at a knee, taper to the tip, carry sprays at each fork,
+   and sit in the crown's shade (the bark darkens with height); five
+   broadleaf variants instead of three.
 3. **Rough and fescue (graphics thread).** The rough's 3D tufts are evenly
    scattered, bright-tipped cards that read like stickers on a flat ground
    texture. The deep rough banks read as a field of yellow dots. 2K25's
