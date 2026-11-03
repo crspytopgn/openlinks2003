@@ -131,8 +131,7 @@ static func _bake(tree: SceneTree) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2003
 	for i in PEOPLE:
-		var look := PlayerLook.random_person(rng.randi())
-		look.glove = false
+		var look := PlayerLook.spectator(rng.randi())
 		var person := FreeGolfer.create(look, FreeGolfer.SPECTATOR_TEXTURE)
 		if person == null:
 			break

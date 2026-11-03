@@ -164,8 +164,8 @@ void fragment() {
 		base *= 1.0 - 0.07 * clamp(-h, 0.0, 1.5);
 	}
 	float occ = body_occlusion(occ_pos, occ_normal);
-	AO = occ;
-	ALBEDO = base * mix(1.0, occ, contact_share);
+	AO = occ * people_fill(occ_normal);
+	ALBEDO = base * mix(1.0, occ, contact_share) * people_light.x;
 	if (use_normal) {
 		NORMAL_MAP = texture(texture_normal, UV).rgb;
 	}

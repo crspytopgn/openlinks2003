@@ -325,6 +325,37 @@ static func random_person(seed_value: int) -> PlayerLook:
 	return l
 
 
+## How often a spectator wears a cap: in photos of tour galleries about
+## half the heads are bare (and many of the rest are in visors, bucket or
+## sun hats, which we don't have), so fewer than the players' 70%.
+const SPECTATOR_CAP_SHARE := 0.45
+## Spectators' cap colours (CLOTH_COLOURS index, relative share), counted
+## off gallery photos: navy and black lead, then white, the greys and
+## stone, with club and sponsor colours here and there. A golfer's cap
+## matches their outfit (random()); a crowd's is whatever they own.
+const SPECTATOR_CAPS := [
+	[0, 22], [2, 16], [1, 9], [3, 10], [4, 3], [5, 5], [6, 7],
+	[7, 6], [11, 6], [13, 6], [12, 4], [8, 2], [9, 2], [14, 2],
+]
+
+
+## A spectator: random_person() with a gallery's caps rather than a
+## player's (SPECTATOR_CAP_SHARE, SPECTATOR_CAPS, half of them dad caps),
+## so a crowd isn't a row of the same white cap.
+static func spectator(seed_value: int) -> PlayerLook:
+	var l := random_person(seed_value)
+	l.glove = false  # spectators don't wear a golf glove
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed_value, "spectator"])
+	l.cap = rng.randf() < SPECTATOR_CAP_SHARE
+	var odds: Array = []
+	for c: Array in SPECTATOR_CAPS:
+		odds.append(c[1])
+	l.cap_colour = CLOTH_COLOURS[SPECTATOR_CAPS[_pick(rng, odds)][0]][1]
+	l.cap_style = "dad" if rng.randf() < 0.5 else "tour"
+	return l
+
+
 ## The sex of realistic person `id`, or -1 if there is none by that id.
 static func person_sex(id: String) -> float:
 	for p: Array in PEOPLE:

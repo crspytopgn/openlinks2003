@@ -72,10 +72,17 @@ picture.
    tools/homecourse, checked against the physics terrain.
 6. **The golfer in Compatibility (golfer threads).** In Forward+ the golfer
    holds up well. In Compatibility his skin goes pale and flat and his
-   light trousers glow at the edges (bloom).
+   light trousers glow at the edges (bloom). Done: the cause was
+   Compatibility's exposure and fill lifts, which are tuned for the turf.
+   People now take them back and get their fill more from above than
+   below (Scenery.people_light, shaders/golfer_occlusion.gdshaderinc), and
+   dyed cloth stops at real white with less rim light on light colours.
 7. **Crowd variety (realism lead).** At a distance the gallery is fine,
    but many heads read as the same white cap. Plan: more cap and hair
-   colours, and bare heads.
+   colours, and bare heads. Done: spectators (PlayerLook.spectator) wear a
+   cap only 45% of the time, in gallery colours led by navy and black
+   (white about one in eleven), half of them dad caps. The rest show their
+   own hair. Hair colour on the realistic people is still their own.
 
 How this was checked: an uncommitted harness renders each view with the
 look forced to Photoreal and quality to Ultra (Compatibility takes about
