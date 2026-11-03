@@ -18,7 +18,13 @@ global uniform float foliage_sway;
 
 #include "res://shaders/tree_wind.gdshaderinc"
 
+// How far up the tree (metres, the tree's own frame): limbs and the trunk
+// inside the crown sit in the leaves' shade, so they read darker than the
+// sunlit lower trunk, rather than as pale poles among the leaves.
+varying float up;
+
 void vertex() {
+	up = VERTEX.y;
 	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
 		VERTEX = vec3(0.0);
 	} else if (!bake) {
@@ -37,6 +43,7 @@ void fragment() {
 	} else {
 		col = tint * (0.8 + 0.3 * sin(UV.x * 40.0 + sin(UV.y * 3.0) * 2.0));
 	}
+	col *= mix(1.0, 0.5, smoothstep(1.8, 4.5, up));
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col * 0.8;
