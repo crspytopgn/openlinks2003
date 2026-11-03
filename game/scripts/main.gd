@@ -236,7 +236,7 @@ const PUTT_AIM_LIFT := 0.01  ## the sim putt ring's, on the short green
 ## Keys: colour, inner (inner radius over outer) and putt (the putt ring's
 ## radius, metres); full shots keep their size (_update_aim_marker).
 const AIM_STYLE_CLASSIC := {"colour": Color(1.0, 0.9, 0.2, 0.75), "inner": 0.8, "putt_inner": 0.8, "putt": 0.25}
-const AIM_STYLE_SIM := {"colour": Color(1.0, 1.0, 1.0, 0.5), "inner": 0.92, "putt_inner": 0.86, "putt": 0.09}
+const AIM_STYLE_SIM := {"colour": Color(1.0, 1.0, 1.0, 0.5), "inner": 0.92, "putt_inner": 0.8, "putt": 0.09}
 var _aim_ring: TorusMesh
 var _aim_mat: StandardMaterial3D
 var drop_marker: MeshInstance3D  ## the edge of the drop zone
