@@ -327,6 +327,9 @@ func _draw_hole_card() -> void:
 
 ## One line is centred in its box; several (drop options) are stacked
 ## left-aligned, and the box grows upwards from the same bottom edge.
+const CAPTION_BOTTOM := 190.0
+
+
 func _draw_caption() -> void:
 	var fs := 18
 	var lines := _caption.split("\n")
@@ -336,7 +339,9 @@ func _draw_caption() -> void:
 	var w := tw + 40.0
 	var h := caption_height(lines.size())
 	var fade := clampf(minf(_caption_t * 4.0, (_caption_len - _caption_t) * 2.0), 0.0, 1.0)
-	var r := Rect2((size.x - w) * 0.5, size.y - TICKER_H - 116.0 - h, w, h)
+	# Above the swing meter in the bottom right corner (its top is 178 px
+	# up), so a long caption never runs underneath it.
+	var r := Rect2((size.x - w) * 0.5, size.y - CAPTION_BOTTOM - h, w, h)
 	_panel(r, PANEL_DARK, fade, Vector4.ONE * minf(17.0, h * 0.5))
 	if lines.size() == 1:
 		_text(r.position + Vector2(w * 0.5, 23), _caption, fs, Color(TEXT, fade), true)

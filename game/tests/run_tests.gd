@@ -5069,6 +5069,15 @@ func _test_broadcast_pieces() -> void:
 	_check(d.cut_cams[0] == ShotDirector.Cam.BEHIND, "starts behind the ball")
 	_check(d.cut_cams[1] == ShotDirector.Cam.CHASE, "variant 0 chases the ball")
 	_check(d.cut_cams[2] == ShotDirector.Cam.PIN, "landing near the pin cuts to the pin camera")
+	# A dogleg whose corner is past the club's reach: aim at the corner, not
+	# straight at the pin over the trees.
+	var dogleg := HoleData.new()
+	dogleg.terrain = terrain
+	dogleg.tee = Vector3.ZERO
+	dogleg.pin = Vector3(200, 0, 300)
+	dogleg.route = PackedVector2Array([Vector2(0, 280)])
+	_check(dogleg.aim_point(dogleg.tee, 250.0).distance_to(Vector3(0, 0, 280)) < 0.1, "out of reach of the corner: aim at the corner")
+	_check(dogleg.aim_point(Vector3(0, 0, 200), 250.0).distance_to(dogleg.pin) < 0.1, "past the corner: aim at the pin")
 	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
 	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
 	var late: Array = d.step(5.5, shot.position_at(5.5), behind, 0.016)
@@ -5077,6 +5086,25 @@ func _test_broadcast_pieces() -> void:
 	var side := ShotDirector.plan(shot, Vector3(0, 0, 400), terrain, behind, false, 2)
 	_check(side.cut_cams[1] == ShotDirector.Cam.SIDE, "variant 2 cuts side-on")
 	_check(side.cut_cams[2] == ShotDirector.Cam.LANDING, "far from the pin: landing camera")
+	# A tree where the landing camera would stand: it moves out of the canopy.
+	var usual: Vector3 = side.fixed[ShotDirector.Cam.LANDING]
+	var wooded := FlatTerrain.new()
+	wooded.obstacles = ObstacleField.new()
+	wooded.obstacles.add_cylinder(usual.x, usual.z, 5.0, 2.0, 14.0, ObstacleField.Kind.CANOPY)
+	wooded.obstacles.finalize()
+	_check(ShotDirector.near_obstacle(wooded, usual), "the usual landing spot is inside the tree")
+	var moved := ShotDirector.plan(shot, Vector3(0, 0, 400), wooded, behind, false, 2)
+	var spot: Vector3 = moved.fixed[ShotDirector.Cam.LANDING]
+	_check(not ShotDirector.near_obstacle(wooded, spot), "landing camera stands clear of the tree (%s)" % spot)
+	_check(ShotDirector.view_clear(wooded, spot, shot.first_landing + Vector3.UP), "landing camera sees the landing")
+	# A grandstand where the pin camera would stand (the gallery's blockers).
+	var pin_spot: Vector3 = d.fixed[ShotDirector.Cam.PIN]
+	var stand := ObstacleField.new()
+	stand.add_box(pin_spot + Vector3(0, 1.0, 2.0), Basis.IDENTITY, Vector3(12.0, 3.0, 4.0), ObstacleField.Kind.SOLID)
+	stand.finalize()
+	var dodged := ShotDirector.plan(shot, pin, terrain, behind, false, 0, stand)
+	var pin_now: Vector3 = dodged.fixed[ShotDirector.Cam.PIN]
+	_check(not ShotDirector.near_obstacle(terrain, pin_now, stand), "pin camera keeps out of the grandstand (%s)" % pin_now)
 	var putt := ShotDirector.plan(shot, pin, terrain, behind, true, 0)
 	_check(putt.cut_cams.size() == 1 and putt.cut_cams[0] == ShotDirector.Cam.PUTT, "putts track the ball")
 

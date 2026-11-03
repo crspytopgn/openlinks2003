@@ -40,7 +40,7 @@ func length_m() -> float:
 
 ## Where to aim from `from` with a club that reaches `reach` metres: the pin
 ## if it is in range, otherwise the furthest route point in range that is
-## closer to the pin than the ball is.
+## closer to the pin than the ball is, or failing that the next route point.
 func aim_point(from: Vector3, reach: float) -> Vector3:
 	var here := Vector2(from.x, from.z)
 	var pin2 := Vector2(pin.x, pin.z)
@@ -55,5 +55,15 @@ func aim_point(from: Vector3, reach: float) -> Vector3:
 			best = p
 			best_d = d
 	if best_d < 0.0:
-		return pin
+		# Every route point is out of reach: head for the next one anyway.
+		# Straight at the pin cut the corner of a dogleg over the trees
+		# (Kettle Hollow's 9th, whose corner is just past driver reach).
+		var next_d := INF
+		for p in route:
+			var d := here.distance_to(p)
+			if d < next_d and p.distance_to(pin2) < to_pin - 1.0:
+				best = p
+				next_d = d
+		if next_d == INF:
+			return pin
 	return Vector3(best.x, terrain.height_at(best.x, best.y), best.y)

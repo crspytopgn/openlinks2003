@@ -20,11 +20,18 @@ const CHASE_UP := 4.0
 const LANDING_BEYOND := 32.0
 const LANDING_SIDE := 10.0
 const LANDING_UP := 6.0
+const LANDING_PAST_REST := 20.0  ## the landing camera stands at least this far past where the ball stops
 const PIN_BEYOND := 13.0
 const PIN_UP := 2.6
 const PUTT_BACK := 2.8
 const PUTT_UP := 1.15
 const KEEP_ABOVE_GROUND := 1.2
+## A fixed camera keeps this far from any tree trunk, canopy or building,
+## so it never stands inside a tree with the screen full of leaves.
+const CLEAR_M := 5.0
+const PROBE_M := 40.0
+const SIGHT_ROOM_M := 3.0
+const CRANE_UP := 15.0
 
 ## Cut times (seconds into the shot) and the camera each one switches to.
 var cut_times := PackedFloat32Array()
@@ -37,13 +44,16 @@ var _pin := Vector3.ZERO
 var _dir := Vector3.FORWARD
 var _right := Vector3.RIGHT
 var _terrain: CourseTerrain
+## Things only the cameras keep out of (the gallery's grandstands).
+var _blockers: ObstacleField
 var _cut := -1
 
 
 ## Plans the cameras for `shot`. `behind` is where the camera stood at
 ## address; `putting` keeps a single low tracking camera.
-static func plan(shot: ShotResult, pin: Vector3, terrain: CourseTerrain, behind: Vector3, putting: bool, variant: int) -> ShotDirector:
+static func plan(shot: ShotResult, pin: Vector3, terrain: CourseTerrain, behind: Vector3, putting: bool, variant: int, blockers: ObstacleField = null) -> ShotDirector:
 	var d := ShotDirector.new()
+	d._blockers = blockers
 	d._shot = shot
 	d._pin = pin
 	d._terrain = terrain
@@ -76,19 +86,36 @@ static func plan(shot: ShotResult, pin: Vector3, terrain: CourseTerrain, behind:
 			else:
 				var apex := shot.points[apex_i]
 				var reach := clampf(shot.carry_m * 0.5, 30.0, 120.0)
-				var p := Vector3(apex.x, 0.0, apex.z) + d._right * side * reach
-				p.y = maxf(d._ground(p) + 6.0, start.y + (apex.y - start.y) * 0.5)
-				d.fixed[Cam.SIDE] = d._above(p)
+				var spots: Array[Vector3] = []
+				# Nearest the flight line first: far out to the side, a parkland
+				# hole's side camera stood in the woods looking at pine trunks.
+				for s: float in [side, -side]:
+					for k: float in [0.5, 0.7, 1.0, 0.35]:
+						var p := Vector3(apex.x, 0.0, apex.z) + d._right * s * reach * k
+						p.y = maxf(d._ground(p) + 6.0, start.y + (apex.y - start.y) * 0.5)
+						spots.append(p)
+				d.fixed[Cam.SIDE] = d._pick(spots, apex)
 				d._add(t_mid, Cam.SIDE)
 			last_cut = t_mid
 	var t_end := t_land - (1.0 if near_pin else 1.8)
 	if t_end > last_cut + 0.8:
 		if near_pin:
 			var back := Vector3(pin.x - start.x, 0.0, pin.z - start.z).normalized()
-			d.fixed[Cam.PIN] = d._above(pin + back * PIN_BEYOND + back.cross(Vector3.UP) * side * 3.0 + Vector3.UP * PIN_UP)
+			var spots: Array[Vector3] = []
+			for s: float in [side, -side]:
+				for beyond: float in [PIN_BEYOND, PIN_BEYOND * 0.7, PIN_BEYOND * 1.5]:
+					spots.append(pin + back * beyond + back.cross(Vector3.UP) * s * 3.0 + Vector3.UP * PIN_UP)
+			d.fixed[Cam.PIN] = d._pick(spots, land + Vector3.UP)
 			d._add(t_end, Cam.PIN)
 		elif shot.carry_m >= FULL_SHOT_CARRY:
-			d.fixed[Cam.LANDING] = d._above(land + d._dir * LANDING_BEYOND + d._right * side * LANDING_SIDE + Vector3.UP * LANDING_UP)
+			# Beyond where the ball stops, too: a drive that runs out rolled up
+			# to the camera, which ended up staring straight down at the grass.
+			var far := maxf(LANDING_BEYOND, _flat(land, shot.rest) + LANDING_PAST_REST)
+			var spots: Array[Vector3] = []
+			for s: float in [side, -side]:
+				for beyond: float in [far, far * 0.8, far * 1.3, far * 1.6]:
+					spots.append(land + d._dir * beyond + d._right * s * LANDING_SIDE + Vector3.UP * LANDING_UP)
+			d.fixed[Cam.LANDING] = d._pick(spots, land + Vector3.UP)
 			d._add(t_end, Cam.LANDING)
 	return d
 
@@ -105,7 +132,7 @@ func step(t: float, ball: Vector3, from: Vector3, delta: float) -> Array:
 	var look := ball
 	match cam:
 		Cam.CHASE:
-			var want := _above(ball - _dir * CHASE_BACK + Vector3.UP * CHASE_UP)
+			var want := _clear_above(_above(ball - _dir * CHASE_BACK + Vector3.UP * CHASE_UP))
 			pos = want if cut else from.lerp(want, 1.0 - exp(-delta * 3.5))
 		Cam.PUTT:
 			var aim := Vector3(_pin.x - ball.x, 0.0, _pin.z - ball.z)
@@ -134,6 +161,71 @@ func cam_name(t: float) -> String:
 func _add(t: float, cam: Cam) -> void:
 	cut_times.append(t)
 	cut_cams.append(cam)
+
+
+## The first of `spots` (lifted off the ground) that is clear of trees and
+## sees `look`; failing that the first clear of trees; failing that the
+## first raised until it is.
+func _pick(spots: Array[Vector3], look: Vector3) -> Vector3:
+	for p in spots:
+		var q := _above(p)
+		if view_clear(_terrain, q, look, _blockers):
+			return q
+	# Up over the treetops, a crane shot, before settling for a blocked view.
+	for p in spots:
+		var q := _above(p) + Vector3.UP * CRANE_UP
+		if view_clear(_terrain, q, look, _blockers):
+			return q
+	for p in spots:
+		var q := _above(p)
+		if not near_obstacle(_terrain, q, _blockers):
+			return q
+	return _clear_above(_above(spots[0]))
+
+
+## `p`, raised until it is out of the trees (up to about 30 m).
+func _clear_above(p: Vector3) -> Vector3:
+	var q := p
+	for i in 8:
+		if not near_obstacle(_terrain, q, _blockers):
+			return q
+		q.y += 4.0
+	return q
+
+
+## True when `p` is inside or under a tree canopy or building (or one of
+## `extra`), or one is within CLEAR_M of it sideways. Segments that start
+## inside an obstacle don't hit it, so the test comes in towards `p`:
+## straight down from high above (anything over `p`, including one it
+## stands inside) and from CLEAR_M away on each side (a trunk or wall
+## right next to it).
+static func near_obstacle(t: CourseTerrain, p: Vector3, extra: ObstacleField = null) -> bool:
+	for field: ObstacleField in [t.obstacles if t != null else null, extra]:
+		if field == null:
+			continue
+		if not field.segment_hit(p + Vector3.UP * PROBE_M, p).is_empty():
+			return true
+		for dir: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+			if not field.segment_hit(p + dir * CLEAR_M, p).is_empty():
+				return true
+	return false
+
+
+## True when a camera at `pos` stands clear of the trees and nothing solid
+## hides `look` from it.
+static func view_clear(t: CourseTerrain, pos: Vector3, look: Vector3, extra: ObstacleField = null) -> bool:
+	if near_obstacle(t, pos, extra):
+		return false
+	# A fat line of sight: the trees' leaves spread wider than their
+	# collision shapes, so look past them with some room either side.
+	var side := (look - pos).cross(Vector3.UP).normalized() * SIGHT_ROOM_M
+	for field: ObstacleField in [t.obstacles if t != null else null, extra]:
+		if field == null:
+			continue
+		for o: Vector3 in [Vector3.ZERO, side, -side, Vector3.UP * SIGHT_ROOM_M]:
+			if not field.segment_hit(pos + o, look + o).is_empty():
+				return false
+	return true
 
 
 func _above(p: Vector3) -> Vector3:

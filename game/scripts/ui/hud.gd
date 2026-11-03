@@ -165,7 +165,13 @@ func set_broadcast(on: bool, tour_on := false) -> void:
 	if tour.visible:
 		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(TourGraphics.RAIL_W + 24.0, -176, 760, 22))
 	else:
-		_place(hint, Control.PRESET_BOTTOM_LEFT, Rect2(16, -62 if on else -34, 900, 26))
+		# Across the screen, wrapping upwards onto a second line rather than
+		# running off the right edge on a narrower screen (an iPad).
+		_place(hint, Control.PRESET_BOTTOM_WIDE, Rect2(16, -62 if on else -34, 0, 26))
+		# Classic's meter sits in the bottom right corner: stop short of it.
+		hint.offset_right = -16.0 if on else -260.0
+	hint.autowrap_mode = TextServer.AUTOWRAP_OFF if tour.visible else TextServer.AUTOWRAP_WORD_SMART
+	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_place(hint_tab, Control.PRESET_BOTTOM_LEFT, Rect2(hint.offset_left, hint.offset_top + 6, 200, 20))
 	fold_hints(hints_folded)
 	meter.modern = on

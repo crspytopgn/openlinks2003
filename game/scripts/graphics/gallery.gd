@@ -48,6 +48,7 @@ const ROPE_COLOUR := Color(0.92, 0.9, 0.84)
 ## further out.
 static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, stand := false, quality := 3) -> Gallery:
 	var g := Gallery.new()
+	g.camera_blockers = ObstacleField.new()
 	g.name = "Gallery"
 	var lines := tee_lines(hole.terrain, hole.tee, toward)
 	lines.append_array(green_lines(hole.terrain, hole.pin, hole.tee))
@@ -66,6 +67,7 @@ static func build(hole: HoleData, toward: Vector3, crowd: int, seed_value: int, 
 			var tee_at := tee_stand_spot(hole, toward)
 			if not tee_at.is_empty():
 				g._build_grandstand(hole.terrain, tee_at[0], tee_at[1], seed_value + 11, TEE_STAND_WIDTH, "TeeGrandstand")
+	g.camera_blockers.finalize()
 	g._add_murmur(hole)
 	return g
 
@@ -344,8 +346,10 @@ func _build_crowd(hole: HoleData, lines: Array[PackedVector3Array], count: int, 
 		var at: Vector3 = spot[0]
 		var focus: Vector3 = spot[1]
 		add_child(person)
-		# Turn them to face the play, give or take a little.
-		person.global_position = at
+		# Turn them to face the play, give or take a little. The gallery is
+		# built before it joins the scene and stands at the origin, so local
+		# is world here (global_position would need it in the tree).
+		person.position = at
 		person.rotation.y = facing_yaw(at, focus) + rng.randf_range(-0.25, 0.25)
 		person.set_meta(&"lean", rng.randf_range(-0.2, 0.2))
 		feet.append(at)
@@ -659,6 +663,10 @@ static func _stand(player: AnimationPlayer) -> void:
 
 # --- Grandstand ------------------------------------------------------------
 
+## The grandstands as boxes, for the TV cameras to keep out of (the ball
+## doesn't hit them: they aren't in the course's obstacles).
+var camera_blockers: ObstacleField
+
 ## A temporary tournament grandstand, the kind built behind the 18th green
 ## and round par 3s: aluminium bleacher rows on a scaffold, a dark green
 ## skirt round the sides and front, and a rail along the back. Real scale
@@ -764,6 +772,10 @@ func _build_grandstand(terrain: CourseTerrain, front: Vector3, facing: Vector3, 
 	stand.name = node_name
 	add_child(stand)
 	stand.transform = Transform3D(Basis(side, Vector3.UP, -facing), Vector3(front.x, base, front.z))
+	if camera_blockers != null:
+		var height := STAND_FIRST + STAND_ROWS * STAND_RISE + STAND_RAIL
+		var centre := Vector3(front.x, base + height * 0.5, front.z) - facing * depth * 0.5
+		camera_blockers.add_box(centre, Basis(side, Vector3.UP, -facing), Vector3(width * 0.5, height * 0.5, depth * 0.5), ObstacleField.Kind.SOLID)
 	# In the stand's frame: x across, y up, +z back (away from the green).
 	var w := width * 0.5
 	var floor_y := low - base - 0.3
