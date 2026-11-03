@@ -1,9 +1,10 @@
 class_name TouchPad
 extends Control
 ## On-screen buttons for phones and tablets, which have no keys: aim left and
-## right (held), the next and previous club, and the menu. The swing itself is
-## a swipe anywhere else on the screen (see AnalogSwing). Shown only on a
-## touch screen.
+## right (held), the next and previous club, and the menu. The swing starts
+## from its own SwingButton, on the other side of the screen: a tap there
+## starts the meter and a drag back from it is the swipe swing (see
+## AnalogSwing). Shown only on a touch screen.
 
 signal club_pressed(step: int)
 signal menu_pressed
@@ -89,3 +90,43 @@ class PadButton extends Button:
 		var tip := c + arrow * r
 		var back := c - arrow * r * 0.8
 		draw_colored_polygon(PackedVector2Array([tip, back + side * r, back - side * r]), Color.WHITE)
+
+
+## The round Swing button on a touch screen. The swing starts only from
+## here, never from a tap anywhere, so the player can look at the shot for
+## as long as they like. main.gd does the hit test (covers) itself, as the
+## touch reaches it before the interface; the button only draws. It is
+## shown while the player can swing, faint for a moment as the shot is set
+## up (not `armed` yet).
+class SwingButton extends Control:
+	const DIAMETER := 112.0
+
+	var armed := true:
+		set(v):
+			if v != armed:
+				armed = v
+				queue_redraw()
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		custom_minimum_size = Vector2(DIAMETER, DIAMETER)
+
+	## Whether a touch at `at` (viewport pixels) starts the swing: on the
+	## button, with a little to spare round it for a thumb.
+	func covers(at: Vector2) -> bool:
+		if not is_visible_in_tree():
+			return false
+		var r := get_global_rect()
+		return at.distance_to(r.get_center()) <= minf(r.size.x, r.size.y) * 0.5 + 14.0
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.5 - 2.0
+		var a := 0.85 if armed else 0.3
+		draw_circle(c, r, Color(0.06, 0.2, 0.12, 0.55 * a))
+		draw_arc(c, r, 0.0, TAU, 64, Color(1, 1, 1, a), 3.0, true)
+		var font := get_theme_default_font()
+		var fs := 22
+		var text := "SWING"
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x
+		draw_string(font, Vector2(c.x - w * 0.5, c.y + fs * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, a))

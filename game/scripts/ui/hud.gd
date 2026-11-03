@@ -18,6 +18,7 @@ var meter: SwingMeter
 var mouse_swing: MouseSwingControl
 ## Aim, club and menu buttons on a touch screen (hidden elsewhere).
 var touch_pad: TouchPad
+var swing_button: TouchPad.SwingButton
 var wind: WindIndicator
 var scorecard: ScorecardPanel
 var hand_over: HandOverPanel
@@ -79,6 +80,13 @@ func _ready() -> void:
 	_place(touch_pad, Control.PRESET_CENTER_LEFT, Rect2(16, -pad.y * 0.5, pad.x, pad.y))
 	touch_pad.visible = DisplayServer.is_touchscreen_available()
 	add_child(touch_pad)
+	# Right side, half way up: room below it to drag back for the swipe
+	# swing, clear of the wind (top) and the meter (bottom).
+	swing_button = TouchPad.SwingButton.new()
+	var d := TouchPad.SwingButton.DIAMETER
+	_place(swing_button, Control.PRESET_CENTER_RIGHT, Rect2(-d - 24.0, -d * 0.5 - 20.0, d, d))
+	swing_button.visible = false
+	add_child(swing_button)
 
 	overlay = BroadcastOverlay.new()
 	overlay.visible = false

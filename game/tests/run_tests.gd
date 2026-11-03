@@ -2139,6 +2139,28 @@ func _test_gallery() -> void:
 	for share: float in Gallery.ARM_SHARES.values():
 		shares += share
 	_check_near(shares, 1.0, 1e-6, "the crowd's arm poses share out the whole gallery")
+	# Nobody stands in the line of play: anyone in the lane from behind the
+	# ball to the target steps out to its side; anyone outside stays put.
+	var fwd := Vector3(0, 0, 1)
+	var ball := Vector3(10, 0, 20)
+	var in_lane := ball + Vector3(1.0, 0, 15.0)
+	var step := Gallery.clear_offset(in_lane, ball, fwd, 60.0)
+	var moved := in_lane + step
+	var half := Gallery.CLEAR_HALF + 15.0 * Gallery.CLEAR_SPREAD
+	_check(step.x > 0.0 and absf(step.z) < 1e-6 and moved.x - ball.x > half, "a spectator in the line of play steps out sideways, on their own side")
+	_check(Gallery.clear_offset(ball + Vector3(0.5, 0, -6.0), ball, fwd, 60.0).length() > 0.0, "nobody stands between the camera behind the golfer and the ball")
+	_check(Gallery.clear_offset(ball + Vector3(9.0, 0, 15.0), ball, fwd, 60.0) == Vector3.ZERO, "spectators beside the lane stay where they are")
+	_check(Gallery.clear_offset(ball + Vector3(0.0, 0, 70.0), ball, fwd, 60.0) == Vector3.ZERO, "the gallery past the target (behind a green) stays")
+	var cleared := true
+	for k in 40:
+		var p := ball + Vector3(randf_range(-20.0, 20.0), 0, randf_range(-20.0, 60.0))
+		var q := p + Gallery.clear_offset(p, ball, fwd, 60.0)
+		var along := q.z - ball.z
+		if along >= -Gallery.CLEAR_BEHIND and along <= 60.0:
+			cleared = cleared and absf(q.x - ball.x) >= Gallery.CLEAR_HALF + maxf(along, 0.0) * Gallery.CLEAR_SPREAD
+	_check(cleared, "after stepping aside, nobody is left in the lane")
+	g.clear_line(hole.tee, (hole.pin - hole.tee).normalized(), 80.0)
+	g.clear_line(hole.tee, Vector3(1, 0, 0), 80.0)
 	_check(Gallery.arm_pose(0.0) == CrowdArms.Pose.FOLDED and Gallery.arm_pose(0.9999) == CrowdArms.Pose.POCKETS, "arms folded is the commonest pose, pockets the rarest")
 	var arm_mods := 0
 	for m in g.find_children("*", "SkeletonModifier3D", true, false):
@@ -5429,6 +5451,15 @@ func _ready_to_aim(game: GolfRound) -> void:
 		game.hud.hand_over.close()
 
 
+## Shows the Swing button as on a touch screen, past its pause, and
+## returns where to tap it.
+func _swing_spot(game: GolfRound) -> Vector2:
+	game.hud.touch_pad.visible = true
+	game.hud.swing_button.visible = true
+	game._aim_ready_ms = 0
+	return game.hud.swing_button.get_global_rect().get_center()
+
+
 func _test_touch_and_stick_swings() -> void:
 	var game := _game
 	if not game.is_node_ready():
@@ -5437,7 +5468,20 @@ func _test_touch_and_stick_swings() -> void:
 	_ready_to_aim(game)
 	_check(game.state == GolfRound.State.AIM, "touch: aiming")
 	var h := game.get_viewport().get_visible_rect().size.y
-	var from := Vector2(640, h * 0.3)
+	# On a touch screen the swing starts only from the Swing button, and
+	# not straight after the shot is set up.
+	game.hud.touch_pad.visible = true
+	game._prepare_shot(true)
+	game.hud.swing_button.visible = true
+	var from := game.hud.swing_button.get_global_rect().get_center()
+	var course_spot := Vector2(from.x * 0.5, h * 0.6)
+	_touch(game, true, course_spot)
+	_touch(game, false, course_spot)
+	_check(game.state == GolfRound.State.AIM and not game.hud.meter.is_swinging(), "touch: a tap on the course doesn't start the swing")
+	_touch(game, true, from)
+	_touch(game, false, from)
+	_check(game.state == GolfRound.State.AIM, "touch: the Swing button waits a moment after the shot is set up")
+	from = _swing_spot(game)
 	# The mouse events a touch screen makes up don't start the mouse swing.
 	var fake := InputEventMouseButton.new()
 	fake.device = InputEvent.DEVICE_ID_EMULATION
@@ -5484,9 +5528,19 @@ func _test_touch_and_stick_swings() -> void:
 	_touch(game, true, from)
 	_touch(game, false, from)
 	_check(game.state != GolfRound.State.FLIGHT, "touch: a later tap skips the flight")
+	# One tap after the shot moves on, and only that: its made-up click
+	# doesn't also move on, and the touch doesn't start the next swing.
+	if game.state == GolfRound.State.SHOT_RESULT:
+		game._unhandled_input(fake)
+		_check(game.state == GolfRound.State.SHOT_RESULT, "touch: the made-up click doesn't end the shot result")
+		_touch(game, true, from)
+		_touch(game, false, from)
+		_check(game.state != GolfRound.State.SHOT_RESULT and game.state != GolfRound.State.SWING and not game.hud.meter.is_swinging(),
+				"touch: a tap after the shot moves on without starting the next swing")
 	game._touch_ms = -100000
 	# A swipe: drag back 40% of the screen, then flick up.
 	_ready_to_aim(game)
+	from = _swing_spot(game)
 	_touch(game, true, from)
 	for f in 40:
 		_drag(game, from + Vector2(0, h * 0.4 * (f + 1) / 40.0))
@@ -5500,6 +5554,7 @@ func _test_touch_and_stick_swings() -> void:
 	_touch(game, false, from)
 	# A swipe called off: lifting the finger before the downswing.
 	_ready_to_aim(game)
+	from = _swing_spot(game)
 	_touch(game, true, from)
 	for f in 10:
 		_drag(game, from + Vector2(0, h * 0.02 * (f + 1)))
@@ -5535,6 +5590,7 @@ func _test_touch_and_stick_swings() -> void:
 	game._on_mouse_stroke_cancelled()
 	_stick(game, 0.0)
 	game._touch_ms = -100000
+	game.hud.touch_pad.visible = DisplayServer.is_touchscreen_available()
 	game.graphics.presentation = presentation
 	game._apply_graphics()
 
