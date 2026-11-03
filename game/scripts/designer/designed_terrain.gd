@@ -1,8 +1,9 @@
 class_name DesignedTerrain
 extends CourseTerrain
 ## The ground of a DesignedCourse, for the round and the designer. Heights
-## are the sculpted grid, shaped by the painted areas: tee boxes become level
-## pads, bunkers are dug in and ponds are sunk below their water line.
+## are the sculpted grid, shaped by the painted areas: bunkers are dug in,
+## ponds are sunk below their water line and tee boxes become raised, level
+## pads with mown banks, drawn and played at fine detail (TeePads).
 ## Surfaces come from a raster of the shapes at RES metres, painted in layer
 ## order (rough, then fairways, fringes, tees, greens, sand and water on top);
 ## greens get a fringe ring. Outside the course area is out of bounds.
@@ -14,8 +15,6 @@ extends CourseTerrain
 const RES := 0.5  ## metres per surface raster cell
 const CHUNK := 32  ## height cells per mesh chunk side
 const FRINGE_WIDTH := 1.8
-const TEE_RAISE := 0.25
-const TEE_BLEND := 3.0
 const BUNKER_DEPTH := 0.7
 const BUNKER_LIP := 2.5  ## metres inside the outline the bunker reaches full depth
 const BUNKER_LIP_OUT := 1.5  ## metres outside it where the bank starts down
@@ -70,6 +69,8 @@ const STAKE_WHITE := Color(0.9, 0.9, 0.88)
 var course: DesignedCourse
 
 var _h := PackedFloat32Array()  ## heights after the shapes, on the course grid
+var _g := PackedFloat32Array()  ## the same before the tee pads
+var _pads := TeePads.new()
 var _img: Image  ## surface raster (R8 holds the Surface.Type)
 var _surf := PackedByteArray()
 var _sw := 0
@@ -100,6 +101,7 @@ func rebuild() -> void:
 	_sh = int(ceil(course.area.size.y / RES))
 	_img = Image.create_empty(_sw, _sh, false, Image.FORMAT_R8)
 	_h = course.heights.duplicate()
+	_g = _h.duplicate()
 	_vc = PackedColorArray()
 	_vc.resize(course.cols * course.rows)
 	_vw = PackedVector2Array()
@@ -119,7 +121,7 @@ func rebuild() -> void:
 
 ## After sculpting: `cells` is the rect of height samples that changed.
 func update_heights(cells: Rect2i) -> void:
-	var r := cells.grow(int(ceil(TEE_BLEND / DesignedCourse.CELL)) + 1).intersection(Rect2i(0, 0, course.cols, course.rows))
+	var r := cells.grow(int(ceil(TeePads.REACH / DesignedCourse.CELL)) + 1).intersection(Rect2i(0, 0, course.cols, course.rows))
 	# A pond's water line follows its bank, and a tee pad its mean height,
 	# so a change near either redoes the whole shape.
 	for s in course.shapes:
@@ -133,7 +135,7 @@ func update_heights(cells: Rect2i) -> void:
 ## After adding, moving or removing shapes: `area` (x, z) covers where the
 ## surfaces may have changed (the old and new outlines).
 func update_surfaces(area: Rect2) -> void:
-	var grown := area.grow(FRINGE_WIDTH + TEE_BLEND + DesignedCourse.CELL * 2.0)
+	var grown := area.grow(FRINGE_WIDTH + TeePads.REACH + DesignedCourse.CELL * 2.0)
 	var o := course.area.position
 	var px := Rect2i(Vector2i(floori((grown.position.x - o.x) / RES), floori((grown.position.y - o.y) / RES)),
 		Vector2i(ceili(grown.size.x / RES) + 1, ceili(grown.size.y / RES) + 1)).intersection(Rect2i(0, 0, _sw, _sh))
@@ -168,6 +170,12 @@ func height_at(x: float, z: float) -> float:
 	var j := int(v)
 	var fu := u - i
 	var fv := v - j
+	var pad := _pads.pad_at_cell(course.cols, i, j)
+	if pad != null:
+		# On a tee pad the ball plays the pad's own triangles, as drawn.
+		var y := pad.height_at(Vector2(x, z))
+		if not is_nan(y):
+			return y
 	var k := j * course.cols + i
 	return lerpf(lerpf(_h[k], _h[k + 1], fu), lerpf(_h[k + course.cols], _h[k + course.cols + 1], fu), fv)
 
@@ -768,16 +776,6 @@ func _derive(cells: Rect2i) -> void:
 		for i in range(cells.position.x, cells.end.x):
 			_h[j * cols + i] = course.heights[j * cols + i]
 	for s in course.shapes:
-		if not s.is_valid():
-			continue
-		match s.surface:
-			Surface.Type.TEE:
-				var level := 0.0
-				for p in s.points:
-					level += course.base_height(p.x, p.y)
-				_shape_heights(s, cells, TEE_BLEND, func(h: float, d: float) -> float:
-					return lerpf(level / s.points.size() + TEE_RAISE, h, smoothstep(0.0, TEE_BLEND, d)))
-	for s in course.shapes:
 		if s.is_valid() and s.surface == Surface.Type.SAND:
 			# The bank starts a little outside the outline: begun at it, the
 			# drop fell between whichever 2 m grid points happened to be
@@ -799,6 +797,17 @@ func _derive(cells: Rect2i) -> void:
 				if d > 0.0:
 					return minf(h, lerpf(level + 0.05, h, smoothstep(0.0, WATER_BANK, d)))
 				return minf(h, level + 0.05 - 1.95 * smoothstep(0.0, 6.0, -d)))
+	# Tee pads last, on the ground as the hazards left it; the grid gets the
+	# pads' shape at its own points, and TeePads the fine inserts.
+	for j in range(cells.position.y, cells.end.y):
+		for i in range(cells.position.x, cells.end.x):
+			_g[j * cols + i] = _h[j * cols + i]
+	for s in course.shapes:
+		if s.is_valid() and s.surface == Surface.Type.TEE:
+			var level := TeePads.level_of(course, s)
+			_shape_heights(s, cells, TeePads.REACH, func(h: float, d: float) -> float:
+				return TeePads.profile(h, d, level))
+	_pads.rebuild(course, _g, _h, cells)
 
 
 ## Applies `f(height, signed distance)` to the samples inside the shape (or
@@ -926,6 +935,8 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 	var n := 0
 	for j in nz - 1:
 		for i in nx - 1:
+			if _pads.pad_at_cell(cols, i0 + i, j0 + j) != null:
+				continue  # drawn by its tee pad's insert below
 			var a := j * nx + i
 			var b := a + 1
 			var cc := a + nx
@@ -938,6 +949,17 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 			indices[n + 4] = d
 			indices[n + 5] = cc
 			n += 6
+	indices.resize(n)
+	var uvs := _stripe_uvs(i0, j0, nx, nz) if not _across.is_empty() else PackedVector2Array()
+	# Packed arrays are passed by value, so the pads' part comes back to be joined on.
+	var extra := _pad_parts(Rect2i(i0, j0, nx - 1, nz - 1), verts.size())
+	verts.append_array(extra[0])
+	normals.append_array(extra[1])
+	colors.append_array(extra[2])
+	weights.append_array(extra[3])
+	palette.append_array(extra[4])
+	uvs.append_array(extra[5])
+	indices.append_array(extra[6])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -946,12 +968,78 @@ func _build_chunk(c: Vector2i) -> ArrayMesh:
 	arrays[Mesh.ARRAY_TEX_UV2] = weights
 	arrays[Mesh.ARRAY_CUSTOM0] = palette
 	if not _across.is_empty():
-		arrays[Mesh.ARRAY_TEX_UV] = _stripe_uvs(i0, j0, nx, nz)
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {},
 		Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
 	return mesh
+
+
+## The tee pad triangles whose middles fall in the chunk's `cells`, with
+## their vertices' colours and weights blended from the grid's: [vertices,
+## normals, colours, weights, palette, stripe UVs, indices], the indices
+## counting from `base`.
+func _pad_parts(cells: Rect2i, base: int) -> Array:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var weights := PackedVector2Array()
+	var palette := PackedFloat32Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var o := course.area.position
+	var cell := DesignedCourse.CELL
+	var world := Rect2(o + Vector2(cells.position) * cell, Vector2(cells.size) * cell)
+	for pad in _pads.pads:
+		if not pad.cells.intersects(cells):
+			continue
+		var remap := PackedInt32Array()
+		remap.resize(pad.points.size())
+		remap.fill(-1)
+		for t in range(0, pad.tris.size(), 3):
+			var mid := (pad.points[pad.tris[t]] + pad.points[pad.tris[t + 1]] + pad.points[pad.tris[t + 2]]) / 3.0
+			if not world.has_point(mid):
+				continue
+			for e in 3:
+				var v := pad.tris[t + e]
+				if remap[v] < 0:
+					remap[v] = base + verts.size()
+					var p := pad.points[v]
+					verts.append(Vector3(p.x, pad.heights[v], p.y))
+					normals.append(pad.normals[v])
+					var b := _blended(p)
+					colors.append(b[0])
+					weights.append(b[1])
+					palette.append_array(b[2])
+					if not _across.is_empty():
+						uvs.append(_stripe_uv(p))
+				indices.append(remap[v])
+	return [verts, normals, colors, weights, palette, uvs, indices]
+
+
+## Grid colour, weights and palette (RGBA) at `p`, bilinear between the vertices.
+func _blended(p: Vector2) -> Array:
+	var cols := course.cols
+	var u := clampf((p.x - course.area.position.x) / DesignedCourse.CELL, 0.0, cols - 1.001)
+	var v := clampf((p.y - course.area.position.y) / DesignedCourse.CELL, 0.0, course.rows - 1.001)
+	var i := int(u)
+	var j := int(v)
+	var fu := u - i
+	var fv := v - j
+	var k := j * cols + i
+	var ks := PackedInt32Array([k, k + 1, k + cols, k + cols + 1])
+	var ws := PackedFloat32Array([(1.0 - fu) * (1.0 - fv), fu * (1.0 - fv), (1.0 - fu) * fv, fu * fv])
+	var col := Color(0, 0, 0, 0)
+	var wt := Vector2.ZERO
+	var pal := Vector3.ZERO
+	for q in 4:
+		var kq := ks[q]
+		var w := ws[q]
+		col += _vc[kq] * w
+		wt += _vw[kq] * w
+		pal += Vector3(_vp[kq * 3], _vp[kq * 3 + 1], _vp[kq * 3 + 2]) * w
+	return [col, wt, PackedFloat32Array([pal.x, pal.y, pal.z, 0.0])]
 
 
 ## Which hole each OWNER_CELL square of the course is nearest (by its line
@@ -1002,12 +1090,15 @@ func _make_owners() -> void:
 func _stripe_uvs(i0: int, j0: int, nx: int, nz: int) -> PackedVector2Array:
 	var uvs := PackedVector2Array()
 	uvs.resize(nx * nz)
-	var a := course.area
-	var rows := _owner.size() / _owner_cols
 	for j in nz:
 		for i in nx:
-			var p := course.sample_pos(i0 + i, j0 + j)
-			var oi := clampi(roundi((p.x - a.position.x) / OWNER_CELL), 0, _owner_cols - 1)
-			var oj := clampi(roundi((p.y - a.position.y) / OWNER_CELL), 0, rows - 1)
-			uvs[j * nx + i] = Vector2(_across[_owner[oj * _owner_cols + oi]].dot(p), -1.0)
+			uvs[j * nx + i] = _stripe_uv(course.sample_pos(i0 + i, j0 + j))
 	return uvs
+
+
+func _stripe_uv(p: Vector2) -> Vector2:
+	var a := course.area
+	var rows := _owner.size() / _owner_cols
+	var oi := clampi(roundi((p.x - a.position.x) / OWNER_CELL), 0, _owner_cols - 1)
+	var oj := clampi(roundi((p.y - a.position.y) / OWNER_CELL), 0, rows - 1)
+	return Vector2(_across[_owner[oj * _owner_cols + oi]].dot(p), -1.0)
