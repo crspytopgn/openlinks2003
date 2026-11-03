@@ -17,7 +17,59 @@ with Mesa lavapipe (`apt-get install mesa-vulkan-drivers`,
 Rarely used tricks (view-dependent mowing stripes, heat shimmer and more,
 with verdicts) are in `unusual-graphics-ideas.md`.
 
-## What 2K25 does that we don't
+## Round 2 gaps, 2026-11-03
+
+Almost every item in round 1 (below) has landed. This list comes from a
+fresh audit of Photoreal at Ultra on Kettle Hollow hole 2, rendered at
+1920x1080 in Forward+ (lavapipe) and Compatibility. Each view was checked
+at full size: the tee, a 140 m approach, a 6 m putt, and the golfer from
+3 m away. The references were 2K25 4K press shots and Geograph photos of
+parkland courses. The list is ranked by how much each item moves the
+picture.
+
+1. **Trees, mid distance (graphics thread).** From the fairway, the crowns
+   from about 60 m to the far tree line are almost black, flat masses in
+   Forward+. In 2K25 and in real photos, the sunlit side of a crown is the
+   brightest green in the frame. The near crowns also show black,
+   square-stepped holes. This is the single biggest "cheap" signal left.
+2. **Trees, close up (graphics thread).** Under the crowns you see long,
+   straight, level limbs of constant thickness, like poles, and the same
+   three broadleaf shapes repeated in rows. Real parkland trees have limbs
+   that fork and taper and disappear into leaves, and every tree looks
+   different. Plan: limbs that fork and bend and carry leaves along their
+   length, not only at the tips, and more broadleaf variants.
+3. **Rough and fescue (graphics thread).** The rough's 3D tufts are evenly
+   scattered, bright-tipped cards that read like stickers on a flat ground
+   texture. The deep rough banks read as a field of yellow dots. 2K25's
+   rough is a dense, even fur that gets longer away from the fairway, and
+   its fescue is wispy, with seed heads that catch the light. Plan: denser,
+   shorter, darker-tipped tufts that blend into the ground colour, a first
+   cut between fairway and rough, and fescue clumps built from thin blades
+   and seed heads rather than yellow blobs.
+4. **Shade fill (graphics thread).** In Compatibility, tree shadows on the
+   fairway are near black, with no sky light in them. In real photos the
+   shade under a tree is a darker, bluer green, never black. Plan: lift the
+   shadow floor with sky-coloured ambient on terrain and grass in
+   Compatibility.
+5. **Tee boxes and ground shape (home-course builder).** 2K25's tees are
+   raised, flat, closely mown platforms with a clean edge, and the ground
+   round them rolls. Ours blend into the fairway, and the ground between
+   holes is smooth. Plan: raised tee pads and gentle mounding in
+   tools/homecourse, checked against the physics terrain.
+6. **The golfer in Compatibility (golfer threads).** In Forward+ the golfer
+   holds up well. In Compatibility his skin goes pale and flat and his
+   light trousers glow at the edges (bloom).
+7. **Crowd variety (realism lead).** At a distance the gallery is fine,
+   but many heads read as the same white cap. Plan: more cap and hair
+   colours, and bare heads.
+
+How this was checked: an uncommitted harness renders each view with the
+look forced to Photoreal and quality to Ultra (Compatibility takes about
+2 min, Forward+ through lavapipe about 20 min). The side-by-side sheet is
+kept privately with the project files, not in the repo, because it holds
+2K25 frames.
+
+## Round 1: what 2K25 does that we don't
 
 1. **Camera and lens (graphics thread).** 2K25 shoots the tee from low and
    behind with a long lens (narrow field of view). That compresses the hole,
