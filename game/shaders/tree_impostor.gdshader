@@ -108,11 +108,15 @@ void fragment() {
 }
 
 // The leaves' soft foliage light (tree_leaves.gdshader), so a tree keeps
-// its light when it turns into its impostor.
+// its light when it turns into its impostor. The full tree's leaves shade
+// each other (shadow maps); the impostor's single quad can't, so the sun
+// on it is cut by about the share of a crown's leaves that sit in other
+// leaves' shadow (matched against the full trees at the switch distance).
+const float SELF_SHADE = 0.55;
 void light() {
 	float ndl = dot(NORMAL, LIGHT);
 	float wrap = clamp((ndl + 0.5) / 1.5, 0.0, 1.0);
 	float through = pow(clamp(dot(-VIEW, LIGHT), 0.0, 1.0), 2.0) * 0.7 + clamp(-ndl, 0.0, 1.0) * 0.25;
 	vec3 glow = vec3(0.95, 1.05, 0.85);
-	DIFFUSE_LIGHT += (wrap + through * glow) * ATTENUATION * LIGHT_COLOR / PI;
+	DIFFUSE_LIGHT += (wrap + through * glow) * SELF_SHADE * ATTENUATION * LIGHT_COLOR / PI;
 }

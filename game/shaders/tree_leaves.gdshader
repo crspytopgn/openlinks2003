@@ -264,7 +264,11 @@ void fragment() {
 	col *= core ? (needles ? 1.0 : 0.62) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
-		EMISSION = col;
+		// A pine's pads shade the pads below them far more than a broadleaf
+		// crown's leaves do, which the impostor's single quad can't show:
+		// measured against the full pines at the switch distance, its
+		// needles came out about a third too light.
+		EMISSION = needles ? col * 0.68 : col;
 	} else {
 		ALBEDO = col;
 		// Light from the sky and through neighbouring leaves, which the
