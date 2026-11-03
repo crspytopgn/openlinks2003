@@ -52,6 +52,13 @@ much each item moves the picture:
    (97, 159, 205): the extra brightness and the haze over the sky
    (fog_sky_affect 0.25) wash it out, and the whole web frame reads low
    in contrast next to 2K25's strong sun and long shadows.
+   Done 2026-11-03 (Compatibility only, Forward+ untouched): the sky is
+   drawn dimmer and a little more saturated (Scenery.COMPAT_SKY_ENERGY
+   0.95, COMPAT_SKY_DEPTH 1.1), only 0.08 of the haze lies over it
+   (COMPAT_SKY_FOG, as in Forward+), and a luminance contrast of 1.2 round
+   mid grey follows the learned grade (PostProcess.COMPAT_FINISH_CONTRAST,
+   so the LUT fit is untouched). The top of the tee view now measures
+   (110, 149, 210).
 5. **Near turf and greens (graphics thread).** From the golfer close-up the
    tee is an even smear with soft blotches, and the green carries the same
    wide stripes and blotches as the fairway. 2K25's green is a finer,

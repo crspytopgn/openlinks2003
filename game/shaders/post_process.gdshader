@@ -31,6 +31,9 @@ uniform float eye_height = 2.0; // metres above the ground
 // side by side (1024x32): red across a slice, green down, blue by slice.
 uniform sampler2D grade_lut : filter_linear, repeat_disable;
 uniform float lut_mix = 0.0; // 0 = off
+// Contrast after the grade, on luminance round a mid grey so colours keep
+// their hue (PostProcess: Photoreal in Compatibility). 1 = none.
+uniform float finish_contrast = 1.0;
 
 float hash(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -103,6 +106,11 @@ void fragment() {
 	}
 	if (lut_mix > 0.0) {
 		c = mix(c, lut_lookup(c), lut_mix);
+	}
+	if (finish_contrast != 1.0) {
+		float l = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+		float lt = clamp((l - 0.48) * finish_contrast + 0.48, 0.0, 1.0);
+		c *= lt / l;
 	}
 	vec2 d = uv - 0.5;
 	c *= 1.0 - vignette * smoothstep(0.15, 0.75, dot(d, d) * 2.0);
