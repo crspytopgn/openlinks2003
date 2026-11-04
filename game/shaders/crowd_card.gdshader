@@ -21,6 +21,11 @@ uniform float frames = 8.0;
 // hips; the row in front hides the rest). The card's origin is then at the
 // lowest point drawn.
 uniform float cut = 1.0;
+// Daylight on people in Compatibility (shaders/golfer_occlusion.gdshaderinc):
+// x undoes Photoreal's exposure lift on the albedo, y its fill-light lift.
+// The 3D people take it, and the cards stood among them must too, or the
+// front rows read pale and glowing next to them. (1, 1, 0) elsewhere.
+global uniform vec3 people_light;
 
 varying vec3 shirt;
 varying vec4 custom;
@@ -92,7 +97,13 @@ void fragment() {
 		// Baked under soft daylight; the scene's light adds a little side
 		// shade on top, as for the silhouettes.
 		float across = (UV.x - 0.5) * 2.0;
-		ALBEDO = c.rgb * clamp(1.25 + 0.15 * side * across, 1.0, 1.4);
+		// The lift makes up for the bake's soft light in Forward+; in
+		// Compatibility at Photoreal (people_light.x below 1) the scene's
+		// lifted exposure already does, and lifting again made the cards
+		// in the front rows glow next to the 3D people.
+		float lift = people_light.x < 0.99 ? 1.0 : 1.25;
+		ALBEDO = c.rgb * clamp(lift + 0.15 * side * across, lift - 0.15, lift + 0.15) * people_light.x;
+		AO = people_light.y;
 		ROUGHNESS = 0.9;
 		SPECULAR = 0.2;
 	} else {
@@ -175,7 +186,8 @@ void fragment() {
 	float across = (p.x - 0.5) * 2.0;
 	float lit = 0.85 + 0.2 * side * across - 0.15 * across * across;
 	lit *= mix(0.78, 1.0, smoothstep(0.0, 0.5, p.y));
-	ALBEDO = col * clamp(lit, 0.5, 1.1);
+	ALBEDO = col * clamp(lit, 0.5, 1.1) * people_light.x;
+	AO = people_light.y;
 	ROUGHNESS = 0.9;
 	SPECULAR = 0.2;
 	}

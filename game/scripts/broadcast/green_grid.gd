@@ -11,13 +11,25 @@ extends MeshInstance3D
 ## green reads and PGA Tour 2K25 draw them, warming only to a soft amber
 ## and then a muted red where the green gets steep, with the downhill ticks.
 ## The Links looks keep the game's own bright colours.
+##
+## The lines are thin ribbons (shaders/green_grid.gdshader) with soft,
+## anti-aliased edges, drawn in short pieces that follow the turf, rather
+## than one-pixel GL lines, which neither renderer smooths: those broke
+## into stair steps and dashes where they dipped into the turf.
 
 enum Style { YELLOW, HEIGHT, SLOPE }
 
 const SPACING := 1.0
 const MARGIN := 4.0  ## metres past the ball and the hole
 const MAX_HALF := 18.0
-const LIFT := 0.03
+const LIFT := 0.01
+## Pieces each metre of line is drawn in, so it follows the turf's curve.
+const PIECES := 4
+## The lines' width on the turf (m); the shader keeps them a pixel or so
+## wide however far off they are.
+const LINE_WIDTH := 0.02
+const TICK_WIDTH := 0.025
+const SHADER := preload("res://shaders/green_grid.gdshader")
 const FLAT := Color(1.0, 1.0, 1.0, 0.16)
 const MEDIUM := Color(1.0, 0.88, 0.6, 0.3)
 const STEEP := Color(0.95, 0.5, 0.38, 0.45)
@@ -39,10 +51,9 @@ var _mesh := ImmediateMesh.new()
 func _init() -> void:
 	mesh = _mesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var mat := ShaderMaterial.new()
+	mat.shader = SHADER
+	mat.set_shader_parameter("width", LINE_WIDTH)
 	material_override = mat
 	visible = false
 
@@ -80,7 +91,7 @@ func build(terrain: CourseTerrain, ball: Vector3, pin: Vector3) -> void:
 				var y := terrain.height_at(x0 + a * SPACING, z0 + b * SPACING)
 				_low = minf(_low, y)
 				_high = maxf(_high, y)
-	_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	for a in cells + 1:
 		for b in cells:
 			# Line a runs along z at x = x0 + a, and along x at z = z0 + a.
@@ -97,24 +108,39 @@ func build(terrain: CourseTerrain, ball: Vector3, pin: Vector3) -> void:
 				continue
 			var down := Vector2(n.x, n.z).normalized() * SPACING * clampf(0.15 + pct * 0.08, 0.15, 0.45)
 			var col := slope_color(pct)
-			_vertex(terrain, c - down * 0.5, col)
-			_vertex(terrain, c + down * 0.5, col)
+			_piece(terrain, c - down * 0.5, c + down * 0.5, col, col, TICK_WIDTH / LINE_WIDTH)
 	_mesh.surface_end()
 
 
 func _segment(terrain: CourseTerrain, a: Vector2, b: Vector2) -> void:
-	var mid := (a + b) * 0.5
-	var col := YELLOW
+	var prev := _colour_at(terrain, a)
+	for i in PIECES:
+		var p := a.lerp(b, float(i) / PIECES)
+		var q := a.lerp(b, float(i + 1) / PIECES)
+		var next := _colour_at(terrain, q)
+		_piece(terrain, p, q, prev, next)
+		prev = next
+
+
+func _colour_at(terrain: CourseTerrain, p: Vector2) -> Color:
 	match style:
 		Style.SLOPE:
-			col = slope_color(slope_percent(terrain.normal_at(mid.x, mid.y)))
+			return slope_color(slope_percent(terrain.normal_at(p.x, p.y)))
 		Style.HEIGHT:
 			var spread := _high - _low
-			col = MIDDLE if spread < LEVEL_SPREAD else height_color((terrain.height_at(mid.x, mid.y) - _low) / spread)
-	_vertex(terrain, a, col)
-	_vertex(terrain, b, col)
+			return MIDDLE if spread < LEVEL_SPREAD else height_color((terrain.height_at(p.x, p.y) - _low) / spread)
+	return YELLOW
 
 
-func _vertex(terrain: CourseTerrain, p: Vector2, col: Color) -> void:
-	_mesh.surface_set_color(col)
-	_mesh.surface_add_vertex(Vector3(p.x, terrain.height_at(p.x, p.y) + LIFT, p.y))
+## One straight piece of line from `a` to `b` on the turf: a quad the
+## shader widens across the screen (UV.x is the edge, -1 or +1; the normal
+## carries the way the line runs, UV.y how much wider than LINE_WIDTH).
+func _piece(terrain: CourseTerrain, a: Vector2, b: Vector2, col_a: Color, col_b: Color, wide := 1.0) -> void:
+	var pa := Vector3(a.x, terrain.height_at(a.x, a.y) + LIFT, a.y)
+	var pb := Vector3(b.x, terrain.height_at(b.x, b.y) + LIFT, b.y)
+	var run := (pb - pa).normalized()
+	for v: Array in [[pa, col_a, -1.0], [pa, col_a, 1.0], [pb, col_b, 1.0], [pa, col_a, -1.0], [pb, col_b, 1.0], [pb, col_b, -1.0]]:
+		_mesh.surface_set_color(v[1])
+		_mesh.surface_set_normal(run)
+		_mesh.surface_set_uv(Vector2(v[2], wide))
+		_mesh.surface_add_vertex(v[0])
