@@ -27,6 +27,9 @@ uniform bool has_twig = false;
 uniform vec3 twig_tint = vec3(0.62, 0.72, 0.6);
 uniform bool needles = false;
 uniform bool bake = false;
+// With `bake`: the normal (camera space, 0..1) goes out instead of the
+// colour, for the impostors' normal atlas.
+uniform bool bake_normal = false;
 // Drawn in a MultiMesh of a course's trees: beyond tree_impostor_distance
 // from the camera an instance collapses to a point and its impostor shows.
 uniform bool instanced = false;
@@ -261,7 +264,11 @@ void fragment() {
 	col *= core ? (needles ? 1.0 : 0.62) : mix(inner_shade, 1.0, info.g * info.g);
 	if (bake) {
 		ALBEDO = vec3(0.0);
-		EMISSION = col;
+		// A pine's pads shade the pads below them far more than a broadleaf
+		// crown's leaves do, which the impostor's single quad can't show:
+		// measured against the full pines at the switch distance, its
+		// needles came out about a third too light.
+		EMISSION = needles ? col * 0.68 : col;
 	} else {
 		ALBEDO = col;
 		// Light from the sky and through neighbouring leaves, which the
@@ -283,6 +290,10 @@ void fragment() {
 	if (!core && !(has_spray && !needles)) {
 		// Faded with distance like the leaf shading above (dot pattern).
 		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1 * (1.0 - far));
+	}
+	if (bake_normal) {
+		ALBEDO = vec3(0.0);
+		EMISSION = normalize(NORMAL) * 0.5 + 0.5;
 	}
 }
 

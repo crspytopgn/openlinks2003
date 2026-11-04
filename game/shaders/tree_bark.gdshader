@@ -9,8 +9,16 @@ uniform sampler2D bark_color : source_color, filter_linear_mipmap, repeat_enable
 uniform sampler2D bark_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform bool has_texture = false;
 uniform bool bake = false;
+uniform bool bake_normal = false; // see tree_leaves.gdshader
 uniform bool instanced = false; // see tree_leaves.gdshader
 uniform vec3 tint : source_color = vec3(0.33, 0.25, 0.19);
+// Where the bark goes into the crown's shade (metres up the tree), and a
+// tint taken on higher up the stem (a pine's orange upper bark).
+uniform float shade_from = 1.8;
+uniform float shade_to = 4.5;
+uniform vec3 upper_tint = vec3(1.0);
+uniform float upper_from = 100.0;
+uniform float upper_to = 101.0;
 
 global uniform float tree_impostor_distance;
 global uniform vec2 wind_vector;
@@ -43,8 +51,12 @@ void fragment() {
 	} else {
 		col = tint * (0.8 + 0.3 * sin(UV.x * 40.0 + sin(UV.y * 3.0) * 2.0));
 	}
-	col *= mix(1.0, 0.5, smoothstep(1.8, 4.5, up));
-	if (bake) {
+	col *= mix(vec3(1.0), upper_tint, smoothstep(upper_from, upper_to, up));
+	col *= mix(1.0, 0.5, smoothstep(shade_from, shade_to, up));
+	if (bake_normal) {
+		ALBEDO = vec3(0.0);
+		EMISSION = normalize(NORMAL) * 0.5 + 0.5;
+	} else if (bake) {
 		ALBEDO = vec3(0.0);
 		EMISSION = col * 0.8;
 	} else {

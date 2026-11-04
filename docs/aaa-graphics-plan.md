@@ -42,11 +42,26 @@ much each item moves the picture:
    tree there about 500 pixels tall: the 256-pixel impostor frames came out
    blurred and blocky. Done: level 2 and up bakes 384-pixel frames
    (TreeFactory.FRAME_PIXELS_HIGH; the atlas is 3072x3456, inside WebGL's
-   4096 limit). Still open: impostors are lit flat, so a crown shows large
-   flat patches of one green.
+   4096 limit; 3072x3840 since the third pine). Done 2026-11-03:
+   impostors are lit, not flat. The bake renders every view a second time
+   with the leaves' and branches' normals as colour into a half-size
+   normal atlas, and the impostor turns those normals to face the camera
+   and takes the leaves' soft foliage light, so a far crown has sunlit
+   tops and shaded undersides clump by clump. The dark, hard-edged wedges
+   and the vertical seam across crowns in the Natural look were the
+   impostor quads casting sun shadows as quads: impostors no longer cast
+   them (GroundShade shades the ground under far trees).
 3. **Pines read as topiary (graphics thread).** The pines behind the tee
    are smooth egg and lollipop shapes, grey with haze. Real Scots pines and
    2K25's have a bare trunk most of the way up and an open, layered crown.
+   Done 2026-11-03, built from about 40 iNaturalist photos of Scots pines
+   in Britain: a trunk bare to half or two thirds of the height, wandering
+   a little, with dead stubs and grey-brown bark that turns orange up the
+   stem; a high crown of six to nine heavy limbs that climb out and turn
+   up, each carrying flat pads of needle tufts (darker underneath) with sky
+   between them; three forms (open-grown, grown in a stand, wind-leaned).
+   The ball obstacles and ground shade of a placed pine follow the new
+   shape (bare trunk to 10 m, canopy 8.5 to 17 m).
 4. **Pale, milky web sky (graphics thread).** In Compatibility the sky at
    the top of the frame measured sRGB (171, 209, 240) against 2K25's
    (97, 159, 205): the extra brightness and the haze over the sky

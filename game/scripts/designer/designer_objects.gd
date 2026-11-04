@@ -108,7 +108,7 @@ static func stand_in(o: PlacedObject, saved: Dictionary) -> PlacedObject:
 
 
 ## Adds what the ball can hit for object `o` standing on ground height `y`.
-## Built-in trees match the placeholder tree meshes. Library objects use
+## Built-in trees match the 3D trees (TreeFactory) as drawn. Library objects use
 ## their measured size (`saved` is the course's object_info, for objects the
 ## player's files don't have): models are a box the size of the model, trees
 ## a trunk and a canopy, solid billboards a column, soft ones nothing.
@@ -118,8 +118,10 @@ static func add_obstacles(field: ObstacleField, o: PlacedObject, y: float, saved
 	var s := o.scale
 	match o.id:
 		"tree_pine":
-			field.add_cylinder(x, z, 0.28 * s, y - 1.0, y + 3.0 * s, ObstacleField.Kind.SOLID)
-			field.add_cylinder(x, z, 2.0 * s, y + 2.5 * s, y + 11.5 * s, ObstacleField.Kind.CANOPY)
+			# As drawn (TreeFactory._grow_pine): a bare trunk most of the way
+			# up and a high, open crown from about half height to 17 m.
+			field.add_cylinder(x, z, 0.26 * s, y - 1.0, y + 10.0 * s, ObstacleField.Kind.SOLID)
+			field.add_cylinder(x, z, 3.6 * s, y + 8.5 * s, y + 17.0 * s, ObstacleField.Kind.CANOPY)
 			return
 		"tree_broadleaf":
 			field.add_cylinder(x, z, 0.28 * s, y - 1.0, y + 3.5 * s, ObstacleField.Kind.SOLID)

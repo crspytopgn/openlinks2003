@@ -194,7 +194,8 @@ static func placed_casters(hole: HoleData) -> PackedFloat32Array:
 		var s := o.scale
 		var p := o.position
 		if o.id.begins_with("tree_pine"):
-			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 2.0 * s, 13.0 * s, 2.6 * s, -1]))
+			# A pine's crown is high and open (TreeFactory._grow_pine).
+			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 8.5 * s, 17.0 * s, 3.8 * s, -1]))
 		elif o.id.begins_with("tree"):
 			out.append_array(PackedFloat32Array([p.x, p.y, p.z, 4.0 * s, 12.0 * s, 3.8 * s, -1]))
 		elif o.id.begins_with("bush"):
