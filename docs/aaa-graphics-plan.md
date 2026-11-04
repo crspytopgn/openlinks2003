@@ -81,8 +81,23 @@ much each item moves the picture:
 6. **Close crowd in Compatibility (realism lead).** The front row of the
    gallery, a few metres away, still has pale flat skin and glowing light
    trousers.
+   Done 2026-11-04: two causes. The baked crowd cards standing among the
+   3D people were lit twice in Compatibility (the bake's light, a 1.25
+   lift and the scene's lifted exposure and fill); they now take
+   `people_light` as the 3D people do and drop the lift there. And the
+   realistic people's clothing masks had holes (faded denim, creases)
+   where the source jeans showed through khaki or white trousers as pale
+   blue blotches; tools/golfer/fill_regions.py filled them in the pack,
+   and rocketbox.py fills them as it builds. A desktop report of the tee
+   crowd as flat white cut-outs did not reproduce in Forward+ (lavapipe):
+   the crowd bake came out right there.
 7. **Green grid (broadcast UI).** On the putt view the slope grid breaks
    into dashed, aliased segments, with red dashes on the steeper fringe.
+   Done 2026-11-04: the lines are thin ribbons with soft edges
+   (shaders/green_grid.gdshader), at least 1.25 pixels wide, drawn in
+   quarter-metre pieces that follow the turf and a little towards the
+   camera, so they no longer dip into it in dashes; colours blend along
+   each line instead of changing a metre at a time.
 
 ## Round 2 gaps, 2026-11-03
 

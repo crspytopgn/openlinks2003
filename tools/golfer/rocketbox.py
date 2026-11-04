@@ -35,7 +35,7 @@ import sys
 import urllib.request
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, os.path.dirname(__file__))
 from golf_shoes import load, save  # noqa: E402
@@ -440,10 +440,34 @@ def regions(surface, colour, skin, names):
         sel &= lum > m * (0.12 if k == 3 else 0.35)
         mask[..., k - 1] = sel
         means.append(m)
+    mask = fill_holes(mask > 0.5, is_skin)
     img = Image.fromarray((mask * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.8))
     buf = io.BytesIO()
     img.save(buf, "PNG", optimize=True)
     return buf.getvalue(), means
+
+
+def enclosed(sel):
+    """The texels a garment's mask `sel` (bool, h x w) closes round: the
+    ones off the mask that no path off the mask joins to the edge."""
+    # (A copy: PIL 12 does not flood an image that shares numpy's buffer.)
+    off = Image.fromarray(np.pad(~sel, 1, constant_values=True).astype(np.uint8) * 255).copy()
+    ImageDraw.floodfill(off, (0, 0), 128)
+    return (np.asarray(off) == 255)[1:-1, 1:-1]
+
+
+def fill_holes(mask, is_skin):
+    """Each garment's mask (bool, h x w x 3) with its holes filled: texels
+    a garment surrounds but its colour test left out, faded patches on
+    jeans, deep creases, a dark print. Left out, they keep the source
+    clothes' own colour, and pale blue denim showed through khaki or white
+    trousers in blotches. Skin (a neckline) and texels another garment
+    holds stay as they are."""
+    out = mask.copy()
+    for k in range(3):
+        others = mask[..., [j for j in range(3) if j != k]].any(-1)
+        out[..., k] |= enclosed(mask[..., k]) & ~is_skin & ~others
+    return out.astype(np.float64)
 
 
 def encode(img, size, quality=JPEG_QUALITY):
