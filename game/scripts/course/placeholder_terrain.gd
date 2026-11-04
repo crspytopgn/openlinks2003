@@ -24,8 +24,8 @@ const FIRST_CUT_CODE := 9
 var _colors := {
 	Surface.Type.TEE: Color(0.29, 0.48, 0.19),
 	Surface.Type.FAIRWAY: Color(0.29, 0.47, 0.18),
-	Surface.Type.FRINGE: Color(0.27, 0.47, 0.19),
-	Surface.Type.GREEN: Color(0.30, 0.52, 0.21),
+	Surface.Type.FRINGE: Color(0.28, 0.47, 0.18),
+	Surface.Type.GREEN: Color(0.32, 0.55, 0.23),
 	Surface.Type.ROUGH: Color(0.22, 0.38, 0.14),
 	Surface.Type.DEEP_ROUGH: Color(0.19, 0.31, 0.12),
 	Surface.Type.SAND: Color(0.78, 0.72, 0.55),
@@ -417,7 +417,13 @@ func _splat_material() -> ShaderMaterial:
 	var wts := PackedVector2Array()
 	var mown := PackedFloat32Array()
 	var cut := PackedFloat32Array()
-	for s in 10:
+	for s in 11:
+		if s == DesignedTerrain.COLLAR_CODE:
+			cols.append(Vector3(DesignedTerrain.COLLAR_COLOR.r, DesignedTerrain.COLLAR_COLOR.g, DesignedTerrain.COLLAR_COLOR.b))
+			wts.append(Materials.terrain_weights(Surface.Type.FRINGE))
+			mown.append(0.0)
+			cut.append(Materials.COLLAR_CUT)
+			continue
 		var c: Color = FIRST_CUT_COLOR if s == FIRST_CUT_CODE else _colors[s]
 		if s == Surface.Type.WATER:
 			# The pond's bed and the wet bank just above the water line:
@@ -441,6 +447,14 @@ func _splat_material() -> ShaderMaterial:
 
 func _splat_code(x: float, z: float) -> int:
 	var s := surface_at(x, z)
+	if s == Surface.Type.FRINGE:
+		# The collar: the fringe's inner ring, next to the green.
+		var p := Vector2(x, z)
+		if _blob_distance(p, green_center(), green_radius, phase.x) < green_radius + DesignedTerrain.COLLAR_WIDTH:
+			return DesignedTerrain.COLLAR_CODE
+		for t in targets:
+			if p.distance_to(Vector2(t.x, t.y)) < t.z + DesignedTerrain.COLLAR_WIDTH:
+				return DesignedTerrain.COLLAR_CODE
 	if s == Surface.Type.ROUGH:
 		var r := _route_distance(Vector2(x, z))
 		if _in_fairway(r, FIRST_CUT):

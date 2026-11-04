@@ -49,9 +49,14 @@ static func terrain_weights(surface: Surface.Type) -> Vector2:
 	return Vector2.ZERO
 
 
+## How closely the collar round a green is cut (the splat's collar code).
+const COLLAR_CUT := 0.4
+
+
 ## How closely `surface` is cut, for the terrain shader's `surface_cut`:
 ## 1 the green (fine, dense, smooth turf), about half the collar round it
-## and a little for the tee, 0 for everything else.
+## and the tee (mown to about a centimetre by triplex mowers), 0 for
+## everything else.
 static func terrain_cut(surface: int) -> float:
 	match surface:
 		Surface.Type.GREEN:
@@ -59,7 +64,7 @@ static func terrain_cut(surface: int) -> float:
 		Surface.Type.FRINGE:
 			return 0.5
 		Surface.Type.TEE:
-			return 0.25
+			return 0.45
 	return 0.0
 
 

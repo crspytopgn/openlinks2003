@@ -78,6 +78,13 @@ much each item moves the picture:
    tee is an even smear with soft blotches, and the green carries the same
    wide stripes and blotches as the fairway. 2K25's green is a finer,
    smoother, slightly lighter surface with a clear collar.
+   Done 2026-11-04: the green is a tenth lighter, even (no fairway
+   patches), with the lawn scan at a fifth of its size and faint stripes;
+   a 1.2 m collar ring (`DesignedTerrain.COLLAR_WIDTH`) frames it along a
+   crisp, smooth line baked from the green's outline; tees are finer and
+   their stripes no longer break into blotches up close. On the way, three
+   stripe bugs that drew moire and fingerprint rings beside greens were
+   fixed (see docs/graphics.md, "Greens, collars and tees").
 6. **Close crowd in Compatibility (realism lead).** The front row of the
    gallery, a few metres away, still has pale flat skin and glowing light
    trousers.

@@ -61,19 +61,28 @@ uniform bool has_splat = false;
 uniform sampler2D splat_tex : filter_nearest, repeat_disable;
 uniform vec2 splat_origin = vec2(0.0); // world x, z of the raster's corner
 uniform vec2 splat_size = vec2(1.0); // metres it covers
-// By Surface.Type, plus 9 for the first cut of rough beside the fairway.
-uniform vec3 surface_colors[10]; // sRGB
-uniform vec2 surface_weights[10]; // rough and sand weight
-uniform float surface_mown[10]; // 1 where the surface gets mowing stripes
+// Where set, the codes fill only the top splat_codes texels, and below
+// them green_edge_size texels (green_edge_texel metres each) hold the
+// signed distance to the nearest green's outline: 0..1 is
+// -green_edge_range..+green_edge_range metres, positive on the green.
+uniform ivec2 splat_codes = ivec2(0);
+uniform ivec2 green_edge_size = ivec2(1);
+uniform vec2 green_edge_texel = vec2(1.0);
+uniform float green_edge_range = 2.0;
+// By Surface.Type, plus 9 for the first cut of rough beside the fairway
+// and 10 for the collar round a green.
+uniform vec3 surface_colors[11]; // sRGB
+uniform vec2 surface_weights[11]; // rough and sand weight
+uniform float surface_mown[11]; // 1 where the surface gets mowing stripes
 // How closely each surface is cut (Materials.terrain_cut): the green's
 // turf is finer, denser and smoother than the fairway's, the collar
 // between the two, so a green reads as a green up close.
-uniform float surface_cut[10];
+uniform float surface_cut[11];
 uniform float splat_stripe_metres = 6.0;
 // Stripe width per surface (the mower's cut), where set: wide fairway
 // units, narrower tee mowers, walk-behind greens mowers. 0 keeps
 // splat_stripe_metres.
-uniform float surface_stripe_metres[10];
+uniform float surface_stripe_metres[11];
 
 varying vec3 world_pos;
 varying vec2 weights; // rough, sand
@@ -117,8 +126,9 @@ void vertex() {
 
 // The raster's colour and weights at ground point p, blended over a
 // fraction of a texel with a ragged, natural line.
-void splat_add(ivec2 t, ivec2 size, float a, inout vec3 col, inout vec2 w, inout float mown, inout float stripe_m, inout float cut) {
-	int s = clamp(int(texelFetch(splat_tex, clamp(t, ivec2(0), size - 1), 0).r * 255.0 + 0.5), 0, 9);
+void splat_add(ivec2 t, ivec2 size, float a, inout vec3 col, inout vec2 w, inout float mown, inout float stripe_m, inout float cut, inout float green) {
+	int s = clamp(int(texelFetch(splat_tex, clamp(t, ivec2(0), size - 1), 0).r * 255.0 + 0.5), 0, 10);
+	green += s == 3 ? a : 0.0; // Surface.Type.GREEN
 	col += surface_colors[s] * a;
 	w += surface_weights[s] * a;
 	mown += surface_mown[s] * a;
@@ -126,17 +136,37 @@ void splat_add(ivec2 t, ivec2 size, float a, inout vec3 col, inout vec2 w, inout
 	cut += surface_cut[s] * a;
 }
 
-void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut) {
-	ivec2 size = textureSize(splat_tex, 0);
+// Metres from p to the nearest green's edge, positive on the green
+// (bilinear between the baked texels, so the line is one smooth curve).
+float green_edge(vec2 p) {
+	vec2 q = (p - splat_origin) / green_edge_texel - 0.5;
+	ivec2 i = ivec2(floor(q));
+	vec2 f = q - floor(q);
+	ivec2 top = ivec2(0, splat_codes.y);
+	ivec2 hi = green_edge_size - 1;
+	float a = texelFetch(splat_tex, clamp(i, ivec2(0), hi) + top, 0).r;
+	float b = texelFetch(splat_tex, clamp(i + ivec2(1, 0), ivec2(0), hi) + top, 0).r;
+	float c = texelFetch(splat_tex, clamp(i + ivec2(0, 1), ivec2(0), hi) + top, 0).r;
+	float d = texelFetch(splat_tex, clamp(i + ivec2(1, 1), ivec2(0), hi) + top, 0).r;
+	return (mix(mix(a, b, f.x), mix(c, d, f.x), f.y) * 2.0 - 1.0) * green_edge_range;
+}
+
+void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe_m, out float cut, out float green) {
+	ivec2 size = splat_codes.x > 0 ? splat_codes : textureSize(splat_tex, 0);
 	// A slow wobble, so an edge wanders a little like a mower's line
 	// rather than following the raster.
 	vec2 wobble = vec2(value_noise(p * 1.3), value_noise(p * 1.3 + vec2(41.0, 17.0))) - 0.5;
-	vec2 q = (p - splat_origin) / splat_size * vec2(size) - 0.5 + wobble * 1.2;
+	vec2 q = (p - splat_origin) / splat_size * vec2(size) - 0.5;
+	// Not round a green and its collar, though: they are cut with a
+	// steady hand in one smooth curve, and the wobble scalloped the edge.
+	int here = int(texelFetch(splat_tex, clamp(ivec2(floor(q + 0.5)), ivec2(0), size - 1), 0).r * 255.0 + 0.5);
+	q += wobble * (here == 3 || here == 10 ? 0.15 : 1.2);
 	col = vec3(0.0);
 	w = vec2(0.0);
 	mown = 0.0;
 	stripe_m = 0.0;
 	cut = 0.0;
+	green = 0.0;
 	// Away from edges the nearest texel is the answer. On an edge, a
 	// quadratic B-spline over the 3x3 texels round it: its contours are
 	// smooth curves, where a bilinear blend of a 0.5 m raster draws stair
@@ -149,16 +179,22 @@ void splat_at(vec2 p, out vec3 col, out vec2 w, out float mown, out float stripe
 		|| int(texelFetch(splat_tex, clamp(c + ivec2(0, d.y), ivec2(0), size - 1), 0).r * 255.0 + 0.5) != s0
 		|| int(texelFetch(splat_tex, clamp(c + d, ivec2(0), size - 1), 0).r * 255.0 + 0.5) != s0;
 	if (!edge) {
-		splat_add(c, size, 1.0, col, w, mown, stripe_m, cut);
+		splat_add(c, size, 1.0, col, w, mown, stripe_m, cut, green);
 		return;
 	}
 	vec3 bx = vec3(0.5 * (0.5 - t.x) * (0.5 - t.x), 0.75 - t.x * t.x, 0.5 * (0.5 + t.x) * (0.5 + t.x));
 	vec3 by = vec3(0.5 * (0.5 - t.y) * (0.5 - t.y), 0.75 - t.y * t.y, 0.5 * (0.5 + t.y) * (0.5 + t.y));
 	for (int j = 0; j < 3; j++) {
 		for (int i = 0; i < 3; i++) {
-			splat_add(c + ivec2(i - 1, j - 1), size, bx[i] * by[j], col, w, mown, stripe_m, cut);
+			splat_add(c + ivec2(i - 1, j - 1), size, bx[i] * by[j], col, w, mown, stripe_m, cut, green);
 		}
 	}
+	// The stripe width is the nearest texel's, never a blend: the stripe
+	// coordinate is metres across the whole hole, so dividing it by a width
+	// that drifts over half a metre drew dense fingerprint rings along
+	// every surface edge.
+	s0 = clamp(s0, 0, 10);
+	stripe_m = surface_stripe_metres[s0] > 0.0 ? surface_stripe_metres[s0] : splat_stripe_metres;
 }
 
 // A texture sampled at two scales, so its repeat is hard to see.
@@ -170,12 +206,19 @@ void fragment() {
 	vec2 p = world_pos.xz;
 	// Derivatives in uniform control flow, before any branch.
 	vec2 hole_mow_line = mow_line_from(stripes.x, p);
+	float mow_seam = 1.0 - smoothstep(1.3, 2.0, mow_rate(stripes.x, p));
 	vec3 from_eye = world_pos - CAMERA_POSITION_WORLD;
 	// Rake marks in the sand: soft, wandering furrows about 30 cm apart,
 	// fading out once they get finer than a few pixels.
 	float rake_v = (p.x * 0.8 + p.y * 0.6 + 0.35 * sin(p.y * 0.9) + 0.25 * sin(p.x * 0.53)) / 0.3;
 	float rake = sin(rake_v * 6.28318) * (1.0 - smoothstep(0.15, 0.45, fwidth(rake_v)));
 	float patches = fbm(p * 0.035) - 0.5;
+	// Where the mower stripes are seen from: per pixel far off, but near
+	// the camera the view's own heading, so on a tee or green a few metres
+	// away a stripe keeps one tone along its length instead of swapping
+	// light for dark as the wide lens turns, which read as soft blotches.
+	vec3 view_fwd = -INV_VIEW_MATRIX[2].xyz;
+	vec3 sheen_eye = mix(view_fwd * length(from_eye), from_eye, smoothstep(8.0, 30.0, length(from_eye)));
 	float close_up = 1.0 - smoothstep(grain_fade_start, grain_fade_end, length(VERTEX));
 	float fine = (value_noise(p * 2.7) - 0.5) + 0.5 * (value_noise(p * 7.3) - 0.5);
 
@@ -193,15 +236,36 @@ void fragment() {
 	vec2 sq = (p - splat_origin) / splat_size;
 	bool on_splat = has_splat && all(greaterThanEqual(sq, vec2(0.0))) && all(lessThanEqual(sq, vec2(1.0)));
 	if (on_splat) {
+		// Trimmed edges are sharp up close, widening with distance so they
+		// don't shimmer.
+		float aa_edge = 0.05 + 0.004 * length(VERTEX);
 		vec3 crisp;
 		vec2 w;
 		float mown;
 		float stripe_m;
-		splat_at(p, crisp, w, mown, stripe_m, cut);
+		float green;
+		splat_at(p, crisp, w, mown, stripe_m, cut, green);
+		// The green's edge is a mown line too: crisp, like the bunker's,
+		// so the darker collar reads as a clean ring round it.
+		// (From the baked distance to the outline where there is one.)
+		float green_line = splat_codes.x > 0 ? smoothstep(-aa_edge, aa_edge, green_edge(p)) : smoothstep(0.5 - aa_edge, 0.5 + aa_edge, green);
+		if (green > 0.0 && green < 1.0 || (green >= 1.0 && green_line < 1.0)) {
+			// Take the green's share out of the blend, and put the green
+			// back by the line; with no other surface in the blend (where
+			// the line and the 0.5 m codes disagree), the collar's.
+			float rest = 1.0 - green;
+			vec3 g_col = surface_colors[3];
+			bool lone = rest < 0.02;
+			vec3 o_col = lone ? surface_colors[10] : (crisp - g_col * green) / rest;
+			float o_cut = lone ? surface_cut[10] : (cut - surface_cut[3] * green) / rest;
+			float o_mown = lone ? surface_mown[10] : (mown - surface_mown[3] * green) / rest;
+			crisp = mix(o_col, g_col, green_line);
+			cut = mix(o_cut, surface_cut[3], green_line);
+			mown = mix(o_mown, surface_mown[3], green_line);
+		}
 		// A bunker's edge is a trimmed line, not a blur or a torn one:
 		// sharp up close, widening with distance so it doesn't shimmer.
-		float aa = 0.05 + 0.004 * length(VERTEX);
-		sand = smoothstep(0.5 - aa, 0.5 + aa, w.y);
+		sand = smoothstep(0.5 - aa_edge, 0.5 + aa_edge, w.y);
 		// The turf lip from the same raster, not the 2 m mesh, whose
 		// triangles drew it as a row of dark teeth.
 		lip_w = w.y;
@@ -216,8 +280,9 @@ void fragment() {
 		// darker: along each hole where the mesh says which way it runs
 		// (UV.x metres across it), else one way over the whole course.
 		bool along_hole = stripes.y > 0.0;
+		mown *= along_hole ? mow_seam : 1.0;
 		float band = mow_band((along_hole ? stripes.x : p.x + p.y * 0.15) / stripe_m, MOW_SOFT);
-		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(along_hole ? hole_mow_line : vec2(-0.15, 1.0), from_eye);
+		c *= 1.0 + (band - 0.5) * 0.09 * mown * mow_sheen(along_hole ? hole_mow_line : vec2(-0.15, 1.0), sheen_eye);
 	} else if (wy > 0.0 && wy < 0.97) {
 		vec3 turf = (c - sand_vertex * wy) / (1.0 - wy);
 		c = mix(turf, sand_vertex, sand);
@@ -225,9 +290,11 @@ void fragment() {
 	float lip = smoothstep(0.02, 0.4, lip_w) * (1.0 - sand);
 	// The mesh colours are authored in sRGB; lighting works in linear.
 	vec3 base = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
-	vec3 col = base * (1.0 + patches * variation * 2.0);
-	// Close-cut turf: a touch deeper and bluer, and smoother.
-	col *= mix(vec3(1.0), vec3(0.9, 0.96, 0.95), cut);
+	// Close-cut turf is one even sward: a green has none of the fairway's
+	// wide light and dark patches (they read as blotches), a tee few.
+	vec3 col = base * (1.0 + patches * variation * 2.0 * (1.0 - 0.75 * cut));
+	// Close-cut turf: dense, fine blades, a touch cooler, and smoother.
+	col *= mix(vec3(1.0), vec3(0.97, 1.0, 0.98), cut);
 	ROUGHNESS = mix(0.95, 0.72, cut);
 	SPECULAR = 0.1;
 
@@ -242,15 +309,17 @@ void fragment() {
 			vec3 view = normalize(CAMERA_POSITION_WORLD - world_pos);
 			float turf = w_grass + w_rough;
 			float h = w_grass * (texture(grass_height, uv).r - grass_height_mean) + w_rough * (texture(rough_height, uv).r - rough_height_mean);
-			float near_relief = 1.0 - smoothstep(10.0, 35.0, dist);
+			// Greens and tees are cut to a few millimetres: little relief.
+			float near_relief = (1.0 - smoothstep(10.0, 35.0, dist)) * (1.0 - 0.75 * cut);
 			// One parallax step: blades and clumps stand up near the camera.
 			uv -= view.xz / max(view.y, 0.3) * (relief_metres / texture_metres) * h * near_relief;
 			h = w_grass * (texture(grass_height, uv).r - grass_height_mean) + w_rough * (texture(rough_height, uv).r - rough_height_mean);
-			shade_relief = mix(1.0, clamp(1.0 + h * 2.0 * cavity, 0.3, 1.4), turf * (1.0 - smoothstep(25.0, 110.0, dist)));
+			shade_relief = mix(1.0, clamp(1.0 + h * 2.0 * cavity, 0.3, 1.4), turf * (1.0 - smoothstep(25.0, 110.0, dist)) * (1.0 - 0.7 * cut));
 		}
 		// The green's blades are a few millimetres long: the lawn scan
-		// smaller and calmer there.
-		vec2 uv_g = uv * mix(1.0, 3.2, cut);
+		// much smaller and calmer there, so it reads as a fine, smooth
+		// surface (coarser on the collar and tee, which are cut longer).
+		vec2 uv_g = uv * mix(1.0, 5.0, cut);
 		vec3 g = two_scale(grass_albedo, uv_g).rgb;
 		vec3 r = two_scale(rough_albedo, uv).rgb;
 		vec3 s = two_scale(sand_albedo, uv).rgb;
@@ -261,7 +330,7 @@ void fragment() {
 		const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 		vec3 photo_toned = photo * dot(col, LUMA) / max(dot(photo_mean, LUMA), 0.02);
 		// Far away the texture only adds noise and shows its repeat.
-		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX))) * (1.0 - 0.35 * cut);
+		float strength = texture_strength * mix(0.35, 1.0, 1.0 - smoothstep(40.0, 250.0, length(VERTEX))) * (1.0 - 0.4 * cut);
 		col = mix(col * mix(vec3(1.0), detail, strength), photo_toned, photo_mix * strength);
 		col *= shade_relief;
 		vec3 n = w_grass * two_scale(grass_normal, uv_g).rgb + w_rough * two_scale(rough_normal, uv).rgb
@@ -285,7 +354,7 @@ void fragment() {
 	// (Outside the branch: its derivatives need every pixel of the quad.)
 	float hole_band = mow_band(stripes.x / stripe_metres, MOW_SOFT);
 	if (stripes.y > 0.0 && !on_splat) {
-		col *= 1.0 + (hole_band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_sheen(hole_mow_line, from_eye);
+		col *= 1.0 + (hole_band * 2.0 - 1.0) * stripe_strength * stripes.y * mow_seam * mow_sheen(hole_mow_line, sheen_eye);
 	}
 	col *= 1.0 - 0.35 * lip;
 	// Sand is darker and damp where it meets the turf (the bank sheds

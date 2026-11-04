@@ -41,14 +41,35 @@ vec2 mow_line_from(float u, vec2 p) {
 	return len > 1e-6 ? vec2(-g.y, g.x) / len : vec2(0.0, 1.0);
 }
 
+// How fast u changes per metre of ground (1 where u is metres across a
+// hole). Much more where a triangle's corners belong to two holes, whose
+// stripes run different ways: u then sweeps through dozens of stripes in
+// one triangle, which drew blocks of fine moire rings; fade the stripes
+// out there.
+float mow_rate(float u, vec2 p) {
+	vec2 dpx = dFdx(p);
+	vec2 dpy = dFdy(p);
+	float det = dpx.x * dpy.y - dpx.y * dpy.x;
+	if (abs(det) < 1e-10) {
+		return 1.0;
+	}
+	float dux = dFdx(u);
+	float duy = dFdy(u);
+	return length(vec2(dux * dpy.y - duy * dpx.y, dpx.x * duy - dux * dpy.x) / det);
+}
+
 // The light (1) or dark (0) side of a mowing stripe at `u`, measured in
 // stripes (the band swaps at every whole u). Real stripe edges are soft:
 // the blades lean over gradually from one pass to the next, so the swap
 // takes `soft` of a stripe each side (plus a pixel, against aliasing)
 // instead of a hard, drawn-looking line.
+// Once a pixel spans more than about a third of a stripe (narrow green
+// stripes far off or seen edge-on) the bands fade to their mean: drawn
+// anyway they alias into fields of moire rings.
 float mow_band(float u, float soft) {
-	float e = soft + max(fwidth(u), 0.001);
-	return smoothstep(-e, e, sin(u * 3.14159) / 3.14159);
+	float fw = max(fwidth(u), 0.001);
+	float e = soft + fw;
+	return mix(smoothstep(-e, e, sin(u * 3.14159) / 3.14159), 0.5, smoothstep(0.2, 0.5, fw));
 }
 
 // How much of a stripe each soft edge takes (about 0.4 m on a 7 m stripe).

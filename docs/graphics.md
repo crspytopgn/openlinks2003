@@ -246,6 +246,28 @@ at Medium and grass at Low.
   them a dark, unlit band (`_wood_floor`) so no sky shows under the
   crowns. Impostors darken towards their base, as the crown shades its
   trunk. The pond bed is dark silt rather than the map's blue.
+- **Greens, collars and tees** (`terrain.gdshader`, `Materials.terrain_cut`,
+  2026-11-04, checked against Geograph photos of real greens): a green
+  reads about a tenth lighter than the ground round it and is one even,
+  fine sward: none of the fairway's wide light and dark patches, the lawn
+  scan at a fifth of its size, little relief and faint 0.55 m stripes.
+  Round it runs the collar (`DesignedTerrain.COLLAR_WIDTH`, 1.2 m, raster
+  code 10, plays as fringe): a deeper, unstriped ring cut a little
+  longer. Wider fringe beyond it is the approach, striped like the
+  fairway. The green's edge is one smooth, crisp mown line: the signed
+  distance to each green's outline is baked at 1 m into the rows below
+  the surface codes in the splat texture (`_green_edges`), since the
+  0.5 m codes alone drew it as scallops. Tees are cut finer than before
+  too, with fewer patches. Mowing stripes near the camera (within about
+  10 m) take their light and dark from the view's heading rather than
+  each pixel's, so a stripe keeps one tone along its length on a wide
+  close-up instead of breaking into blotches. Stripes fade to their mean
+  once a pixel spans a third of one (`mow_band`), fade out in triangles
+  whose corners belong to two holes (`mow_rate`), greens, collars,
+  approaches and tees always take their own hole's stripe direction
+  (`DesignedTerrain._stripe_uv`), and the stripe width is the nearest
+  texel's, never a blend: each of these drew fields of moire or
+  fingerprint rings beside greens.
 - **Water's edge**: a disc course's water triangles carry how far each
   vertex is from the bank (`CrzTerrain._shore_levels`: 0 on a vertex dry
   ground also uses, 0.5 one triangle out, 1 beyond, in the vertex colour).
