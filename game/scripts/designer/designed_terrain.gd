@@ -22,6 +22,21 @@ const FIRST_CUT_WIDTH := 1.8
 ## Raster code of the first cut, after the Surface.Type codes.
 const FIRST_CUT_CODE := 9
 const FIRST_CUT_COLOR := Color(0.25, 0.43, 0.16)
+## The collar: the ring of fringe right round each green, one mower's
+## width, cut a little longer and denser than the green and mown round it
+## rather than in stripes, so it frames the green as a deeper band (as in
+## photos of real greens, where the green reads about a tenth lighter than
+## its collar). Wider fringe beyond it is the approach, mown like fairway.
+## It plays as fringe; only the look differs.
+const COLLAR_WIDTH := 1.2
+const COLLAR_CODE := 10
+const COLLAR_COLOR := Color(0.255, 0.465, 0.165)
+## The green's edge is drawn from the exact distance to its outline, baked
+## at GREEN_EDGE_RES metres into the rows below the surface codes in the
+## splat texture (GREEN_EDGE_RANGE metres each side, 0..255, 128 on the
+## line): the 0.5 m codes alone draw it as a row of scallops.
+const GREEN_EDGE_RES := 1.0
+const GREEN_EDGE_RANGE := 2.0
 const BUNKER_DEPTH := 0.7
 const BUNKER_LIP := 2.5  ## metres inside the outline the bunker reaches full depth
 const BUNKER_LIP_OUT := 1.5  ## metres outside it where the bank starts down
@@ -40,8 +55,8 @@ const LAYERS := [
 const COLORS := [
 	Color(0.29, 0.48, 0.19),  # tee (olive, as real turf reads in sun)
 	Color(0.29, 0.47, 0.18),  # fairway
-	Color(0.27, 0.47, 0.19),  # fringe
-	Color(0.30, 0.52, 0.21),  # green
+	Color(0.28, 0.47, 0.18),  # fringe (the approach; the collar is COLLAR_COLOR)
+	Color(0.32, 0.55, 0.23),  # green
 	Color(0.22, 0.38, 0.14),  # rough
 	Color(0.19, 0.31, 0.12),  # deep rough
 	Color(0.78, 0.72, 0.55),  # sand
@@ -57,8 +72,8 @@ const PHOTO_TINT := [0.15, 0.2, 0.2, 0.1, 0.55, 0.65, 0.5, 0.0, 0.75]
 ## Mowing stripes: how strong per surface, and how wide (the cut of the
 ## mower that mows it: fairway units about 3 m, triplex tee mowers 1.5 m,
 ## walk-behind greens mowers 0.55 m).
-const MOWN := {Surface.Type.FAIRWAY: 1.0, Surface.Type.TEE: 0.6, Surface.Type.GREEN: 0.4}
-const STRIPE_METRES := {Surface.Type.FAIRWAY: 3.0, Surface.Type.TEE: 1.5, Surface.Type.GREEN: 0.55}
+const MOWN := {Surface.Type.FAIRWAY: 1.0, Surface.Type.FRINGE: 0.7, Surface.Type.TEE: 0.6, Surface.Type.GREEN: 0.25}
+const STRIPE_METRES := {Surface.Type.FAIRWAY: 3.0, Surface.Type.FRINGE: 3.0, Surface.Type.TEE: 1.5, Surface.Type.GREEN: 0.55}
 const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
 ## Largest splat map side in texels (older phones and browsers top out at
 ## 4096); a bigger course gets a coarser one.
@@ -87,12 +102,17 @@ var _vw := PackedVector2Array()  ## rough and sand weights per grid vertex
 var _vp := PackedFloat32Array()  ## surface colour per grid vertex before tint and stripes (RGB)
 var _material: ShaderMaterial
 var _splat: ImageTexture
+var _edge_img: Image  ## green edge distance (R8), GREEN_EDGE_RES per texel
 var _water_levels := {}  ## CourseShape -> water line
 var _meshes := {}  ## Vector2i chunk -> ArrayMesh
 var _tint := PackedByteArray()  ## softened photo colour per grid vertex (RGB8); empty without a photo
 ## Mowing stripes run along each hole: per hole, the unit vector across it
 ## (tee to pin), and on a coarse grid which hole each spot belongs to.
 var _across: Array[Vector2] = []
+var _pins := PackedVector2Array()  ## each striped hole's pin, in _across order
+var _hole_tees: Array[PackedVector2Array] = []  ## and its tees
+## Fairway this close to a pin is that hole's approach, striped with it.
+const APPROACH_REACH := 45.0
 var _owner := PackedByteArray()
 var _owner_cols := 0
 
@@ -107,6 +127,7 @@ func rebuild() -> void:
 	_sw = int(ceil(course.area.size.x / RES))
 	_sh = int(ceil(course.area.size.y / RES))
 	_img = Image.create_empty(_sw, _sh, false, Image.FORMAT_R8)
+	_edge_img = Image.create_empty(maxi(1, ceili(course.area.size.x / GREEN_EDGE_RES)), maxi(1, ceili(course.area.size.y / GREEN_EDGE_RES)), false, Image.FORMAT_R8)
 	_h = course.heights.duplicate()
 	_g = _h.duplicate()
 	_vc = PackedColorArray()
@@ -194,7 +215,7 @@ func surface_at(x: float, z: float) -> int:
 	var c := mini(int((x - a.position.x) / RES), _sw - 1)
 	var r := mini(int((z - a.position.y) / RES), _sh - 1)
 	var s := _surf[r * _sw + c]
-	return Surface.Type.ROUGH if s == FIRST_CUT_CODE else s
+	return Surface.Type.ROUGH if s == FIRST_CUT_CODE else (Surface.Type.FRINGE if s == COLLAR_CODE else s)
 
 
 func first_cut_at(x: float, z: float) -> bool:
@@ -316,12 +337,17 @@ func material() -> ShaderMaterial:
 			mown.append(float(MOWN.get(i, 0.0)))
 			widths.append(float(STRIPE_METRES.get(i, 0.0)))
 			cut.append(Materials.terrain_cut(i))
-		# The splat's tenth entry: the first cut.
+		# The splat's tenth entry: the first cut; the eleventh the collar.
 		cols.append(Vector3(FIRST_CUT_COLOR.r, FIRST_CUT_COLOR.g, FIRST_CUT_COLOR.b))
 		wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
 		mown.append(0.0)
 		widths.append(0.0)
 		cut.append(0.0)
+		cols.append(Vector3(COLLAR_COLOR.r, COLLAR_COLOR.g, COLLAR_COLOR.b))
+		wts.append(Materials.terrain_weights(Surface.Type.FRINGE))
+		mown.append(0.0)
+		widths.append(0.0)
+		cut.append(Materials.COLLAR_CUT)
 		_material.set_shader_parameter("surface_stripe_metres", widths)
 		_material.set_shader_parameter("surface_colors", cols)
 		_material.set_shader_parameter("surface_cut", cut)
@@ -335,11 +361,29 @@ func material() -> ShaderMaterial:
 func _update_splat() -> void:
 	if _material == null or _img == null:
 		return
-	var img := _img
+	# The surface codes, and below them the green edge distances, coarser
+	# where the codes leave too few rows (the codes keep their detail).
+	var codes := _img
 	if _sw > SPLAT_MAX or _sh > SPLAT_MAX:
 		var k := float(SPLAT_MAX) / maxi(_sw, _sh)
-		img = _img.duplicate() as Image
-		img.resize(maxi(1, floori(_sw * k)), maxi(1, floori(_sh * k)), Image.INTERPOLATE_NEAREST)
+		codes = _img.duplicate() as Image
+		codes.resize(maxi(1, floori(_sw * k)), maxi(1, floori(_sh * k)), Image.INTERPOLATE_NEAREST)
+	var edges := _edge_img
+	var e := minf(float(SPLAT_MAX - codes.get_height()) / edges.get_height(), float(SPLAT_MAX) / edges.get_width())
+	var img := codes
+	if e * edges.get_height() < 64.0:
+		_material.set_shader_parameter("splat_codes", Vector2i.ZERO)
+	else:
+		if e < 1.0:
+			edges = _edge_img.duplicate() as Image
+			edges.resize(maxi(1, floori(edges.get_width() * e)), maxi(1, floori(edges.get_height() * e)), Image.INTERPOLATE_BILINEAR)
+		img = Image.create_empty(maxi(codes.get_width(), edges.get_width()), codes.get_height() + edges.get_height(), false, Image.FORMAT_R8)
+		img.blit_rect(codes, Rect2i(Vector2i.ZERO, codes.get_size()), Vector2i.ZERO)
+		img.blit_rect(edges, Rect2i(Vector2i.ZERO, edges.get_size()), Vector2i(0, codes.get_height()))
+		_material.set_shader_parameter("splat_codes", codes.get_size())
+		_material.set_shader_parameter("green_edge_size", edges.get_size())
+		_material.set_shader_parameter("green_edge_texel", GREEN_EDGE_RES * Vector2(_edge_img.get_size()) / Vector2(edges.get_size()))
+		_material.set_shader_parameter("green_edge_range", GREEN_EDGE_RANGE)
 	if _splat == null or _splat.get_size() != Vector2(img.get_size()):
 		_splat = ImageTexture.create_from_image(img)
 		_material.set_shader_parameter("splat_tex", _splat)
@@ -752,7 +796,9 @@ func _raster(px: Rect2i) -> void:
 						_fill(ring, Surface.Type.FRINGE, px)
 	_surf = _img.get_data()
 	_first_cut(px)
+	_collar(px)
 	_img.set_data(_sw, _sh, false, Image.FORMAT_R8, _surf)
+	_green_edges(world)
 
 
 ## Marks the rough within FIRST_CUT_WIDTH of each fairway (not of cart
@@ -770,6 +816,77 @@ func _first_cut(px: Rect2i) -> void:
 				for c in range(span.y, span.z + 1):
 					if _surf[row + c] == rough:
 						_surf[row + c] = FIRST_CUT_CODE
+
+
+## Marks the fringe within COLLAR_WIDTH of each green inside `px` as the
+## collar, in the raster bytes `_surf`.
+func _collar(px: Rect2i) -> void:
+	var o := course.area.position
+	var world := Rect2(o + Vector2(px.position) * RES, Vector2(px.size) * RES)
+	var fringe := Surface.Type.FRINGE
+	for s in course.shapes:
+		if s.surface != Surface.Type.GREEN or not s.is_valid() or not s.bounds().grow(COLLAR_WIDTH).intersects(world):
+			continue
+		for poly in Geometry2D.offset_polygon(s.outline(), COLLAR_WIDTH):
+			for span in _spans(poly, px):
+				var row: int = span.x * _sw
+				for c in range(span.y, span.z + 1):
+					if _surf[row + c] == fringe:
+						_surf[row + c] = COLLAR_CODE
+
+
+## Bakes the signed distance to each green's outline (positive inside) into
+## `_edge_img` over the world rect `world`.
+func _green_edges(world: Rect2) -> void:
+	if _edge_img == null:
+		return
+	var o := course.area.position
+	var size := _edge_img.get_size()
+	var lo := Vector2i(clampi(floori((world.position.x - o.x) / GREEN_EDGE_RES), 0, size.x), clampi(floori((world.position.y - o.y) / GREEN_EDGE_RES), 0, size.y))
+	var hi := Vector2i(clampi(ceili((world.end.x - o.x) / GREEN_EDGE_RES), 0, size.x), clampi(ceili((world.end.y - o.y) / GREEN_EDGE_RES), 0, size.y))
+	var region := Rect2i(lo, hi - lo)
+	if region.size.x <= 0 or region.size.y <= 0:
+		return
+	_edge_img.fill_rect(region, Color(0.0, 0.0, 0.0))
+	var scale := 127.5 / GREEN_EDGE_RANGE
+	for s in course.shapes:
+		if s.surface != Surface.Type.GREEN or not s.is_valid():
+			continue
+		var grown := s.bounds().grow(GREEN_EDGE_RANGE + GREEN_EDGE_RES)
+		if not grown.intersects(world):
+			continue
+		var box := Rect2i(Vector2i(floori((grown.position.x - o.x) / GREEN_EDGE_RES), floori((grown.position.y - o.y) / GREEN_EDGE_RES)),
+			Vector2i(ceili(grown.size.x / GREEN_EDGE_RES) + 1, ceili(grown.size.y / GREEN_EDGE_RES) + 1)).intersection(region)
+		if box.size.x <= 0 or box.size.y <= 0:
+			continue
+		# Unsigned distance to the outline, only near each segment.
+		var dist := PackedFloat32Array()
+		dist.resize(box.size.x * box.size.y)
+		dist.fill(GREEN_EDGE_RANGE)
+		var poly := s.outline()
+		for k in poly.size():
+			var a := poly[k]
+			var b := poly[(k + 1) % poly.size()]
+			var i0 := maxi(floori((minf(a.x, b.x) - GREEN_EDGE_RANGE - o.x) / GREEN_EDGE_RES), box.position.x)
+			var i1 := mini(ceili((maxf(a.x, b.x) + GREEN_EDGE_RANGE - o.x) / GREEN_EDGE_RES), box.end.x - 1)
+			var j0 := maxi(floori((minf(a.y, b.y) - GREEN_EDGE_RANGE - o.y) / GREEN_EDGE_RES), box.position.y)
+			var j1 := mini(ceili((maxf(a.y, b.y) + GREEN_EDGE_RANGE - o.y) / GREEN_EDGE_RES), box.end.y - 1)
+			for j in range(j0, j1 + 1):
+				for i in range(i0, i1 + 1):
+					var p := o + (Vector2(i, j) + Vector2(0.5, 0.5)) * GREEN_EDGE_RES
+					var d := p.distance_to(Geometry2D.get_closest_point_to_segment(p, a, b))
+					var at := (j - box.position.y) * box.size.x + (i - box.position.x)
+					if d < dist[at]:
+						dist[at] = d
+		for j in range(box.position.y, box.end.y):
+			for i in range(box.position.x, box.end.x):
+				var d := dist[(j - box.position.y) * box.size.x + (i - box.position.x)]
+				var p := o + (Vector2(i, j) + Vector2(0.5, 0.5)) * GREEN_EDGE_RES
+				var inside := Geometry2D.is_point_in_polygon(p, poly) if d < GREEN_EDGE_RANGE else s.contains(p)
+				var v := clampf(127.5 + (d if inside else -d) * scale, 0.0, 255.0)
+				# Greens can touch: keep the largest (the most inside).
+				if v / 255.0 > _edge_img.get_pixel(i, j).r:
+					_edge_img.set_pixel(i, j, Color(v / 255.0, 0.0, 0.0))
 
 
 static func _code(surface: int) -> Color:
@@ -881,6 +998,8 @@ func _vertex_surfaces(cells: Rect2i) -> void:
 		wts.append(Materials.terrain_weights(s))
 	palette.append(FIRST_CUT_COLOR)
 	wts.append(Materials.terrain_weights(Surface.Type.ROUGH))
+	palette.append(COLLAR_COLOR)
+	wts.append(Materials.terrain_weights(Surface.Type.FRINGE))
 	for j in range(cells.position.y, cells.end.y):
 		var r := mini(j * step, _sh - 1)
 		var row := r * _sw
@@ -931,7 +1050,7 @@ func _make_tint() -> void:
 ## keeping roughly the game's brightness. Deep shade, crowns and water in
 ## the photo are left out.
 func _photo_tinted(col: Color, surface: int, k: int) -> Color:
-	var amount: float = PHOTO_TINT[Surface.Type.ROUGH if surface == FIRST_CUT_CODE else surface]
+	var amount: float = PHOTO_TINT[Surface.Type.ROUGH if surface == FIRST_CUT_CODE else (Surface.Type.FRINGE if surface == COLLAR_CODE else surface)]
 	if amount <= 0.0:
 		return col
 	var t := Color8(_tint[k * 3], _tint[k * 3 + 1], _tint[k * 3 + 2])
@@ -1098,6 +1217,8 @@ const OWNER_CELL := 8.0
 
 func _make_owners() -> void:
 	_across.clear()
+	_pins.clear()
+	_hole_tees.clear()
 	_owner = PackedByteArray()
 	var lines: Array[PackedVector2Array] = []
 	for dh in course.holes:
@@ -1111,6 +1232,8 @@ func _make_owners() -> void:
 			continue
 		lines.append(line)
 		_across.append(dir.normalized().orthogonal())
+		_pins.append(dh.pin)
+		_hole_tees.append(PackedVector2Array(dh.tees))
 	if lines.is_empty():
 		return
 	var a := course.area
@@ -1148,4 +1271,28 @@ func _stripe_uv(p: Vector2) -> Vector2:
 	var rows := _owner.size() / _owner_cols
 	var oi := clampi(roundi((p.x - a.position.x) / OWNER_CELL), 0, _owner_cols - 1)
 	var oj := clampi(roundi((p.y - a.position.y) / OWNER_CELL), 0, rows - 1)
-	return Vector2(_across[_owner[oj * _owner_cols + oi]].dot(p), -1.0)
+	var who := _owner[oj * _owner_cols + oi]
+	# Greens, their collars and approaches, and tees are striped for their
+	# own hole even where another hole's line passes nearer (the next tee
+	# beside a green), so the stripe direction never changes across them;
+	# where it did, the 8 m owner squares showed as blocks of moire.
+	var s := surface_at(p.x, p.y)
+	if s == Surface.Type.GREEN or s == Surface.Type.FRINGE or s == Surface.Type.FAIRWAY:
+		var best := INF
+		var near := -1
+		for h in _pins.size():
+			var d := p.distance_squared_to(_pins[h])
+			if d < best:
+				best = d
+				near = h
+		if near >= 0 and (s != Surface.Type.FAIRWAY or best < APPROACH_REACH * APPROACH_REACH):
+			who = near
+	elif s == Surface.Type.TEE:
+		var best := INF
+		for h in _hole_tees.size():
+			for t in _hole_tees[h]:
+				var d := p.distance_squared_to(t)
+				if d < best:
+					best = d
+					who = h
+	return Vector2(_across[who].dot(p), -1.0)
