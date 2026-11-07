@@ -448,6 +448,37 @@ def overlap(glb, rig, club_dir):
     return True
 
 
+def rewrap(glb, rig, club_dir):
+    """Closes the fingers of both hands round the grip again in every ref_
+    address clip, each finger joint folding about its own hinge
+    (wrap_fingers' hinged). The fits above bent the middle and end bones
+    straight towards the shaft: with the right hand's knuckles nearly along
+    the shaft that laid its fingers down the grip, so from the side the
+    right hand hung open beside the club instead of holding it. Marks the
+    .glb (extras.finger_hinge); returns False if done."""
+    from mocap_swing import write_clip
+
+    cj = rig.index["club"]
+    club_node = glb.doc["nodes"][rig.joints[cj]]
+    if club_node.get("extras", {}).get("finger_hinge"):
+        return False
+    for ref in REFS:
+        if not glb.animation(ref):
+            continue
+        local, root = rig.sample(glb, ref)
+        R, P = rig.world(local, root)
+        origin, shaft = P[cj], R[cj] @ club_dir
+        R = wrap_fingers(rig, R, root, origin, shaft, sides="l", hinged=True)
+        R, P = rig.world(rig.locals(R), root)
+        left = finger_capsules(rig, R, P, "l")
+        R = wrap_fingers(rig, R, root, origin, shaft, sides="r", obstacles=left, obstacle_fingers=("pinky",),
+                         hinged=True)
+        write_clip(glb, rig, ref, np.zeros(1, np.float32), [rig.locals(R)], np.array([root], np.float32), filtered=False)
+        print(f"{ref}: fingers wrapped about their hinges")
+    club_node.setdefault("extras", {})["finger_hinge"] = 1
+    return True
+
+
 def between(a, b):
     a, b = pose.unit(a), pose.unit(b)
     axis = np.cross(a, b)
@@ -457,15 +488,37 @@ def between(a, b):
     return pose.rot(axis, np.degrees(np.arctan2(s, c)))
 
 
-def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_hinge=False, obstacle_fingers=FINGERS):
+def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_hinge=False, obstacle_fingers=FINGERS,
+                 hinged=False):
     """World rotations with every finger of `sides` bent round the grip,
     each stopping where it first touches the grip or one of `obstacles`
     (capsules: start, end, radius, checked for obstacle_fingers only), such
     as the other hand's fingers.
-    With knuckle_hinge the four fingers bend about the line across their
-    knuckles, as a hand closes, so they stay side by side; otherwise each
-    bone bends straight towards the shaft."""
+    With knuckle_hinge the four fingers' first bones bend about the line
+    across their knuckles, as a hand closes, so they stay side by side;
+    otherwise each bone bends straight towards the shaft. With hinged every
+    bone of the four fingers bends about that line as it is carried by the
+    bones before it (a finger's joints are hinges that fold it towards the
+    palm), so the fingers wrap round the grip rather than lying along it."""
     R = list(R)
+    if hinged:
+        _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
+        palm = {}  # each hand's finger hinge, rest frame
+        for s in sides:
+            # The palm's side of the hand: the fingers' knuckle-to-wrist
+            # plane's normal, towards the grip.
+            x = lambda n: rest[rig.index[f"{n}_{s}"]]  # noqa: E731
+            n = pose.unit(np.cross(x("index_01") - x("hand"), x("pinky_01") - x("hand")))
+            n = R[rig.index[f"hand_{s}"]] @ n
+            mid = rig.world(rig.locals(R), root)[1][rig.index[f"middle_01_{s}"]] - origin
+            towards = -(mid - shaft * np.dot(mid, shaft))
+            n = n if np.dot(n, towards) >= 0.0 else -n
+            # The hinge in the rest frame, signed so a positive turn folds
+            # the finger towards the palm; each bone carries it.
+            n0 = R[rig.index[f"hand_{s}"]].T @ n
+            h0 = pose.unit(x("index_01") - x("pinky_01"))
+            f0 = x("middle_02") - x("middle_01")
+            palm[s] = h0 if np.dot(np.cross(h0, f0), n0) >= 0.0 else -h0
     loc = rig.locals(R)
     for s in sides:
         for finger in FINGERS:
@@ -493,7 +546,11 @@ def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_
                 if np.linalg.norm(rho) < 1e-6:
                     continue
                 hinge = np.cross(pose.unit(vec), -pose.unit(rho))
-                if knuckle_hinge and finger != "thumb" and seg == 1:
+                if hinged and finger != "thumb":
+                    # The finger's own hinge, from the rest knuckle line,
+                    # the way that folds the finger towards the palm.
+                    hinge = R[j] @ palm[s]
+                elif knuckle_hinge and finger != "thumb" and seg == 1:
                     across = pose.unit(P[rig.index[f"index_01_{s}"]] - P[rig.index[f"pinky_01_{s}"]])
                     hinge = across if np.dot(across, hinge) >= 0.0 else -across
                 if np.linalg.norm(hinge) < 1e-6:

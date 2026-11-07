@@ -9,9 +9,10 @@ little finger, past the 35 deg a wrist can go (tools/golfer/anatomy.py),
 which is what made the hands look broken in close-ups.
 
 Photos and video of tour putters (down the line and face on) show
-instead: bent from the hips with a flat back, the trunk about 40 deg
-forward; the shoulders over the hands so the arms hang; both elbows
-softly and evenly bent (about 20-30 deg) and close to the sides; the
+instead: bent from the hips with a flat back, the trunk 45-50 deg
+forward and the seat out behind the heels (Tiger Woods, US Open 2008,
+Commons); the shoulders over the hands so the arms hang; both elbows
+softly and evenly bent (about 30-40 deg) and close to the sides; the
 forearms in line with the shaft; the shoulders nearly level, the right a
 touch lower because the right hand is below the left; the knees a little
 flexed; the eyes over the ball.
@@ -32,13 +33,13 @@ from scipy.optimize import minimize
 import anatomy
 import pose
 
-ELBOW = 28.0  # degrees, both arms
-KNEE = 18.0
+ELBOW = 38.0  # degrees, both arms
+KNEE = 22.0
 SPINE_FLEX = 8.0  # each of the three spine joints, as a starting point
 PELVIS_TILT = 10.0  # added to the address's hip tilt, a starting point
 HANG = 0.0  # shoulders this far behind the hands (m, + = nearer the feet)
-LEAN = 38.0  # the trunk (hips to the neck) from upright, degrees
-HIPS_BEHIND = 0.0  # hip joints over the ankles (m): weight over the arches
+LEAN = 48.0  # the trunk (hips to the neck) from upright, degrees
+HIPS_BEHIND = 0.08  # hip joints behind the ankles (m), the seat out over the heels
 EYES_INSIDE = 0.03  # the eyes this far inside the ball (towards the feet)
 SOLE = 0.0066  # the putter's sole above the ground at address, metres
 EYE = np.array([0.0, 0.09, -0.1])  # eyes from the head joint, rest frame
@@ -96,7 +97,13 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
             pole = pose.unit(P[i["pelvis"]] - sh) + np.array([0.0, 0.0, 0.6])
             reach_pole(rig, R, list(P), f"upperarm_{s}", f"lowerarm_{s}", f"hand_{s}", hands[s][1], pole)
         for s in "lr":
-            R[i[f"hand_{s}"]] = hands[s][0]
+            # The hands back to their grip, carrying the fingers and the
+            # putter (their world turns were worked out under the moved
+            # hands; set alone, the putter would tip in the left hand).
+            h = i[f"hand_{s}"]
+            turn = hands[s][0] @ R[h].T
+            for k in anatomy.descendants(rig, h):
+                R[k] = turn @ R[k]
         R, P = rig.world(rig.locals(R), root)
         return R, P, root
 
@@ -108,7 +115,7 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
         lean = math.degrees(math.acos(np.clip(trunk[1], -1, 1)))
         ankles = (P0[i["foot_l"]] + P0[i["foot_r"]]) / 2
         terms = {
-            "lean": (lean - LEAN) ** 2 * 0.2,
+            "lean": (lean - LEAN) ** 2,
             "balance": ((P[i["pelvis"]][2] - ankles[2] - HIPS_BEHIND) * 100) ** 2,
             "hang": ((sh_mid[2] - hands_mid[2] - HANG) * 100) ** 2,
             "centre": ((sh_mid[0] - hands_mid[0]) * 100) ** 2,
@@ -132,7 +139,7 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
         return sum(terms.values())
 
     x0 = np.array([PELVIS_TILT, SPINE_FLEX, 0.0, 0.0, 0.0, 0.0])
-    bounds = [(-10.0, 40.0), (2.0, 14.0), (-6.0, 6.0), (-0.1, 0.1), (-0.15, 0.08), (-0.2, 0.2)]
+    bounds = [(-10.0, 45.0), (2.0, 14.0), (-6.0, 6.0), (-0.1, 0.1), (-0.15, 0.08), (-0.2, 0.2)]
     res = minimize(cost, x0, method="Powell", bounds=bounds, options=dict(maxiter=6000, xtol=1e-3, ftol=1e-5))
     R, P, root = build(res.x)
     # Elbow swivel and forearm roll inside the joints' ranges.

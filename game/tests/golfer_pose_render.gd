@@ -2,7 +2,7 @@ extends SceneTree
 ## Renders the golfer's body in chosen poses, full size, for checking the
 ## joints against photos of real golfers (tools/golfer/anatomy.py measures
 ## the same poses by numbers). Pass the output folder after "--", then a
-## person (PlayerLook.PEOPLE, "" for the default) and jobs written
+## person (PlayerLook.PEOPLE, "" for the default, "-" for the Custom body) and jobs written
 ## name=clip@seconds/view, where view is one of VIEWS.
 ##
 ##   xvfb-run godot --rendering-driver vulkan --path game \
@@ -23,6 +23,8 @@ const VIEWS := {
 	"hands_side": [Vector3(-1.1, 0.15, -0.2), "hands", 30.0],
 	"hands_top": [Vector3(0.15, 1.0, -0.35), "hands", 32.0],
 	"hands_trail": [Vector3(1.0, 0.2, -0.5), "hands", 30.0],
+	"grip_trail": [Vector3(0.45, -0.05, -0.3), "hands", 30.0],
+	"grip_front": [Vector3(0.05, 0.0, -0.55), "hands", 30.0],
 }
 
 var _out := ""
@@ -72,7 +74,9 @@ func _initialize() -> void:
 	ground.material_override = gm
 	scene.add_child(ground)
 	var look := PlayerLook.default_look()
-	if args.size() > 1 and args[1] != "":
+	if args.size() > 1 and args[1] == "-":
+		look.person = ""  # the sculpted "Custom" body
+	elif args.size() > 1 and args[1] != "":
 		look.person = args[1]
 	_golfer = FreeGolfer.create(look)
 	_golfer.walk_in = false
@@ -118,6 +122,9 @@ func _run(job: Array) -> void:
 	_golfer._show_putter(String(clip).contains("putt") or clip == &"read")
 	_player.play(clip)
 	_player.seek(0.0, true)
+	if _golfer._hands:
+		# The right hand's grip IK, as FreeGolfer.play turns it on.
+		_golfer._hands.follow(clip, 0.0)
 	var t := 0.0
 	while t < float(job[2]) - 0.001:
 		_player.advance(DT)
