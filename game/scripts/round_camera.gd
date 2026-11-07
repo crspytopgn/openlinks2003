@@ -189,13 +189,18 @@ func update(delta: float, t: float, ball: Vector3) -> void:
 	if flying():
 		_update_flyover(delta)
 		return
+	# Until the club meets the ball (t still 0) the view holds the address
+	# framing: looking down at the ball the moment the downswing began
+	# tilted the picture away and back again within half a second.
+	var struck := t > 0.0
 	if _shot != null and director != null:
 		var pose := director.step(t, ball, position, delta)
 		position = pose[0]
-		_look = pose[1]
-		if pose[2]:
-			_look_now = _look
-	elif _shot != null:
+		if struck:
+			_look = pose[1]
+			if pose[2]:
+				_look_now = _look
+	elif _shot != null and struck:
 		if not _cut_to_landing and _landing_time > 0.0 and t >= _landing_time - LANDING_CUT_LEFT:
 			_cut_to_landing = true
 			_place_for_landing()

@@ -125,7 +125,10 @@ static func plan(shot: ShotResult, pin: Vector3, terrain: CourseTerrain, behind:
 ## cameras' easing.
 func step(t: float, ball: Vector3, from: Vector3, delta: float) -> Array:
 	var i := cut_index(t)
-	var cut := i != _cut
+	# The first camera carries on from the aim camera rather than cutting:
+	# the putting camera eases in from where the player stood, and nothing
+	# jumps as the swing starts.
+	var cut := i != _cut and _cut >= 0
 	_cut = i
 	var cam: int = cut_cams[i]
 	var pos := from

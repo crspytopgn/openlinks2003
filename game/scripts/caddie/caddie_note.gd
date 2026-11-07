@@ -4,6 +4,7 @@ extends PanelContainer
 ## line. Hidden while there is nothing to say.
 
 const WIDTH := 640.0
+const BOTTOM := -44.0  ## its lowest bottom edge (Hud lifts it over wrapped hints)
 
 var _body: Label
 
@@ -35,8 +36,8 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_KEEP_SIZE)
 	offset_left = -WIDTH * 0.5
 	offset_right = WIDTH * 0.5
-	offset_bottom = -44.0
-	offset_top = -44.0
+	offset_bottom = BOTTOM
+	offset_top = BOTTOM
 	grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 
