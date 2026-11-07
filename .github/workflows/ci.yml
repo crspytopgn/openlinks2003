@@ -77,7 +77,7 @@ jobs:
       - name: Fetch free assets
         run: |
           # Pillow builds the trees' leaf spray atlas from the leaf set.
-          sudo apt-get install -y -q python3-pil
+          sudo apt-get update -q && sudo apt-get install -y -q python3-pil
           python3 tools/fetch_free_assets.py
 
       - name: Import project
