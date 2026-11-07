@@ -117,7 +117,9 @@ class Club:
 
 
 DRIVER = Club("Driver", 1.04, 51.0, 0.06)
-PUTTER = Club("Putter", 0.80, 70.0, 0.05)
+# A 34.5 inch putter, the common tour length (it was 36 inches, which
+# held the hands so high the golfer had to stand upright to reach them).
+PUTTER = Club("Putter", 0.765, 70.0, 0.05)
 
 
 class Poser:
