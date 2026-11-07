@@ -87,6 +87,16 @@ static func lie_text(terrain: CourseTerrain, at: Vector3, forward: Vector2) -> S
 	return "%.1f%%, falls %s" % [pct, " and ".join(parts)]
 
 
+## The putt's read in words: "6\" uphill, breaks right to left (gentle)".
+## `with_break` adds the break, for the skill levels with reading aids.
+static func putt_text(read: Dictionary, with_break: bool) -> String:
+	var rise: float = read.rise_m
+	var text := "level" if absf(rise) < 0.0127 else "%s %s" % [length_text(rise), "uphill" if rise > 0.0 else "downhill"]
+	if with_break:
+		text += ", " + break_text(read.side_percent).to_lower()
+	return text.substr(0, 1).to_upper() + text.substr(1)
+
+
 ## A length in feet and inches: 2' 4", 8".
 static func length_text(m: float) -> String:
 	var inches := roundi(absf(m) * 39.3701)
@@ -187,6 +197,48 @@ static func view_pose(view: int, terrain: CourseTerrain, ball: Vector3, pin: Vec
 			pos = _on_ground(terrain, ball - fwd3 * 2.6, 1.2)
 			look = ball + fwd3 * 6.0
 	return [pos, look]
+
+
+# --- The Green Analyzer's free camera -----------------------------------------
+# From any read view a player with the analyzer can drag the camera round
+# the point it looks at, and zoom in and out, as the original's Green
+# Analyzer lets them circle the green and raise or lower the camera.
+
+const ORBIT_MIN_PITCH := 2.0  ## degrees above the level
+const ORBIT_MAX_PITCH := 88.0
+const ORBIT_MIN_DIST := 1.0
+const ORBIT_MAX_DIST := 80.0
+## Eye height kept above the turf (m).
+const ORBIT_CLEARANCE := 0.12
+
+
+## The orbit (yaw and pitch in degrees, distance in metres) that puts the
+## camera at `pos` looking at `pivot`. Yaw is the heading from the pivot to
+## the camera, as atan2(x, z).
+static func orbit_from(pos: Vector3, pivot: Vector3) -> Vector3:
+	var off := pos - pivot
+	var dist := maxf(off.length(), ORBIT_MIN_DIST)
+	var yaw := rad_to_deg(atan2(off.x, off.z))
+	var pitch := rad_to_deg(asin(clampf(off.y / dist, -1.0, 1.0)))
+	return Vector3(yaw, clampf(pitch, ORBIT_MIN_PITCH, ORBIT_MAX_PITCH), clampf(dist, ORBIT_MIN_DIST, ORBIT_MAX_DIST))
+
+
+## Turns the orbit by `drag` (yaw, pitch degrees) and zooms it by `zoom`
+## (below 1 closer), within its limits.
+static func orbit_moved(orbit: Vector3, drag: Vector2, zoom := 1.0) -> Vector3:
+	return Vector3(wrapf(orbit.x + drag.x, -180.0, 180.0),
+		clampf(orbit.y + drag.y, ORBIT_MIN_PITCH, ORBIT_MAX_PITCH),
+		clampf(orbit.z * zoom, ORBIT_MIN_DIST, ORBIT_MAX_DIST))
+
+
+## [position, look] for `orbit` round `pivot`, kept above the turf.
+static func orbit_pose(terrain: CourseTerrain, pivot: Vector3, orbit: Vector3) -> Array:
+	var yaw := deg_to_rad(orbit.x)
+	var pitch := deg_to_rad(orbit.y)
+	var pos := pivot + Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * orbit.z
+	if terrain != null:
+		pos.y = maxf(pos.y, terrain.height_at(pos.x, pos.z) + ORBIT_CLEARANCE)
+	return [pos, pivot]
 
 
 static func _on_ground(terrain: CourseTerrain, p: Vector3, eye: float) -> Vector3:

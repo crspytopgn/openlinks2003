@@ -869,16 +869,29 @@ Links 2003's own green-reading aids and practice options are written up in
 - Settings > Putting grid: Links 2003's yellow grid, its grid coloured by
   height, or the TV grid coloured by slope (`GreenGrid.Style`). Not at
   Elite skill, as in the game, except as the Broadcast presentation's TV
-  graphic. G shows or hides it, Ctrl+G changes the look.
+  graphic. G shows or hides it, Ctrl+G changes the look. The TV grid has
+  dots running downhill through every square, faster where it is steeper,
+  as PGA Tour 2K25's grid shows the fall (a streamline per square traced
+  down the physics' own slopes; the shader moves the dot, so it costs
+  nothing per frame).
 - Settings > Breakline indicator (`BreaklineIndicator`): a yellow line at
   the aiming marker leaning the way the green falls, taller where steeper.
 - Settings > Putting assistant: at Amateur skill the line (`PuttRead`) and a
   red dot on the meter for the power; at Professional a band round the line.
 - V (or the Read the green button): crouch behind the ball, look from behind
-  the hole, from the low side, and from above (the Green Analyzer's stand-in,
-  not at Elite). Aiming still works in these views.
+  the hole, from the low side, and from above (the Green Analyzer, not at
+  Elite). Aiming still works in these views. Below Elite each read view is
+  also the Green Analyzer's free camera: drag (mouse or finger) to circle
+  the point it looks at and raise or lower the eye, the wheel or a pinch
+  to zoom (`GreenRead.orbit_*`). In these views a left click no longer
+  starts a mouse swing; V back to the view behind the ball to putt.
 - The putting panel on the right (`scripts/ui/putting_panel.gd`) shows the
-  greens' firmness, speed and stimp and the slope at the ball.
+  greens' firmness, speed and stimp, the slope at the ball and the putt's
+  rise ("2\" uphill"), plus its break ("breaks right to left (moderate)")
+  at the skill levels with the grid.
+- The hole (`shaders/cup.gdshader`) traces each pixel's view ray into a real
+  108 mm cylinder: the cut turf, the top inch of soil sprayed white as at
+  tour events, the liner an inch down darkening with depth, and the floor.
 
 Round setup > Play > Putting practice plays a practice green
 (`scripts/putting/putting_practice.gd`, `practice_cups.gd`) on each chosen

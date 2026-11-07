@@ -299,6 +299,17 @@ var assistant: PuttRead  ## Links 2003's Putting Assistant
 var _assist := {}
 var _assist_from := Vector3.INF
 var read_view := 0  ## GreenRead.View
+## The Green Analyzer's free camera (GreenRead.orbit_*): which read view
+## it was moved in (-1 none), its yaw, pitch and distance, the point it
+## circles, and the drag in progress (mouse or finger, -2 none).
+var _orbit_view := -1
+var _orbit := Vector3.ZERO
+var _orbit_pivot := Vector3.ZERO
+var _orbit_drag := -2
+var _orbit_fingers := {}
+var _orbit_pinch := 0.0
+## Degrees of turn per pixel dragged.
+const ORBIT_DEG_PER_PX := 0.25
 var practice: PuttingPractice  ## the putting green (RoundSetup.putting); null otherwise
 var practice_cups: PracticeCups
 var putting_panel: PuttingPanel
@@ -1138,6 +1149,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _stick_swing_input(event) or _pad_button(event):
 		get_viewport().set_input_as_handled()
 		return
+	if _orbit_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _click_aim_input(event):
 		get_viewport().set_input_as_handled()
 		return
@@ -1382,7 +1396,7 @@ func _input(event: InputEvent) -> void:
 			_touch_index = -1
 			_touch_started_meter = false
 		return
-	if _touch_swing_input(event):
+	if _orbit_input(event) or _touch_swing_input(event):
 		get_viewport().set_input_as_handled()
 
 
@@ -3779,6 +3793,8 @@ func _aim_camera(_snap: bool) -> void:
 		golfer.visible = read_view == GreenRead.View.PLAY
 	if read_view != GreenRead.View.PLAY and hole != null:
 		var pose := GreenRead.view_pose(read_view, hole.terrain, ball_at, hole.pin)
+		if _orbit_view == read_view:
+			pose = GreenRead.orbit_pose(hole.terrain, _orbit_pivot, _orbit)
 		camera.look_from(pose[0], pose[1])
 		return
 	camera.aim(ball_at, _aim_dir(), clubs[club_index].is_putter, _flat_distance(ball_at, _aim_target()))
@@ -4160,6 +4176,7 @@ func _update_green_aids() -> void:
 
 func _hide_green_aids() -> void:
 	read_view = GreenRead.View.PLAY
+	_orbit_view = -1
 	if golfer:
 		golfer.visible = true
 	breakline.clear()
@@ -4228,6 +4245,8 @@ func _update_putting_panel() -> void:
 		lines.append("Greens: %s\nSlope at the ball: %s" % [
 			GreenRead.speed_text(graphics.green_firmness, graphics.green_speed, _links_greens()),
 			GreenRead.lie_text(hole.terrain, ball_at, to_hole)])
+		var read := GreenRead.line(hole.terrain, ball_at, hole.pin)
+		lines.append("Putt: " + GreenRead.putt_text(read, _grid_allowed()))
 		if read_view != GreenRead.View.PLAY:
 			lines.append("View: %s" % GreenRead.VIEW_NAMES[read_view])
 	putting_panel.show_panel("\n".join(lines), practice != null and state == State.AIM, can_read)
@@ -4240,8 +4259,99 @@ func _next_read_view() -> void:
 	var views := GreenRead.views_for(graphics.skill)
 	var i := views.find(read_view)
 	read_view = views[(i + 1) % views.size()]
+	_orbit_view = -1
+	_orbit_drag = -2
+	_orbit_fingers.clear()
 	_aim_camera(false)
 	_update_putting_panel()
+	if _can_orbit():
+		hud.show_message("Drag to look round the green, wheel or pinch to zoom", 2.5)
+
+
+## The Green Analyzer's free camera: in a read view, at the skill levels
+## that have the analyzer, while the player is setting up the putt.
+func _can_orbit() -> bool:
+	return read_view != GreenRead.View.PLAY and state == State.AIM and hole != null \
+		and GreenRead.analyzer_allowed(graphics.skill) and _human_turn() and not camera.flying()
+
+
+## Starts the free camera from wherever the read view stands.
+func _orbit_begin() -> void:
+	if _orbit_view == read_view:
+		return
+	var pose := GreenRead.view_pose(read_view, hole.terrain, ball_at, hole.pin)
+	_orbit_pivot = pose[1]
+	_orbit = GreenRead.orbit_from(pose[0], pose[1])
+	_orbit_view = read_view
+
+
+func _orbit_by(drag: Vector2, zoom := 1.0) -> void:
+	_orbit_begin()
+	_orbit = GreenRead.orbit_moved(_orbit, drag, zoom)
+	_aim_camera(false)
+
+
+## Mouse drags and the wheel, and finger drags and pinches, move the Green
+## Analyzer's camera; true if `event` was one. Taps on buttons still go to
+## the buttons, and the swing button still swings.
+func _orbit_input(event: InputEvent) -> bool:
+	if not _can_orbit():
+		_orbit_drag = -2
+		_orbit_fingers.clear()
+		return false
+	if event is InputEventMouse and _made_from_touch(event as InputEventMouse):
+		return false
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		match mb.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				if mb.pressed:
+					_orbit_by(Vector2.ZERO, 0.88)
+				return true
+			MOUSE_BUTTON_WHEEL_DOWN:
+				if mb.pressed:
+					_orbit_by(Vector2.ZERO, 1.0 / 0.88)
+				return true
+			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_MIDDLE:
+				_orbit_drag = -1 if mb.pressed else -2
+				return true
+		return false
+	if event is InputEventMouseMotion and _orbit_drag == -1:
+		var rel := (event as InputEventMouseMotion).screen_relative
+		_orbit_by(Vector2(-rel.x, rel.y) * ORBIT_DEG_PER_PX)
+		return true
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			if _over_button(t.position) or hud.swing_button.covers(t.position):
+				return false
+			_orbit_fingers[t.index] = t.position
+		elif _orbit_fingers.has(t.index):
+			_orbit_fingers.erase(t.index)
+		else:
+			return false
+		_orbit_pinch = _finger_spread()
+		return true
+	if event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if not _orbit_fingers.has(d.index):
+			return false
+		_orbit_fingers[d.index] = d.position
+		if _orbit_fingers.size() >= 2:
+			var spread := _finger_spread()
+			if _orbit_pinch > 1.0 and spread > 1.0:
+				_orbit_by(Vector2.ZERO, _orbit_pinch / spread)
+			_orbit_pinch = spread
+		else:
+			_orbit_by(Vector2(-d.screen_relative.x, d.screen_relative.y) * ORBIT_DEG_PER_PX)
+		return true
+	return false
+
+
+## How far apart the first two fingers on the Green Analyzer are (pixels).
+func _finger_spread() -> float:
+	var at: Array = _orbit_fingers.values()
+	return (at[0] as Vector2).distance_to(at[1]) if at.size() >= 2 else 0.0
 
 
 ## The putting keys; true if `code` was one.

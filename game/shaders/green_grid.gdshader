@@ -23,11 +23,21 @@ uniform float min_pixels = 1.25;
 // How much nearer the camera to draw the line, as a share of its distance.
 uniform float pull = 0.004;
 
+// The flowing dots (UV2.y > 0): UV2.x is how far along its streamline the
+// vertex is (0 to 1) plus twice a whole number that sets the dot's phase,
+// in sixteenths; UV2.y is how many times a second a dot runs its length.
+varying float flow_s;
+varying float flow_rate;
+varying float flow_phase;
 varying float across;
 varying float half_px;
 varying float coverage;
 
 void vertex() {
+	float k = floor(UV2.x * 0.5);
+	flow_s = UV2.x - k * 2.0;
+	flow_phase = k / 16.0;
+	flow_rate = UV2.y;
 	vec4 view = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
 	vec4 ahead = MODELVIEW_MATRIX * vec4(VERTEX + NORMAL * 0.05, 1.0);
 	vec4 clip = PROJECTION_MATRIX * view;
@@ -54,5 +64,19 @@ void vertex() {
 void fragment() {
 	float edge = clamp(half_px + 0.5 - abs(across), 0.0, 1.0);
 	ALBEDO = COLOR.rgb;
-	ALPHA = COLOR.a * edge * coverage;
+	float a = COLOR.a;
+	if (flow_rate > 0.0) {
+		// A dot running downhill along its streamline, faster where the
+		// green is steeper, with a faint trail that thickens downhill so a
+		// still frame shows the way too. The streamline fades in and out
+		// at its ends so dots don't pop.
+		float head = fract(TIME * flow_rate + flow_phase);
+		float behind = head - flow_s;
+		behind += behind < -0.5 ? 1.0 : 0.0;
+		float dot_a = smoothstep(0.0, 0.02, behind + 0.02) * (1.0 - smoothstep(0.03, 0.08, behind));
+		float trail = 0.3 * flow_s;
+		float ends = smoothstep(0.0, 0.12, flow_s) * smoothstep(1.0, 0.85, flow_s);
+		a *= max(dot_a, trail) * ends;
+	}
+	ALPHA = a * edge * coverage;
 }

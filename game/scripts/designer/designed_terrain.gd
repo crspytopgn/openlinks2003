@@ -72,7 +72,7 @@ const PHOTO_TINT := [0.15, 0.2, 0.2, 0.1, 0.55, 0.65, 0.5, 0.0, 0.75]
 ## Mowing stripes: how strong per surface, and how wide (the cut of the
 ## mower that mows it: fairway units about 3 m, triplex tee mowers 1.5 m,
 ## walk-behind greens mowers 0.55 m).
-const MOWN := {Surface.Type.FAIRWAY: 1.0, Surface.Type.FRINGE: 0.7, Surface.Type.TEE: 0.6, Surface.Type.GREEN: 0.25}
+const MOWN := {Surface.Type.FAIRWAY: 1.0, Surface.Type.FRINGE: 0.7, Surface.Type.TEE: 0.6, Surface.Type.GREEN: 0.35}
 const STRIPE_METRES := {Surface.Type.FAIRWAY: 3.0, Surface.Type.FRINGE: 3.0, Surface.Type.TEE: 1.5, Surface.Type.GREEN: 0.55}
 const PHOTO_BLUR := 6.0  ## metres; crowns, cars and flags blur out
 ## Largest splat map side in texels (older phones and browsers top out at
