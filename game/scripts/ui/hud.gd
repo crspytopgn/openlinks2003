@@ -220,6 +220,28 @@ func _process(delta: float) -> void:
 	# Keep the card centred as its contents change size.
 	if scorecard.visible:
 		scorecard.position = (size - scorecard.size) * 0.5
+	_clear_hints()
+
+
+## The key hints wrap onto a second line on a narrower screen (anything
+## under ~1400 px wide, an iPad), growing upwards: the caddie's note and
+## Broadcast's lower third sit above wherever their top edge is, rather than
+## where one line would put it, so the hints don't run through them (and
+## the lower third above the caddie's note too).
+func _clear_hints() -> void:
+	var top := size.y
+	if hint.visible and not hint.text.is_empty():
+		top = hint.position.y
+	elif hint_tab.visible:
+		top = hint_tab.position.y
+	var above := top
+	for c in get_children():
+		if c is CaddieNote:
+			var note := c as Control
+			note.offset_bottom = minf(CaddieNote.BOTTOM, top - size.y - 6.0)
+			if note.visible:
+				above = minf(above, note.position.y)
+	overlay.hints_top = above
 
 
 ## Shows a message; seconds <= 0 keeps it until the next one.

@@ -20,6 +20,7 @@ const AHEAD_M := 0.6  ## towards the target from the ball
 const MOUTH := Vector3(0.0, 0.82, -0.30)
 ## Furthest it looks for dry, flat ground off a green, a bunker or water.
 const SEARCH_M := 30.0
+const CLEAR_M := 1.0  ## ground clear of sand, greens and water round the bag
 
 static var _meshes := {}
 
@@ -165,8 +166,21 @@ func mouth() -> Vector3:
 	return global_transform * MOUTH
 
 
+## Somewhere a player sets a bag down: not in a hazard, on a green or out
+## of bounds, and with room round it (CLEAR_M) for its legs and for the
+## golfer drawing a club. Testing the middle alone stood the bag in a
+## bunker whose edge was a stride away.
 static func _good_ground(terrain: CourseTerrain, p: Vector3) -> bool:
-	var s := terrain.surface_at(p.x, p.z)
+	if not _bag_surface(terrain.surface_at(p.x, p.z)):
+		return false
+	for k in 8:
+		var a := k * TAU / 8.0
+		if not _bag_surface(terrain.surface_at(p.x + cos(a) * CLEAR_M, p.z + sin(a) * CLEAR_M)):
+			return false
+	return true
+
+
+static func _bag_surface(s: int) -> bool:
 	return s != Surface.Type.WATER and s != Surface.Type.OUT_OF_BOUNDS and s != Surface.Type.SAND \
 		and s != Surface.Type.GREEN and s != Surface.Type.FRINGE
 

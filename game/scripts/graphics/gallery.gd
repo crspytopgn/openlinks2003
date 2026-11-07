@@ -724,9 +724,12 @@ func react(crowd: int) -> void:
 		get_tree().create_timer(randf_range(0.1, 0.9)).timeout.connect(_react_one.bind(player, clip))
 
 
-static func _react_one(player: AnimationPlayer, clip: StringName) -> void:
-	if not is_instance_valid(player):
+## `who` is a Variant: the hole can end, freeing the spectator, before the
+## timer fires, and a freed object can't be passed as an AnimationPlayer.
+static func _react_one(who: Variant, clip: StringName) -> void:
+	if not is_instance_valid(who):
 		return
+	var player := who as AnimationPlayer
 	if player.has_meta(&"arms"):
 		(player.get_meta(&"arms") as CrowdArms).set_on(false)  # the clip has its own
 	player.speed_scale = 1.0

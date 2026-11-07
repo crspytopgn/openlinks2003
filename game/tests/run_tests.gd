@@ -1638,6 +1638,20 @@ func _test_real_scale() -> void:
 		_check(sbox.size.y > 1.0 and sbox.size.y < 1.15, "stand bag with the driver's cover about 1.09 m up (%.2f)" % sbox.size.y)
 		_check(sbox.size.z > 0.75 and sbox.size.z < 0.9, "stand bag's legs splay out behind it (%.2f)" % sbox.size.z)
 	_check(StandBag.use_lite(GraphicsSettings.Quality.LOW), "light stand bag at Low quality")
+	# A bunker's edge just past the usual spot: the bag goes down clear of
+	# the sand, not on its lip with a leg in it.
+	var by_sand := StandBag.new(true)
+	by_sand.place(_SandBesideTerrain.new(), Vector3.ZERO, Vector3(0, 0, 1))
+	_check(by_sand.visible, "a bag is set down beside a bunker")
+	var sand_gap := INF
+	for k in 16:
+		var a := k * TAU / 16.0
+		for r: float in [0.0, 0.5, 0.9]:
+			var q := by_sand.position + Vector3(cos(a), 0.0, sin(a)) * r
+			if _SandBesideTerrain.new().surface_at(q.x, q.z) == Surface.Type.SAND:
+				sand_gap = minf(sand_gap, r)
+	_check(sand_gap == INF, "the bag stands a metre clear of the sand (%s)" % by_sand.position)
+	by_sand.free()
 	_test_props_real_size()
 	_check_near(BallPhysics.RADIUS * 2.0, 0.04267, 0.0001, "ball 42.67 mm across")
 	_check_near(BallPhysics.CUP_RADIUS * 2.0, 0.108, 0.001, "hole 108 mm across")
@@ -1703,6 +1717,12 @@ func _test_props_real_size() -> void:
 class _FairwayTerrain extends CourseTerrain:
 	func surface_at(x: float, _z: float) -> int:
 		return Surface.Type.FAIRWAY if absf(x) < 15.0 else Surface.Type.ROUGH
+
+
+## Fairway, with a bunker from 2.9 m to the left (+x) of the line.
+class _SandBesideTerrain extends FlatTerrain:
+	func surface_at(x: float, _z: float) -> int:
+		return Surface.Type.SAND if x > 2.9 else Surface.Type.FAIRWAY
 
 
 ## Flat fairway with a pond right of the tee and a 10 m bunker 100 m out.
@@ -3394,6 +3414,17 @@ func _test_free_golfer() -> void:
 	_check(at_bag.origin.distance_to(Vector3.ZERO) < FreeGolfer.PULL_MAX and at_bag.origin.z > 0.5,
 			"the bag spot is a few steps behind his address (%.2f m)" % at_bag.origin.length())
 	_check(not golfer.busy(), "a golfer not walking in is not busy")
+	# Asked to address the same ball again (every frame while the aim turns,
+	# on a club change), the address clip runs on rather than restarting at
+	# a random frame, even as the rig circles the ball to aim.
+	golfer.play(&"address")
+	golfer._player.seek(0.5, true)
+	golfer.rotate_y(0.3)
+	golfer.position += golfer.basis.rotated(Vector3.UP, -0.3) * FreeGolfer.BALL - golfer.basis * FreeGolfer.BALL
+	golfer.play(&"address")
+	_check(golfer._player.current_animation == &"address" and is_equal_approx(golfer._player.current_animation_position, 0.5),
+			"aiming again doesn't restart the address clip")
+	golfer.transform = Transform3D.IDENTITY
 	# Tempo: each look its own, the same every time, within the tour range;
 	# the ball waits for the club (the swing starts at the top).
 	var quick := PlayerLook.new()
@@ -5129,6 +5160,7 @@ func _test_broadcast_pieces() -> void:
 	_check(dogleg.aim_point(Vector3(0, 0, 200), 250.0).distance_to(dogleg.pin) < 0.1, "past the corner: aim at the pin")
 	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
 	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
+	_check(not first[2], "the first camera carries on from the aim view, no cut as the swing starts")
 	var late: Array = d.step(5.5, shot.position_at(5.5), behind, 0.016)
 	_check(late[2], "the pin camera starts with a cut")
 	_check((late[0] as Vector3).z > 240.0, "pin camera stands beyond the pin")

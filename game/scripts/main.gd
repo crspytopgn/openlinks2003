@@ -2279,6 +2279,14 @@ func _start_drive(next: int) -> bool:
 	var shooter := _shooter_of(next)
 	buggy.seat_driver(true, _looks[shooter] if shooter < _looks.size() else null)
 	# Nothing about the shot on screen while driving: just the hint and the wind.
+	# The last shot's card was someone else's (often a computer's), and the
+	# score bug names who is driving to their ball.
+	if broadcast:
+		hud.overlay.hide_shot_card()
+		var st := _status(false)
+		st.player = scoring.names[shooter]
+		st.stroke = players[next].strokes + 1
+		hud.overlay.set_status(st)
 	_drive_hidden.clear()
 	for c: CanvasItem in [hud.meter, hud.info, hud.shot_panel, hud.windows, hud.tour, hud.mouse_swing]:
 		if c != null and c.visible:
@@ -2890,6 +2898,10 @@ func _process_computer(delta: float) -> void:
 	# Its routine starts once it has its club from the bag and is behind
 	# the ball.
 	if golfer and golfer.busy() and not _computer_ready:
+		return
+	# Its plan made, it addresses the ball once it has walked in: it used
+	# to snap from behind the ball to address and swing.
+	if _computer_ready and golfer and golfer.walking():
 		return
 	_computer_timer += delta
 	var cpu := opponents[shooter]

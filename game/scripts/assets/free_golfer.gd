@@ -102,6 +102,11 @@ var _busy := false
 ## Which way he faces walking from the bag (rotation.y, unwrapped).
 var _walk_yaw := 0.0
 var _last_spot := Vector3.INF
+## The clip he settles into at the end of the walk in (a club change on
+## the way takes effect there).
+var _walk_clip := &"address"
+## A club in his hands (not on the way to the bag for one).
+var _holding := true
 var _look: GolferLook
 ## This golfer's swing tempo (TEMPO_MIN..TEMPO_MAX), from the look.
 var tempo := 1.0
@@ -518,9 +523,6 @@ static func is_long_club(club: Club) -> bool:
 ## The putter stays out after a putt, for the next address and the
 ## celebration, until a full swing.
 func play(animation: StringName) -> void:
-	_stop_walk()
-	if _look:
-		_look.track(null, 0.0)
 	match animation:
 		&"putt":
 			_putting = true
@@ -531,16 +533,46 @@ func play(animation: StringName) -> void:
 		clip = &"address_putt"
 	elif _iron and not _putting and animation in IRON_CLIPS and _player.has_animation(StringName(String(animation) + "_iron")):
 		clip = StringName(String(animation) + "_iron")
+	if animation == &"address" and _keep_address(clip):
+		return
+	_stop_walk()
+	if _look:
+		_look.track(null, 0.0)
 	_show_putter(_putting)
-	if animation == &"address" and walk_in and is_inside_tree() and _player.has_animation(&"walk"):
-		var spot := global_position
-		var new_ball := _last_spot == Vector3.INF or spot.distance_to(_last_spot) > NEW_BALL
-		_last_spot = spot
-		if new_ball:
+	if animation == &"address":
+		var new_ball := _last_spot == Vector3.INF or _ball_spot().distance_to(_last_spot) > NEW_BALL
+		_last_spot = _ball_spot()
+		if new_ball and walk_in and is_inside_tree() and _player.has_animation(&"walk"):
 			_walk_in(clip)
 			return
 	if _player.has_animation(clip):
 		_play(clip, BLEND_TIME)
+
+
+## Asked to address the same ball again (every frame while the player turns
+## to aim, on a club change, as the computer settles its plan): he carries
+## on with what he is doing, taking the new club, rather than snapping to
+## the ball mid-walk or restarting the address clip at a random frame each
+## time, which made him twitch while the aim turned. False to (re)start.
+func _keep_address(clip: StringName) -> bool:
+	if _last_spot == Vector3.INF or _ball_spot().distance_to(_last_spot) > NEW_BALL:
+		return false
+	_last_spot = _ball_spot()
+	if _walk != null and _walk.is_valid():
+		_walk_clip = clip
+		if _holding:
+			_show_putter(_putting)
+		return true
+	if _player.current_animation != clip or not _player.is_playing():
+		return false
+	_show_putter(_putting)
+	return true
+
+
+## Where the ball is: the address spot, which stays put as the golfer turns
+## round it to aim (the rig itself circles the ball).
+func _ball_spot() -> Vector3:
+	return (global_transform if is_inside_tree() else transform) * BALL
 
 
 func impact_delay() -> float:
@@ -598,6 +630,10 @@ func busy() -> bool:
 	return _busy
 
 
+func walking() -> bool:
+	return _walk != null and _walk.is_valid()
+
+
 ## Walks forward to the address spot, then settles into the clip. Before a
 ## putt the golfer reads it first, crouched behind the ball looking down the
 ## line; before a full shot he stands behind the ball looking at the target.
@@ -642,9 +678,10 @@ func _walk_in(clip: StringName) -> void:
 		_model.position = _rest + from
 		_play(&"walk", BLEND_TIME, pace)
 	_walk.tween_property(_model, "position", _rest, from.length() / (WALK_SPEED * pace))
+	_walk_clip = clip
 	_walk.tween_callback(func() -> void:
-		if _player.has_animation(clip):
-			_play(clip, WALK_SETTLE))
+		if _player.has_animation(_walk_clip):
+			_play(_walk_clip, WALK_SETTLE))
 	_walk.tween_property(_model, "rotation:y", _near_yaw(last, 0.0), WALK_SETTLE)
 
 
@@ -704,6 +741,7 @@ static func _near_yaw(from: float, yaw: float) -> float:
 
 ## Empty-handed on the way to the bag.
 func _hide_clubs() -> void:
+	_holding = false
 	for node in _driver + _iron_meshes + _putter:
 		node.visible = false
 
@@ -719,6 +757,7 @@ func _stop_walk() -> void:
 
 
 func _show_putter(on: bool) -> void:
+	_holding = true
 	for node in _driver:
 		node.visible = not on and not _iron
 	for node in _iron_meshes:

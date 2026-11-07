@@ -49,6 +49,8 @@ var _hole := {}
 var _hole_t := -1.0
 var _hole_map: Texture2D
 var _caption := ""
+## The top of the key hints (Hud), for the lower third to keep above.
+var hints_top := INF
 var _caption_t := -1.0
 var _caption_len := 0.0
 var _cam_tag := ""
@@ -276,8 +278,9 @@ func _draw_lower_third() -> void:
 	var a := _slide(_lower_t, LOWER_THIRD_S)
 	var w := 440.0
 	var x := lerpf(-w, 40.0, a)
-	# Clear of the key hints that run just above the ticker.
-	var y := size.y - TICKER_H - 100.0
+	# Clear of the key hints that run just above the ticker, however many
+	# lines they wrap onto (Hud sets hints_top).
+	var y := minf(size.y - TICKER_H - 100.0, hints_top - 60.0)
 	_panel(Rect2(x, y, w, 34), PANEL_DARK, 1.0, TOP)
 	_fill(Rect2(x + 7, y + 8, 4, 18), ACCENT, Vector4.ONE * 2.0)
 	_text(Vector2(x + 18, y + 25), str(_lower.get("name", "")).to_upper(), 22, TEXT)

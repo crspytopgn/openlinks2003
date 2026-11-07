@@ -63,3 +63,10 @@ func set_bag(_bag: Node3D) -> void:
 ## from it: the computer golfers wait for it before their routine.
 func busy() -> bool:
 	return false
+
+
+## True until the golfer is over the ball at the end of his walk in (the
+## bag, the look down the line, the steps in): a computer golfer's address
+## and swing wait for it.
+func walking() -> bool:
+	return false

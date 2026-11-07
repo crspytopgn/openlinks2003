@@ -167,6 +167,10 @@ func busy() -> bool:
 	return _fallback.busy()
 
 
+func walking() -> bool:
+	return _fallback.walking()
+
+
 ## Shows the current clip `seconds` in (for renders and tests).
 func seek(seconds: float) -> void:
 	_time = seconds
