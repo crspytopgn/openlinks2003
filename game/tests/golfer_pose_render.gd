@@ -25,6 +25,8 @@ const VIEWS := {
 	"hands_trail": [Vector3(1.0, 0.2, -0.5), "hands", 30.0],
 	"grip_trail": [Vector3(0.45, -0.05, -0.3), "hands", 30.0],
 	"grip_front": [Vector3(0.05, 0.0, -0.55), "hands", 30.0],
+	"grip_dtl": [Vector3(0.7, 0.05, -0.05), "hands", 30.0],
+	"grip_lead": [Vector3(-0.6, 0.0, -0.3), "hands", 30.0],
 }
 
 var _out := ""

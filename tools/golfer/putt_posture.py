@@ -32,18 +32,69 @@ from scipy.optimize import minimize
 
 import anatomy
 import collide
+import grip
 import pose
 
-ELBOW = 38.0  # degrees, both arms
+ELBOW = 25.0  # degrees, both arms
 KNEE = 22.0
 SPINE_FLEX = 8.0  # each of the three spine joints, as a starting point
 PELVIS_TILT = 10.0  # added to the address's hip tilt, a starting point
-HANG = 0.0  # shoulders this far behind the hands (m, + = nearer the feet)
+HANG = 0.08  # shoulders this far behind the hands (m, + = nearer the feet): arms hang, forearms on the shaft's line
 LEAN = 48.0  # the trunk (hips to the neck) from upright, degrees
 HIPS_BEHIND = 0.08  # hip joints behind the ankles (m), the seat out over the heels
 EYES_INSIDE = 0.03  # the eyes this far inside the ball (towards the feet)
 SOLE = 0.0066  # the putter's sole above the ground at address, metres
 EYE = np.array([0.0, 0.09, -0.1])  # eyes from the head joint, rest frame
+
+
+WRIST_FLEX = -8.0  # degrees: a touch bent back, as putters' wrists are
+# The putting grip lies up the palm (Stanley/PGA teaching: "in the lifeline",
+# in line with the forearm), not across the fingers as for full shots: from
+# between the index and middle knuckles to the heel pad, palms facing each
+# other square to the target, the right hand just below the left.
+PALM_FRONT = ("index_01", "middle_01")
+PALM_HEEL = 0.4  # of the way from the wrist to the little finger's knuckle
+RIGHT_BELOW = 0.01  # metres: the right heel pad below the left hand's knuckles
+
+
+def _palm_frame(rig, rest, s, address_world):
+    """The putting grip's line in hand s (rest frame): its back point (on
+    the grip's axis, the palm's thickness and the grip's radius off the
+    palm), its direction towards the fingers, and the hand's frame
+    (direction, palm normal, their cross)."""
+    i = rig.index
+    x = lambda n: rest[i[f"{n}_{s}"]]  # noqa: E731
+    palm = grip._Hand(rig, rest, s, address_world).palm
+    front = (x(PALM_FRONT[0]) + x(PALM_FRONT[1])) / 2
+    back = x("hand") + PALM_HEEL * (x("pinky_01") - x("hand"))
+    axis = pose.unit(front - back)
+    palm = pose.unit(palm - axis * np.dot(palm, axis))
+    off = palm * (grip.PALM_HALF + grip.GRIP_R0)
+    return back + off, front + off, np.column_stack([axis, palm, np.cross(axis, palm)])
+
+
+def palm_grip(glb, rig, R0, club_p, shaft):
+    """{side: (hand world rotation, wrist position)} for the putting palm
+    grip round a putter whose grip point is club_p on `shaft` (grip to
+    head, world). The left hand turns about the grip point, so the putter
+    stays where it is."""
+    i = rig.index
+    _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
+    base = rig.world(*rig.sample(glb, "ref_address"))
+    away = np.array([1.0, 0.0, 0.0])  # from the target
+    away = pose.unit(away - shaft * np.dot(away, shaft))
+
+    def world(s, facing):
+        back, front, frame = _palm_frame(rig, rest, s, base)
+        w = np.column_stack([shaft, facing, np.cross(shaft, facing)])
+        return w @ frame.T, back, front
+
+    W_l, _, front_l = world("l", away)  # the left palm faces away from the target
+    P_l = club_p - W_l @ (rest[i["club"]] - rest[i["hand_l"]])
+    t = float(np.dot(P_l + W_l @ (front_l - rest[i["hand_l"]]) - club_p, shaft)) + RIGHT_BELOW
+    W_r, back_r, _ = world("r", -away)
+    P_r = club_p + shaft * t - W_r @ (back_r - rest[i["hand_r"]])
+    return {"l": (W_l, P_l), "r": (W_r, P_r)}
 
 
 def _knee(rig, P, s):
@@ -71,7 +122,7 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
     shaft = R0[cj] @ club_dir(glb, rig)
     slide = shaft * (head[:, 1].min() - SOLE) / -shaft[1]
     ball = head.mean(axis=0) + slide
-    hands = {s: (R0[i[f"hand_{s}"]], P0[i[f"hand_{s}"]] + slide) for s in "lr"}
+    hands = palm_grip(glb, rig, R0, P0[cj] + slide, shaft)
     hands_mid = (hands["l"][1] + hands["r"][1]) / 2
     fwd_axis = np.array([-1.0, 0.0, 0.0])  # turning about -x tips +y towards -z
     side_axis = np.array([0.0, 0.0, -1.0])  # about -z tips +y towards +x (his right)
@@ -113,6 +164,7 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
             turn = hands[s][0] @ R[h].T
             for k in anatomy.descendants(rig, h):
                 R[k] = turn @ R[k]
+        R[cj] = R0[cj]  # the putter keeps its line; it turns in the left hand instead
         R, P = rig.world(rig.locals(R), root)
         return R, P, root
 
@@ -143,9 +195,17 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
             terms["clear"] += anatomy.CLEAR_COST * (100.0 * guard.frame(Rn, x_root(x)).arm_depth(s)) ** 2
             a = anatomy.arm_angles(rig, s, R[i[f"upperarm_{s}"]], R[i[f"lowerarm_{s}"]], R[i[f"hand_{s}"]])
             terms["reach"] += (a["elbow_flex"] - ELBOW) ** 2 * 0.05
+            # The forearms on the putter's line, as tour putters set them.
+            fore = pose.unit(P[i[f"hand_{s}"]] - P[i[f"lowerarm_{s}"]])
+            terms["line"] = terms.get("line", 0.0) + math.degrees(math.acos(np.clip(np.dot(fore, shaft), -1, 1))) ** 2 * 0.1
             for k in ("wrist_flex", "wrist_dev", "forearm_roll"):
                 lo, hi = anatomy.limit_of(k)
                 terms["wrists"] += max(0.0, lo + 5 - a[k], a[k] - hi + 5) ** 2
+            # Tour putters' wrists are nearly straight and their forearms
+            # barely rolled (a rolled forearm also wrings the sleeve: the
+            # rig has no twist bones).
+            terms["wrists"] += (0.02 * (a["wrist_flex"] - WRIST_FLEX) ** 2 + 0.02 * a["wrist_dev"] ** 2
+                                + 0.01 * a["forearm_roll"] ** 2)
             # Hands must actually be reached.
             terms["reach"] += (np.linalg.norm(P[i[f"hand_{s}"]] - hands[s][1]) * 1000) ** 2
         if report:
@@ -160,6 +220,12 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
     body = guard.frame(R, root)
     for s in "lr":
         anatomy.fit_arm(rig, R, P, s, body=body)
+    R, P = rig.world(rig.locals(R), root)
+    # Fingers closed round the grip, the right hand's over the left's.
+    R = grip.wrap_fingers(rig, R, root, P[cj], shaft, sides="l", hinged=True)
+    R, P = rig.world(rig.locals(R), root)
+    R = grip.wrap_fingers(rig, R, root, P[cj], shaft, sides="r", obstacles=grip.finger_capsules(rig, R, P, "l"),
+                          obstacle_fingers=("pinky", "ring"), hinged=True)
     R, P = rig.world(rig.locals(R), root)
     # Eyes down at the ball, the head tipped by the neck and head joints.
     R = list(R)
