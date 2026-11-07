@@ -373,7 +373,7 @@ func record_round(id: String, played: Dictionary, holes: int, par: int, gross: i
 	if round_no < rounds_per_event:
 		if made_cut.is_empty() or made_cut[me]:
 			var p := position_of(me)
-			text += ", %s%d at %s." % ["T" if p.tied else "", p.pos, Scorecard.format_to_par(total_of(me))]
+			text += ", %s %s at %s." % ["tied" if p.tied else "lying", _ordinal(p.pos), Scorecard.format_to_par(total_of(me))]
 		else:
 			text += ", %s after two rounds." % Scorecard.format_to_par(total_of(me))
 		if not made_cut.is_empty():
@@ -866,3 +866,4 @@ static func load_saved() -> Career:
 			or c.money.size() != c.names.size() or c.player.is_empty():
 		return null
 	return c
+

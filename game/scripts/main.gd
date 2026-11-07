@@ -2498,6 +2498,11 @@ func _next_hole() -> void:
 	for p in players:
 		p.marker.visible = false
 	var text := "Round complete. " + scoring.winner_text()
+	# In a Career or stroke-play tournament round the group's lowest score
+	# doesn't "win" anything: the event report says where everyone stands.
+	if not round_setup.career.is_empty() or (_tournament != null and _tournament.format != Tournament.Format.MATCH
+			and _tournament.format != Tournament.Format.SKINS):
+		text = "Round complete."
 	if players.size() == 1 and round_setup.mode == GameModes.Mode.STROKE:
 		text = "Round complete: %d (%s)." % [card.total_strokes(), Scorecard.format_to_par(card.to_par())]
 		if scoring.handicaps:
