@@ -8,6 +8,8 @@ extends SceneTree
 ##   xvfb-run godot --rendering-driver vulkan --path game \
 ##     -s res://tests/golfer_pose_render.gd -- /tmp/pose "" \
 ##     read=read@2.0/side putt=address_putt@0.5/hands_front
+##
+## A view "near:lowerarm_l:back" is a close-up on that joint.
 
 const SIZE := Vector2i(1280, 960)
 const DT := 1.0 / 60.0
@@ -114,6 +116,16 @@ func _process(_delta: float) -> bool:
 	return false
 
 
+## A view from VIEWS, or "near:BONE:VIEW" for a close-up on one joint (an
+## elbow, knee or ankle) from that view's direction.
+func _view(view_name: String) -> Array:
+	if view_name.begins_with("near:"):
+		var bits := view_name.split(":")
+		var base: Array = VIEWS.get(bits[2] if bits.size() > 2 else "front", VIEWS["front"])
+		return [(base[0] as Vector3).normalized() * 0.75, "@" + bits[1], 30.0]
+	return VIEWS.get(view_name, VIEWS["front"])
+
+
 func _bone(name: String) -> Vector3:
 	var sk: Skeleton3D = _golfer._skeleton
 	return sk.global_transform * sk.get_bone_global_pose(sk.find_bone(name)).origin
@@ -132,9 +144,11 @@ func _run(job: Array) -> void:
 		_player.advance(DT)
 		t += DT
 	_player.advance(0.0)
-	var view: Array = VIEWS.get(job[3], VIEWS["front"])
+	var view: Array = _view(str(job[3]))
 	var target: Vector3
-	if view[1] == "hands":
+	if str(view[1]).begins_with("@"):
+		target = _bone(str(view[1]).substr(1))
+	elif view[1] == "hands":
 		target = (_bone("hand_l") + _bone("hand_r")) * 0.5
 	else:
 		target = _bone(view[1]) + Vector3(0.0, -0.1, 0.0)
