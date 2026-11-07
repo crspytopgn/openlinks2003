@@ -3414,6 +3414,10 @@ func _test_free_golfer() -> void:
 	_check(at_bag.origin.distance_to(Vector3.ZERO) < FreeGolfer.PULL_MAX and at_bag.origin.z > 0.5,
 			"the bag spot is a few steps behind his address (%.2f m)" % at_bag.origin.length())
 	_check(not golfer.busy(), "a golfer not walking in is not busy")
+	# A putt is read from his side of the line (+z), never past the hole.
+	for d: float in [0.5, 2.0, 12.0]:
+		var rs := FreeGolfer.read_spot(d)
+		_check(rs.z > 1.0 and rs.x <= 0.0 and -rs.x < d * 0.5, "a %.1f m putt is read beside the line short of the hole (%s)" % [d, rs])
 	# Asked to address the same ball again (every frame while the aim turns,
 	# on a club change), the address clip runs on rather than restarting at
 	# a random frame, even as the rig circles the ball to aim.

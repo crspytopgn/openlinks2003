@@ -28,14 +28,24 @@ const IRON_CLIPS: Array[StringName] = [&"address", &"backswing", &"swing"]
 ## The walk up to a new ball: from this far behind the address spot, at the
 ## mocap walk's own speed (so the feet don't slide), easing into address.
 const WALK_FROM := 2.2
-const WALK_SPEED := 0.89
+## Measured from the clip's planted feet (0.74 m/s at full size, times
+## the model's scale): at 0.89 the feet skated forward a fifth of each step.
+const WALK_SPEED := 0.74
+## He turns to face the ball over his last steps in, as people do, rather
+## than spinning on the spot as he stops.
+const TURN_IN := 0.7
 const WALK_SETTLE := 0.35
 ## A move of more than this between addresses is a new ball.
 const NEW_BALL := 0.5
-## Where a putt is read from: crouched behind the ball (the target is -x),
-## in the rig's frame, a little to his side of the line. Right on the line
-## he crouched between the putting camera and the hole, hiding both.
-const READ_SPOT := Vector3(1.3, 0.0, 0.35)
+## Where a putt is read from: crouched off to his side of the line, part
+## way to the hole, looking across it at the slope, in the rig's frame
+## (the target is -x). Behind the ball he crouched two metres in front of
+## the putting camera, his back filling a third of the screen; from here he
+## is a figure to one side of the line, as on TV. READ_AHEAD is how far
+## towards the hole (at most READ_SHARE of a short putt).
+const READ_SIDE := 1.4
+const READ_AHEAD := 1.0
+const READ_SHARE := 0.4
 ## Before a full shot: behind the ball, looking at the target for
 ## SURVEY_TIME seconds before walking in, as tour players do. He stands a
 ## step back and to his side of the target line rather than on it: on the
@@ -102,6 +112,8 @@ var _busy := false
 ## Which way he faces walking from the bag (rotation.y, unwrapped).
 var _walk_yaw := 0.0
 var _last_spot := Vector3.INF
+## How far this shot is from the hole (set_shot), for where a putt is read.
+var _to_hole := 10.0
 ## The clip he settles into at the end of the walk in (a club change on
 ## the way takes effect there).
 var _walk_clip := &"address"
@@ -510,7 +522,8 @@ func has_animation(animation: StringName) -> bool:
 
 ## Address in the putting stance with the putter on the green, and with an
 ## iron for every club but the woods and hybrids.
-func set_shot(club: Club, _distance_m: float, _power: float = 1.0) -> void:
+func set_shot(club: Club, distance_m: float, _power: float = 1.0) -> void:
+	_to_hole = distance_m
 	_putting = club.is_putter
 	_iron = not _putting and not _iron_meshes.is_empty() and not is_long_club(club)
 
@@ -647,11 +660,11 @@ func _walk_in(clip: StringName) -> void:
 	var putt := clip == &"address_putt"
 	var last := 0.0  # which way he walks in (rotation.y, unwrapped)
 	if putt and _player.has_animation(&"read"):
-		_model.position = _rest + READ_SPOT
-		_model.rotation.y = PI / 2.0  # facing the hole (-x)
+		from = read_spot(_to_hole)
+		_model.position = _rest + from
+		_model.rotation.y = 0.0  # facing the line from the side
 		_play(&"read", BLEND_TIME)
 		_walk.tween_interval(_player.get_animation(&"read").length - WALK_SETTLE)
-		from = READ_SPOT
 		var heading := -from.normalized()
 		last = atan2(-heading.x, -heading.z)
 		_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
@@ -677,12 +690,27 @@ func _walk_in(clip: StringName) -> void:
 	else:
 		_model.position = _rest + from
 		_play(&"walk", BLEND_TIME, pace)
-	_walk.tween_property(_model, "position", _rest, from.length() / (WALK_SPEED * pace))
+	var steps := from.length() / _walk_speed(pace)
+	_walk.tween_property(_model, "position", _rest, steps)
+	var turn := minf(TURN_IN, steps)
+	_walk.parallel().tween_property(_model, "rotation:y", _near_yaw(last, 0.0), turn) \
+		.set_delay(steps - turn).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_walk_clip = clip
 	_walk.tween_callback(func() -> void:
 		if _player.has_animation(_walk_clip):
 			_play(_walk_clip, WALK_SETTLE))
-	_walk.tween_property(_model, "rotation:y", _near_yaw(last, 0.0), WALK_SETTLE)
+	_walk.tween_interval(WALK_SETTLE)
+
+
+## Where a putt of `to_hole` metres is read from, in the rig's frame.
+static func read_spot(to_hole: float) -> Vector3:
+	return Vector3(-minf(READ_AHEAD, to_hole * READ_SHARE), 0.0, READ_SIDE)
+
+
+## How fast he covers the ground walking at `pace`: the clip's own speed,
+## for his size.
+func _walk_speed(pace: float) -> float:
+	return WALK_SPEED * _model.scale.x * pace
 
 
 ## Stands the golfer at the bag and has him draw the club out of it
@@ -712,7 +740,7 @@ func _pull_club(pace: float) -> bool:
 	var walk_yaw := _near_yaw(yaw, atan2(-heading.x, -heading.z))
 	_walk.tween_callback(func() -> void: _play(&"walk", WALK_SETTLE, pace))
 	_walk.tween_property(_model, "rotation:y", walk_yaw, WALK_SETTLE)
-	_walk.tween_property(_model, "position", to, heading.length() / (WALK_SPEED * pace))
+	_walk.tween_property(_model, "position", to, heading.length() / _walk_speed(pace))
 	_walk_yaw = walk_yaw
 	_busy = true
 	_walk.tween_callback(func() -> void: _busy = false)
