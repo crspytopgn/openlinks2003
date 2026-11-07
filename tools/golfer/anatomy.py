@@ -282,12 +282,18 @@ def unhinge(rig, rots, s):
     rots[iu] = pose.rot(up, ang) @ U
 
 
-def fit_arm(rig, rots, poss, s, last=None):
+CLEAR_COST = 40.0  # per cm squared of arm inside the torso (collide.Guard)
+
+
+def fit_arm(rig, rots, poss, s, last=None, body=None):
     """Turns the arm round the shoulder-to-wrist line (the elbow's swivel)
     so the wrist stays inside its range, then rolls the forearm so the hand
     keeps at most HAND_TWIST of twist. The hand's world pose, and so the
-    club and the grip, are left exactly as they were. Returns the swivel,
-    in degrees, for the next frame's `last`."""
+    club and the grip, are left exactly as they were. With `body` (a
+    collide.Guard frame of this pose) each swivel is tested against the
+    real torso, so the upper arm can't pass into the chest; without it
+    the elbow is only kept TORSO_CLEAR off the spine's line. Returns the
+    swivel, in degrees, for the next frame's `last`."""
     i = rig.index
     iu, il, ih = i[f"upperarm_{s}"], i[f"lowerarm_{s}"], i[f"hand_{s}"]
     S, W, E = poss[iu], poss[ih], poss[il]
@@ -305,8 +311,12 @@ def fit_arm(rig, rots, poss, s, last=None):
         cost += SWIVEL_COST * deg * deg
         if last is not None:
             cost += STEADY_COST * (deg - last) ** 2
-        clear = _seg_dist(S + R @ (E - S), spine_a, spine_b)
-        cost += (max(0.0, TORSO_CLEAR - clear) * 400.0) ** 2
+        if body is not None:
+            pivot = body.P[i[f"upperarm_{s}"]]
+            cost += CLEAR_COST * (100.0 * body.arm_depth(s, R, pivot)) ** 2
+        else:
+            clear = _seg_dist(S + R @ (E - S), spine_a, spine_b)
+            cost += (max(0.0, TORSO_CLEAR - clear) * 400.0) ** 2
         if best_cost is None or cost < best_cost:
             best, best_cost = deg, cost
     R = pose.rot(axis, best)
@@ -412,12 +422,13 @@ def spin_carry(rig, rots, poss, shaft, last=None):
     return best
 
 
-def fit_arms(rig, frames, free=(), club_dir=None):
+def fit_arms(rig, frames, free=(), club_dir=None, guard=None):
     """fit_arm on both arms through a clip's poses (lists of local
     rotations, and roots), in order so the swivel moves smoothly; the
     hands in `free` ("l", "r") hold nothing fixed and have their wrists
     clamped too, a club carried in a free left hand first spun round its
-    shaft (spin_carry; club_dir is the shaft in the club joint's frame). The spine's twist is spread first (even_spine)."""
+    shaft (spin_carry; club_dir is the shaft in the club joint's frame). The spine's twist is spread first (even_spine).
+    `guard` (collide.Guard) keeps the upper arms out of the chest."""
     last = {"l": None, "r": None, "spin": None}
     out = []
     for local, root in frames:
@@ -425,8 +436,9 @@ def fit_arms(rig, frames, free=(), club_dir=None):
         rots = list(rots)
         if "l" in free and club_dir is not None:
             last["spin"] = spin_carry(rig, rots, poss, rots[rig.index["club"]] @ club_dir, last["spin"])
+        body = guard.frame(rots, root) if guard is not None else None
         for s in ("l", "r"):
-            last[s] = fit_arm(rig, rots, poss, s, last[s])
+            last[s] = fit_arm(rig, rots, poss, s, last[s], body)
             if s in free:
                 clamp_wrist(rig, rots, s)
         out.append([rots[j] if p < 0 else rots[p].T @ rots[j] for j, p in enumerate(rig.parents)])
