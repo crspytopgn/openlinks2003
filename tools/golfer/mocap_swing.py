@@ -35,6 +35,8 @@ import clubs  # noqa: E402
 import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
+import putt_posture  # noqa: E402
+import anatomy  # noqa: E402
 
 BVH_URL = "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/{:03d}/{}.bvh"
 MOCAP_FPS = 120.0
@@ -851,9 +853,16 @@ def ensure_refs(glb, rig):
 
 # Direction of each mapped bone: (golfer child, actor child). None means up;
 # "forward" and "end" use the golfer's facing and the actor's end site.
+# The spine joints all take the trunk's direction (spine_01 to the neck,
+# the actor's LowerBack to Neck1): the golfer's three short segments rest
+# tilted 8 deg forward, 12 deg back and 7 deg forward, and aiming each one
+# at the actor's straight spine bent them the other way, a zigzag of
+# about 20 deg a joint (the lower back arched, the chest folded forward
+# and the upper chest bent back) in every standing clip.
+TRUNK = ("spine_01", "neck_01", "LowerBack", "Neck1")
 BONE_DIRS = {
-    "pelvis": (None, None), "spine_01": ("spine_02", "Spine"), "spine_02": ("spine_03", "Spine1"),
-    "spine_03": ("neck_01", "Neck1"), "neck_01": ("head", "Head"), "head": (None, None),
+    "pelvis": (None, None), "spine_01": "trunk", "spine_02": "trunk",
+    "spine_03": "trunk", "neck_01": ("head", "Head"), "head": (None, None),
     "foot_l": ("ball_l", "LeftToeBase"), "foot_r": ("ball_r", "RightToeBase"),
     "ball_l": ("forward", "end"), "ball_r": ("forward", "end"),
 }
@@ -909,20 +918,24 @@ STAND_GAP = 0.24
 STAND_REACH = 0.9975
 STAND_GAZE = -6.0
 # Reading a putt, as photos of tour players crouched behind the ball show:
-# a squat with the hips a little above the knees (READ_HIP, hip joints
-# over the ankles) and READ_BACK behind the heels, the knees forward over
-# the toes and a touch apart (READ_KNEE_OUT), the back READ_LEAN from
-# upright, the forearms by the knees with both hands on the putter's grip
-# and its head resting on the green in front, and the eyes down
-# the line to the hole (READ_GAZE). READ_SWAY keeps that share of the
-# actor's bob and lean so the hold breathes.
-READ_HIP = 0.40
-READ_BACK = 0.14
+# a deep squat on the balls of the feet (the heels up READ_HEEL), the hip
+# joints READ_HIP above the ankles and READ_BACK behind them (over the
+# heels, not sat back on a chair), the knees forward over the toes and a
+# touch apart (READ_KNEE_OUT), the pelvis tipped READ_PELVIS and the back
+# rounded evenly, READ_SPINE at each spine joint (no hollow in the lower
+# back), the forearms by the knees with both hands on the putter's grip
+# and its head resting on the green in front, and the eyes down the line
+# to the hole (READ_GAZE). READ_SWAY keeps that share of the actor's bob
+# and lean so the hold breathes.
+READ_HIP = 0.30
+READ_BACK = 0.07
 READ_KNEE_OUT = 0.3
-READ_LEAN = 32.0
+READ_PELVIS = 24.0
+READ_SPINE = 8.0
+READ_HEEL = 22.0
 READ_GAZE = -14.0
-READ_HANDS_AHEAD = 0.12
-READ_SOLE_REACH = 0.83  # club joint to the putter's sole along the shaft
+READ_HANDS_AHEAD = 0.03
+READ_SOLE_REACH = 0.795  # club joint to the putter's sole along the shaft
 READ_SWAY = 0.3
 READ_ACTOR_LEAN = 72.0  # the actor's mean lean while down, degrees
 CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
@@ -1191,6 +1204,15 @@ def pull_club(rig, rots, root, t, club_dir, local0, grip_local, right_rel):
     return out, rig.offsets[c].copy()
 
 
+def knee_pole(rig, rots):
+    """Where a knee bends: forward from the hips. Keeping the actor's bend
+    plane (two_bone) let a nearly straight knee flip and bend backwards,
+    up to 30 deg in the idle and celebrate clips."""
+    fwd = rots[rig.index["pelvis"]] @ np.array([0.0, 0.0, -1.0])
+    fwd[1] = 0.0
+    return pose.unit(fwd)
+
+
 def stand_upright(rig, poss, root, targets, narrow, lift, ankle_rest):
     """Feet on the ground STAND_GAP apart and the hips at the height that
     leaves the straighter leg at STAND_REACH of its length (STAND_GAP)."""
@@ -1236,24 +1258,23 @@ def crouch_weight(hip_drop):
 
 def read_crouch(rig, rots, root, targets, facing, w, actor_lean):
     """The actor's bend to the floor reshaped into a golfer reading a putt
-    (READ_*), by w: the back raised, the hips over the heels at READ_HIP;
-    the legs are bent to the feet afterwards (read_legs)."""
-    rots = list(rots)
+    (READ_*), by w: the pelvis and spine set to the read's even curve (a
+    READ_SWAY share of the actor's own lean kept, so the hold breathes)
+    and the hips over the heels at READ_HIP; the legs are bent to the feet
+    afterwards (read_legs)."""
     up = np.array([0.0, 1.0, 0.0])
-    side = pose.unit(np.cross(up, facing))
-    _, poss = rig.world(rig.locals(rots), root)
-    trunk = poss[rig.index["neck_01"]] - poss[rig.index["pelvis"]]
-    lean = READ_LEAN + READ_SWAY * (actor_lean - READ_ACTOR_LEAN)
-    want = pose.rot(side, lean) @ up
-    # want tilts toward the facing for a positive lean; flip if not.
-    if np.dot(want, facing) < 0:
-        want = pose.rot(side, -lean) @ up
-    full = between(trunk, want)
-    # Spread over the spine so it bends, not kinks.
-    for name, share in (("spine_01", 0.4), ("spine_02", 0.35), ("spine_03", 0.25)):
-        turn = pose.slerp(np.eye(3), full, w * share)
-        for k in descendants(rig, name):
-            rots[k] = turn @ rots[k]
+    side = pose.unit(np.cross(up, facing))  # rot(side, +a) tips up towards facing
+    local = rig.locals(rots)
+    sway = READ_SWAY * (actor_lean - READ_ACTOR_LEAN) / 4.0
+    yaw = between(np.array([0.0, 0.0, -1.0]), facing)
+    pel = rig.index["pelvis"]
+    want = pose.rot(side, READ_PELVIS + sway) @ yaw
+    local[pel] = pose.slerp(local[pel], want, w)
+    bend = pose.rot([-1.0, 0.0, 0.0], READ_SPINE + sway)  # in the body's own axes
+    for name in ("spine_01", "spine_02", "spine_03"):
+        local[rig.index[name]] = pose.slerp(local[rig.index[name]], bend, w)
+    rots, poss = rig.world(local, root)
+    rots = list(rots)
     mid = (targets["l"] + targets["r"]) / 2
     want_root = mid - facing * READ_BACK
     want_root[1] = min(targets["l"][1], targets["r"][1]) + READ_HIP
@@ -1262,17 +1283,26 @@ def read_crouch(rig, rots, root, targets, facing, w, actor_lean):
     return rots, root + (want_root - hip) * w
 
 
-def read_legs(rig, rots, root, targets, facing):
-    """Knees forward over the toes, a touch apart (READ_KNEE_OUT)."""
+def read_legs(rig, rots, root, targets, facing, w=1.0):
+    """Knees forward over the toes, a touch apart (READ_KNEE_OUT), and
+    the heels lifted READ_HEEL by w about the balls of the feet."""
     _, poss = rig.world(rig.locals(rots), root)
+    up = np.array([0.0, 1.0, 0.0])
+    side = pose.unit(np.cross(up, facing))
     mid = (poss[rig.index["thigh_l"]] + poss[rig.index["thigh_r"]]) / 2
     for s in ("l", "r"):
         out = poss[rig.index[f"thigh_{s}"]] - mid
         out[1] = 0.0
         out = pose.unit(out)
         foot = rots[rig.index[f"foot_{s}"]]
-        reach_pole(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s], facing + out * READ_KNEE_OUT)
-        rots[rig.index[f"foot_{s}"]] = foot
+        ball = targets[s] + foot @ rig.offsets[rig.index[f"ball_{s}"]]
+        tip = pose.rot(side, READ_HEEL * w)
+        ankle = ball - tip @ (ball - targets[s])
+        reach_pole(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", ankle, facing + out * READ_KNEE_OUT)
+        rots[rig.index[f"foot_{s}"]] = tip @ foot
+        # The toes stay flat on the green.
+        b = rig.index[f"ball_{s}"]
+        rots[b] = tip.T @ rots[b] if rots[b] is not None else None
     return rots
 
 
@@ -1325,9 +1355,13 @@ def retarget_stand(glb, rig, clip, cache):
     rest_facing = np.array([0.0, 0.0, -1.0])
     t_facing = g @ actor_facing(bvh, 0)
     ref = {}
-    for name, (child, actor_child) in BONE_DIRS.items():
+    for name, dirs in BONE_DIRS.items():
         j, k = rig.index[name], bvh.index[BONES[name]]
-        if child is None:
+        child, actor_child = (None, None) if dirs == "trunk" else dirs
+        if dirs == "trunk":
+            d0 = rest[rig.index[TRUNK[1]]] - rest[rig.index[TRUNK[0]]]
+            d1 = g @ (m_poss0[bvh.index[TRUNK[3]]] - m_poss0[bvh.index[TRUNK[2]]])
+        elif child is None:
             d0, d1 = up, up
         elif child == "forward":
             d0 = rest_facing
@@ -1413,11 +1447,11 @@ def retarget_stand(glb, rig, clip, cache):
             crouch = crouch_weight((hips0[1] - m_poss[bvh.index["Hips"]][1]) / (hips0[1] - foot0))
             rots, root = read_crouch(rig, rots, root, targets, facing, crouch, actor_lean)
             _, poss = rig.world(rig.locals(rots), root)
-            rots = read_legs(rig, rots, root, targets, facing)
+            rots = read_legs(rig, rots, root, targets, facing, crouch)
         else:
             for s in ("l", "r"):
                 foot = rots[rig.index[f"foot_{s}"]]
-                two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s])
+                reach_pole(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", targets[s], knee_pole(rig, rots))
                 rots[rig.index[f"foot_{s}"]] = foot
         rots = fill(rig, rots, local0, keep=True)
         if clip.get("upright"):
@@ -1481,6 +1515,17 @@ def retarget_stand(glb, rig, clip, cache):
             np.array([out_root[i] for i in keep], np.float32), moved)
 
 
+def free_hands(name):
+    """The hands that hold nothing fixed in a clip: a club only carried
+    may turn a little with the wrist; a hand on the grip may not."""
+    clip = STAND_CLIPS.get(name)
+    if clip is None or clip.get("pull"):
+        return ()
+    if clip.get("read"):
+        return ("r",)
+    return ("l", "r")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--glb", default=os.path.join(os.path.dirname(__file__), "../../game/assets/golfer/free_golfer.glb"))
@@ -1499,12 +1544,17 @@ def main():
     # The clubs modelled from real ones, before the swings are measured
     # against their heads.
     clubs.swap(glb, rig)
+    # The putting address re-posed round the (now 34.5 inch) putter.
+    putt_posture.fit(glb, rig)
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
             times, rots, root, moved = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
         else:
             times, rots, root = retarget(glb, rig, CLIPS[name], args.cache)
             moved = {}
+        # Elbows swivelled and forearms rolled so the wrists stay in their
+        # range, the hands (and club) left exactly where they are.
+        rots = anatomy.fit_arms(rig, list(zip(rots, root)), free_hands(name), club_direction(glb, rig))
         write_clip(glb, rig, name, times, rots, root, moves=moved)
         print(f"{name}: {len(times)} keys, {times[-1]:.2f} s")
     club_still(glb, rig)
