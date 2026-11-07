@@ -3481,7 +3481,37 @@ func _test_free_golfer() -> void:
 	hands.follow(&"walk", 0.0)
 	_check(not hands.holding and hands.influence == 0.0, "the hands swing free on the walk")
 	_test_club_heads(golfer)
+	_test_golfer_twist(golfer)
 	golfer.free()
+
+
+## GolferTwist: the forearm's roll splits into swing and twist, the twist
+## bones sit on their segments, and the sleeves' weights move onto them.
+func _test_golfer_twist(golfer: FreeGolfer) -> void:
+	var axis := Vector3(-1, 0, 0)
+	var q := Quaternion(Vector3(0, 0, 1), 0.4) * Quaternion(axis, 1.2)
+	var parts := GolferTwist.swing_twist(q, axis)
+	_check_near((parts[1] as Quaternion).get_angle(), 1.2, 1e-4, "the twist about the forearm is its roll")
+	_check(((parts[0] as Quaternion) * (parts[1] as Quaternion)).is_equal_approx(q), "swing * twist gives the turn back")
+	var sk := golfer._skeleton
+	for chain: Array in GolferTwist.CHAINS:
+		for twist_name in GolferTwist.twist_names(chain[0]):
+			var b := sk.find_bone(twist_name)
+			var src := sk.find_bone(chain[0])
+			_check(b >= 0 and sk.get_bone_parent(b) == sk.get_bone_parent(src) and sk.get_bone_rest(b).is_equal_approx(sk.get_bone_rest(src)),
+				"%s sits on %s" % [twist_name, chain[0]])
+	var moved := 0
+	for node in sk.get_children():
+		var mi := node as MeshInstance3D
+		if mi == null or mi.mesh == null or mi.skin == null:
+			continue
+		var a := mi.mesh.surface_get_arrays(0)
+		var bones: PackedInt32Array = a[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = a[Mesh.ARRAY_WEIGHTS]
+		for i in bones.size():
+			if weights[i] > 0.0 and bones[i] < mi.skin.get_bind_count() and String(mi.skin.get_bind_name(bones[i])).contains("_twist_"):
+				moved += 1
+	_check(moved > 1000, "the sleeves and skin follow the twist bones (%d weights)" % moved)
 
 
 ## GolferCloth: the clothes' mask (loose at a sleeve's hem and down the

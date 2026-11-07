@@ -11,7 +11,9 @@ extends GolferRig
 ## behind the ball to read the putt. GolferFeet plants the feet
 ## on slopes, GolferLook turns the head to follow the ball and
 ## GolferHands keeps the right hand on the club for any body shape;
-## GolferArms keeps the arms out of a deeper chest than the mocap actor's.
+## GolferArms keeps the arms out of a deeper chest than the mocap actor's;
+## GolferTwist spreads the forearms' and thighs' roll down
+## their length so the skin doesn't wring.
 ## The body, clothes and hair come from the look pack (GolferParts), baked
 ## into plain meshes for the look.
 ## PlaceholderGolferAssets falls back to PlaceholderGolfer if either file is
@@ -153,6 +155,7 @@ static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	golfer._model = model
 	golfer._player = player
 	golfer._skeleton = skeletons[0]
+	var twist := GolferTwist.rig(golfer._skeleton)
 	golfer._feet = GolferFeet.new()
 	golfer._skeleton.add_child(golfer._feet)
 	golfer._look = GolferLook.new()
@@ -162,6 +165,7 @@ static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	golfer._hands = GolferHands.new()
 	golfer._skeleton.add_child(golfer._hands)
 	golfer._hands.read_grips(golfer._skeleton, player)
+	golfer._skeleton.add_child(twist)
 	golfer._cloth = GolferCloth.new()
 	golfer._skeleton.add_child(golfer._cloth)
 	if p_texture_cap == 0:
@@ -209,10 +213,11 @@ func apply_look(p_look: PlayerLook) -> void:
 	var skin := Skin.new()
 	var glove_bones := PackedInt32Array()
 	var names := parts.bone_names()
+	names.append_array(GolferTwist.all_names())
 	for i in names.size():
 		if names[i] == "hand_l" or (names[i].ends_with("_l") and names[i].split("_")[0] in GLOVE_FINGERS):
 			glove_bones.append(i)
-	for bone_name in parts.bone_names():
+	for bone_name in names:
 		var bone := _skeleton.find_bone(bone_name)
 		var rest := _skeleton.get_bone_global_rest(bone) if bone >= 0 else Transform3D.IDENTITY
 		skin.add_named_bind(bone_name, rest.affine_inverse())
@@ -231,6 +236,7 @@ func apply_look(p_look: PlayerLook) -> void:
 		var is_skin := str(parts.info.materials[mat_name].get("tint", "")) == "skin"
 		var gloved := (is_skin or str(parts.info.materials[mat_name].get("tint", "")) == "person") and look.glove
 		mi.mesh = parts.bake(part_name, part_weights, glove_bones if gloved else PackedInt32Array())
+		mi.mesh = GolferTwist.reweight(mi.mesh, parts.bone_names(), _skeleton)
 		if part_name.begins_with("Hair_") and look.wears_cap():
 			mi.mesh = under_cap(mi.mesh, parts, weights)
 		mi.skin = skin
@@ -475,6 +481,7 @@ func _fit_skeleton(offsets: Dictionary) -> void:
 		var rest := _base_rests[i]
 		rest.origin += moved[i] - inherited
 		_skeleton.set_bone_rest(i, rest)
+	GolferTwist.sync_rests(_skeleton)
 	_skeleton.reset_bone_poses()
 
 
