@@ -321,6 +321,10 @@ void fragment() {
 		// surface (coarser on the collar and tee, which are cut longer).
 		vec2 uv_g = uv * mix(1.0, 5.0, cut);
 		vec3 g = two_scale(grass_albedo, uv_g).rgb;
+		// The scan's pale, dry blades drew white scratches across a green
+		// up close; a green's sward is dense and even, with no dead blades
+		// lying on top, so clip its highlights on close-cut turf.
+		g = mix(g, min(g, grass_mean * 1.2), cut * cut);
 		vec3 r = two_scale(rough_albedo, uv).rgb;
 		vec3 s = two_scale(sand_albedo, uv).rgb;
 		vec3 detail = w_grass * g / max(grass_mean, vec3(0.02)) + w_rough * r / max(rough_mean, vec3(0.02))

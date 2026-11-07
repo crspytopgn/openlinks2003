@@ -1067,6 +1067,15 @@ func _test_green_reading() -> void:
 	_check(GreenRead.lie_text(side_hill, Vector3.ZERO, Vector2(0, 1)) == "2.0%, falls right", "lie: %s" % GreenRead.lie_text(side_hill, Vector3.ZERO, Vector2(0, 1)))
 	_check(GreenRead.length_text(0.7112) == "2' 4\"", "feet and inches")
 	_check(GreenRead.length_text(0.1) == "4\"", "inches")
+	_check(GreenRead.putt_text({"rise_m": 0.1524, "side_percent": 1.5}, true) == "6\" uphill, breaks right to left (moderate)", "putt read: %s" % GreenRead.putt_text({"rise_m": 0.1524, "side_percent": 1.5}, true))
+	_check(GreenRead.putt_text({"rise_m": -0.005, "side_percent": 1.5}, false) == "Level", "level putt without the break")
+	var orbit := GreenRead.orbit_from(Vector3(0, 3, 4), Vector3.ZERO)
+	_check_near(orbit.z, 5.0, 1e-4, "orbit distance")
+	var back: Array = GreenRead.orbit_pose(null, Vector3.ZERO, orbit)
+	_check((back[0] as Vector3).distance_to(Vector3(0, 3, 4)) < 1e-3, "orbit pose round trip")
+	var moved := GreenRead.orbit_moved(orbit, Vector2(0, 200), 0.01)
+	_check(moved.y == GreenRead.ORBIT_MAX_PITCH and moved.z == GreenRead.ORBIT_MIN_DIST, "orbit limits")
+	_check(GreenGrid.flow_speed(4.0) > GreenGrid.flow_speed(1.0), "dots run faster on steeper slopes")
 
 	# Links 2003's aids by skill: Amateur, Professional, Championship, Elite.
 	_check(GreenRead.assistant_level(0) == 2 and GreenRead.assistant_level(1) == 1, "assistant at Amateur and Professional")
