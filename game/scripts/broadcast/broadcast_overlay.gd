@@ -353,6 +353,14 @@ func _draw_caption() -> void:
 		_text(r.position + Vector2(20, 23 + i * CAPTION_LINE), lines[i], fs, Color(TEXT, fade))
 
 
+## The top edge of the caption box on screen, or INF while none shows (the
+## scorecard keeps clear of it).
+func caption_top() -> float:
+	if _caption_t < 0.0 or _caption.is_empty():
+		return INF
+	return size.y - CAPTION_BOTTOM - caption_height(_caption.split("\n").size())
+
+
 static func caption_height(line_count: int) -> float:
 	return 34.0 + CAPTION_LINE * maxf(line_count - 1, 0)
 

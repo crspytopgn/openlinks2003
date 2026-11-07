@@ -93,6 +93,7 @@ static func make_range() -> HoleData:
 	hole.pin = Vector3(g.x, t.height_at(g.x, g.y), g.y)
 	hole.card_length = float(last[0]) * YARD
 	# Auto-aim picks the furthest target the club reaches (HoleData.aim_point).
+	hole.route_targets = true
 	for i in TARGETS.size() - 1:
 		var p := target_position(t, i)
 		hole.route.append(Vector2(p.x, p.z))

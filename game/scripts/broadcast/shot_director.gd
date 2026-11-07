@@ -25,6 +25,10 @@ const PIN_BEYOND := 13.0
 const PIN_UP := 2.6
 const PUTT_BACK := 2.8
 const PUTT_UP := 1.15
+## The putting camera keeps this far (sideways) from the golfer, who stands
+## beside the line: easing after the ball it used to pass through their hips,
+## and it stopped right behind them as they walked to the hole.
+const PUTT_GOLFER_CLEAR := 1.3
 const KEEP_ABOVE_GROUND := 1.2
 ## A fixed camera keeps this far from any tree trunk, canopy or building,
 ## so it never stands inside a tree with the screen full of leaves.
@@ -47,6 +51,8 @@ var _terrain: CourseTerrain
 ## Things only the cameras keep out of (the gallery's grandstands).
 var _blockers: ObstacleField
 var _cut := -1
+## The golfer the putting camera keeps clear of (null: none).
+var golfer: Node3D
 
 
 ## Plans the cameras for `shot`. `behind` is where the camera stood at
@@ -142,10 +148,26 @@ func step(t: float, ball: Vector3, from: Vector3, delta: float) -> Array:
 			var back := _dir if aim.length() < 1.0 else aim.normalized()
 			var want := _above(ball - back * PUTT_BACK + Vector3.UP * PUTT_UP)
 			pos = want if cut else from.lerp(want, 1.0 - exp(-delta * 2.5))
+			pos = _clear_of_golfer(pos)
 			look = ball.lerp(_pin, 0.25)
 		_:
 			pos = fixed.get(cam, from)
 	return [pos, look, cut]
+
+
+## `p` moved straight out sideways until it is PUTT_GOLFER_CLEAR from the
+## golfer.
+func _clear_of_golfer(p: Vector3) -> Vector3:
+	if golfer == null or not is_instance_valid(golfer):
+		return p
+	var g := golfer.global_position
+	var off := Vector2(p.x - g.x, p.z - g.z)
+	if off.length() >= PUTT_GOLFER_CLEAR:
+		return p
+	if off.length() < 0.01:
+		off = Vector2(-_dir.x, -_dir.z)
+	off = off.normalized() * PUTT_GOLFER_CLEAR
+	return _above(Vector3(g.x + off.x, p.y, g.z + off.y))
 
 
 ## Which cut is live at `t`.

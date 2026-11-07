@@ -1,9 +1,12 @@
 class_name CaddieNote
 extends PanelContainer
 ## What the caddie says about the shot, in a small card above the controls
-## line. Hidden while there is nothing to say.
+## line on the left, under Broadcast's lower third. Hidden while there is
+## nothing to say. (Centred, it covered the ball at address in the tee view
+## and ran under the swing meter on a 1280 px screen.)
 
-const WIDTH := 640.0
+const WIDTH := 440.0
+const LEFT := 40.0  ## lined up with Broadcast's lower third
 const BOTTOM := -44.0  ## its lowest bottom edge (Hud lifts it over wrapped hints)
 
 var _body: Label
@@ -28,14 +31,14 @@ func _init() -> void:
 	_body.custom_minimum_size.x = WIDTH - 90.0
 	_body.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	row.add_child(_body)
-	set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	visible = false
 
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_KEEP_SIZE)
-	offset_left = -WIDTH * 0.5
-	offset_right = WIDTH * 0.5
+	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_KEEP_SIZE)
+	offset_left = LEFT
+	offset_right = LEFT + WIDTH
 	offset_bottom = BOTTOM
 	offset_top = BOTTOM
 	grow_vertical = Control.GROW_DIRECTION_BEGIN

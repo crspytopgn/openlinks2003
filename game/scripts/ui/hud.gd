@@ -218,8 +218,16 @@ func _process(delta: float) -> void:
 		if _sound_caption_time <= 0.0:
 			sound_caption.text = ""
 	# Keep the card centred as its contents change size.
+	# It also shrinks back to fit (a PanelContainer keeps the size of its
+	# tallest contents, which left an empty band under a shorter card), and
+	# moves up clear of a Broadcast caption, such as the end-of-round
+	# result, which it used to cover.
 	if scorecard.visible:
-		scorecard.position = (size - scorecard.size) * 0.5
+		scorecard.reset_size()
+		var at := (size - scorecard.size) * 0.5
+		if broadcast:
+			at.y = maxf(8.0, minf(at.y, overlay.caption_top() - scorecard.size.y - 12.0))
+		scorecard.position = at
 	_clear_hints()
 
 

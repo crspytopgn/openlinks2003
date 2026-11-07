@@ -50,6 +50,10 @@ const PAYOUT := [
 	0.223, 0.221, 0.219, 0.217, 0.215,
 ]
 const EVENT_KINDS := ["Classic", "Open", "Invitational", "Masters", "Championship"]
+## Further names for an event whose course already hosts one of the same
+## name this season (one course, such as the built-in Kettle Hollow alone,
+## used to give two "Kettle Hollow Classic"s).
+const SPARE_KINDS := ["Trophy", "Challenge", "Cup", "Shootout", "Pro-Am", "Series"]
 const _FIRST := [
 	"Aaron", "Ben", "Callum", "Dan", "Elliot", "Felix", "Gareth", "Hugo", "Ian", "Jonah",
 	"Kieran", "Liam", "Marcus", "Nils", "Owen", "Pablo", "Quinn", "Rafael", "Stefan", "Tomas",
@@ -226,6 +230,17 @@ func _new_season() -> void:
 		var title := "%s %s" % [_short_name(course_names[ci]), kind]
 		if kind == "Championship":
 			title = "%s Championship" % str(info.name).trim_suffix(" Tour")
+		else:
+			var spare := 0
+			var names_so_far := schedule.map(func(ev: Dictionary) -> String: return str(ev.name))
+			while title in names_so_far:
+				var others: Array = EVENT_KINDS.slice(0, 3) + SPARE_KINDS
+				others.erase(kind)
+				title = "%s %s" % [_short_name(course_names[ci]), others[spare % others.size()]]
+				spare += 1
+				if spare > others.size():
+					title = "%s %s %d" % [_short_name(course_names[ci]), kind, e + 1]
+					break
 		schedule.append({"name": title, "course_key": course_keys[ci], "course_name": course_names[ci],
 			"purse": int(round(float(info.purse) * mult))})
 	results.clear()

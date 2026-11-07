@@ -4992,6 +4992,12 @@ func _test_career() -> void:
 	_check(d.season == 2 and d.history.size() == 1 and d.tour == 2 and d.event == 0 and d.results.is_empty(), "career: season 2")
 
 	# The Regional Tour: one-round nine-hole events, no partners, moving up.
+	# One course for a whole season: every event still has its own name.
+	var solo := Career.create("Cy", 0, 8, 4, false, 2, [] as Array[String], [] as Array[String], 9)
+	var event_names := {}
+	for ev: Dictionary in solo.schedule:
+		event_names[str(ev.name)] = true
+	_check(event_names.size() == solo.schedule.size(), "career: no two events share a name (%s)" % str(event_names.keys()))
 	var e := Career.create("Bo", 0, 1, 1, true, 0, [] as Array[String], [] as Array[String], 5)
 	_check(e.names.size() == 60 and e.course_keys == _strs([""]), "career: the placeholder course stands in")
 	s = e.next_setup()
@@ -5171,6 +5177,18 @@ func _test_broadcast_pieces() -> void:
 	dogleg.route = PackedVector2Array([Vector2(0, 280)])
 	_check(dogleg.aim_point(dogleg.tee, 250.0).distance_to(Vector3(0, 0, 280)) < 0.1, "out of reach of the corner: aim at the corner")
 	_check(dogleg.aim_point(Vector3(0, 0, 200), 250.0).distance_to(dogleg.pin) < 0.1, "past the corner: aim at the pin")
+	# A route point that only bends the line a little (Kettle Hollow's 1st):
+	# carry on along the next leg as far as the club reaches, not lay up at it.
+	var gentle := HoleData.new()
+	gentle.terrain = terrain
+	gentle.tee = Vector3.ZERO
+	gentle.pin = Vector3(-30, 0, 360)
+	gentle.route = PackedVector2Array([Vector2(0, 130)])
+	var gentle_aim := gentle.aim_point(gentle.tee, 240.0)
+	_check(absf(Vector2(gentle_aim.x, gentle_aim.z).length() - 240.0) < 0.5 and gentle_aim.x < -1.0,
+		"a gentle bend: aim 240 m out along the line (got %s)" % gentle_aim)
+	gentle.route_targets = true
+	_check(gentle.aim_point(gentle.tee, 240.0).distance_to(Vector3(0, 0, 130)) < 0.1, "range targets: aim at a target")
 	var first: Array = d.step(0.0, shot.points[0], behind, 0.016)
 	_check((first[0] as Vector3).is_equal_approx(behind), "behind camera stays put")
 	_check(not first[2], "the first camera carries on from the aim view, no cut as the swing starts")

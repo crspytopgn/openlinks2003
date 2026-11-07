@@ -919,6 +919,7 @@ func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null
 		free_ambience.set_wind(wind.velocity().length())
 	shot_time = 0.0
 	_land_time = RoundCamera.time_near(shot, shot.first_landing) if shot.bounces > 0 else INF
+	camera.golfer = golfer
 	camera.follow(shot, hole.pin, club.is_putter)
 	_plan_voice(power, accuracy)
 	aim_marker.visible = false
@@ -2246,6 +2247,9 @@ func _take_turn(next: int) -> void:
 	else:
 		_begin_turn(next, true)
 		if players.size() > 1:
+			# The last player's shot card would sit over the next player's
+			# aim, as if it were theirs.
+			hud.overlay.hide_shot_card()
 			hud.show_message("%s to play" % scoring.names[shooter], 1.5)
 
 
@@ -3823,7 +3827,9 @@ func _status(aiming: bool) -> Dictionary:
 	return {
 		"hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
 		"player": scoring.names[shooter], "to_par": "E" if thru == 0 else Scorecard.format_to_par(card.to_par()),
-		"thru": thru, "stroke": strokes + 1, "club": club_text, "to_pin": _pin_text(),
+		# Once holed (or picked up), the strokes taken, not the next one: the
+		# score bug said "SHOT 5" over a 4.
+		"thru": thru, "stroke": strokes if players[current].done() else strokes + 1, "club": club_text, "to_pin": _pin_text(),
 		"lie": Surface.name_of(lie), "wind": wind.describe(aim_deg), "elevation": elev,
 		"ticker": _ticker_text(), "aiming": aiming,
 	}
@@ -3937,6 +3943,7 @@ func start_replay() -> bool:
 	_clear_trail()
 	var putting := clubs[club_index].is_putter
 	camera.aim(shot_from, _aim_dir(), putting)
+	camera.golfer = golfer
 	camera.follow(shot, hole.pin, putting, _replay_count * 3 + 1)
 	if golfer:
 		golfer.play(&"putt" if putting else &"swing")
