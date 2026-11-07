@@ -31,6 +31,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 import anatomy
+import collide
 import pose
 
 ELBOW = 38.0  # degrees, both arms
@@ -75,6 +76,11 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
     fwd_axis = np.array([-1.0, 0.0, 0.0])  # turning about -x tips +y towards -z
     side_axis = np.array([0.0, 0.0, -1.0])  # about -z tips +y towards +x (his right)
 
+    guard = collide.Guard(glb)
+
+    def x_root(x):
+        return np.array(root0, dtype=float) + x[3:6]
+
     def build(x):
         tilt, flex, side, dx, dy, dz = x
         local = [m.copy() for m in local0]
@@ -91,10 +97,13 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
             R[i[f"foot_{s}"]] = foot
         R, P = rig.world(rig.locals(R), root)
         R = list(R)
+        out = {"l": R[i["spine_03"]] @ np.array([-1.0, 0.0, 0.0]), "r": R[i["spine_03"]] @ np.array([1.0, 0.0, 0.0])}
         for s in "lr":
             sh = P[i[f"upperarm_{s}"]]
-            # Elbows in towards the hips and back.
-            pole = pose.unit(P[i["pelvis"]] - sh) + np.array([0.0, 0.0, 0.6])
+            # Elbows down towards the hips and out to the sides, clear of
+            # the chest (aiming them in and back put the right upper arm
+            # across the breastbone once the trunk bent forward).
+            pole = pose.unit(P[i["pelvis"]] - sh) + 0.8 * out[s]
             reach_pole(rig, R, list(P), f"upperarm_{s}", f"lowerarm_{s}", f"hand_{s}", hands[s][1], pole)
         for s in "lr":
             # The hands back to their grip, carrying the fingers and the
@@ -125,8 +134,13 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
         }
         R = list(R)
         terms["wrists"] = 0.0
+        terms["clear"] = 0.0
+        body = guard.frame(R, x_root(x))
         for s in "lr":
-            anatomy.fit_arm(rig, R, P, s)
+            anatomy.fit_arm(rig, R, P, s, body=body)
+            # Arms outside the chest (the real body, collide.Guard).
+            Rn, _ = rig.world(rig.locals(R), x_root(x))
+            terms["clear"] += anatomy.CLEAR_COST * (100.0 * guard.frame(Rn, x_root(x)).arm_depth(s)) ** 2
             a = anatomy.arm_angles(rig, s, R[i[f"upperarm_{s}"]], R[i[f"lowerarm_{s}"]], R[i[f"hand_{s}"]])
             terms["reach"] += (a["elbow_flex"] - ELBOW) ** 2 * 0.05
             for k in ("wrist_flex", "wrist_dev", "forearm_roll"):
@@ -143,8 +157,9 @@ def solve(glb, rig, ref="ref_address_putt", club="Putter"):
     res = minimize(cost, x0, method="Powell", bounds=bounds, options=dict(maxiter=6000, xtol=1e-3, ftol=1e-5))
     R, P, root = build(res.x)
     # Elbow swivel and forearm roll inside the joints' ranges.
+    body = guard.frame(R, root)
     for s in "lr":
-        anatomy.fit_arm(rig, R, P, s)
+        anatomy.fit_arm(rig, R, P, s, body=body)
     R, P = rig.world(rig.locals(R), root)
     # Eyes down at the ball, the head tipped by the neck and head joints.
     R = list(R)
