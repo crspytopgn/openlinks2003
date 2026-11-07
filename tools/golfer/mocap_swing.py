@@ -37,6 +37,7 @@ import iron  # noqa: E402
 import pose  # noqa: E402
 import putt_posture  # noqa: E402
 import anatomy  # noqa: E402
+import collide  # noqa: E402
 
 BVH_URL = "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/{:03d}/{}.bvh"
 MOCAP_FPS = 120.0
@@ -1541,11 +1542,15 @@ def main():
     grip.straighten(glb, rig)
     grip.narrow(glb, rig)
     grip.overlap(glb, rig, club_direction(glb, rig))
+    grip.rewrap(glb, rig, club_direction(glb, rig))
     # The clubs modelled from real ones, before the swings are measured
     # against their heads.
     clubs.swap(glb, rig)
     # The putting address re-posed round the (now 34.5 inch) putter.
     putt_posture.fit(glb, rig)
+    # The real body (the default person's mesh), so the arms are placed
+    # outside the chest (collide.py).
+    guard = collide.Guard(glb)
     for name in args.clips.split(","):
         if name in STAND_CLIPS:
             times, rots, root, moved = retarget_stand(glb, rig, STAND_CLIPS[name], args.cache)
@@ -1554,7 +1559,7 @@ def main():
             moved = {}
         # Elbows swivelled and forearms rolled so the wrists stay in their
         # range, the hands (and club) left exactly where they are.
-        rots = anatomy.fit_arms(rig, list(zip(rots, root)), free_hands(name), club_direction(glb, rig))
+        rots = anatomy.fit_arms(rig, list(zip(rots, root)), free_hands(name), club_direction(glb, rig), guard)
         write_clip(glb, rig, name, times, rots, root, moves=moved)
         print(f"{name}: {len(times)} keys, {times[-1]:.2f} s")
     club_still(glb, rig)
