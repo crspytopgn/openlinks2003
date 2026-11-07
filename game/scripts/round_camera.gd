@@ -48,6 +48,8 @@ var broadcast := false
 var director: ShotDirector
 ## Things only the camera keeps out of: the gallery's grandstands.
 var blockers: ObstacleField
+## The golfer playing the shot; the putting camera keeps clear of them.
+var golfer: Node3D
 var _variant := 0
 var _aim_pos := Vector3.ZERO
 var _aim_look := Vector3.ZERO
@@ -178,6 +180,7 @@ func follow(shot: ShotResult, pin := Vector3.ZERO, putting := false, variant := 
 			_variant += 1
 			variant = _variant
 		director = ShotDirector.plan(shot, pin, terrain, position, putting, variant, blockers)
+		director.golfer = golfer
 		return
 	if shot.carry_m >= LANDING_VIEW_MIN_CARRY:
 		_landing_time = time_near(shot, shot.first_landing)

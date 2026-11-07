@@ -66,7 +66,10 @@ void vertex() {
 	// by its facing alone it goes black whenever the sun is behind the
 	// person, where a real person still catches light on the head and
 	// shoulders and from the sky.
-	NORMAL = normalize((VIEW_MATRIX * vec4(to_cam + vec3(0.0, 1.2, 0.0), 0.0)).xyz);
+	// Tipped up enough (2.2) that a card with a low sun behind it, looking
+	// down a hole into the light, still catches some sun; at 1.2 such
+	// cards came out black against the lit 3D people beside them.
+	NORMAL = normalize((VIEW_MATRIX * vec4(to_cam + vec3(0.0, 2.2, 0.0), 0.0)).xyz);
 	shirt = COLOR.rgb;
 	custom = INSTANCE_CUSTOM;
 	// Which way the light falls across the figure, for a little modelling.

@@ -170,14 +170,30 @@ func status_text() -> String:
 				team_name(0), Scorecard.format_to_par(team_card(0).to_par()),
 				team_name(1), Scorecard.format_to_par(team_card(1).to_par())]
 		GameModes.Mode.STABLEFORD:
-			var parts: Array[String] = []
+			var order: Array[int] = []
 			for i in names.size():
+				order.append(i)
+			order.sort_custom(func(a: int, b: int) -> bool:
+				var pa := GameModes.stableford_total(scored_card(a))
+				var pb := GameModes.stableford_total(scored_card(b))
+				return pa > pb or (pa == pb and a < b))
+			var parts: Array[String] = []
+			for i in order:
 				parts.append("%s %d" % [names[i], GameModes.stableford_total(scored_card(i))])
 			return "Points: " + ", ".join(parts)
 	if names.size() == 1:
 		return ""
-	var parts: Array[String] = []
+	# Best score first: "Leaders" read in seat order put a player 3 over
+	# the winners at the head of the list.
+	var order: Array[int] = []
 	for i in names.size():
+		order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var ta := scored_card(a).to_par()
+		var tb := scored_card(b).to_par()
+		return ta < tb or (ta == tb and a < b))
+	var parts: Array[String] = []
+	for i in order:
 		parts.append("%s %s" % [names[i], Scorecard.format_to_par(scored_card(i).to_par())])
 	return ("Net: " if handicaps else "Leaders: ") + ", ".join(parts)
 
