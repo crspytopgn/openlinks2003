@@ -792,7 +792,7 @@ func record_round(id: String, played: Dictionary, pars: Array[int], stroke_index
 	if rounds_played() < rounds:
 		var p := position_of(me)
 		if made_cut.is_empty() or made_cut[me]:
-			text += ", %s at %s." % [p.pos, _value_text(_total(me))]
+			text += ", %s %s at %s." % ["tied" if p.tied else "lying", Career._ordinal(int(p.place)), _value_text(_total(me))]
 		if not made_cut.is_empty() and rounds_played() == 2:
 			text += (" Made the cut at %s." if made_cut[me] else " Missed the cut at %s.") % _value_text(cut_line())
 		if not made_cut.is_empty() and not made_cut[me]:
