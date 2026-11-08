@@ -335,8 +335,8 @@ method.
 swing starts at the snap line, position 15, and climbs: position 54 is
 full power and 55 to 67 are overswing. Chips and putts have their own
 meters that start at the bottom (0) and run to 68. The marker moves one
-position at a time; each step waits `n x 70 / (1.2 e)` of the game's 8 ms
-frames (whole frames, the fraction carried to the next step), where `e`
+position at a time; each step waits `n x 70 / (1.2 e)` of the game's
+logic ticks (whole ticks, the fraction carried to the next step), where `e`
 eases between 70 and 42 on a 40-position cycle (70 at positions 15 and 55,
 42 at 35; coming down the cycle is one position later) and `n` depends on
 the meter and the position:
@@ -347,8 +347,19 @@ the meter and the position:
 | Chip | 5, then 4 from 20, 3 from 29, 2 from 45 | 2 |
 | Putt (long and short) | 5, then 4 from 28, 3 from 38, 2 from 48 | 2 |
 
-So a full backswing takes about 1.05 s to full power, 1.2 s to the top,
-and the marker comes back down from the top to the bottom in about 0.55 s.
+The meter object checks for a step once a logic tick (its `Next`,
+0x4fefa0). The main loop waits for 16 ms a tick on a PC that keeps up, and
+33 ms on one that doesn't (0x4c8c60, which switches to 16 ms for good once
+a tick has time to spare), so on anything current the meter runs at 60
+ticks a second. A full backswing takes about 2.2 s to full power, 2.5 s to
+the top, and the marker comes back down from the top to the bottom in
+about 1.15 s. (We first took the tick for 8 ms, which ran the meter twice
+as fast as the game.)
+
+**Keys.** The click is the primary mouse button (the right one if the
+buttons are swapped), polled each tick, so a click anywhere on the screen
+counts. With the game's keyboard option on it polls Space, Insert, keypad 0
+and F12 instead (0x4cd860). The game shell takes all of them at once.
 Once a chip or putt has its power, its steps keep the speed of the power
 position, and a putt slows by half again within five positions of it.
 

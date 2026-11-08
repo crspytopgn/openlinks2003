@@ -612,7 +612,7 @@ func _test_swing_meter() -> void:
 	while meter.run.pos < LinksPowerStroke.FULL_POWER:
 		meter._process(0.004)
 		t += 0.004
-	_check_near(t, 1.048, 0.01, "the game's meter takes about a second to full power")
+	_check_near(t, 2.183, 0.01, "the game's meter takes about 2.2 s to full power")
 	meter.click()
 	_check_near(meter.power, 1.0, 1e-6, "second click at position 54 is full power")
 	while meter.run.pos > LinksPowerStroke.SNAP:
