@@ -12,13 +12,13 @@ extends MeshInstance3D
 const COLOR := Color(1.0, 0.32, 0.18)
 const CORE := Color(1.0, 0.62, 0.45)  ## a red line with a lighter middle, not a white-hot one
 ## Width grows with distance from the camera, so the line keeps the same
-## few pixels on screen near and far, as TV tracers do (about a 4 px core in
-## a 14 px halo at 720p). The floor only stops it vanishing right at the
+## few pixels on screen near and far, as TV tracers do (about a 2 px core in
+## a 6 px halo at 720p). The floor only stops it vanishing right at the
 ## lens; a wide floor drew a thick bar up the middle of the chase cam.
-const MIN_WIDTH := 0.004
-const WIDTH_PER_METRE := 0.003  ## half-width of the core, per metre from the camera
-const HALO := 1.8  ## the soft edge's half-width, in core half-widths
-const HEAD_FLARE := 1.6  ## the dot's radius at the ball, in core half-widths
+const MIN_WIDTH := 0.002
+const WIDTH_PER_METRE := 0.0015  ## half-width of the core, per metre from the camera
+const HALO := 1.5  ## the soft edge's half-width, in core half-widths
+const HEAD_FLARE := 1.0  ## the dot's radius at the ball, in core half-widths
 const MIN_STEP_M := 0.05  ## closer samples are dropped (they flip the ribbon)
 const MAX_POINTS := 400  ## older samples are skipped evenly beyond this
 
@@ -63,8 +63,8 @@ func draw(points: PackedVector3Array, upto: int, head: Vector3, eye: Vector3, fo
 	var path := PackedVector3Array()
 	var step := maxi(1, ceili(float(upto + 1) / MAX_POINTS))
 	for i in range(0, mini(upto, points.size() - 1) + 1, step):
-		_add_point(path, points[i] + Vector3.UP * 0.05)
-	_add_point(path, head + Vector3.UP * 0.05)
+		_add_point(path, points[i])
+	_add_point(path, head)
 	var n := path.size()
 	if n < 2:
 		return
@@ -73,7 +73,7 @@ func draw(points: PackedVector3Array, upto: int, head: Vector3, eye: Vector3, fo
 	# bright along the middle and black (nothing, when added) at the edges.
 	_ribbon(path, eye, forward, HALO * width_scale, Color(color, 0.35))
 	_ribbon(path, eye, forward, width_scale, Color(core, 0.95))
-	_flare(head + Vector3.UP * 0.05, eye)
+	_flare(head, eye)
 	_mesh.surface_end()
 
 

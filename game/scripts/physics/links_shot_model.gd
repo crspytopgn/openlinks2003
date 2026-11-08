@@ -166,5 +166,15 @@ func reach_scale(club: Club) -> float:
 	return club_rating(club) / 100.0
 
 
+## Links 2003's LiePower for the lie (rough 0.93, deep grass 0.84), the
+## value launch() strikes with, so the reach shown matches the shot. Sand
+## keeps the shell's own figure: there the contact decides (apply_lie).
+func lie_power(lie: int) -> float:
+	var c := LinksGround.ground_class_for(lie)
+	if c == LinksGround.SAND:
+		return Surface.lie_power(lie)
+	return LinksGround.surface_for_class(c).lie_power
+
+
 func simulate(start: BallState, terrain: CourseTerrain, cup: Vector3, wind := Vector3.ZERO) -> ShotResult:
 	return BallPhysics.simulate_shot(start, terrain, true, cup, wind, aero)
