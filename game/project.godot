@@ -10,6 +10,7 @@ config/description="Open-source reimplementation of Links 2003. Requires your ow
 run/main_scene="res://scenes/boot.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.png"
+run/flush_stdout_on_print=true
 
 [display]
 

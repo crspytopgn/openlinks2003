@@ -1129,7 +1129,7 @@ func _play() -> void:
 	# The key lets the main menu resume the round on this course.
 	GolfRound.setup.course_key = path
 	GolfRound.chosen_course = path
-	SceneFade.change_scene(get_tree(), ROUND_SCENE)
+	SceneFade.change_scene(get_tree(), ROUND_SCENE, SceneFade.round_message())
 
 
 func _show_open() -> void:
