@@ -441,10 +441,51 @@ def regions(surface, colour, skin, names):
         mask[..., k - 1] = sel
         means.append(m)
     mask = fill_holes(mask > 0.5, is_skin)
+    mask = grow_edges(mask > 0.5, tex)
     img = Image.fromarray((mask * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.8))
     buf = io.BytesIO()
     img.save(buf, "PNG", optimize=True)
     return buf.getvalue(), means
+
+
+GROW_STEPS = 6  # mask texels a garment reaches past its triangles' edges
+
+
+def grow_edges(mask, tex, steps=GROW_STEPS):
+    """Each garment's mask (bool, h x w x 3) grown out to the edges of its
+    pieces: texels on no garment next to one, in that garment's colour,
+    join it, a ring at a time. Only texels whose centre lies inside a
+    triangle get a label, so a thin rim of each piece of cloth, and the
+    padding round it, kept the source clothes' own colour; along a seam the
+    texture filtering (and a stretched armpit) showed that rim as a pale
+    stripe on a dark shirt. Skin, buttons and belts are a different colour
+    and stay as they are."""
+    lum = tex @ np.array([0.2126, 0.7152, 0.0722])
+    chroma = tex / np.maximum(tex.sum(-1, keepdims=True), 1e-6)
+    feat = np.concatenate([chroma * 3.0, np.sqrt(np.maximum(lum, 0))[..., None]], -1)
+    out = mask.copy()
+    close = []
+    for k in range(3):
+        sel = out[..., k]
+        ref = np.median(feat[sel], axis=0) if sel.sum() > 50 else None
+        close.append(np.linalg.norm(feat - ref, axis=-1) < UNLIKE if ref is not None else np.zeros(lum.shape, bool))
+    for _ in range(steps):
+        free = ~out.any(-1)
+        for k in range(3):
+            out[..., k] |= _dilate(out[..., k]) & free & close[k]
+            free &= ~out[..., k]
+    return out.astype(np.float64)
+
+
+def _dilate(sel):
+    """`sel` (bool, h x w) grown by one texel (8-neighbour)."""
+    p = np.pad(sel, 1)
+    h, w = sel.shape
+    out = sel.copy()
+    for dy in (0, 1, 2):
+        for dx in (0, 1, 2):
+            out |= p[dy:dy + h, dx:dx + w]
+    return out
 
 
 def enclosed(sel):
