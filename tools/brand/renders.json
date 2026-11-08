@@ -94,6 +94,22 @@
 	},
 	{
 		"src": "templates/tile.html",
+		"query": "tile=course",
+		"out": "readme/tile-course-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=greens",
+		"out": "readme/tile-greens-light.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
 		"query": "tile=swing",
 		"out": "readme/tile-swing-light.webp",
 		"w": 1000,
@@ -151,6 +167,22 @@
 		"src": "templates/tile.html",
 		"query": "tile=tracer&dark",
 		"out": "readme/tile-tracer-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=course&dark",
+		"out": "readme/tile-course-dark.webp",
+		"w": 1000,
+		"h": 860,
+		"quality": 88
+	},
+	{
+		"src": "templates/tile.html",
+		"query": "tile=greens&dark",
+		"out": "readme/tile-greens-dark.webp",
 		"w": 1000,
 		"h": 860,
 		"quality": 88
