@@ -14,7 +14,7 @@
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/screen-dark.webp">
-  <img alt="The tee on hole 2 of the built-in Placeholder Nine, rendered with Forward+" src="docs/brand/readme/screen-light.webp">
+  <img alt="The tee on hole 2 of Kettle Hollow, the built-in course, rendered with Forward+" src="docs/brand/readme/screen-light.webp">
 </picture>
 </p>
 
@@ -27,25 +27,49 @@ built with Godot 4 and a portable C++ core.
 > **You need your own copy of the original game for its courses, golfers and
 > sounds.** This project contains no code, art, audio, course or other data
 > from Links 2003. The engine reads assets at runtime from your copy; out of
-> the box it plays a built-in placeholder course. See
+> the box it plays its own course, Kettle Hollow, with its own golfers. See
 > [docs/clean-room.md](docs/clean-room.md).
 
 <p align="center">
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-broadcast-dark.webp"><img alt="Tour-grade coverage: TV cameras, a score bug, live wind and a gallery" src="docs/brand/readme/tile-broadcast-light.webp" width="49%"></picture>
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-tracer-dark.webp"><img alt="Every shot, traced: a TV tracer and a pin cam follow every ball home" src="docs/brand/readme/tile-tracer-light.webp" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-course-dark.webp"><img alt="A real nine, on real land: Kettle Hollow, routed on lidar terrain" src="docs/brand/readme/tile-course-light.webp" width="49%"></picture>
 </p>
 <p align="center">
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-swing-dark.webp"><img alt="A swing that looks real: motion-captured swings, chips and putts" src="docs/brand/readme/tile-swing-light.webp" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-tracer-dark.webp"><img alt="Every shot, traced: a TV tracer and a landing cam follow every ball home" src="docs/brand/readme/tile-tracer-light.webp" width="49%"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-greens-dark.webp"><img alt="Read every break: a TV grid with flowing slope dots, a real-depth cup and the Green Analyzer" src="docs/brand/readme/tile-greens-light.webp" width="49%"></picture>
+</p>
+<p align="center">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-swing-dark.webp"><img alt="Real people, real swings: scanned golfers with motion-captured swings, chips and putts" src="docs/brand/readme/tile-swing-light.webp" width="49%"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/tile-designer-dark.webp"><img alt="Build your own course: shape the land, draw the holes, plant trees, play" src="docs/brand/readme/tile-designer-light.webp" width="49%"></picture>
 </p>
+
+## What you can play
+
+- **Kettle Hollow**, the built-in nine, routed on real lidar terrain, plus
+  the course designer for your own (or a real place, from map data).
+- **Realistic golfers**: scanned people with motion-captured swings, chips,
+  putts, walks and green reading. Pick a person and their clothes, or build
+  a custom golfer.
+- **Modes**: stroke play, match play, skins, best ball, Stableford,
+  scramble and alternate shot, with handicaps,
+  computer opponents calibrated to real tour stats, a **tournament**
+  creator and a **career** with tours, cuts and prize money.
+- **Real Links physics**: flight, bounce and roll per surface, with the
+  classic three-click swing, the mouse swing, touch swipes and gamepad
+  sticks.
+- **Greens you can read**: stimp speeds, a TV slope grid with flowing dots,
+  a putt read in the panel and the Green Analyzer's free camera.
+- **Looks that scale**: from Low on phones and old laptops to Ultra on
+  high-end PCs, with Natural and Classic Links looks and a broadcast
+  presentation.
 
 ## Play in the browser
 
 The latest `main` build is published to
 **https://crspytopgn.github.io/openlinks2003/** (desktop Chrome, Firefox,
-Edge or Safari; needs WebGL 2).
+Edge or Safari, and iPad; needs WebGL 2).
 
-It plays with placeholder content out of the box. To use the real courses,
+It plays Kettle Hollow out of the box. To use the real courses,
 textures, objects and sounds, choose **Load disc images** on the first screen
 and pick your own Links 2003 disc images (`.b6i`, `.iso` and other formats,
 from any drive), or **Load a game folder** for an installed copy. The files
@@ -60,8 +84,8 @@ Every push to `main` builds the game for all three platforms and publishes
 it as the **[latest release](https://github.com/crspytopgn/openlinks2003/releases/tag/latest)**
 (macOS universal, Windows, Linux). The builds contain no game data.
 
-The easiest way in is the **launcher** (`OpenLinks2003-Launcher-*` on the
-same page): it installs the game and keeps it up to date, shows what's new,
+The easiest way in is the **launcher**: download `OpenLinks2003-Launcher-*`
+for your system from that page. It installs the game and keeps it up to date, shows what's new,
 sets the display, quality, sound and swing options before you play, opens the
 course builder, and gets your Links 2003 files ready from your discs, disc
 images or an installed copy, all on your own computer. See
