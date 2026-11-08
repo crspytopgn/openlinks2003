@@ -770,14 +770,27 @@ def smooth(quats):
     return out / np.linalg.norm(out, axis=1, keepdims=True)
 
 
+# The toes bend at the ball of the foot at most this far: a golf shoe's
+# sole creases there by 40 to 50 degrees, up on the toes at the finish or
+# down in the read. The actor's toe bones reached 102 degrees at the
+# finish and 55 in the read, and the shoe crumpled.
+TOE_MAX = 45.0
+
+
+def toe_limit(m):
+    a = math.degrees(math.acos(float(np.clip((np.trace(m) - 1.0) / 2.0, -1.0, 1.0))))
+    return m if a <= TOE_MAX else pose.slerp(np.eye(3), m, TOE_MAX / a)
+
+
 def write_clip(glb, rig, name, times, rots, root, filtered=True, moves=None):
     """`moves`: joint index to its translations, for joints that move in
     their parent (the club drawn from the bag in the right hand)."""
     t_acc = glb.add(times, minmax=True)
     t_one = None
     samplers, channels = [], []
+    toes = {rig.index[f"ball_{s}"] for s in "lr"}
     for j, node in enumerate(rig.joints):
-        q = np.array([pose.quat(r[j]) for r in rots])
+        q = np.array([pose.quat(toe_limit(r[j]) if j in toes else r[j]) for r in rots])
         q = (smooth(q) if filtered and len(q) > 2 else q).astype(np.float32)
         if len(q) > 1 and np.max(1.0 - np.abs(q @ q[0])) < 1e-7:
             # Still all clip long (the fingers round the grip): one key.
