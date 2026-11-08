@@ -32,6 +32,22 @@ const CHAINS := [
 ## sits and the share of the roll it takes there; the segment's own bone is
 ## the last point, at 1 with all of it.
 const POINTS := [0.0, 0.5]
+## Half bones: [joint's bone, reach (metres), the bones its skin blends
+## from]. Linear skinning collapses a joint that bends far: the armpit folds
+## into a dark crease when the arm goes up at the finish or a celebration,
+## and the shoe crumples across the toes in the green-reading crouch. A half
+## bone sits on the joint and turns half as far as the bone below it; skin
+## within reach of the joint moves part of its weight onto it (most at the
+## joint, from both sides of it), so the bend is shared over a wider band
+## and keeps its volume, as the helper bones in game rigs do. The share
+## depends on the rest position alone, so the copies of a vertex along a
+## texture seam stay together.
+const HALVES := [
+	["upperarm_l", 0.15, ["clavicle_l", "spine_03", "spine_02"]],
+	["upperarm_r", 0.15, ["clavicle_r", "spine_03", "spine_02"]],
+	["ball_l", 0.045, ["foot_l"]],
+	["ball_r", 0.045, ["foot_r"]],
+]
 const MESH_CACHE := 96
 
 static var _cache := {}  ## mesh -> reweighted copy
@@ -39,6 +55,14 @@ static var _cache_order: Array = []
 
 ## [twist bone, segment bone, share, far-end axis in the segment's frame].
 var _twists: Array = []
+## [half bone, joint's bone].
+var _halves: Array = []
+
+
+## The half bone's name for joint bone `bone` ("upperarm_l" ->
+## "upperarm_half_l").
+static func half_name(bone: String) -> String:
+	return "%s_half%s" % [bone.substr(0, bone.length() - 2), bone.substr(bone.length() - 2)]
 
 
 ## The twist bones' names for segment `bone` ("lowerarm_l" ->
@@ -57,7 +81,19 @@ static func all_names() -> PackedStringArray:
 	var out := PackedStringArray()
 	for chain: Array in CHAINS:
 		out.append_array(twist_names(chain[0]))
+	for half: Array in HALVES:
+		out.append(half_name(half[0]))
 	return out
+
+
+static func _add_beside(sk: Skeleton3D, bone_name: String, src: int) -> void:
+	if sk.find_bone(bone_name) >= 0:
+		return
+	var b := sk.get_bone_count()
+	sk.add_bone(bone_name)
+	sk.set_bone_parent(b, sk.get_bone_parent(src))
+	sk.set_bone_rest(b, sk.get_bone_rest(src))
+	sk.set_bone_pose(b, sk.get_bone_rest(src))
 
 
 ## Adds the twist bones to `sk` (once) and returns the modifier that drives
@@ -68,13 +104,11 @@ static func rig(sk: Skeleton3D) -> GolferTwist:
 		if src < 0 or sk.find_bone(chain[1]) < 0:
 			continue
 		for twist_name in twist_names(chain[0]):
-			if sk.find_bone(twist_name) >= 0:
-				continue
-			var b := sk.get_bone_count()
-			sk.add_bone(twist_name)
-			sk.set_bone_parent(b, sk.get_bone_parent(src))
-			sk.set_bone_rest(b, sk.get_bone_rest(src))
-			sk.set_bone_pose(b, sk.get_bone_rest(src))
+			_add_beside(sk, twist_name, src)
+	for half: Array in HALVES:
+		var src := sk.find_bone(half[0])
+		if src >= 0:
+			_add_beside(sk, half_name(half[0]), src)
 	var m := GolferTwist.new()
 	m.name = "GolferTwist"
 	m._read(sk)
@@ -92,6 +126,11 @@ static func sync_rests(sk: Skeleton3D) -> void:
 			var b := sk.find_bone(twist_name)
 			if b >= 0:
 				sk.set_bone_rest(b, sk.get_bone_rest(src))
+	for half: Array in HALVES:
+		var src := sk.find_bone(half[0])
+		var b := sk.find_bone(half_name(half[0]))
+		if src >= 0 and b >= 0:
+			sk.set_bone_rest(b, sk.get_bone_rest(src))
 
 
 func _read(sk: Skeleton3D) -> void:
@@ -107,6 +146,12 @@ func _read(sk: Skeleton3D) -> void:
 			var b := sk.find_bone(names[k])
 			if b >= 0:
 				_twists.append([b, src, float(POINTS[k]), axis])
+	_halves.clear()
+	for half: Array in HALVES:
+		var src := sk.find_bone(half[0])
+		var b := sk.find_bone(half_name(half[0]))
+		if src >= 0 and b >= 0:
+			_halves.append([b, src])
 
 
 func _process_modification() -> void:
@@ -122,6 +167,12 @@ func _process_modification() -> void:
 		sk.set_bone_pose_rotation(t[0], rot)
 		sk.set_bone_pose_position(t[0], sk.get_bone_pose_position(src))
 		sk.set_bone_pose_scale(t[0], sk.get_bone_pose_scale(src))
+	for h: Array in _halves:
+		var src: int = h[1]
+		var rest := sk.get_bone_rest(src).basis.get_rotation_quaternion()
+		var turn := rest.inverse() * sk.get_bone_pose_rotation(src)
+		sk.set_bone_pose_rotation(h[0], rest * Quaternion.IDENTITY.slerp(turn, 0.5))
+		sk.set_bone_pose_position(h[0], sk.get_bone_pose_position(src))
 
 
 ## `q` as [swing, twist] with q = swing * twist, the twist about `axis` (in
@@ -164,7 +215,21 @@ static func reweight(mesh: ArrayMesh, names: PackedStringArray, sk: Skeleton3D) 
 			binds.append(twist_bind + all.find(twist_name))
 		binds.append(src_bind)
 		segs[src_bind] = [a, b - a, binds]
-	if not _uses(mesh, segs):
+	# [joint, reach, half bind, joint bone's bind, {bind of a bone above}].
+	var halves := []
+	var wanted := segs.duplicate()
+	for half: Array in HALVES:
+		var src_bind := names.find(half[0])
+		var src := sk.find_bone(half[0])
+		if src_bind < 0 or src < 0:
+			continue
+		var above := {}
+		for n: String in half[2]:
+			if names.find(n) >= 0:
+				above[names.find(n)] = true
+		halves.append([sk.get_bone_global_rest(src).origin, float(half[1]), twist_bind + all.find(half_name(half[0])), src_bind, above])
+		wanted[src_bind] = true
+	if not _uses(mesh, wanted):
 		return mesh
 	var points: Array = POINTS.duplicate()
 	points.append(1.0)
@@ -178,15 +243,29 @@ static func reweight(mesh: ArrayMesh, names: PackedStringArray, sk: Skeleton3D) 
 		for v in verts.size():
 			var touched := false
 			for k in per:
-				if segs.has(bones[v * per + k]) and weights[v * per + k] > 0.0:
+				if wanted.has(bones[v * per + k]) and weights[v * per + k] > 0.0:
 					touched = true
 					break
 			if not touched:
 				continue
-			var got := {}
+			var had := {}
 			for k in per:
-				var bone := bones[v * per + k]
-				var w := weights[v * per + k]
+				if weights[v * per + k] > 0.0:
+					had[bones[v * per + k]] = had.get(bones[v * per + k], 0.0) + weights[v * per + k]
+			for h: Array in halves:
+				var near := 1.0 - verts[v].distance_to(h[0]) / float(h[1])
+				if near <= 0.0:
+					continue
+				var moved := 0.0
+				for bone: int in had.keys():
+					var share := near if bone == h[3] else (0.5 * near if (h[4] as Dictionary).has(bone) else 0.0)
+					if share > 0.0:
+						moved += had[bone] * share
+						had[bone] *= 1.0 - share
+				had[h[2]] = had.get(h[2], 0.0) + moved
+			var got := {}
+			for bone: int in had:
+				var w: float = had[bone]
 				if w <= 0.0:
 					continue
 				if not segs.has(bone):
