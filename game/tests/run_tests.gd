@@ -5595,8 +5595,11 @@ func _test_touch_and_stick_swings() -> void:
 	_check(game.hud.meter.phase == SwingMeter.Phase.BACKSWING and game.hud.meter.power_position == 0,
 			"touch: the made-up click after a tap is ignored")
 	# Taps two and three set the power and the accuracy the moment they land,
-	# even over the HUD's panels.
-	for f in 40:
+	# even over the HUD's panels. Run the meter past its earliest power
+	# position, or the power would wait for it.
+	for f in 300:
+		if game.hud.meter.run.pos >= LinksPowerStroke.MIN_POWER[LinksPowerStroke.Mode.FULL] + 5:
+			break
 		game.hud.meter._process(1.0 / 60.0)
 	_touch(game, true, from)
 	_touch(game, false, from)
