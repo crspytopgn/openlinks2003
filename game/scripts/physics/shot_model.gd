@@ -30,3 +30,9 @@ func simulate(_start: BallState, _terrain: CourseTerrain, _cup: Vector3, _wind :
 ## swing sends `club` in this model.
 func reach_scale(_club: Club) -> float:
 	return 1.0
+
+
+## The share of a full swing's ball speed a shot from `lie` keeps in this
+## model, for the reach the game shows and plans with.
+func lie_power(lie: int) -> float:
+	return Surface.lie_power(lie)

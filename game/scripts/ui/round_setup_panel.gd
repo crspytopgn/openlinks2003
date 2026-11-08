@@ -29,6 +29,7 @@ var _pins: OptionButton
 var _wind: OptionButton
 var _firmness: OptionButton
 var _speed: OptionButton
+var _swing: OptionButton
 var _indexes: Array[LineEdit] = []
 var _records: Array[Label] = []
 var _profiles := PlayerProfiles.new()
@@ -79,6 +80,7 @@ func _ready() -> void:
 	for item in RoundSetup.GREEN_SPEED_NAMES:
 		_speed.add_item(str(item))
 	greens.add_child(_speed)
+	_swing = _row(grid, "Swing", ["3-click meter", "Mouse swing"])
 	_play = _row(grid, "Play", PLAY_NAMES)
 	_play.item_selected.connect(_refresh.unbind(1))
 	_mode = _row(grid, "Game", GameModes.MODE_NAMES)
@@ -194,6 +196,7 @@ func open(courses: PackedStringArray, selected: int, saved: RoundSetup) -> void:
 	_mode.select(saved.mode)
 	_handicaps.select(1 if saved.handicaps else 0)
 	_play.select(0)
+	_swing.select(GraphicsSettings.load_saved().swing_method)
 	_profiles = PlayerProfiles.load_saved()
 	_count.select(saved.player_count() - 1)
 	for i in RoundSetup.MAX_PLAYERS:
@@ -351,6 +354,12 @@ func _on_start() -> void:
 			if not s.is_computer(i) and not _profiles.has_record(s.names[i]):
 				_profiles.set_start_index(s.names[i], s.indexes[i])
 		_profiles.save()
+	# The swing is the player's setting (Settings > Swing), chosen here too
+	# so it's plain before the round starts.
+	var settings := GraphicsSettings.load_saved()
+	if settings.swing_method != _swing.selected:
+		settings.swing_method = _swing.selected
+		settings.save()
 	start_pressed.emit(s, _course.selected)
 
 

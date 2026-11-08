@@ -29,8 +29,8 @@ const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboar
 const HINT_AIM := "Left/Right or right-click: aim (Shift: fine)    Up/Down: club    Q/E/W/S: shape    %s    D: drop    Tab: scorecard%s    Esc: menu"
 ## The object viewer needs the game folder, which browsers can't read.
 const HINT_OBJECTS := "    O: objects"
-const HINT_AIM_METER := "Space or click: swing"
-const HINT_AIM_MOUSE := "Hold the left button: mouse swing    Space: meter"
+const HINT_AIM_METER := "3-click swing: Space or click    K: use the mouse swing"
+const HINT_AIM_MOUSE := "Mouse swing: hold the left button, pull back, push up    Space: 3-click    K: use 3-click"
 const HINT_PRACTICE := "Left/Right: aim (Shift: fine)    %s    V: read    N: new spot    [ ]: distance    L: slope    P: drill    T: next cup    H: next green    Esc: menu"
 const HINT_FREE_DROP := "    F: free drop"
 const HINT_DROP := "%s: option    Arrows: move the ball (Shift: fine, Page Down: back 10 m)    Space or click: drop here"
@@ -1124,6 +1124,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_C:
 					_visit("res://scenes/course_viewer.tscn")
 					return
+				KEY_K:
+					if state == State.AIM and _human_turn():
+						_toggle_swing_method()
+					return
 				KEY_R:
 					start_replay()
 					return
@@ -1303,7 +1307,7 @@ func aim_at(spot: Vector3) -> void:
 	if not clubs[club_index].is_putter and not _chip:
 		var reaches: Array[float] = []
 		for c in clubs:
-			reaches.append(-1.0 if c.is_putter else c.total_m * shot_model.reach_scale(c) * Surface.lie_power(lie))
+			reaches.append(-1.0 if c.is_putter else c.total_m * shot_model.reach_scale(c) * shot_model.lie_power(lie))
 		var pick := ClickAim.club_for(reaches, _flat_distance(ball_at, spot))
 		if pick != club_index:
 			club_index = pick
@@ -1987,6 +1991,16 @@ func _set_caddie(on: bool) -> void:
 	hud.add_child(caddie.note)
 	if hole != null and state == State.AIM:
 		_caddie_read()
+
+
+## K while aiming: switch between the 3-click meter and the mouse swing,
+## kept for the next rounds (Settings > Swing and the round setup too).
+func _toggle_swing_method() -> void:
+	graphics.swing_method = 1 - graphics.swing_method
+	graphics.save()
+	hud.hint.text = _aim_hint()
+	hud.show_message("Mouse swing: hold the left button, pull back and push up" if graphics.swing_method == 1 \
+			else "3-click swing: click (or Space) to start, set the power, then on the white line", 3.0)
 
 
 ## The aiming keys, with the swing the settings chose.
@@ -3036,7 +3050,7 @@ func _auto_club() -> void:
 	# The game's own rule: a Chip within 100 ft (straight line, to a foot
 	# above the hole) unless the ball is in sand.
 	_chip = lie != Surface.Type.SAND and ball_at.distance_to(hole.pin + Vector3(0, 0.3048, 0)) < CHIP_RANGE_M
-	var power := Surface.lie_power(lie)
+	var power := shot_model.lie_power(lie)
 	var target := hole.aim_point(ball_at, clubs[0].total_m * shot_model.reach_scale(clubs[0]) * power)
 	club_index = 0
 	# Off the tee with the green out of reach, take the driver: picking the
@@ -3068,11 +3082,33 @@ func _aim_target() -> Vector3:
 
 
 ## Full-power total distance with the current club from the current lie.
+## The lie, with the share of a full swing's power it leaves (Links 2003's
+## LiePower: rough 93 percent, deep grass 84), as the original's lie window
+## shows it.
+func lie_text(l: int) -> String:
+	var p := shot_model.lie_power(l)
+	if p >= 0.995:
+		return Surface.name_of(l)
+	return "%s %d%%" % [Surface.name_of(l), roundi(p * 100.0)]
+
+
+## How hard to swing to reach the pin with this club from this lie, as a
+## share of a full swing (the club's distance above already counts the lie).
+func _power_hint() -> String:
+	var reach := _club_reach()
+	if reach <= 1.0 or _chip:
+		return ""
+	var need := _flat_distance(ball_at, hole.pin) / reach
+	if need > 1.05:
+		return "  pin: more club"
+	return "  pin: about %d%%" % roundi(minf(need, 1.0) * 100.0)
+
+
 func _club_reach() -> float:
 	var club := clubs[club_index]
 	if club.is_putter:
 		return club.total_m
-	return club.total_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
+	return club.total_m * shot_model.reach_scale(club) * shot_model.lie_power(lie)
 
 
 ## The golfer points after a full shot heading out of bounds or this far
@@ -3722,7 +3758,7 @@ func _update_aim_marker() -> void:
 		reach = minf(_flat_distance(ball_at, hole.pin), club.total_m)
 		size = style.putt
 	else:
-		reach = club.carry_m * shot_model.reach_scale(club) * Surface.lie_power(lie)
+		reach = club.carry_m * shot_model.reach_scale(club) * shot_model.lie_power(lie)
 		size = clampf(reach * 0.02, 1.0, 4.0)
 	var p := ball_at + dir * reach
 	# On a mown green a putt's ring lies on the grass, not floating over the cup.
@@ -3743,7 +3779,7 @@ func _update_hud() -> void:
 	if _chip and not club.is_putter:
 		club_text += " chip"
 	elif not club.is_putter:
-		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
 	if not club.is_putter and not shape.is_square():
 		club_text += "  " + shape.describe()
 	var thru := card.holes_played()
@@ -3752,7 +3788,7 @@ func _update_hud() -> void:
 	if players.size() > 1 or opponents[shooter] != null:
 		text += "%s    " % _player_label(shooter)
 	text += "Stroke %d    To pin %s    Lie: %s\nClub: %s    Wind: %s\nRound: %s thru %d" % [
-		strokes + 1, pin_text, Surface.name_of(lie), club_text, wind.describe(aim_deg), total, thru]
+		strokes + 1, pin_text, lie_text(lie), club_text, wind.describe(aim_deg), total, thru]
 	var status := scoring.status_text()
 	if not status.is_empty():
 		text += "\n" + status
@@ -3764,7 +3800,7 @@ func _update_hud() -> void:
 	var reach_text := "%d yd" % roundi(_club_reach() * YARDS_PER_METRE)
 	if club.is_putter:
 		reach_text = pin_text
-	hud.show_shot(club, reach_text, rise, Surface.name_of(lie), 1.0 if club.is_putter else Surface.lie_power(lie))
+	hud.show_shot(club, reach_text, rise, Surface.name_of(lie), 1.0 if club.is_putter else shot_model.lie_power(lie))
 	if broadcast:
 		hud.overlay.set_status(_status(state == State.AIM or state == State.SWING))
 	_update_tour()
@@ -3788,12 +3824,16 @@ func _clear_trail() -> void:
 
 func _draw_trail(upto: int, head: Vector3) -> void:
 	_trail_mesh.clear_surfaces()
-	if shot == null or upto < 1:
+	tracer.clear()
+	# Putts and other shots along the ground get no trail: the ball itself
+	# shows the line, and a trail drew over it. The trail runs through the
+	# ball's centre, not above it.
+	if shot == null or upto < 1 or shot.carry_m < 1.0:
 		return
 	_trail_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
 	for i in upto + 1:
-		_trail_mesh.surface_add_vertex(shot.points[i] + Vector3.UP * 0.05)
-	_trail_mesh.surface_add_vertex(head + Vector3.UP * 0.05)
+		_trail_mesh.surface_add_vertex(shot.points[i])
+	_trail_mesh.surface_add_vertex(head)
 	_trail_mesh.surface_end()
 	if broadcast:
 		# A TV tracer follows the flight and stops where the ball first
@@ -3853,7 +3893,7 @@ func _status(aiming: bool) -> Dictionary:
 	var thru := card.holes_played()
 	var club_text := club.full_name
 	if not club.is_putter:
-		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
+		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
 		if not shape.is_square():
 			club_text += "  " + shape.describe()
 	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
@@ -3864,7 +3904,7 @@ func _status(aiming: bool) -> Dictionary:
 		# Once holed (or picked up), the strokes taken, not the next one: the
 		# score bug said "SHOT 5" over a 4.
 		"thru": thru, "stroke": strokes if players[current].done() else strokes + 1, "club": club_text, "to_pin": _pin_text(),
-		"lie": Surface.name_of(lie), "wind": wind.describe(aim_deg), "elevation": elev,
+		"lie": lie_text(lie), "wind": wind.describe(aim_deg), "elevation": elev,
 		"ticker": _ticker_text(), "aiming": aiming,
 	}
 
@@ -4141,7 +4181,7 @@ func _tour_state(aiming: bool, putting: bool, to_pin: float) -> Dictionary:
 		"to_play": holes.size() - hole_index, "round": round_text,
 		"rows": rows, "hole": hole.number, "par": hole.par, "yards": roundi(hole.length_m() * YARDS_PER_METRE),
 		"stroke": strokes + 1, "aiming": aiming, "putting": putting, "club": club.full_name,
-		"carry_yd": roundi(club.carry_m * Surface.lie_power(lie) * YARDS_PER_METRE),
+		"carry_yd": roundi(club.carry_m * shot_model.lie_power(lie) * YARDS_PER_METRE),
 		"total_yd": roundi(_club_reach() * YARDS_PER_METRE), "to_pin_yd": roundi(to_pin * YARDS_PER_METRE),
 		"wind_mph": 0.0 if wind.is_calm() else wind.speed_mph(), "wind_rel_deg": wind.relative_deg(aim_deg),
 		"expected": strokes + OpponentSkill.expected_strokes(to_pin, lie),

@@ -630,6 +630,11 @@ func _test_swing_meter() -> void:
 	meter.click()
 	_check(results.size() == 2 and results[1][1] > 0.4, "late click slices")
 	_check_near(LinksPowerStroke.full_power(67), 1.08, 1e-6, "overswing tops out 8 percent over")
+	# The reach shown from the rough is the game's own LiePower, as struck.
+	var links_model := LinksShotModel.new(null)
+	_check_near(links_model.lie_power(Surface.Type.ROUGH), 0.927315, 1e-6, "rough keeps 93 percent, as the game strikes it")
+	_check_near(links_model.lie_power(Surface.Type.DEEP_ROUGH), 0.836732, 1e-6, "deep rough keeps 84 percent")
+	_check(links_model.lie_power(Surface.Type.FRINGE) == 1.0, "the fringe plays as fairway")
 	_check_near(LinksPowerStroke.chip_power(15), 7.0, 1e-6, "chip power at the snap line")
 	_check_near(LinksPowerStroke.chip_power(68), 34.95, 1e-4, "chip power at the top")
 	_check_near(LinksPowerStroke.chip_power(32), 14.25, 1e-4, "chip power midway")
@@ -4785,9 +4790,9 @@ func _test_pause_stops_play() -> void:
 	_check(game.state == GolfRound.State.SWING and game.hud.meter.is_swinging(), "pause: swinging")
 	var method := game.graphics.swing_method
 	game.graphics.swing_method = 1
-	_check("mouse swing" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
+	_check("Mouse swing:" in game._aim_hint(), "aim hint names the mouse swing: %s" % game._aim_hint())
 	game.graphics.swing_method = 0
-	_check("Space or click: swing" in game._aim_hint(), "aim hint names the meter")
+	_check("3-click swing: Space or click" in game._aim_hint(), "aim hint names the meter")
 	var desktop := not OS.has_feature("web")
 	_check(("O: objects" in game._aim_hint()) == desktop, "aim hint offers the object viewer only off the web")
 	game.graphics.swing_method = method
