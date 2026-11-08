@@ -39,7 +39,7 @@ const HINT_DROP_CANCEL := "    Backspace: cancel"
 ## hazard offers lateral relief; the Rules of Golf let a course mark them all
 ## red.
 const LATERAL_WATER := true
-const HINT_SWING := "Click 1: start    Click 2: set power    Click 3: on the white line for a straight shot"
+const HINT_SWING := "Click or Space    1: start    2: set power    3: on the white line for a straight shot"
 const HINT_MOUSE_SWING := "Keep holding: pull the mouse back, then push it forward briskly and straight"
 const HINT_AIM_TOUCH := "Swing button: tap for the meter, or drag down from it then flick up    Tap the course: aim there    Buttons: menu, club, aim"
 const HINT_TOUCH_SWING := "Keep your finger down: drag it back, then flick it up briskly and straight"
@@ -1386,6 +1386,9 @@ func _made_from_touch(e: InputEventMouse) -> bool:
 ## Touches reach the swing before the HUD does, so a tap anywhere but on a
 ## button counts at once: over the info panels or the meter as well.
 func _input(event: InputEvent) -> void:
+	if _meter_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if not (event is InputEventScreenTouch or event is InputEventScreenDrag):
 		return
 	_touch_ms = Time.get_ticks_msec()
@@ -1399,6 +1402,32 @@ func _input(event: InputEvent) -> void:
 		return
 	if _orbit_input(event) or _touch_swing_input(event):
 		get_viewport().set_input_as_handled()
+
+
+## The PowerStroke meter's clicks and swing keys, taken before the HUD sees
+## them. Links 2003 polls the button every tick, so a click counts wherever
+## the cursor is; here a click over an info panel or the meter, or Space
+## while a HUD button has the focus, went to that control and was lost.
+func _meter_input(event: InputEvent) -> bool:
+	if settings_panel.visible or pause_menu.visible or hud.hand_over.visible:
+		return false
+	if event is InputEventKey and event.is_action_pressed("swing"):
+		# A HUD button clicked earlier keeps the focus and would take Space
+		# as its own press.
+		var focus := get_viewport().gui_get_focus_owner()
+		if focus is BaseButton:
+			focus.release_focus()
+	if state != State.SWING or _replaying or not hud.meter.is_swinging() or hud.mouse_swing.is_swinging():
+		return false
+	var click := false
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		click = mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and not _made_from_touch(mb)
+	elif event is InputEventKey:
+		click = event.is_action_pressed("swing")
+	if click:
+		hud.meter.click()
+	return click
 
 
 ## Whether `at` is on a button (the touch pad's, the putting panel's...),

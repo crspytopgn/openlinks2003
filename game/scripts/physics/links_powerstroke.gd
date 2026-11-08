@@ -8,7 +8,7 @@ extends RefCounted
 ## (position 15) and climbs; position 54 is full power and up to 67 is
 ## overswing. Chips and putts start at the bottom (0) and run to 68. The
 ## marker moves one position at a time, each step waiting a number of the
-## game's 8 ms frames that depends on the shot and the position: slow at the
+## game's logic ticks that depends on the shot and the position: slow at the
 ## start of the backswing and quicker towards the top, with an ease in and
 ## out on a 40-position cycle.
 
@@ -18,7 +18,10 @@ const SNAP := 15  ## the snap line (perfect contact)
 const FULL_POWER := 54  ## a full swing's 100 percent
 const TOP := 67  ## the top of the backswing
 const LAST := 68  ## a chip's or putt's highest position
-const FRAME_S := 0.008  ## the game's frame while the meter runs
+## The game's logic tick, one meter step check each: Links 2003 caps its
+## loop at 16 ms on any PC fast enough (33 ms on a slow one, 0x4c8c60) and
+## the meter object steps once a tick (0x4fefa0), so 60 a second.
+const FRAME_S := 1.0 / 60.0
 ## The earliest a power click takes; an earlier click waits for it.
 const MIN_POWER: Array[int] = [25, 16, 16, 16]
 ## An early snap waits until the marker comes down to here.
