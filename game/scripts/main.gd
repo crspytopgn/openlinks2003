@@ -376,6 +376,9 @@ func _ready() -> void:
 		online = next_online
 	next_online = null
 	start_round()
+	# Once the round has drawn for a few seconds, later loads skip the
+	# first-start note about preparing the graphics.
+	get_tree().create_timer(4.0).timeout.connect(SceneFade.mark_warm)
 
 
 func start_round() -> void:

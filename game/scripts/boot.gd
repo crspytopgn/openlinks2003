@@ -753,7 +753,7 @@ static func _folder_ok(path: String) -> bool:
 
 
 func _start() -> void:
-	SceneFade.change_scene(get_tree(), MAIN_SCENE)
+	SceneFade.change_scene(get_tree(), MAIN_SCENE, SceneFade.round_message())
 
 
 ## Opens the course designer on the last course designed, if any.
