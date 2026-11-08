@@ -28,6 +28,8 @@ far end touches the grip's surface plus the finger's thickness, so the
 fingers wrap the grip whatever the hand's proportions.
 """
 
+import math
+
 import numpy as np
 
 import pose
@@ -501,6 +503,7 @@ def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_
     bones before it (a finger's joints are hinges that fold it towards the
     palm), so the fingers wrap round the grip rather than lying along it."""
     R = list(R)
+    normal = {}  # each hand's palm normal, world, towards the grip
     if hinged:
         _, rest = rig.world([np.eye(3)] * len(rig.names), rig.offsets[0])
         palm = {}  # each hand's finger hinge, rest frame
@@ -513,6 +516,7 @@ def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_
             mid = rig.world(rig.locals(R), root)[1][rig.index[f"middle_01_{s}"]] - origin
             towards = -(mid - shaft * np.dot(mid, shaft))
             n = n if np.dot(n, towards) >= 0.0 else -n
+            normal[s] = n
             # The hinge in the rest frame, signed so a positive turn folds
             # the finger towards the palm; each bone carries it.
             n0 = R[rig.index[f"hand_{s}"]].T @ n
@@ -526,6 +530,8 @@ def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_
                 loc[rig.index[f"{finger}_0{seg}_{s}"]] = np.eye(3)
     R, P = rig.world(loc, root)
     R = list(R)
+    for s in normal:
+        R = _close_fan(rig, R, root, normal[s], s)
     for s in sides:
         R = _aim_thumb(rig, R, root, origin, shaft, s)
         for finger in FINGERS:
@@ -588,6 +594,36 @@ def wrap_fingers(rig, R, root, origin, shaft, sides="lr", obstacles=(), knuckle_
                     turn = pose.rot(hinge, best)
                     R[j] = turn @ R[j]
                     R = _carry(rig, R, j, turn)
+    return R
+
+
+FAN = 3.0  # degrees left between neighbouring fingers in a closed hand
+
+
+def _close_fan(rig, R, root, normal, s):
+    """The rest pose's fingers fan out about 16 degrees each side of the
+    middle finger; a hand round a grip holds them side by side. Turns the
+    index, ring and little fingers' first bones about the palm's normal to
+    within FAN of the middle finger, so the index wraps round the grip
+    instead of lying down it."""
+    R = list(R)
+    _, P = rig.world(rig.locals(R), root)
+
+    def flat(f):
+        v = P[rig.index[f"{f}_02_{s}"]] - P[rig.index[f"{f}_01_{s}"]]
+        return pose.unit(v - normal * np.dot(v, normal))
+
+    mid = flat("middle")
+    for k, f in enumerate(("index", "ring", "pinky")):
+        d = flat(f)
+        ang = math.degrees(math.atan2(np.dot(np.cross(d, mid), normal), np.dot(d, mid)))
+        want = FAN * (2 if f == "pinky" else 1)
+        if abs(ang) <= want:
+            continue
+        turn = pose.rot(normal, ang - math.copysign(want, ang))
+        j = rig.index[f"{f}_01_{s}"]
+        R[j] = turn @ R[j]
+        R = _carry(rig, R, j, turn)
     return R
 
 
