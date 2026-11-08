@@ -1402,6 +1402,7 @@ def retarget_stand(glb, rig, clip, cache):
         p_local, p_root = rig.sample(glb, "ref_address_putt")
         p_rots, p_poss = rig.world(p_local, p_root)
         c, hr = rig.index["club"], rig.index["hand_r"]
+        read_held = [c] + [j for j, n in enumerate(rig.names) if n.split("_")[0] in ("index", "middle", "ring", "pinky", "thumb")]
         putt_grip = (p_rots[c].T @ (p_poss[hr] - p_poss[c]), p_rots[c].T @ p_rots[hr])
 
     out_rots, out_root = [], []
@@ -1460,7 +1461,19 @@ def retarget_stand(glb, rig, clip, cache):
         if clip.get("read"):
             rots = level_gaze(rig, rots, local0, STAND_GAZE + (READ_GAZE - STAND_GAZE) * crouch)
             ground = min(targets["l"][1], targets["r"][1]) - ankle_rest
-            held = fill(rig, read_hands(rig, rots, root, facing, club_dir, ground, putt_grip), local0, keep=True)
+            # Down in the crouch he holds the putter as at the putting
+            # address: the grip up the left palm (the club joint's turn in
+            # that hand) and both hands' fingers closed round it. (The
+            # carry's driver turn and loose curls left the putter hanging
+            # from the fingertips and the fingers open beside it.)
+            putt_local = list(local0)
+            for k in read_held:
+                putt_local[k] = p_local[k]
+            loc = rig.locals(rots)
+            for k in read_held:
+                loc[k] = p_local[k]
+            putt_rots = rig.world(loc, root)[0]
+            held = fill(rig, read_hands(rig, putt_rots, root, facing, club_dir, ground, putt_grip), putt_local, keep=True)
         if clip.get("pump"):
             rots, poss = rig.world(rig.locals(rots), root)
             if i == 0:
