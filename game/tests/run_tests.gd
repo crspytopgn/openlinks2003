@@ -1627,8 +1627,13 @@ func _test_real_scale() -> void:
 		var m := n as MeshInstance3D
 		if m.name.begins_with("Driver") or m.name.begins_with("Putter"):
 			continue
-		top = maxf(top, m.get_aabb().end.y)
-		bottom = minf(bottom, m.get_aabb().position.y)
+		# A mesh with blend shapes carries its true box as custom_aabb
+		# (GolferTwist.correct).
+		var part_box := m.get_aabb()
+		if m.mesh is ArrayMesh and (m.mesh as ArrayMesh).custom_aabb.has_volume():
+			part_box = (m.mesh as ArrayMesh).custom_aabb
+		top = maxf(top, part_box.end.y)
+		bottom = minf(bottom, part_box.position.y)
 	print("  golfer and caddie: %.2f m tall" % (top - bottom))
 	_check(top - bottom > 1.7 and top - bottom < 1.85, "golfer about 1.75 m tall (%.2f)" % (top - bottom))
 	golfer.free()
@@ -3512,6 +3517,21 @@ func _test_golfer_twist(golfer: FreeGolfer) -> void:
 			if weights[i] > 0.0 and bones[i] < mi.skin.get_bind_count() and String(mi.skin.get_bind_name(bones[i])).contains("_twist_"):
 				moved += 1
 	_check(moved > 1000, "the sleeves and skin follow the twist bones (%d weights)" % moved)
+	# The armpit corrective shapes: on the meshes round the shoulders, one
+	# per raised pose, and the meshes keep their own boxes.
+	var shapes := 0
+	var boxed := true
+	for node in sk.get_children():
+		var mi := node as MeshInstance3D
+		if mi == null or mi.mesh == null or mi.mesh.get_blend_shape_count() == 0:
+			continue
+		shapes = maxi(shapes, mi.mesh.get_blend_shape_count())
+		boxed = boxed and (mi.mesh as ArrayMesh).custom_aabb.has_volume()
+	var poses := 0
+	for bone: String in GolferTwist.FIX_POSES:
+		poses += (GolferTwist.FIX_POSES[bone] as Array).size()
+	_check(shapes == poses, "the body round the shoulders carries %d armpit shapes (%d poses)" % [shapes, poses])
+	_check(boxed, "the meshes with armpit shapes keep their own bounding boxes")
 
 
 ## GolferCloth: the clothes' mask (loose at a sleeve's hem and down the

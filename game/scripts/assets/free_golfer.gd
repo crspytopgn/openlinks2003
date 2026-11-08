@@ -129,6 +129,7 @@ var _rng := RandomNumberGenerator.new()
 var _speed := 1.0
 var _feet: GolferFeet
 var _hands: GolferHands
+var _twist: GolferTwist
 var _cloth: GolferCloth
 ## Forearm and neck muscles working through the swing; none on spectators.
 var _flex: GolferFlex
@@ -166,6 +167,7 @@ static func create(p_look: PlayerLook = null, p_texture_cap := 0) -> FreeGolfer:
 	golfer._skeleton.add_child(golfer._hands)
 	golfer._hands.read_grips(golfer._skeleton, player)
 	golfer._skeleton.add_child(twist)
+	golfer._twist = twist
 	golfer._cloth = GolferCloth.new()
 	golfer._skeleton.add_child(golfer._cloth)
 	if p_texture_cap == 0:
@@ -287,8 +289,10 @@ func apply_look(p_look: PlayerLook) -> void:
 			mi.set_surface_override_material(1, GolferSurface.glove())
 		else:
 			mi.material_override = mat
+		mi.mesh = GolferTwist.correct(mi.mesh, names, _skeleton)
 		_skeleton.add_child(mi)
 		mi.skeleton = NodePath("..")
+		_twist.add_fix_mesh(mi)
 		_look_nodes.append(mi)
 	var standing := parts.standing_height(weights) if who.is_empty() else float(who.height)
 	var s := clampf(look.height_cm / 100.0 / standing, 0.7, 1.4)
