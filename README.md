@@ -159,7 +159,9 @@ The logo, app icon and the images on this page live in
 ## Supporting the project
 
 OpenLinks2003 is free and always will be. If you enjoy it and want to chip in,
-you can [sponsor it on GitHub](https://github.com/sponsors/crspytopgn).
+you can [sponsor it on GitHub](https://github.com/sponsors/crspytopgn) or [buy me a coffee](https://buymeacoffee.com/crspytopgn).
+
+More from me: [OpenMCM2](https://github.com/crspytopgn/openmcm2) · [OpenSGolf](https://github.com/crspytopgn/opensgolf) · [Pitwall](https://github.com/crspytopgn/pitwall).
 
 ## Licence
 
