@@ -272,6 +272,68 @@ func _draw_shot_panel() -> void:
 		var ry := y + 22 + i * h
 		_text(Vector2(x + 16, ry), rows[i][0], 13, ACCENT)
 		_text(Vector2(x + 96, ry), str(rows[i][1]), 16, TEXT)
+	if status.has("lie_type"):
+		_draw_lie_tile(Rect2(x + 364 + 8, y, 96, h * rows.size() + 10), int(status.lie_type), float(status.get("lie_power", 1.0)))
+
+
+## The lie at a glance, as TV golf shows it: the ball as it sits (teed up,
+## on short grass, down in the rough, in the sand) and the share of a full
+## shot's distance it keeps.
+func _draw_lie_tile(r: Rect2, lie: int, keep: float) -> void:
+	_panel(r, PANEL)
+	var pic := Rect2(r.position + Vector2(10, 10), Vector2(r.size.x - 20, r.size.y - 44))
+	var ground := Color(0.33, 0.55, 0.22)
+	var blade := Color(0.42, 0.68, 0.28)
+	var grass_h := 0.0  # blade height over the ball's radius
+	var sink := 0.0  # how far the ball sits down, in radii
+	var teed := false
+	match lie:
+		Surface.Type.TEE:
+			teed = true
+			grass_h = 0.25
+		Surface.Type.FAIRWAY, Surface.Type.FRINGE:
+			grass_h = 0.35
+		Surface.Type.GREEN:
+			grass_h = 0.15
+			ground = Color(0.36, 0.62, 0.26)
+		Surface.Type.ROUGH:
+			grass_h = 1.3
+			sink = 0.3
+			ground = Color(0.26, 0.45, 0.18)
+			blade = Color(0.36, 0.58, 0.22)
+		Surface.Type.DEEP_ROUGH:
+			grass_h = 2.0
+			sink = 0.6
+			ground = Color(0.22, 0.38, 0.15)
+			blade = Color(0.32, 0.5, 0.2)
+		Surface.Type.SAND:
+			ground = Color(0.86, 0.78, 0.58)
+			sink = 0.45
+		_:
+			ground = Color(0.3, 0.42, 0.5)
+	var base := pic.position.y + pic.size.y * 0.72
+	_fill(Rect2(pic.position.x, base, pic.size.x, pic.end.y - base), ground, Vector4.ONE * 4.0)
+	var ball_r := pic.size.x * 0.16
+	var cx := pic.position.x + pic.size.x * 0.5
+	var cy := base - ball_r + sink * ball_r * 2.0
+	if teed:
+		cy -= ball_r * 0.9
+		draw_rect(Rect2(cx - 2.0, cy + ball_r, 4.0, base - cy - ball_r + 3.0), Color(0.95, 0.95, 0.9))
+	if lie == Surface.Type.SAND:
+		draw_circle(Vector2(cx, cy), ball_r, Color.WHITE)
+		_fill(Rect2(pic.position.x, base + sink * ball_r, pic.size.x, pic.end.y - base - sink * ball_r), ground, Vector4.ONE * 4.0)
+	else:
+		draw_circle(Vector2(cx, cy), ball_r, Color.WHITE)
+	draw_circle(Vector2(cx - ball_r * 0.3, cy - ball_r * 0.3), ball_r * 0.25, Color(1, 1, 1, 0.6))
+	if grass_h > 0.0:
+		var n := 22
+		for i in n:
+			var bx := pic.position.x + (i + 0.5) / n * pic.size.x
+			var tall := grass_h * ball_r * (0.7 + 0.6 * fmod(float(i) * 0.618, 1.0))
+			var lean := (fmod(float(i) * 0.37, 1.0) - 0.5) * ball_r * 0.5
+			draw_line(Vector2(bx, base + 2.0), Vector2(bx + lean, base - tall), blade, 2.0, true)
+	var pct := "%d%%" % roundi(keep * 100.0)
+	_text(Vector2(r.position.x + r.size.x * 0.5, r.end.y - 12.0), pct, 16, TEXT if keep >= 0.995 else ACCENT, true)
 
 
 func _draw_lower_third() -> void:

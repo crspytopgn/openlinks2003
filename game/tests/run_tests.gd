@@ -1489,6 +1489,19 @@ func _test_caddie() -> void:
 	var hard_putt := CaddieAdvice.putt_text(CaddieAdvice.Detail.SPARSE, 4.0, 0.1, 0.15)
 	_check(hard_putt.contains("left to right") and not hard_putt.contains("\""), "sparse putt read has no inches (%s)" % hard_putt)
 	_check(CaddieAdvice.putt_text(CaddieAdvice.Detail.FULL, 0.5, 0.0, 0.0).contains("tap-in"), "tap-in")
+	# Every level hears the power to swing at, as the meter reads it.
+	var soft := info.duplicate()
+	soft.power = 0.62
+	_check(CaddieAdvice.shot_text(CaddieAdvice.Detail.SPARSE, soft).contains("7 Iron, about 62% power"), "the read gives the power (%s)" % CaddieAdvice.shot_text(CaddieAdvice.Detail.SPARSE, soft))
+	_check(sparse.contains("7 Iron, full swing"), "a full swing says so (%s)" % sparse)
+	var rough := info.duplicate()
+	rough.lie = Surface.Type.ROUGH
+	rough.lie_power = 0.927
+	rough.reach_m = 130.0
+	var rough_read := CaddieAdvice.shot_text(CaddieAdvice.Detail.SPARSE, rough)
+	_check(rough_read.contains("From the rough you lose about 7%, so a full 7 iron goes 142."), "the lie's cost (%s)" % rough_read)
+	_check(CaddieAdvice.lie_text(info).is_empty(), "nothing to say from the fairway")
+	_check(CaddieAdvice.putt_text(CaddieAdvice.Detail.SPARSE, 4.0, 0.1, 0.15, 0.35).ends_with("Hit it about 35% power."), "a putt's power")
 
 	# A real read, planned through the physics.
 	var model := StandardShotModel.new()

@@ -271,6 +271,9 @@ var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
 var caddie: Caddie  ## Settings > Caddie; null when off
+## The caddie's read when the caddie figure is off (CaddieAdvice), and its card.
+var _advice: CaddieAdvice
+var advice_note: CaddieNote
 var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
 var stand_bag: StandBag  ## the player's bag, standing behind the golfer
 var _bag_for := Vector3.INF  ## the ball the bag was set down for
@@ -843,8 +846,7 @@ func _store_turn() -> void:
 ## measured; power and accuracy then only drive the animation.
 func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null) -> void:
 	var club := clubs[club_index]
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
@@ -1036,6 +1038,7 @@ func _process(delta: float) -> void:
 	if state != State.DRIVE:
 		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
 	_update_reticle(paused)
+	_step_advice()
 	grass.update_around(camera.global_position)
 	fescue.update_around(camera.global_position)
 	_update_ball_size()
@@ -1645,8 +1648,7 @@ func _on_mouse_stroke_cancelled() -> void:
 
 
 func _on_backswing_started() -> void:
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
 
@@ -1985,6 +1987,13 @@ func _prepare_shot(snap_camera: bool) -> void:
 ## The caddie (if on) reads the player's shot; computer golfers go without.
 func _caddie_read() -> void:
 	if caddie == null:
+		# Without the caddie at the bag, the read still shows in the TV
+		# presentations (Classic Links stays as the original): the club and
+		# the power to swing at, worked out through the round's physics.
+		_quiet_advice()
+		if (broadcast or tour) and opponents[shooter] == null and state == State.AIM and practice == null:
+			_advice = CaddieAdvice.new()
+			_advice.start(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill)
 		return
 	if opponents[shooter] != null or state != State.AIM:
 		caddie.step_aside()
@@ -1992,10 +2001,29 @@ func _caddie_read() -> void:
 	caddie.advise(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill, _aim_dir())
 
 
+## The swing has started, or the shot isn't the player's: the read goes.
+func _quiet_advice() -> void:
+	if caddie != null:
+		caddie.quiet()
+	_advice = null
+	if advice_note != null:
+		advice_note.clear()
+
+
+## Works on the read (without the caddie figure) a little each frame, so
+## the web build never stalls, and shows it once it is ready.
+func _step_advice() -> void:
+	if _advice == null or advice_note == null or not advice_note.text_empty():
+		return
+	if _advice.step(Caddie.PLAN_BUDGET_MS):
+		advice_note.say(_advice.text)
+
+
 ## Settings > Caddie switched on or off.
 func _set_caddie(on: bool) -> void:
 	if on == (caddie != null):
 		return
+	_quiet_advice()
 	if not on:
 		caddie.note.queue_free()
 		caddie.queue_free()
@@ -2370,6 +2398,7 @@ func _start_drive(next: int) -> bool:
 		if c != null and c.visible:
 			c.visible = false
 			_drive_hidden.append(c)
+	_quiet_advice()
 	if caddie != null:
 		caddie.step_aside()
 	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
@@ -2744,8 +2773,7 @@ func _start_drop(reason: int) -> void:
 
 
 func _begin_drop(reason: int) -> void:
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
 	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
 	_drop_reason = reason
@@ -3109,22 +3137,6 @@ func lie_text(l: int) -> String:
 	return "%s %d%%" % [Surface.name_of(l), roundi(p * 100.0)]
 
 
-## How hard to swing to reach the pin with this club from this lie, as a
-## share of a full swing (the club's distance above already counts the lie).
-func _power_hint() -> String:
-	var reach := _club_reach()
-	if reach <= 1.0 or _chip:
-		return ""
-	var to_pin := _flat_distance(ball_at, hole.pin)
-	var need := to_pin / reach
-	if need > 1.05:
-		# Only when a club in the bag gets there: off the tee of a par 4 the
-		# driver said "more club" with nothing more to take.
-		var longest := clubs[0].total_m * shot_model.reach_scale(clubs[0]) * shot_model.lie_power(lie)
-		return "  pin: more club" if longest >= to_pin else ""
-	return "  pin: about %d%%" % roundi(minf(need, 1.0) * 100.0)
-
-
 func _club_reach() -> float:
 	var club := clubs[club_index]
 	if club.is_putter:
@@ -3347,6 +3359,9 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 		_update_green_aids()
+	if advice_note == null:
+		advice_note = CaddieNote.new()
+		hud.add_child(advice_note)
 	_set_caddie(graphics.caddie)
 	_set_buggy(graphics.buggy)
 	_set_stand_bag()
@@ -3820,7 +3835,7 @@ func _update_hud() -> void:
 	if _chip and not club.is_putter:
 		club_text += " chip"
 	elif not club.is_putter:
-		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
+		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	if not club.is_putter and not shape.is_square():
 		club_text += "  " + shape.describe()
 	var thru := card.holes_played()
@@ -3934,7 +3949,7 @@ func _status(aiming: bool) -> Dictionary:
 	var thru := card.holes_played()
 	var club_text := club.full_name
 	if not club.is_putter:
-		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
+		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 		if not shape.is_square():
 			club_text += "  " + shape.describe()
 	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
@@ -3945,7 +3960,8 @@ func _status(aiming: bool) -> Dictionary:
 		# Once holed (or picked up), the strokes taken, not the next one: the
 		# score bug said "SHOT 5" over a 4.
 		"thru": thru, "stroke": strokes if players[current].done() else strokes + 1, "club": club_text, "to_pin": _pin_text(),
-		"lie": lie_text(lie), "wind": wind.describe(aim_deg), "elevation": elev,
+		"lie": lie_text(lie), "lie_type": lie, "lie_power": 1.0 if club.is_putter else shot_model.lie_power(lie),
+		"wind": wind.describe(aim_deg), "elevation": elev,
 		"ticker": _ticker_text(), "aiming": aiming,
 	}
 
