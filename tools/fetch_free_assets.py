@@ -45,9 +45,9 @@ TWIG_MAPS = {"twig_albedo.jpg": ("twig_diff", "jpg"), "twig_opacity.png": ("twig
 # format, size limit)}}. Saved as scan_<asset>_<name>. The fir's sprigs are
 # the twig maps above.
 SCAN_TREES = {
-    "fir_tree_01": {"bark.jpg": ("bark_diff", "jpg", 512), "trunk.jpg": ("trunk_a_diff", "jpg", 1024), "trunk_normal.jpg": ("trunk_a_nor_gl", "jpg", 512)},
-    "jacaranda_tree": {"leaves.jpg": ("leaves_diff", "jpg", 1024), "leaves_alpha.png": ("leaves_alpha", "png", 1024),
-                       "trunk.jpg": ("trunk_diff", "jpg", 1024), "trunk_normal.jpg": ("trunk_nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
+    "fir_tree_01": {"bark.jpg": ("bark_diff", "jpg", 512), "trunk.jpg": ("trunk_a_diff", "jpg", 512), "trunk_normal.jpg": ("trunk_a_nor_gl", "jpg", 512)},
+    "jacaranda_tree": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
+                       "trunk.jpg": ("trunk_diff", "jpg", 512), "trunk_normal.jpg": ("trunk_nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
     "island_tree_01": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
                        "trunk.jpg": ("Diffuse", "jpg", 512), "trunk_normal.jpg": ("nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
     "island_tree_02": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
