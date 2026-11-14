@@ -40,6 +40,19 @@ LEAF_MAPS = {"leaf_albedo.png": "_Color.png", "leaf_opacity.png": "_Opacity.png"
 # model) for the needle cards of the 3D conifers: {out name: (map, format)}.
 TWIG_ASSET = "fir_tree_01"
 TWIG_MAPS = {"twig_albedo.jpg": ("twig_diff", "jpg"), "twig_opacity.png": ("twig_alpha", "png")}
+# Poly Haven photoscanned trees (CC0) whose meshes tools/trees/scan_tree.py
+# cut down into game/assets/trees/*.oltree: {asset: {out name: (map key,
+# format, size limit)}}. Saved as scan_<asset>_<name>. The fir's sprigs are
+# the twig maps above.
+SCAN_TREES = {
+    "fir_tree_01": {"bark.jpg": ("bark_diff", "jpg", 512), "trunk.jpg": ("trunk_a_diff", "jpg", 512), "trunk_normal.jpg": ("trunk_a_nor_gl", "jpg", 512)},
+    "jacaranda_tree": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
+                       "trunk.jpg": ("trunk_diff", "jpg", 512), "trunk_normal.jpg": ("trunk_nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
+    "island_tree_01": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
+                       "trunk.jpg": ("Diffuse", "jpg", 512), "trunk_normal.jpg": ("nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
+    "island_tree_02": {"leaves.jpg": ("leaves_diff", "jpg", 512), "leaves_alpha.png": ("leaves_alpha", "png", 512),
+                       "trunk.jpg": ("Diffuse", "jpg", 512), "trunk_normal.jpg": ("nor_gl", "jpg", 512), "bark.jpg": ("branches_diff", "jpg", 512)},
+}
 USER_AGENT = "OpenLinks2003-asset-fetch (https://github.com/crspytopgn/openlinks2003)"
 
 
@@ -275,6 +288,28 @@ def fetch_twigs(out_dir):
     return f"- **twigs**: [Fir Tree 01](https://polyhaven.com/a/{TWIG_ASSET}) twig atlas by Poly Haven, CC0"
 
 
+def fetch_scan_trees(out_dir):
+    """The textures of the photoscanned trees (see SCAN_TREES)."""
+    credits = []
+    for asset, maps in SCAN_TREES.items():
+        paths = {name: os.path.join(out_dir, f"scan_{asset}_{name}") for name in maps}
+        if not all(os.path.exists(p) for p in paths.values()):
+            files = json.loads(get(f"{API}/files/{asset}"))
+            for name, (key, fmt, _) in maps.items():
+                print(f"  trees: {asset} {key} 1k")
+                with open(paths[name], "wb") as f:
+                    f.write(get(files[key]["1k"][fmt]["url"]))
+        # Colour lossy (Poly Haven fills round the leaves with leaf colour,
+        # so no light fringes), the alpha lossless.
+        for name, p in paths.items():
+            with open(p + ".import", "w") as f:
+                f.write(TEXTURE_IMPORT.format(mode=0 if name.endswith(".png") else 1, limit=maps[name][2], mipmaps="true"))
+        info = json.loads(get(f"{API}/info/{asset}"))
+        authors = ", ".join(info.get("authors", {}).keys()) or "Poly Haven"
+        credits.append(f"- **tree**: [{info.get('name', asset)}](https://polyhaven.com/a/{asset}) by {authors}, CC0")
+    return credits
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -310,6 +345,11 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"WARNING: couldn't fetch twigs: {e}")
         failed.append("twigs")
+    try:
+        credits += fetch_scan_trees(args.out)
+    except Exception as e:  # noqa: BLE001 - the procedural trees stay
+        print(f"WARNING: couldn't fetch the scanned trees: {e}")
+        failed.append("scan trees")
     with open(os.path.join(args.out, "CREDITS.md"), "w") as f:
         f.write("# Free assets\n\nDownloaded by tools/fetch_free_assets.py from Poly Haven and ambientCG (CC0).\n\n")
         f.write("\n".join(credits) + "\n")

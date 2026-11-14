@@ -304,16 +304,11 @@ func _add_distant_trees(root: Node3D) -> void:
 		var h := TreeFactory.natural_height(species, p.x, p.y) * o.scale
 		trees.append_array(PackedFloat32Array([p.x, height_at(p.x, p.y), p.y, h, species]))
 	for batch: Dictionary in TreeFactory.batches(trees, 160.0):
-		var node := MultiMeshInstance3D.new()
-		node.name = "DistantTrees"
-		node.multimesh = batch.multimesh
-		node.position = batch.position
 		# They stand at least HOLE_REACH from the tees and the line of play,
 		# so their shadows seldom reach the ground the player looks at, and
 		# drawing them again for the sun is most of what woods cost.
-		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if batch.full:
-			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
+		var node := TreeFactory.batch_node(batch, false)
+		node.name = "DistantTrees"
 		root.add_child(node)
 
 

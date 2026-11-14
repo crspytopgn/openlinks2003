@@ -1998,7 +1998,20 @@ func _test_trees() -> void:
 		_check(box.end.y > low and box.end.y < high and box.position.y > -0.5, "tree %d is its species' size (%.1f m)" % [v, box.end.y])
 		var again := TreeFactory.build_mesh(spec[0], spec[1])
 		_check(again.surface_get_array_len(1) == m.surface_get_array_len(1), "tree %d grows the same each time" % v)
-		_check(TreeFactory.frame_size(v) >= box.end.y, "tree %d fits its impostor frame" % v)
+	# The photoscanned trees (when fetched) and the variants in use.
+	for spec: Array in TreeFactory.SCANNED:
+		if not ScannedTree.available(spec[1]):
+			continue
+		var m := ScannedTree.build(spec[1], spec[2])
+		_check(m != null and m.get_surface_count() == 2, "scanned %s has bark and leaves" % spec[1])
+		var tris := 0
+		for i in m.get_surface_count():
+			tris += m.surface_get_array_index_len(i) / 3
+		_check(tris > 2000 and tris < 60000, "scanned %s stays light (%d triangles)" % [spec[1], tris])
+		var box := m.get_aabb()
+		_check(box.end.y > 2.5 and box.end.y < 20.0 and box.position.y > -0.5, "scanned %s stands on the ground (%.1f m)" % [spec[1], box.end.y])
+	for v in TreeFactory.SCANNED.size() if TreeFactory.scans_available() else TreeFactory.VARIANTS.size():
+		_check(TreeFactory.frame_size(v) >= TreeFactory.mesh(v).get_aabb().end.y, "tree %d fits its impostor frame" % v)
 	var lib := PlaceholderObjectLibrary.new()
 	TreeFactory.level = 0
 	var classic := lib.instantiate("tree_pine")
