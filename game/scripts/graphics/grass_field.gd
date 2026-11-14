@@ -28,14 +28,34 @@ const HEIGHTS := {
 }
 const FIRST_CUT_HEIGHT := Vector2(0.035, 0.05)
 const BLADES := 12
+## Mown turf (tee, fairway, fringe) up close: a fine fur of short blades
+## over the photo texture, only a few metres round the camera, where the
+## texture alone reads as a flat print. Per level: tufts per square metre
+## and the radius (m). Small chunks, as the radius is small.
+const MOWN_DENSITY := [0.0, 0.0, 130.0, 220.0]
+const MOWN_RADIUS := [0.0, 0.0, 3.5, 5.0]
+const MOWN_CHUNK := 3.0
+const MOWN_BUILDS_PER_FRAME := 2
+## Blade heights (m) as cut: tees and fairways at about 12 to 15 mm, the
+## fringe a little longer. Leaning blades stand a bit lower than that.
+const MOWN_HEIGHTS := {
+	Surface.Type.TEE: Vector2(0.012, 0.02),
+	Surface.Type.FAIRWAY: Vector2(0.014, 0.024),
+	Surface.Type.FRINGE: Vector2(0.018, 0.028),
+}
+const MOWN_BLADES := 10
+const MOWN_FOOTPRINT := 0.2
 
 var terrain: CourseTerrain
 var level := 0
 var _chunks := {}  ## Vector2i -> MultiMeshInstance3D (null for an empty chunk)
 var _far := {}  ## Vector2i -> true for a chunk built at the far density
+var _mown := {}  ## Vector2i (MOWN_CHUNK grid) -> MultiMeshInstance3D or null
 
 static var _tuft: ArrayMesh
 static var _mat: ShaderMaterial
+static var _mown_tuft: ArrayMesh
+static var _mown_mat: ShaderMaterial
 
 
 func _init() -> void:
@@ -51,6 +71,14 @@ func setup(t: CourseTerrain, grass_level: int) -> void:
 			node.queue_free()
 	_chunks.clear()
 	_far.clear()
+	for node in _mown.values():
+		if node != null:
+			node.queue_free()
+	_mown.clear()
+	var mr: float = MOWN_RADIUS[level]
+	if mr > 0.0:
+		mown_material().set_shader_parameter("fade_start", mr * 0.45)
+		mown_material().set_shader_parameter("fade_end", mr)
 	var r: float = RADIUS[level]
 	# Tufts sink into the ground from a third of the way out: a few pixels
 	# across, they read as dark clumps (clover) rather than rough.
@@ -61,8 +89,10 @@ func setup(t: CourseTerrain, grass_level: int) -> void:
 ## Adds the nearest missing chunks around `eye` and drops far ones.
 func update_around(eye: Vector3) -> void:
 	material().set_shader_parameter("camera_pos", eye)
+	mown_material().set_shader_parameter("camera_pos", eye)
 	if terrain == null or level == 0:
 		return
+	_update_mown(eye)
 	var r: float = RADIUS[level]
 	var here := Vector2(eye.x, eye.z)
 	for key: Vector2i in _chunks.keys():
@@ -104,6 +134,159 @@ func update_around(eye: Vector3) -> void:
 			_far[key] = true
 		else:
 			_far.erase(key)
+
+
+## The mown fur's chunks: the nearest missing ones in, far ones out.
+func _update_mown(eye: Vector3) -> void:
+	var r: float = MOWN_RADIUS[level]
+	if r <= 0.0:
+		return
+	var here := Vector2(eye.x, eye.z)
+	# High over the ground (flyover, aerial cameras) the fur is sub-pixel.
+	var near_ground := eye.y - terrain.height_at(eye.x, eye.z) < r
+	for key: Vector2i in _mown.keys():
+		if not near_ground or _mown_centre(key).distance_to(here) > r + MOWN_CHUNK:
+			var node: Node = _mown[key]
+			if node != null:
+				node.queue_free()
+			_mown.erase(key)
+	if not near_ground:
+		return
+	var wanted: Array[Vector2i] = []
+	var reach := ceili(r / MOWN_CHUNK)
+	var at := Vector2i(floori(eye.x / MOWN_CHUNK), floori(eye.z / MOWN_CHUNK))
+	for dz in range(-reach, reach + 1):
+		for dx in range(-reach, reach + 1):
+			var key := at + Vector2i(dx, dz)
+			if not _mown.has(key) and _mown_centre(key).distance_to(here) < r + MOWN_CHUNK * 0.71:
+				wanted.append(key)
+	wanted.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _mown_centre(a).distance_squared_to(here) < _mown_centre(b).distance_squared_to(here))
+	for i in mini(MOWN_BUILDS_PER_FRAME, wanted.size()):
+		var mm := build_mown_chunk(terrain, wanted[i], MOWN_DENSITY[level])
+		var node: MultiMeshInstance3D = null
+		if mm != null:
+			node = MultiMeshInstance3D.new()
+			node.multimesh = mm
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(node)
+		_mown[wanted[i]] = node
+
+
+static func _mown_centre(key: Vector2i) -> Vector2:
+	return (Vector2(key) + Vector2(0.5, 0.5)) * MOWN_CHUNK
+
+
+## Number of mown-fur chunks built so far, empty ones included.
+func mown_chunk_count() -> int:
+	return _mown.size()
+
+
+## The mown fur of one MOWN_CHUNK cell, or null where there's no tee,
+## fairway or fringe. Deterministic, like build_chunk.
+static func build_mown_chunk(t: CourseTerrain, key: Vector2i, density: float) -> MultiMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(key) ^ 0x6d6f776e
+	var side := maxi(1, roundi(MOWN_CHUNK * sqrt(density)))
+	var cell := MOWN_CHUNK / side
+	var buffer := PackedFloat32Array()
+	buffer.resize(side * side * 16)
+	var n := 0
+	var origin := Vector2(key) * MOWN_CHUNK
+	for i in side * side:
+		var x := origin.x + (i % side + rng.randf()) * cell
+		var z := origin.y + (floorf(float(i) / side) + rng.randf()) * cell
+		var yaw := rng.randf() * TAU
+		var size := rng.randf()
+		var phase := rng.randf()
+		var surface := t.surface_at(x, z)
+		if not MOWN_HEIGHTS.has(surface):
+			continue
+		var hr: Vector2 = MOWN_HEIGHTS[surface]
+		var h := lerpf(hr.x, hr.y, size)
+		var w := MOWN_FOOTPRINT
+		var c := t.ground_color_at(x, z)
+		var o := n * 16
+		var cs := cos(yaw)
+		var sn := sin(yaw)
+		buffer[o] = cs * w
+		buffer[o + 1] = 0.0
+		buffer[o + 2] = sn * w
+		buffer[o + 3] = x
+		buffer[o + 4] = 0.0
+		buffer[o + 5] = h
+		buffer[o + 6] = 0.0
+		buffer[o + 7] = t.height_at(x, z) - 0.003
+		buffer[o + 8] = -sn * w
+		buffer[o + 9] = 0.0
+		buffer[o + 10] = cs * w
+		buffer[o + 11] = z
+		buffer[o + 12] = c.r
+		buffer[o + 13] = c.g
+		buffer[o + 14] = c.b
+		buffer[o + 15] = phase
+		n += 1
+	if n == 0:
+		return null
+	buffer.resize(n * 16)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	if _mown_tuft == null:
+		_mown_tuft = mown_tuft_mesh()
+		_mown_tuft.surface_set_material(0, mown_material())
+	mm.mesh = _mown_tuft
+	mm.instance_count = n
+	mm.buffer = buffer
+	mm.set_meta("buffer", buffer)
+	return mm
+
+
+## The mown fur's material: the rough's, with its own fade radius.
+static func mown_material() -> ShaderMaterial:
+	if _mown_mat == null:
+		_mown_mat = material().duplicate() as ShaderMaterial
+		# Every blade keeps its own shade: the fur is only a few metres
+		# deep, so there is no far band to melt into the turf.
+		_mown_mat.set_shader_parameter("blend_amount", 0.0)
+		# Lit flat like the turf under them: tilted Forward+ normals and
+		# lifted tips read as pale straws scattered on the tee.
+		_mown_mat.set_shader_parameter("blade_relief", 0.0)
+		_mown_mat.set_shader_parameter("tip_light", 1.08 if GraphicsSettings.is_forward_plus() else 1.25)
+	return _mown_mat
+
+
+## One mown tuft in a unit box: MOWN_BLADES single-triangle blades, upright
+## with a slight lean (a fresh cut stands up), UV and UV2 as tuft_mesh.
+static func mown_tuft_mesh() -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1503
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var normals := PackedVector3Array()
+	var blades := PackedVector2Array()
+	for b in MOWN_BLADES:
+		var a := rng.randf() * TAU
+		var root := Vector3(cos(a), 0.0, sin(a)) * sqrt(rng.randf()) * 0.45
+		var face := rng.randf() * TAU
+		var side := Vector3(cos(face), 0.0, sin(face)) * rng.randf_range(0.009, 0.013)
+		var lean := Vector3(cos(a + 1.3), 0.0, sin(a + 1.3)) * rng.randf_range(0.0, 0.08)
+		var tall := rng.randf_range(0.6, 1.0)
+		var blade := Vector2(rng.randf(), rng.randf() * 0.15)
+		verts.append_array(PackedVector3Array([root - side, root + side, root + lean + Vector3(0, tall, 0)]))
+		uvs.append_array(PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(0.5, tall)]))
+		for k in 3:
+			normals.append(Vector3.UP)
+			blades.append(blade)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_TEX_UV2] = blades
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 ## True when a chunk `d` metres out grows at the far density.

@@ -24,6 +24,10 @@ uniform float saturation = 1.0;
 uniform float blend_amount = 1.0;
 // Each blade tilts its normal its own way (0 lit flat like the ground).
 uniform float blade_relief = 0.0;
+// Brightness of the blade tips against the roots (1 = none). The mown fur
+// (GrassField.mown_material) lifts its tips so the sunlit tops of a fresh
+// cut read over the darker turf texture below them.
+uniform float tip_light = 1.0;
 
 #include "res://shaders/ground_shade.gdshaderinc"
 #include "res://shaders/turf_tone.gdshaderinc"
@@ -69,6 +73,7 @@ void fragment() {
 	// Forward+ lights each blade on its own: there the tips catch a
 	// little sun (blade_relief) instead.
 	near *= mix(vec3(1.0), vec3(1.1, 1.1, 1.0), tip * blade_relief);
+	near *= mix(1.0, tip_light, smoothstep(0.3, 1.0, height));
 	vec3 far = base_color * mix(0.88, 1.0, blade.x) * mix(0.8, 1.0, root);
 	// Toned like the turf under it (turf_tone), or the blades stand out.
 	vec3 turf = tone_turf(mix(near, far, blend));

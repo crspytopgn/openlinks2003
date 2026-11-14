@@ -2323,7 +2323,26 @@ func _test_grass() -> void:
 	field.setup(t, 1)
 	field.update_around(tee + Vector3(0, 2, 60))
 	_check(field.chunk_count() == GrassField.BUILDS_PER_FRAME, "builds a few chunks per frame")
+	_check(field.mown_chunk_count() == 0, "no mown fur at the Low grass level")
 	field.free()
+	# The mown fur: only on the tee, fairway and fringe, the same each time.
+	var mown := GrassField.build_mown_chunk(t, Vector2i(floori(tee.x / GrassField.MOWN_CHUNK), floori(tee.z / GrassField.MOWN_CHUNK)), 100.0)
+	_check(mown != null and mown.instance_count > 100, "mown fur grows on the tee")
+	if mown != null:
+		var mb: PackedFloat32Array = mown.get_meta("buffer")
+		var off_mown := 0
+		for k in mown.instance_count:
+			if not GrassField.MOWN_HEIGHTS.has(t.surface_at(mb[16 * k + 3], mb[16 * k + 11])):
+				off_mown += 1
+		_check(off_mown == 0, "mown fur only on tees, fairways and fringes")
+		_check(mb[16 * 0 + 5] < 0.03, "mown blades are cut short")
+	var near := GrassField.new()
+	near.setup(t, 3)
+	near.update_around(Vector3(tee.x, t.height_at(tee.x, tee.z) + 1.6, tee.z))
+	_check(near.mown_chunk_count() == GrassField.MOWN_BUILDS_PER_FRAME, "builds a few mown chunks per frame")
+	near.update_around(Vector3(tee.x, t.height_at(tee.x, tee.z) + 60.0, tee.z))
+	_check(near.mown_chunk_count() == 0, "no mown fur seen from high up")
+	near.free()
 
 
 ## Numbers from the C++ wind_moves_the_ball test.
