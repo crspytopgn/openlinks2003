@@ -78,22 +78,20 @@ CLIPS = {
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
                          glance=(0.9, 0.45, 0.8, 75.0)),
-    # Full swings: a real golfer filmed in slow motion, tracked in 3D
-    # (footage_take.py). The CMU actor (take 64_01, an amateur) flew his
-    # trail elbow at the top and let his arms hang slack at impact.
-    "backswing": dict(take="ft:suvichaya_iron", ref="address", address=4, start=31, end=150, top=150, impact=187,
-                      putt=False, tour=False),
-    "swing": dict(take="ft:suvichaya_iron", ref="address", address=4, start=150, end=284, top=150, impact=187,
-                  downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755),
-                  tour=False),
+    # Full swings: CMU take 64_01. The footage take ("ft:suvichaya_iron",
+    # footage_take.py) was tried and reverted: tracked from one camera the
+    # arms flailed. Studio golf mocap (Mixamo) is the next step.
+    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=327, putt=False),
+    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=327,
+                  downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
                          frames=[150] * 360,
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
-    "backswing_iron": dict(take="ft:suvichaya_iron", ref="address_iron", club="Iron", address=4, start=31, end=150, top=150,
-                           impact=187, putt=False, tour=False),
-    "swing_iron": dict(take="ft:suvichaya_iron", ref="address_iron", club="Iron", address=4, start=150, end=284, top=150,
-                       impact=187, downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, tour=False),
+    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
+                           putt=False),
+    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=327,
+                       downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
 }
