@@ -1267,18 +1267,8 @@ func _add_trees(root: Node3D, s: Sprites, chunk: int) -> void:
 				if is_3d_tree(s, i):
 					trees.append_array(PackedFloat32Array([xyzh[4 * i], xyzh[4 * i + 1], xyzh[4 * i + 2], xyzh[4 * i + 3], s.species[s.sprite[i]]]))
 		s.cache[key] = TreeFactory.batches(trees, TREE_CELL)
-	var distance := TreeFactory.impostor_distance()
 	for batch: Dictionary in s.cache[key]:
-		var node := MultiMeshInstance3D.new()
-		node.multimesh = batch.multimesh
-		node.position = batch.position
-		if batch.full:
-			# A little past the farthest tree, measured from the cell's middle.
-			node.visibility_range_end = distance + float(batch.reach) + 5.0
-			if batch.get("near", false):
-				node.visibility_range_end = TreeFactory.lite_distance() + float(batch.reach) + 5.0
-		if not batch.full or batch.get("lite", false):
-			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var node := TreeFactory.batch_node(batch)
 		root.add_child(node)
 
 

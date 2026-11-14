@@ -531,6 +531,8 @@ func _test_course_objects() -> void:
 	root = objects.build_visual(hole)
 	var billboards := 0
 	var full := 0
+	var near := 0
+	var lite := 0
 	var impostors := 0
 	for child in root.get_children():
 		var mmi := child as MultiMeshInstance3D
@@ -539,11 +541,22 @@ func _test_course_objects() -> void:
 		if mmi.multimesh.mesh is QuadMesh and mmi.multimesh.use_custom_data and mmi.multimesh.mesh.material is ShaderMaterial and (mmi.multimesh.mesh.material as ShaderMaterial).shader == TreeFactory.IMPOSTOR_SHADER:
 			impostors += mmi.multimesh.instance_count
 			check(mmi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "objects: impostors cast no shadow")
+		elif mmi is NearTrees:
+			# A scanned variant's full meshes, drawn near the camera only.
+			near += mmi.multimesh.instance_count
+			check((mmi as NearTrees).refill(Vector3(1e5, 0, 0)) == 0 and (mmi as NearTrees).refill(mmi.multimesh.get_instance_transform(0).origin) >= 1, "objects: near trees drawn only near the camera")
 		elif mmi.multimesh.mesh is ArrayMesh:
-			full += mmi.multimesh.instance_count
+			if TreeFactory.scans_available() and TreeFactory.use_scans:
+				lite += mmi.multimesh.instance_count
+			else:
+				full += mmi.multimesh.instance_count
 			check(mmi.visibility_range_end > TreeFactory.impostor_distance(), "objects: full trees hidden past the impostor distance")
 		else:
 			billboards += mmi.multimesh.instance_count
+	if near > 0:
+		# Scanned trees: a near set and a lite mesh for each.
+		check(near == 2 and lite == 2, "objects: scanned trees have near and lite meshes (%d, %d)" % [near, lite])
+		full = near
 	check(billboards == 1 and full == 2 and impostors == 2, "objects: 3D trees in place of tree billboards (%d, %d, %d)" % [billboards, full, impostors])
 	check(objects.obstacles.size() == 4, "objects: 3D trees keep the billboards' obstacles")
 	var casters := objects.shade_casters(Rect2(-1000, -1000, 2000, 2000))

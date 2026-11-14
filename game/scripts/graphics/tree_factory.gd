@@ -63,7 +63,6 @@ const IMPOSTOR_DISTANCE: Array[float] = [0.0, 35.0, 70.0, 120.0]
 ## each, too many for every tree up to 120 m at Ultra.
 const LITE_DISTANCE := 35.0
 ## Cell size (m) of the scanned trees' full meshes in batches().
-const NEAR_CELL := 16.0
 ## Added to a tree's species in batches() for a tree that is only ever an
 ## impostor: the back rows of a wood, hidden behind the front rows, which
 ## never need the full mesh.
@@ -145,8 +144,9 @@ static func variant_at(species: Species, x: float, z: float) -> int:
 ## beyond that. Returns [{multimesh, position, reach, full}]: reach is how
 ## far the farthest tree is from position, so a cell's node can be hidden
 ## at impostor_distance() + reach. A scanned tree's full meshes come with
-## near = true (hide them at lite_distance() + reach) and its lite meshes
-## with lite = true (no sun shadow). A species of FAR_ONLY or more (see
+## near = true, one batch per variant holding all its trees (with
+## `transforms`, drawn by a NearTrees, see batch_node()), and its lite
+## meshes in cells with lite = true (no sun shadow). A species of FAR_ONLY or more (see
 ## FAR_ONLY) gives a tree with only its impostor.
 static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]:
 	_ensure_instanced()
@@ -183,7 +183,7 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 			# culled soon past the lite distance (a MultiMesh draws every
 			# instance it holds, even those its shader folds away); the lite
 			# mesh in the usual cells.
-			_cells(out, trees, standing[v], v, minf(cell, NEAR_CELL), _instanced_meshes[v], {near = true})
+			out.append(_near_set(trees, standing[v], v))
 			_cells(out, trees, standing[v], v, cell, _instanced_lite[v], {lite = true})
 	var imp := MultiMesh.new()
 	imp.transform_format = MultiMesh.TRANSFORM_3D
@@ -235,6 +235,43 @@ static func _cells(out: Array[Dictionary], trees: PackedFloat32Array, list: Pack
 		var entry := {multimesh = mm, position = mid, reach = reach, full = true}
 		entry.merge(extra)
 		out.append(entry)
+
+
+## A scanned variant's full trees as one NearTrees batch: all of them in
+## the MultiMesh, the node draws only those near the camera.
+static func _near_set(trees: PackedFloat32Array, list: PackedInt32Array, v: int) -> Dictionary:
+	var height := _meshes[v].get_aabb().end.y
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _instanced_meshes[v]
+	mm.instance_count = list.size()
+	var all: Array[Transform3D] = []
+	for k in list.size():
+		var t := _tree_transform(trees, list[k], height)
+		all.append(t)
+		mm.set_instance_transform(k, t)
+	return {multimesh = mm, position = Vector3.ZERO, reach = 0.0, full = true, near = true, transforms = all}
+
+
+## The node that draws `batch` (an entry of batches()): a NearTrees for a
+## near set, otherwise a MultiMeshInstance3D culled past the impostor
+## distance (full trees) and without sun shadows for impostors and lite
+## meshes. `shadows` false turns them off for all.
+static func batch_node(batch: Dictionary, shadows := true) -> GeometryInstance3D:
+	if batch.get("near", false):
+		var near := NearTrees.new(batch.multimesh, batch.transforms)
+		if not shadows:
+			near.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return near
+	var node := MultiMeshInstance3D.new()
+	node.multimesh = batch.multimesh
+	node.position = batch.position
+	if batch.full:
+		# A little past the farthest tree, measured from the cell's middle.
+		node.visibility_range_end = impostor_distance() + float(batch.reach) + 5.0
+	if not shadows or not batch.full or batch.get("lite", false):
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return node
 
 
 ## Tree i of `trees` (see batches): scaled from the variant's height to the

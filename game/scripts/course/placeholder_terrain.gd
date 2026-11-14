@@ -267,16 +267,8 @@ func _add_tree_line(root: Node3D) -> void:
 				at += rng.randf_range(row[1], row[2])
 	root.add_child(_wood_floor(corners))
 	for batch: Dictionary in TreeFactory.batches(trees, 50.0):
-		var node := MultiMeshInstance3D.new()
+		var node := TreeFactory.batch_node(batch)
 		node.name = "TreeLine"
-		node.multimesh = batch.multimesh
-		node.position = batch.position
-		if batch.full:
-			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
-			if batch.get("near", false):
-				node.visibility_range_end = TreeFactory.lite_distance() + float(batch.reach) + 5.0
-		if not batch.full or batch.get("lite", false):
-			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
 
 
