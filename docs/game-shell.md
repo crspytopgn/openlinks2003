@@ -792,7 +792,14 @@ the physics, the swing and the scoring are the same in both.
 - The aim marker is drawn as a sim draws it (`GolfRound.AIM_STYLE_SIM`): a
   thin, see-through white ring on the grass, and on putts a small ring that
   just rims the cup. Classic Links keeps the game's bold yellow ring
-  (`AIM_STYLE_CLASSIC`).
+  (`AIM_STYLE_CLASSIC`). Over it, `scripts/ui/aim_reticle.gd` draws a thin
+  crosshair with the carry in yards while a person lines up a full shot, so
+  the target stays in view over a crest or in the haze (as Links draws its
+  aim cursor over the scene); behind a rise it reads BLIND.
+- Flow guards: a swing can't start in the first 0.7 s of a new aim (a press
+  meant to skip the shot result used to start the meter, which can't be
+  stopped), and the swing meter is put away 1.5 s into the flight and over
+  the result.
 - `scripts/ui/glass.gd`, `glass_theme.gd`, `frosted_glass.gd`: the glass
   look of the menus and HUD, our own take on the translucent "liquid glass"
   of current phone and TV interfaces: rounded panels whose picture behind

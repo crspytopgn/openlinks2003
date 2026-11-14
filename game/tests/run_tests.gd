@@ -4815,6 +4815,9 @@ func _test_pause_stops_play() -> void:
 	game.open_pause_menu()
 	game._process(60.0)
 	_check(game.state == GolfRound.State.SHOT_RESULT, "pause: the turn doesn't pass while paused")
+	_check(not game.hud.meter.visible, "the swing meter is put away over the shot result")
+	_check(not game.hud.aim_reticle.visible, "no aim reticle over the shot result")
+	_check(AimReticle.label_for(245, false) == "245 YD" and AimReticle.label_for(180, true) == "BLIND  180 YD", "aim reticle labels")
 	game.pause_menu.close()
 
 
@@ -4833,7 +4836,7 @@ func _test_menu_resume() -> void:
 	shell._build_ui()
 	_check(shell.get_node_or_null("MenuScroll") is ScrollContainer, "menu: the menus scroll when taller than the window")
 	shell.free()
-	_check(boot_script.primary_button(["Play with placeholders", "Career", "Players"]) == 0, "menu: Enter plays, not Players")
+	_check(boot_script.primary_button(["Play now", "Career", "Players"]) == 0, "menu: Enter plays, not Players")
 	_check(boot_script.primary_button(["Load disc images...", "Players", "Play a round"]) == 2, "menu: focus skips Players")
 	_check(boot_script.primary_button(["Players", "Settings"]) == -1, "menu: no play button, no focus")
 	_check(boot._setup_paths.size() >= 2 and boot._setup_paths[1] == key, "menu: the setup list is filled for resuming")

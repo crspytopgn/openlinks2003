@@ -255,7 +255,7 @@ func _check_stored() -> void:
 			_set_buttons([
 				["Use my game files", _reconnect],
 				["Load different files...", _pick.bind(false)],
-				["Play with placeholders", _play_placeholders],
+				["Play the built-in course", _play_placeholders],
 			])
 		_:
 			_ask_for_files()
@@ -269,9 +269,9 @@ func _ask_for_files(problem := "") -> void:
 		text += " This browser can't remember them, so you'll pick them again next time (it only takes a moment)."
 	_status.text = text if problem.is_empty() else problem + "\n\n" + text
 	_set_buttons([
+		["Play now", _play_placeholders],
 		["Load disc images...", _pick.bind(false)],
 		["Load a game folder...", _pick.bind(true)],
-		["Play with placeholders", _play_placeholders],
 		["Career", _open_career],
 		["Tournament", _open_tournament],
 		["Course designer", _open_designer],
@@ -708,8 +708,8 @@ func _show_desktop_choice() -> void:
 	_status.text = ("To play the real Links 2003 courses, choose the folder of your installed game "
 		+ "(or a folder you extracted with tools/cdimage/cdimage.py install).")
 	_set_buttons([
+		["Play now", _play_placeholders],
 		["Choose game folder...", _choose_folder],
-		["Play with placeholders", _play_placeholders],
 		["Career", _open_career],
 		["Tournament", _open_tournament],
 		["Course designer", _open_designer],

@@ -23,6 +23,8 @@ const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
+## Seconds into the flight the swing meter stays up to show the swing.
+const METER_LINGER_S := 1.5
 ## A putt missed from inside this many metres (8 ft) gets a slump.
 const SLUMP_PUTT := 2.5
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
@@ -988,7 +990,11 @@ func _process(delta: float) -> void:
 	var paused := pause_menu.visible or settings_panel.visible
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
-	hud.meter.visible = state != State.DROP and state != State.DRIVE
+	# Nor during the shot once the ball is away, or over the result: it sat
+	# in the corner of every broadcast camera saying "click to swing".
+	var shot_over := state == State.SHOT_RESULT or state == State.HOLE_DONE or state == State.ROUND_DONE \
+		or (state == State.FLIGHT and shot_time > METER_LINGER_S)
+	hud.meter.visible = state != State.DROP and state != State.DRIVE and not (shot_over and practice == null and not round_setup.practice)
 	hud.swing_button.visible = hud.touch_pad.visible and state == State.AIM and not _replaying \
 		and not hud.hand_over.visible and not paused and shooter < opponents.size() and opponents[shooter] == null and not _is_remote()
 	hud.swing_button.armed = Time.get_ticks_msec() >= _aim_ready_ms and not camera.flying()
@@ -1029,6 +1035,7 @@ func _process(delta: float) -> void:
 			start_replay()
 	if state != State.DRIVE:
 		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	_update_reticle(paused)
 	grass.update_around(camera.global_position)
 	fescue.update_around(camera.global_position)
 	_update_ball_size()
@@ -1172,6 +1179,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		swing_pressed = swing_pressed or (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT)
 	if swing_pressed:
 		get_viewport().set_input_as_handled()
+		# A press meant to skip the shot result or the walk can land just
+		# as the next shot is set up, and the meter can't be stopped once it
+		# runs: a stroke thrown away. The swing waits a moment after the aim.
+		if state == State.AIM and Time.get_ticks_msec() < _aim_ready_ms:
+			return
 		_on_swing_pressed()
 
 
@@ -1259,7 +1271,7 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 			if not mb.pressed and _swing_input == SwingInput.MOUSE:
 				ms.release()
 			return true
-		if mb.pressed and graphics.swing_method == 1 and _can_start_swing():
+		if mb.pressed and graphics.swing_method == 1 and _can_start_swing() and Time.get_ticks_msec() >= _aim_ready_ms:
 			_begin_mouse_swing(SwingInput.MOUSE)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
@@ -2176,14 +2188,16 @@ func _complete_flight() -> void:
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
+			# Broadcast has its shot card for this; a second line under it
+			# said the same again.
 			if broadcast:
 				msg = ""
 			elif clubs[club_index].is_putter:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
-			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
-				golfer.play(&"slump")
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
+			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
+				golfer.play(&"slump")
 	if _gimme_now():
 		_concede_putt()
 		return
@@ -3101,9 +3115,13 @@ func _power_hint() -> String:
 	var reach := _club_reach()
 	if reach <= 1.0 or _chip:
 		return ""
-	var need := _flat_distance(ball_at, hole.pin) / reach
+	var to_pin := _flat_distance(ball_at, hole.pin)
+	var need := to_pin / reach
 	if need > 1.05:
-		return "  pin: more club"
+		# Only when a club in the bag gets there: off the tee of a par 4 the
+		# driver said "more club" with nothing more to take.
+		var longest := clubs[0].total_m * shot_model.reach_scale(clubs[0]) * shot_model.lie_power(lie)
+		return "  pin: more club" if longest >= to_pin else ""
 	return "  pin: about %d%%" % roundi(minf(need, 1.0) * 100.0)
 
 
@@ -3770,6 +3788,26 @@ func _update_aim_marker() -> void:
 	aim_marker.scale = _aim_marker_scale(size)
 	aim_marker.visible = true
 	_update_breakline()
+
+
+## The aim point over the picture (AimReticle) while a person lines up a
+## full shot: the ring on the grass is lost behind crests and in the haze.
+func _update_reticle(paused: bool) -> void:
+	var r := hud.aim_reticle
+	var show := (state == State.AIM or (state == State.SWING and not hud.meter.is_swinging() and not hud.mouse_swing.is_swinging())) \
+		and not paused and not _replaying and not camera.flying() and not hud.hand_over.visible \
+		and aim_marker != null and aim_marker.visible and _human_turn() and not clubs[club_index].is_putter \
+		and not _chip and read_view == GreenRead.View.PLAY
+	var at := aim_marker.global_position if aim_marker != null else Vector3.ZERO
+	if not show or camera.is_position_behind(at):
+		r.hide_reticle()
+		return
+	var p := camera.unproject_position(at)
+	if not get_viewport().get_visible_rect().grow(-8.0).has_point(p):
+		r.hide_reticle()
+		return
+	var blind := not RoundCamera.sight_clear(hole.terrain, camera.global_position, at + Vector3.UP * 0.3)
+	r.show_at(p, AimReticle.label_for(roundi(_flat_distance(ball_at, at) * YARDS_PER_METRE), blind), blind)
 
 
 func _update_hud() -> void:
