@@ -36,6 +36,7 @@ import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
 import putt_posture  # noqa: E402
+import swing_posture  # noqa: E402
 import anatomy  # noqa: E402
 import collide  # noqa: E402
 
@@ -60,10 +61,11 @@ BONES = {
 # real time); after impact time runs at follow times real time. hold adds
 # seconds of the last frame.
 CLIPS = {
-    # Address: the actor's own sway over the ball, back and forth so it
-    # loops, with a look at the target.
+    # Address: held still over the ball, with a look at the target. (The
+    # actor's frames before 150 have the club 30 cm or more off the ball
+    # while he sets up, which looked like the clubhead wandering.)
     "address": dict(take="64_01", ref="address", address=150, putt=False, loop=0.3,
-                    frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
+                    frames=[150] * 360,
                     glance=(1.3, 0.4, 0.7, 70.0)),
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
@@ -73,7 +75,7 @@ CLIPS = {
                   downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
-                         frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
+                         frames=[150] * 360,
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
     "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
                            putt=False),
@@ -286,7 +288,7 @@ IMPACT_WINDOW = 30  # mocap frames either side of impact the correction fades ov
 # target, head height held) his backswing sways 14 cm, stands up 7 cm and
 # turns the shoulders only ~70 deg. These take the backswing towards a
 # tour player's, fading out by impact so the strike is unchanged.
-SWAY_KEEP = 0.5  # of the actor's pelvis slide away from the target
+SWAY_KEEP = 0.25  # of the actor's pelvis slide away from the target
 HEAD_RISE_KEEP = 0.15  # of the actor's head rise
 EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 
@@ -483,6 +485,15 @@ def retarget(glb, rig, clip, cache):
     ref_local, ref_root = rig.sample(glb, "ref_" + clip["ref"])
     ref_rots, ref_poss = rig.world(ref_local, ref_root)
     m_rots0, m_poss0 = bvh.frame(address)
+    # The actor stands more upright over the ball than the golfer (tour
+    # posture, swing_posture.py): his trunk turns about his own spine, so
+    # applied as they are they would turn the golfer's trunk about a line
+    # off his spine and swing the head 20-27 cm away from the target at the
+    # top. The upper body's turns are carried onto the golfer's spine line.
+    actor_spine = g @ (m_poss0[bvh.index["Neck1"]] - m_poss0[bvh.index["Hips"]])
+    our_spine = ref_poss[rig.index["neck_01"]] - ref_poss[rig.index["pelvis"]]
+    onto = between(pose.unit(actor_spine), pose.unit(our_spine))
+    upper_body = set(descendants(rig, "spine_01"))
     # Scale: the golfer's hip height over the actor's.
     golfer_hip = ref_poss[rig.index["pelvis"]][1] - ref_poss[rig.index["foot_l"]][1]
     actor_hip = m_poss0[bvh.index["Hips"]][1] - m_poss0[bvh.index["LeftFoot"]][1]
@@ -525,7 +536,10 @@ def retarget(glb, rig, clip, cache):
                 src = BONES.get(name)
                 if src:
                     k = bvh.index[src]
-                    rots[j] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ ref_rots[j]
+                    delta = g @ m_rots[k] @ m_rots0[k].T @ g.T
+                    if j in upper_body:
+                        delta = onto @ delta @ onto.T
+                    rots[j] = delta @ ref_rots[j]
             if clip.get("glance"):
                 glance(rig, rots, i / MOCAP_FPS, clip["glance"])
             root = ref_root + scale * (g @ (m_poss[bvh.index["Hips"]] - m_poss0[bvh.index["Hips"]]))
@@ -1644,6 +1658,9 @@ def main():
     clubs.swap(glb, rig)
     # The putting address re-posed round the (now 34.5 inch) putter.
     putt_posture.fit(glb, rig)
+    # The full-swing addresses re-posed as tour players stand (flat back
+    # from the hips, arms hanging), round the real-length arms (arm_length.py).
+    swing_posture.fit(glb, rig)
     # The real body (the default person's mesh), so the arms are placed
     # outside the chest (collide.py).
     guard = collide.Guard(glb)
