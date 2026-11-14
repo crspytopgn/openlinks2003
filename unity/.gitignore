@@ -1,0 +1,21 @@
+# Unity's own folders
+/Library/
+/Temp/
+/Logs/
+/obj/
+/UserSettings/
+/Builds/
+*.csproj
+*.sln
+# Made by prepare.sh and the build (free assets, course copies, native code)
+/Assets/Trial/Fetched/
+/Assets/Trial/Fetched.meta
+/Assets/Trial/Generated/
+/Assets/Trial/Generated.meta
+/Assets/Plugins/
+/Assets/Plugins.meta
+# Unity writes the rest of ProjectSettings on first open; keep ours small
+/ProjectSettings/*
+!/ProjectSettings/ProjectVersion.txt
+!/ProjectSettings/EditorSettings.asset
+/Packages/packages-lock.json

@@ -1,0 +1,104 @@
+name: Unity trial
+
+# Builds the Unity 6 trial (unity/README.md) for Linux, Windows and the Web,
+# and screenshots the Linux build on Mesa's software renderer. Unity needs
+# a licence: add UNITY_LICENSE (the .ulf file's contents), UNITY_EMAIL and
+# UNITY_PASSWORD as repository secrets. Without them the job only says so.
+on:
+  push:
+    branches: [main]
+    paths: ["unity/**", "libs/olcore/**", ".github/workflows/unity-trial.yml"]
+  pull_request:
+    paths: ["unity/**", "libs/olcore/**", ".github/workflows/unity-trial.yml"]
+  workflow_dispatch:
+
+env:
+  UNITY_VERSION: 6000.0.86f1
+
+jobs:
+  build:
+    name: Unity ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # A Personal licence has two seats: build one platform at a time.
+      max-parallel: 1
+      matrix:
+        include:
+          - target: StandaloneLinux64
+            short: Linux64
+          - target: StandaloneWindows64
+            short: Win64
+          - target: WebGL
+            short: WebGL
+    env:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+      UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for the Unity licence
+        id: licence
+        run: |
+          if [ -z "$UNITY_LICENSE" ] || [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+            echo "::warning::No Unity licence secrets (UNITY_LICENSE, UNITY_EMAIL, UNITY_PASSWORD): skipping the Unity build."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Free disk space for the Unity image
+        if: steps.licence.outputs.ok == 'true'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Prepare inputs
+        if: steps.licence.outputs.ok == 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-pil mingw-w64
+          bash unity/prepare.sh ${{ matrix.short }}
+
+      - uses: actions/cache@v4
+        if: steps.licence.outputs.ok == 'true'
+        with:
+          path: unity/Library
+          key: unity-library-${{ matrix.target }}-${{ hashFiles('unity/Packages/manifest.json', 'unity/Assets/Trial/**/*.cs') }}
+          restore-keys: unity-library-${{ matrix.target }}-
+
+      - uses: game-ci/unity-builder@v4
+        if: steps.licence.outputs.ok == 'true'
+        with:
+          projectPath: unity
+          unityVersion: ${{ env.UNITY_VERSION }}
+          targetPlatform: ${{ matrix.target }}
+          buildMethod: TrialBuild.BuildFromCI
+          buildName: OpenLinksUnityTrial
+          buildsPath: unity-build
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Screenshots
+        if: steps.licence.outputs.ok == 'true' && matrix.short == 'Linux64'
+        run: |
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglu1-mesa > /dev/null
+          exe=$(find unity-build -name 'OpenLinksUnityTrial' -type f | head -1)
+          sudo chmod +x "$exe"
+          timeout 600 xvfb-run -a -s "-screen 0 1920x1080x24" "$exe" -screen-width 1920 -screen-height 1080 \
+            -screen-fullscreen 0 -force-glcore -logFile - -trialShots "$PWD/unity-shots" 2>&1 | tee unity-run.log || true
+          grep -E "TRIAL|Exception|Error" unity-run.log | head -50
+          ls -la unity-shots || true
+
+      - uses: actions/upload-artifact@v4
+        if: steps.licence.outputs.ok == 'true' && matrix.short == 'Linux64'
+        with:
+          name: unity-trial-screenshots
+          path: |
+            unity-shots/
+            unity-run.log
+
+      - uses: actions/upload-artifact@v4
+        if: steps.licence.outputs.ok == 'true'
+        with:
+          name: unity-trial-${{ matrix.short }}
+          path: unity-build/${{ matrix.target }}
