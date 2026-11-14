@@ -27,6 +27,22 @@ const VARIANTS := [
 	[Species.BUSH, 3],
 	[Species.BUSH, 29],
 ]
+## Photoscanned trees (ScannedTree, from Poly Haven) used in place of the
+## generated VARIANTS when their meshes and textures are all there:
+## [species, scan name, mirrored]. A mirrored copy of a scan makes a second
+## variant (each tree is also turned at random where it stands).
+const SCANNED := [
+	[Species.BROADLEAF, "jacaranda", false],
+	[Species.BROADLEAF, "jacaranda", true],
+	[Species.BROADLEAF, "island_01", false],
+	[Species.PINE, "fir_a", false],
+	[Species.PINE, "fir_b", false],
+	[Species.PINE, "fir_c", false],
+	[Species.BUSH, "island_02", false],
+	[Species.BUSH, "island_02", true],
+]
+## Set to false to keep the generated trees (tests, comparisons).
+static var use_scans := OS.get_environment("OL_TREE_SCANS") != "0"
 const FRAMES := 8
 const FRAME_PIXELS := 256
 ## Frame size at tree level 2 and up (High and Ultra, and capable iPads
@@ -41,6 +57,13 @@ const FRAME_PIXELS_HIGH := 384
 ## Distance at which a tree turns into its impostor, per GraphicsSettings
 ## tree level (0 = classic trees, no 3D).
 const IMPOSTOR_DISTANCE: Array[float] = [0.0, 35.0, 70.0, 120.0]
+## Beyond this distance a scanned tree (SCANNED) draws its lite mesh (a
+## quarter of the leaves, grown, the lite bark, no sun shadow) until it
+## turns into its impostor: the full scans cost 10 to 35 thousand triangles
+## each, too many for every tree up to 120 m at Ultra.
+const LITE_DISTANCE := 35.0
+## Cell size (m) of the scanned trees' full meshes in batches().
+const NEAR_CELL := 16.0
 ## Added to a tree's species in batches() for a tree that is only ever an
 ## impostor: the back rows of a wood, hidden behind the front rows, which
 ## never need the full mesh.
@@ -58,6 +81,7 @@ const TRANSMIT_FORWARD_PLUS := 0.5
 static var level := 0
 
 static var _meshes: Array[ArrayMesh] = []
+static var _variants: Array = []  ## SCANNED or VARIANTS, once meshes are made
 static var _sizes: PackedFloat32Array = []
 static var _materials := {}
 static var _atlas: ImageTexture
@@ -68,6 +92,8 @@ static var _baked := false
 static var _waiting: Array[WeakRef] = []
 static var _next := {}
 static var _instanced_meshes: Array[ArrayMesh] = []
+static var _lite_meshes: Array = []  ## per variant: the lite ArrayMesh, or null
+static var _instanced_lite: Array = []  ## the same with the instanced materials
 static var _instanced_impostor: ShaderMaterial
 static var _impostor_quad: QuadMesh
 
@@ -101,9 +127,10 @@ static func natural_height(species: Species, x: float, z: float) -> float:
 ## A variant of `species` picked by a hash of (x, z), so a course's trees
 ## come out the same every time.
 static func variant_at(species: Species, x: float, z: float) -> int:
+	_ensure_meshes()
 	var choices: Array[int] = []
-	for v in VARIANTS.size():
-		if VARIANTS[v][0] == species:
+	for v in _variants.size():
+		if _variants[v][0] == species:
 			choices.append(v)
 	var h := hash(Vector2i(roundi(x * 10.0), roundi(z * 10.0)))
 	return choices[absi(h) % choices.size()]
@@ -117,7 +144,9 @@ static func variant_at(species: Species, x: float, z: float) -> int:
 ## global tree_impostor_distance), and a cell's full trees are culled
 ## beyond that. Returns [{multimesh, position, reach, full}]: reach is how
 ## far the farthest tree is from position, so a cell's node can be hidden
-## at impostor_distance() + reach. A species of FAR_ONLY or more (see
+## at impostor_distance() + reach. A scanned tree's full meshes come with
+## near = true (hide them at lite_distance() + reach) and its lite meshes
+## with lite = true (no sun shadow). A species of FAR_ONLY or more (see
 ## FAR_ONLY) gives a tree with only its impostor.
 static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]:
 	_ensure_instanced()
@@ -126,12 +155,13 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 	var n := trees.size() / 5
 	if n == 0:
 		return out
-	var groups := {}  # Vector3i(cell x, cell z, variant) -> PackedInt32Array
 	var variant := PackedInt32Array()
 	variant.resize(n)
 	var far := PackedByteArray()
 	far.resize(n)
 	var centre := Vector3.ZERO
+	var standing: Array[PackedInt32Array] = []  # per variant: its trees with a full mesh
+	standing.resize(_variants.size())
 	for i in n:
 		var x := trees[5 * i]
 		var z := trees[5 * i + 2]
@@ -140,33 +170,21 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 		variant[i] = v
 		far[i] = 1 if code >= FAR_ONLY else 0
 		centre += Vector3(x, trees[5 * i + 1], z)
-		if far[i] == 1:
-			continue
-		var key := Vector3i(floori(x / cell), floori(z / cell), v)
-		if not groups.has(key):
-			groups[key] = PackedInt32Array()
-		var list: PackedInt32Array = groups[key]
-		list.append(i)
-		groups[key] = list
+		if far[i] == 0:
+			standing[v].append(i)
 	centre /= n
-	for key: Vector3i in groups:
-		var list: PackedInt32Array = groups[key]
-		var mid := Vector3.ZERO
-		for i in list:
-			mid += Vector3(trees[5 * i], trees[5 * i + 1], trees[5 * i + 2])
-		mid /= list.size()
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = _instanced_meshes[key.z]
-		mm.instance_count = list.size()
-		var reach := 0.0
-		for k in list.size():
-			var i := list[k]
-			var t := _tree_transform(trees, i, _meshes[key.z].get_aabb().end.y)
-			t.origin -= mid
-			reach = maxf(reach, Vector2(t.origin.x, t.origin.z).length())
-			mm.set_instance_transform(k, t)
-		out.append({multimesh = mm, position = mid, reach = reach, full = true})
+	for v in _variants.size():
+		if standing[v].is_empty():
+			continue
+		if _instanced_lite[v] == null:
+			_cells(out, trees, standing[v], v, cell, _instanced_meshes[v], {})
+		else:
+			# A scanned tree's full mesh in small cells, so a cell's node is
+			# culled soon past the lite distance (a MultiMesh draws every
+			# instance it holds, even those its shader folds away); the lite
+			# mesh in the usual cells.
+			_cells(out, trees, standing[v], v, minf(cell, NEAR_CELL), _instanced_meshes[v], {near = true})
+			_cells(out, trees, standing[v], v, cell, _instanced_lite[v], {lite = true})
 	var imp := MultiMesh.new()
 	imp.transform_format = MultiMesh.TRANSFORM_3D
 	imp.use_custom_data = true
@@ -178,12 +196,45 @@ static func batches(trees: PackedFloat32Array, cell: float) -> Array[Dictionary]
 		t.basis = t.basis.scaled(Vector3.ONE * _sizes[v])
 		t.origin -= centre
 		imp.set_instance_transform(i, t)
-		imp.set_instance_custom_data(i, Color((v + 0.5) / VARIANTS.size(), far[i], 0, 0))
+		imp.set_instance_custom_data(i, Color((v + 0.5) / _variants.size(), far[i], 0, 0))
 	out.append({multimesh = imp, position = centre, reach = 0.0, full = false})
 	if not _baked:
 		_start_bake()
 	_update_distance()
 	return out
+
+
+## Adds to `out` one MultiMesh of `mesh` per `cell` holding trees of
+## `list` (indices into `trees`, all of variant v), with `extra` keys.
+static func _cells(out: Array[Dictionary], trees: PackedFloat32Array, list: PackedInt32Array, v: int, cell: float, mesh: ArrayMesh, extra: Dictionary) -> void:
+	var groups := {}  # Vector2i(cell x, cell z) -> PackedInt32Array
+	for i in list:
+		var key := Vector2i(floori(trees[5 * i] / cell), floori(trees[5 * i + 2] / cell))
+		if not groups.has(key):
+			groups[key] = PackedInt32Array()
+		var g: PackedInt32Array = groups[key]
+		g.append(i)
+		groups[key] = g
+	var height := _meshes[v].get_aabb().end.y
+	for key: Vector2i in groups:
+		var g: PackedInt32Array = groups[key]
+		var mid := Vector3.ZERO
+		for i in g:
+			mid += Vector3(trees[5 * i], trees[5 * i + 1], trees[5 * i + 2])
+		mid /= g.size()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = g.size()
+		var reach := 0.0
+		for k in g.size():
+			var t := _tree_transform(trees, g[k], height)
+			t.origin -= mid
+			reach = maxf(reach, Vector2(t.origin.x, t.origin.z).length())
+			mm.set_instance_transform(k, t)
+		var entry := {multimesh = mm, position = mid, reach = reach, full = true}
+		entry.merge(extra)
+		out.append(entry)
 
 
 ## Tree i of `trees` (see batches): scaled from the variant's height to the
@@ -200,15 +251,21 @@ static func _ensure_instanced() -> void:
 	_ensure_meshes()
 	if not _instanced_meshes.is_empty():
 		return
-	for v in VARIANTS.size():
+	for v in _variants.size():
 		var m := _meshes[v].duplicate() as ArrayMesh
-		m.surface_set_material(0, material("instanced_pine_bark" if VARIANTS[v][0] == Species.PINE else "instanced_bark"))
-		m.surface_set_material(1, material("instanced_needles" if VARIANTS[v][0] == Species.PINE else "instanced_leaves"))
+		m.surface_set_material(0, _mat(v, "bark", "instanced_"))
+		m.surface_set_material(1, _mat(v, "leaves", "instanced_"))
 		_instanced_meshes.append(m)
+		var lite: ArrayMesh = null
+		if _lite_meshes[v] != null:
+			lite = (_lite_meshes[v] as ArrayMesh).duplicate() as ArrayMesh
+			lite.surface_set_material(0, _mat(v, "bark", "instancedlite_"))
+			lite.surface_set_material(1, _mat(v, "leaves", "instancedlite_"))
+		_instanced_lite.append(lite)
 	_instanced_impostor = ShaderMaterial.new()
 	_instanced_impostor.shader = IMPOSTOR_SHADER
 	_instanced_impostor.set_shader_parameter("frames", float(FRAMES))
-	_instanced_impostor.set_shader_parameter("rows", float(VARIANTS.size()))
+	_instanced_impostor.set_shader_parameter("rows", float(_variants.size()))
 	_instanced_impostor.set_shader_parameter("instanced", true)
 	_instanced_impostor.set_shader_parameter("transmit", _impostor_transmit())
 	if _atlas != null:
@@ -224,14 +281,21 @@ static func _ensure_instanced() -> void:
 ## the instanced impostors nowhere).
 static func _update_distance() -> void:
 	RenderingServer.global_shader_parameter_set("tree_impostor_distance", impostor_distance() if _baked else 1.0e6)
+	RenderingServer.global_shader_parameter_set("tree_lite_distance", lite_distance() if _baked else 1.0e6)
+
+
+## Where scanned trees switch to their lite meshes at the current level.
+static func lite_distance() -> float:
+	return minf(LITE_DISTANCE, impostor_distance())
 
 
 ## A tree of `species`, cycling through its variants. `seed_hint` picks the
 ## variant when given (>= 0).
 static func instance(species: Species, seed_hint := -1) -> Node3D:
+	_ensure_meshes()
 	var choices: Array[int] = []
-	for v in VARIANTS.size():
-		if VARIANTS[v][0] == species:
+	for v in _variants.size():
+		if _variants[v][0] == species:
 			choices.append(v)
 	var n: int = _next.get(species, 0)
 	_next[species] = n + 1
@@ -248,6 +312,13 @@ static func make_variant(variant: int) -> Node3D:
 	full.name = "Full"
 	full.mesh = _meshes[variant]
 	root.add_child(full)
+	if _lite_meshes[variant] != null:
+		var lite := MeshInstance3D.new()
+		lite.name = "Lite"
+		lite.mesh = _lite_meshes[variant]
+		lite.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		lite.visible = false  # until the impostors are baked (_add_impostor)
+		root.add_child(lite)
 	if _baked:
 		_add_impostor(root)
 	else:
@@ -268,11 +339,32 @@ static func frame_size(variant: int) -> float:
 	return _sizes[variant]
 
 
+## True when every scanned tree's mesh and textures are there.
+static func scans_available() -> bool:
+	for v in SCANNED:
+		if not ScannedTree.available(v[1]):
+			return false
+	return true
+
+
 static func _ensure_meshes() -> void:
 	if not _meshes.is_empty():
 		return
-	for v in VARIANTS:
-		var m := build_mesh(v[0], v[1])
+	_variants = SCANNED if use_scans and scans_available() else VARIANTS
+	for i in _variants.size():
+		var v: Array = _variants[i]
+		var m: ArrayMesh
+		var lite: ArrayMesh = null
+		if v[1] is String:
+			m = ScannedTree.build(v[1], v[2])
+			m.surface_set_material(0, _mat(i, "bark"))
+			m.surface_set_material(1, _mat(i, "leaves"))
+			lite = ScannedTree.build(v[1], v[2], true)
+			lite.surface_set_material(0, _mat(i, "bark"))
+			lite.surface_set_material(1, _mat(i, "leaves"))
+		else:
+			m = build_mesh(v[0], v[1])
+		_lite_meshes.append(lite)
 		var box := m.get_aabb()
 		var half_width := maxf(maxf(absf(box.position.x), absf(box.end.x)), maxf(absf(box.position.z), absf(box.end.z)))
 		_meshes.append(m)
@@ -613,15 +705,33 @@ static func _core(st: SurfaceTool, rng: RandomNumberGenerator, centre: Vector3, 
 ## The shared materials: "bark", "leaves" and "needles", plus "bake_..."
 ## versions that draw plain albedo for the impostor atlas and "instanced_..."
 ## ones for the MultiMeshes of batches().
+## The material of variant `v`'s "bark" or "leaves", with a prefix
+## ("bake_", "bakenormal_", "instanced_") for the other passes.
+static func _mat(v: int, part: String, prefix := "") -> ShaderMaterial:
+	var spec: Array = _variants[v]
+	if spec[1] is String:
+		return material("%sscan:%s:%s" % [prefix, spec[1], part])
+	var pine: bool = spec[0] == Species.PINE
+	if part == "bark":
+		return material(prefix + ("pine_bark" if pine else "bark"))
+	return material(prefix + ("needles" if pine else "leaves"))
+
+
 static func material(which: String) -> ShaderMaterial:
 	if _materials.has(which):
 		return _materials[which]
 	var bake_normal := which.begins_with("bakenormal_")
 	var bake := which.begins_with("bake_") or bake_normal
-	var instanced := which.begins_with("instanced_")
-	var kind := which.trim_prefix("bakenormal_").trim_prefix("bake_").trim_prefix("instanced_")
+	var instanced := which.begins_with("instanced")
+	var kind := which.trim_prefix("bakenormal_").trim_prefix("bake_").trim_prefix("instancedlite_").trim_prefix("instanced_")
+	# Instanced scanned trees draw in two bands (see LITE_DISTANCE): 1 the
+	# full mesh up to the lite distance, 2 the lite mesh beyond it.
 	var mat := ShaderMaterial.new()
-	if kind.ends_with("bark"):
+	if instanced and kind.begins_with("scan:"):
+		mat.set_shader_parameter("band", 2 if which.begins_with("instancedlite_") else 1)
+	if kind.begins_with("scan:"):
+		_scan_material(mat, kind.get_slice(":", 1), kind.get_slice(":", 2), bake)
+	elif kind.ends_with("bark"):
 		mat.shader = BARK_SHADER
 		if kind == "pine_bark":
 			# A pine's trunk stands in the sun below its high crown, and the
@@ -676,12 +786,61 @@ static func material(which: String) -> ShaderMaterial:
 	return mat
 
 
+## A photoscanned tree's bark or leaves: its own textures, drawn by the same
+## shaders as the generated trees (their `scanned` mode), so wind, tint,
+## impostor baking and the crown light all carry over.
+static func _scan_material(mat: ShaderMaterial, tree: String, part: String, bake: bool) -> void:
+	var fwd := GraphicsSettings.is_forward_plus()
+	mat.set_shader_parameter("scanned", true)
+	if part == "bark":
+		mat.shader = BARK_SHADER
+		mat.set_shader_parameter("bark_color", ScannedTree.texture(tree, "trunk.jpg"))
+		mat.set_shader_parameter("bark_normal", ScannedTree.texture(tree, "trunk_normal.jpg"))
+		mat.set_shader_parameter("branch_color", ScannedTree.texture(tree, "bark.jpg"))
+		mat.set_shader_parameter("has_texture", true)
+		# The scans' trunks run up into their crowns: shade them from where
+		# the leaves begin.
+		mat.set_shader_parameter("shade_from", 3.0)
+		mat.set_shader_parameter("shade_to", 8.0)
+		return
+	mat.shader = LEAF_SHADER
+	var maps := ScannedTree.leaf_textures(tree)
+	if ScannedTree.is_conifer(tree):
+		# Sprig cards laid along the scan's own branches, drawn as the
+		# generated pines' needles are.
+		mat.set_shader_parameter("scanned", false)
+		mat.set_shader_parameter("needles", true)
+		mat.set_shader_parameter("twig_color", maps[0])
+		mat.set_shader_parameter("twig_opacity", maps[1])
+		mat.set_shader_parameter("has_twig", true)
+		# The scan's open fir crown has no dense pads shading each other,
+		# so its sprigs are darkened to the deep blue-green of a fir.
+		mat.set_shader_parameter("twig_tint", Vector3(0.42, 0.52, 0.44))
+		mat.set_shader_parameter("inner_shade", 0.4 if fwd else 0.5)
+	else:
+		mat.set_shader_parameter("scan_color", maps[0])
+		mat.set_shader_parameter("scan_opacity", maps[1])
+	mat.set_shader_parameter("fill", 0.06 if fwd else 0.3)
+	if not ScannedTree.is_conifer(tree):
+		mat.set_shader_parameter("inner_shade", 0.5 if fwd else 0.62)
+	if fwd and not bake:
+		mat.set_shader_parameter("transmit", TRANSMIT_FORWARD_PLUS)
+
+
 static func _add_impostor(root: Node3D) -> void:
 	var variant: int = root.get_meta("tree_variant")
 	var distance := impostor_distance()
 	var full := root.get_node("Full") as GeometryInstance3D
 	full.visibility_range_end = distance
 	full.visibility_range_end_margin = 4.0
+	var lite := root.get_node_or_null("Lite") as GeometryInstance3D
+	if lite != null:
+		full.visibility_range_end = lite_distance()
+		lite.visibility_range_begin = lite_distance()
+		lite.visibility_range_begin_margin = 2.0
+		lite.visibility_range_end = distance
+		lite.visibility_range_end_margin = 4.0
+		lite.visible = true
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
 	quad.center_offset = Vector3(0, 0.5, 0)
@@ -713,7 +872,7 @@ static func _start_bake() -> void:
 
 
 static func _bake(tree: SceneTree) -> void:
-	var rows := VARIANTS.size()
+	var rows := _variants.size()
 	var vp := SubViewport.new()
 	vp.name = "TreeImpostorBake"
 	vp.own_world_3d = true
@@ -740,8 +899,8 @@ static func _bake(tree: SceneTree) -> void:
 		for k in FRAMES:
 			var mi := MeshInstance3D.new()
 			mi.mesh = _meshes[v]
-			mi.set_surface_override_material(0, material("bake_pine_bark" if VARIANTS[v][0] == Species.PINE else "bake_bark"))
-			mi.set_surface_override_material(1, material("bake_needles" if VARIANTS[v][0] == Species.PINE else "bake_leaves"))
+			mi.set_surface_override_material(0, _mat(v, "bark", "bake_"))
+			mi.set_surface_override_material(1, _mat(v, "leaves", "bake_"))
 			mi.scale = Vector3.ONE / _sizes[v]
 			mi.position = Vector3(k + 0.5 - FRAMES * 0.5, rows - 1 - v, 0)
 			# Copy k shows the tree as seen from azimuth k * 360 / FRAMES.
@@ -764,9 +923,8 @@ static func _bake(tree: SceneTree) -> void:
 	for mi in vp.get_children():
 		if mi is MeshInstance3D:
 			var v: int = mi.get_meta("variant")
-			var pine: bool = VARIANTS[v][0] == Species.PINE
-			mi.set_surface_override_material(0, material("bakenormal_pine_bark" if pine else "bakenormal_bark"))
-			mi.set_surface_override_material(1, material("bakenormal_needles" if pine else "bakenormal_leaves"))
+			mi.set_surface_override_material(0, _mat(v, "bark", "bakenormal_"))
+			mi.set_surface_override_material(1, _mat(v, "leaves", "bakenormal_"))
 	for i in 8:
 		await RenderingServer.frame_post_draw
 	var normals := vp.get_texture().get_image()

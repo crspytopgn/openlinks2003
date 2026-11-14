@@ -126,6 +126,24 @@ at Medium and grass at Low.
   leaves (`shaders/tree_wind.gdshaderinc`, shared by the bark and leaf
   shaders), and each leaf spray flutters on top. Classic Links keeps them
   still, as in the original.
+- **Photoscanned trees** (`ScannedTree`, `tools/trees/scan_tree.py`): when
+  their files are there, the 3D trees are Poly Haven scans (CC0) instead of
+  the generated ones below: the jacaranda (and its mirror image) and
+  `island_tree_01` for broadleaf, the three trees of `fir_tree_01` for
+  pines, `island_tree_02` (and mirrored) for bushes. The scans are millions
+  of triangles, so `scan_tree.py` cuts each down offline into
+  `game/assets/trees/*.oltree` (committed, about 1.3 MB in all; the
+  textures come from `fetch_free_assets.py`): the bark decimated to 3,000
+  to 17,000 triangles, every scanned leaf one quad fitted to its UVs (a
+  share of them kept and grown to hold the cover), and for the fir, whose
+  scan models every needle, one sprig card per 36 cm of needles laid in
+  their plane and drawn as the generated pines' needles are. Each tree
+  also has a lite mesh (about 1,000 leaves, a tenth of the bark, no sun
+  shadow) drawn from 35 m (`TreeFactory.LITE_DISTANCE`) to the impostor
+  distance; the full meshes go in 16 m cells so their MultiMeshes are
+  culled just past that. The same shaders draw them (`scanned` and
+  `band`), so wind, tint, crown light and the impostor bake carry over.
+  `OL_TREE_SCANS=0` keeps the generated trees, for comparisons.
 - **3D trees** (`TreeFactory`, `shaders/tree_*.gdshader`): generated
   from a seed (three broadleaf, two pine and two bush variants): tapered
   branches with the free bark photo (Poly Haven), and leaf cards that each

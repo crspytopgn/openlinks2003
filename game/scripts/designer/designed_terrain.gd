@@ -314,6 +314,8 @@ func _add_distant_trees(root: Node3D) -> void:
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if batch.full:
 			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
+			if batch.get("near", false):
+				node.visibility_range_end = TreeFactory.lite_distance() + float(batch.reach) + 5.0
 		root.add_child(node)
 
 

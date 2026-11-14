@@ -1275,7 +1275,9 @@ func _add_trees(root: Node3D, s: Sprites, chunk: int) -> void:
 		if batch.full:
 			# A little past the farthest tree, measured from the cell's middle.
 			node.visibility_range_end = distance + float(batch.reach) + 5.0
-		else:
+			if batch.get("near", false):
+				node.visibility_range_end = TreeFactory.lite_distance() + float(batch.reach) + 5.0
+		if not batch.full or batch.get("lite", false):
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
 

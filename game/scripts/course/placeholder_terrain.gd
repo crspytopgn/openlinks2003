@@ -273,7 +273,9 @@ func _add_tree_line(root: Node3D) -> void:
 		node.position = batch.position
 		if batch.full:
 			node.visibility_range_end = TreeFactory.impostor_distance() + float(batch.reach) + 5.0
-		else:
+			if batch.get("near", false):
+				node.visibility_range_end = TreeFactory.lite_distance() + float(batch.reach) + 5.0
+		if not batch.full or batch.get("lite", false):
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
 

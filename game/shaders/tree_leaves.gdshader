@@ -26,6 +26,14 @@ uniform sampler2D twig_opacity : filter_linear_mipmap, repeat_disable;
 uniform bool has_twig = false;
 uniform vec3 twig_tint = vec3(0.62, 0.72, 0.6);
 uniform bool needles = false;
+// A photoscanned tree (ScannedTree): each card is one scanned leaf or
+// sprig, UV straight into its own photo and opacity.
+uniform bool scanned = false;
+uniform sampler2D scan_color : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D scan_opacity : filter_linear_mipmap, repeat_enable;
+// The scans' photos are true colour in flat light; this brings them to the
+// crown greens measured from golf photos (with the grade below).
+uniform vec3 scan_tint = vec3(0.55, 0.9, 0.45);
 uniform bool bake = false;
 // With `bake`: the normal (camera space, 0..1) goes out instead of the
 // colour, for the impostors' normal atlas.
@@ -56,6 +64,11 @@ uniform vec3 needle_light : source_color = vec3(0.16, 0.29, 0.12);
 global uniform vec2 wind_vector;
 global uniform float foliage_sway;
 global uniform float tree_impostor_distance;
+// Scanned trees in a MultiMesh draw in bands (TreeFactory.LITE_DISTANCE):
+// 0 every distance up to the impostors, 1 the full mesh up to
+// tree_lite_distance, 2 the lite mesh from there to the impostors.
+global uniform float tree_lite_distance;
+uniform int band = 0;
 
 varying vec4 info;
 varying vec3 tint;
@@ -72,7 +85,8 @@ float hash(vec2 p) {
 void vertex() {
 	info = COLOR;
 	tint = bake ? vec3(1.0) : crown_tint(MODEL_MATRIX[3].xyz);
-	if (instanced && distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz) > tree_impostor_distance) {
+	float cam_d = distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz);
+	if (instanced && (cam_d > tree_impostor_distance || (band == 1 && cam_d > tree_lite_distance) || (band == 2 && cam_d < tree_lite_distance))) {
 		VERTEX = vec3(0.0);
 	}
 	if (!bake && foliage_sway > 0.0) {
@@ -99,7 +113,15 @@ void fragment() {
 	// How far below a few pixels a leaf cell has shrunk (0 near, 1 when a
 	// cell is about 4 px): see the leaves below.
 	float far = 0.0;
-	if (core && has_spray && !needles) {
+	if (scanned) {
+		vec4 sc = texture(scan_color, UV);
+		float o = texture(scan_opacity, UV).r;
+		// Smaller mips thin the leaves under the alpha test: hold them up.
+		vec2 texels = vec2(textureSize(scan_opacity, 0));
+		float lod = log2(max(max(length(dFdx(UV) * texels), length(dFdy(UV) * texels)), 1.0));
+		alpha = o * (1.0 + lod * 0.3);
+		col = sc.rgb * scan_tint * mix(0.85, 1.1, info.r);
+	} else if (core && has_spray && !needles) {
 		// The crown's shaded middle: solid inside a round outline that the
 		// spray's leaves make ragged.
 		vec2 quarter = vec2(floor(fract(info.r * 7.31) * 2.0) * 0.5);
@@ -287,7 +309,7 @@ void fragment() {
 	// photos of sunlit trees, rather than shading as one smooth blob.
 	// (Not on the sprays: their leaves are not on the cell grid, and their
 	// photo already holds the light and dark leaves.)
-	if (!core && !(has_spray && !needles)) {
+	if (!core && !scanned && !(has_spray && !needles)) {
 		// Faded with distance like the leaf shading above (dot pattern).
 		NORMAL = normalize(NORMAL + (vec3(h, h2, fract(h * 7.31 + h2)) - 0.5) * 1.1 * (1.0 - far));
 	}
