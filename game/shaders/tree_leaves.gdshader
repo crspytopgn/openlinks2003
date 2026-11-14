@@ -72,6 +72,15 @@ uniform int band = 0;
 
 varying vec4 info;
 varying vec3 tint;
+// How far up the leaf faces out of its crown (world y of the card normal,
+// which TreeFactory points away from the crown's centre): -1 underneath,
+// 1 on top.
+varying float crown_up;
+// Light the crown's own leaves keep from the leaf: 0 = none. Leaves on a
+// crown's underside see the ground, not the sky, and the sun reaches them
+// through every other leaf, so in photos the bottom of a tree is a deep
+// green-black under a bright top.
+uniform float underside_shade = 0.55;
 
 #include "res://shaders/tree_wind.gdshaderinc"
 #include "res://shaders/tree_tint.gdshaderinc"
@@ -84,6 +93,7 @@ float hash(vec2 p) {
 
 void vertex() {
 	info = COLOR;
+	crown_up = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz).y;
 	tint = bake ? vec3(1.0) : crown_tint(MODEL_MATRIX[3].xyz);
 	float cam_d = distance(MODEL_MATRIX[3].xyz, MAIN_CAM_INV_VIEW_MATRIX[3].xyz);
 	if (instanced && (cam_d > tree_impostor_distance || (band == 1 && cam_d > tree_lite_distance) || (band == 2 && cam_d < tree_lite_distance))) {
@@ -284,6 +294,7 @@ void fragment() {
 	col *= tint;
 	// Inner leaves sit in the crown's own shade.
 	col *= core ? (needles ? 1.0 : 0.62) : mix(inner_shade, 1.0, info.g * info.g);
+	col *= 1.0 - underside_shade * (1.0 - smoothstep(-0.75, 0.55, crown_up)) * (core ? 0.5 : 1.0);
 	if (bake) {
 		ALBEDO = vec3(0.0);
 		// A pine's pads shade the pads below them far more than a broadleaf

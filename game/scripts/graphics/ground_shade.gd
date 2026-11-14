@@ -19,6 +19,10 @@ const MAX_PIXELS := 1536
 const MIN_TEXEL := 0.5  ## metres per pixel at most this fine
 const SHADOW := 0.45  ## how much of the light a crown's shadow takes
 const AO := 0.3
+## Sky a broadleaf or pine crown shuts out of the ground beneath it. Under a
+## real crown only the sky through its gaps lights the grass, so the ground
+## there reads a dark green even where the sun's shadow falls elsewhere.
+const CROWN_AO := 0.5
 const MAX_SLANT := 3.0  ## longest shadow per metre of height (low sun)
 const CASTER_SIZE := 7  ## floats per caster, see stamps()
 const FOOTPRINT_SIZE := 7  ## floats per footprint, see footprint_stamps()
@@ -74,7 +78,7 @@ static func stamps(casters: PackedFloat32Array, sun_travel: Vector3) -> PackedFl
 			# Shadow of the crown, stretched along the sun.
 			x + mid.x, z + mid.y, r + slant.length() * (top - bottom) * 0.5, r, angle, SHADOW, 0.0, shape,
 			# Occlusion at the foot.
-			x, z, r * 1.3, r * 1.3, 0.0, 0.0, AO, -1.0,
+			x, z, r * 1.3, r * 1.3, 0.0, 0.0, CROWN_AO, -1.0,
 		]
 		for v in values:
 			out[o] = v
