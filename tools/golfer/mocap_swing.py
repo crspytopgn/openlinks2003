@@ -950,7 +950,8 @@ for _s, _a in (("l", "Left"), ("r", "Right")):
 # options. walk is played in place (the game moves the golfer) with the
 # club carried; loop eases the end into the start.
 STAND_CLIPS = {
-    "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25),
+    "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25,
+                 carry_head=0.42),  # CARRY_WALK_HEIGHT
     "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
     "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
     # A birdie: the actor's happy bounce at the knees, with the right fist
@@ -1012,6 +1013,10 @@ READ_SOLE_REACH = 0.795  # club joint to the putter's sole along the shaft
 READ_SWAY = 0.3
 READ_ACTOR_LEAN = 72.0  # the actor's mean lean while down, degrees
 CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
+# Walking, tour players hold the club clear of the turf, the shaft nearly
+# level out in front of them, rather than letting the head trail low as a
+# walking stick (which read as dragging it along the ground).
+CARRY_WALK_HEIGHT = 0.42  # the walk clip's carry_head
 CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
 
@@ -1560,7 +1565,7 @@ def retarget_stand(glb, rig, clip, cache):
             # when the hand is raised above the shoulder.
             rots, poss = rig.world(rig.locals(rots), root)
             h = rig.index["hand_l"]
-            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / CARRY_REACH, 0.3, 0.95))
+            drop = float(np.clip((poss[h][1] - clip.get("carry_head", CARRY_HEAD_HEIGHT)) / CARRY_REACH, 0.3, 0.95))
             low = facing * math.sqrt(1 - drop * drop) - up * drop
             raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
             w = float(np.clip(raised, 0, 1))
