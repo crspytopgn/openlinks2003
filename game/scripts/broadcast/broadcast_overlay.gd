@@ -273,67 +273,139 @@ func _draw_shot_panel() -> void:
 		_text(Vector2(x + 16, ry), rows[i][0], 13, ACCENT)
 		_text(Vector2(x + 96, ry), str(rows[i][1]), 16, TEXT)
 	if status.has("lie_type"):
-		_draw_lie_tile(Rect2(x + 364 + 8, y, 96, h * rows.size() + 10), int(status.lie_type), float(status.get("lie_power", 1.0)))
+		_draw_lie_tile(Rect2(x + 364 + 8, y, 104, h * rows.size() + 10), int(status.lie_type), float(status.get("lie_power", 1.0)))
 
 
-## The lie at a glance, as TV golf shows it: the ball as it sits (teed up,
-## on short grass, down in the rough, in the sand) and the share of a full
-## shot's distance it keeps.
+## The lie at a glance, as TV golf shows it: a close-up of the ball as it
+## sits (teed up, on short grass, down in the rough, in the sand), drawn
+## with shading so it reads as a picture rather than an icon, and the share
+## of a full shot's distance it keeps.
 func _draw_lie_tile(r: Rect2, lie: int, keep: float) -> void:
 	_panel(r, PANEL)
-	var pic := Rect2(r.position + Vector2(10, 10), Vector2(r.size.x - 20, r.size.y - 44))
-	var ground := Color(0.33, 0.55, 0.22)
-	var blade := Color(0.42, 0.68, 0.28)
+	var pic := Rect2(r.position + Vector2(8, 8), Vector2(r.size.x - 16, r.size.y - 50))
+	# Sky-to-shade backdrop, as a long lens close to the ground sees it.
+	_gradient(pic, Color(0.22, 0.34, 0.30), Color(0.10, 0.18, 0.14))
+	var low := Color(0.18, 0.36, 0.12)
+	var high := Color(0.36, 0.60, 0.22)
 	var grass_h := 0.0  # blade height over the ball's radius
 	var sink := 0.0  # how far the ball sits down, in radii
+	var density := 26
 	var teed := false
+	var sand := false
 	match lie:
 		Surface.Type.TEE:
 			teed = true
-			grass_h = 0.25
+			grass_h = 0.3
 		Surface.Type.FAIRWAY, Surface.Type.FRINGE:
-			grass_h = 0.35
+			grass_h = 0.4
+			density = 40
 		Surface.Type.GREEN:
-			grass_h = 0.15
-			ground = Color(0.36, 0.62, 0.26)
+			grass_h = 0.18
+			density = 48
+			high = Color(0.40, 0.66, 0.26)
 		Surface.Type.ROUGH:
-			grass_h = 1.3
-			sink = 0.3
-			ground = Color(0.26, 0.45, 0.18)
-			blade = Color(0.36, 0.58, 0.22)
+			grass_h = 1.5
+			sink = 0.35
+			density = 34
+			low = Color(0.14, 0.30, 0.10)
+			high = Color(0.40, 0.62, 0.22)
 		Surface.Type.DEEP_ROUGH:
-			grass_h = 2.0
-			sink = 0.6
-			ground = Color(0.22, 0.38, 0.15)
-			blade = Color(0.32, 0.5, 0.2)
+			grass_h = 2.2
+			sink = 0.5
+			density = 40
+			low = Color(0.12, 0.25, 0.08)
+			high = Color(0.48, 0.60, 0.24)
 		Surface.Type.SAND:
-			ground = Color(0.86, 0.78, 0.58)
+			sand = true
 			sink = 0.45
 		_:
-			ground = Color(0.3, 0.42, 0.5)
-	var base := pic.position.y + pic.size.y * 0.72
-	_fill(Rect2(pic.position.x, base, pic.size.x, pic.end.y - base), ground, Vector4.ONE * 4.0)
-	var ball_r := pic.size.x * 0.16
-	var cx := pic.position.x + pic.size.x * 0.5
-	var cy := base - ball_r + sink * ball_r * 2.0
-	if teed:
-		cy -= ball_r * 0.9
-		draw_rect(Rect2(cx - 2.0, cy + ball_r, 4.0, base - cy - ball_r + 3.0), Color(0.95, 0.95, 0.9))
-	if lie == Surface.Type.SAND:
-		draw_circle(Vector2(cx, cy), ball_r, Color.WHITE)
-		_fill(Rect2(pic.position.x, base + sink * ball_r, pic.size.x, pic.end.y - base - sink * ball_r), ground, Vector4.ONE * 4.0)
+			low = Color(0.15, 0.25, 0.32)
+			high = Color(0.28, 0.42, 0.50)
+	var base := pic.position.y + pic.size.y * 0.70
+	var ground := Rect2(pic.position.x, base, pic.size.x, pic.end.y - base)
+	if sand:
+		_gradient(ground, Color(0.90, 0.82, 0.62), Color(0.70, 0.60, 0.42))
+		for k in 60:  # grain
+			var gx := pic.position.x + fmod(float(k) * 0.6180339 * 97.0, pic.size.x)
+			var gy := base + fmod(float(k) * 0.4142 * 53.0, ground.size.y)
+			draw_circle(Vector2(gx, gy), 0.7, Color(0.55, 0.47, 0.32, 0.5))
 	else:
-		draw_circle(Vector2(cx, cy), ball_r, Color.WHITE)
-	draw_circle(Vector2(cx - ball_r * 0.3, cy - ball_r * 0.3), ball_r * 0.25, Color(1, 1, 1, 0.6))
+		_gradient(ground, low.lerp(high, 0.35), low)
+	var ball_r := pic.size.x * 0.17
+	var c := Vector2(pic.position.x + pic.size.x * 0.5, base - ball_r + sink * ball_r * 2.0)
+	if teed:
+		c.y -= ball_r * 0.85
+		var top := c.y + ball_r * 0.85
+		var tee := PackedVector2Array([Vector2(c.x - ball_r * 0.45, top), Vector2(c.x + ball_r * 0.45, top),
+			Vector2(c.x + 1.2, base + 4.0), Vector2(c.x - 1.2, base + 4.0)])
+		draw_colored_polygon(tee, Color(0.93, 0.92, 0.88))
+		draw_line(Vector2(c.x + 1.0, top), Vector2(c.x + 0.6, base + 3.0), Color(0.7, 0.68, 0.62), 1.0, true)
+	# Back blades, behind the ball.
 	if grass_h > 0.0:
-		var n := 22
-		for i in n:
-			var bx := pic.position.x + (i + 0.5) / n * pic.size.x
-			var tall := grass_h * ball_r * (0.7 + 0.6 * fmod(float(i) * 0.618, 1.0))
-			var lean := (fmod(float(i) * 0.37, 1.0) - 0.5) * ball_r * 0.5
-			draw_line(Vector2(bx, base + 2.0), Vector2(bx + lean, base - tall), blade, 2.0, true)
+		_blades(pic, base, ball_r * grass_h * 0.7, density, low.darkened(0.15), low, 1)
+	# The ball: a soft contact shadow, then shaded from the sun's side.
+	if not teed:
+		_ellipse(Vector2(c.x + ball_r * 0.2, base + 1.0), Vector2(ball_r * 1.25, ball_r * 0.28), Color(0, 0, 0, 0.35))
+	var steps := 7
+	for k in steps:
+		var t := float(k) / float(steps - 1)
+		var rr := ball_r * (1.0 - t * 0.78)
+		var off := Vector2(-0.32, -0.36) * ball_r * t
+		draw_circle(c + off, rr, Color(0.72, 0.74, 0.76).lerp(Color(1, 1, 1), t), true, -1.0, true)
+	for k in 9:  # dimples, faint
+		var a := float(k) * 2.399
+		var d := ball_r * 0.55 * sqrt(float(k + 1) / 9.0)
+		draw_circle(c + Vector2(cos(a), sin(a)) * d, ball_r * 0.07, Color(0.6, 0.62, 0.64, 0.25), true, -1.0, true)
+	if sand:
+		# The sand round the ball, with a little lip where it settled.
+		var front := Rect2(pic.position.x, c.y + ball_r * (1.0 - sink * 2.0) + ball_r * 0.9, pic.size.x, 0.0)
+		front.size.y = pic.end.y - front.position.y
+		if front.size.y > 0.0:
+			_gradient(front, Color(0.88, 0.80, 0.60), Color(0.70, 0.60, 0.42))
+		_ellipse(Vector2(c.x, front.position.y), Vector2(ball_r * 1.3, ball_r * 0.22), Color(0.95, 0.88, 0.70))
+	# Down in long grass, the turf closes over the bottom of the ball, and
+	# the front blades rise round it.
+	var front_base := base
+	if sink > 0.0 and not sand:
+		front_base = base + ball_r * 0.2
+		_gradient(Rect2(pic.position.x, front_base, pic.size.x, pic.end.y - front_base), low.lerp(high, 0.25), low.darkened(0.1))
+	if grass_h > 0.0:
+		_blades(pic, front_base, ball_r * grass_h, density, low, high, 2)
+	draw_rect(pic, Color(1, 1, 1, 0.12), false, 1.0, true)
 	var pct := "%d%%" % roundi(keep * 100.0)
-	_text(Vector2(r.position.x + r.size.x * 0.5, r.end.y - 12.0), pct, 16, TEXT if keep >= 0.995 else ACCENT, true)
+	_text(Vector2(r.position.x + r.size.x * 0.5, r.end.y - 22.0), pct, 18, TEXT if keep >= 0.995 else ACCENT, true)
+	_text(Vector2(r.position.x + r.size.x * 0.5, r.end.y - 8.0), "DISTANCE", 9, DIM, true)
+
+
+## A vertical gradient filling `r`.
+func _gradient(r: Rect2, top: Color, bottom: Color) -> void:
+	draw_polygon(PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]),
+		PackedColorArray([top, top, bottom, bottom]))
+
+
+func _ellipse(at: Vector2, radii: Vector2, col: Color) -> void:
+	var pts := PackedVector2Array()
+	for k in 24:
+		var a := TAU * k / 24.0
+		pts.append(at + Vector2(cos(a) * radii.x, sin(a) * radii.y))
+	draw_colored_polygon(pts, col)
+
+
+## Tapered grass blades along `base`, `tall` at most, coloured from `root`
+## to `tip`; `row` varies the pattern between the back and front rows.
+func _blades(pic: Rect2, base: float, tall: float, count: int, root: Color, tip: Color, row: int) -> void:
+	for i in count:
+		var h := fmod(float(i * 7 + row * 13) * 0.6180339, 1.0)
+		var x := pic.position.x + (float(i) + h) / float(count) * pic.size.x
+		var height := tall * (0.55 + 0.6 * fmod(h * 3.7 + 0.31 * row, 1.0))
+		height = minf(height, base - pic.position.y - 2.0)
+		var lean := (fmod(h * 5.3, 1.0) - 0.5) * height * 0.5
+		var w := 1.3 + 1.2 * fmod(h * 2.1, 1.0)
+		var shade := 0.75 + 0.25 * fmod(h * 9.1, 1.0)
+		var pts := PackedVector2Array([Vector2(x - w, base + 2.0), Vector2(x + w, base + 2.0),
+			Vector2(x + lean * 0.6 + w * 0.4, base - height * 0.6), Vector2(x + lean, base - height)])
+		draw_polygon(pts, PackedColorArray([root, root, root.lerp(tip, 0.7).darkened(1.0 - shade), tip.darkened(1.0 - shade)]))
+
 
 
 func _draw_lower_third() -> void:
