@@ -36,6 +36,7 @@ import grip  # noqa: E402
 import iron  # noqa: E402
 import pose  # noqa: E402
 import putt_posture  # noqa: E402
+import swing_posture  # noqa: E402
 import anatomy  # noqa: E402
 import collide  # noqa: E402
 
@@ -53,6 +54,14 @@ BONES = {
     "thigh_r": "RightUpLeg", "calf_r": "RightLeg", "foot_r": "RightFoot", "ball_r": "RightToeBase",
 }
 
+CLUB_ROLL = 120  # most degrees the club rolls about its shaft to spare the wrists (footage)
+TRAIL_ELBOW_DOWN = 1.0  # pull of the trail elbow's pole towards the ground (footage)
+AIM_ABSOLUTE = 60.0  # degrees from its address direction by which a tracked limb points itself
+# Bones aimed along the tracked limbs for takes from footage (retarget).
+AIM_BONES = {"upperarm_l": ("LeftArm", "LeftForeArm"), "lowerarm_l": ("LeftForeArm", "LeftHand"),
+             "upperarm_r": ("RightArm", "RightForeArm"), "lowerarm_r": ("RightForeArm", "RightHand")}
+AIM_CHILD = {"upperarm_l": "lowerarm_l", "lowerarm_l": "hand_l", "upperarm_r": "lowerarm_r", "lowerarm_r": "hand_r"}
+
 # Clips: take, the golfer's pose the take starts from, and mocap frames.
 # address is the still frame the retarget is measured from; the clip runs
 # from start to end, and the time from top to impact is squeezed to
@@ -60,25 +69,31 @@ BONES = {
 # real time); after impact time runs at follow times real time. hold adds
 # seconds of the last frame.
 CLIPS = {
-    # Address: the actor's own sway over the ball, back and forth so it
-    # loops, with a look at the target.
+    # Address: held still over the ball, with a look at the target. (The
+    # actor's frames before 150 have the club 30 cm or more off the ball
+    # while he sets up, which looked like the clubhead wandering.)
     "address": dict(take="64_01", ref="address", address=150, putt=False, loop=0.3,
-                    frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
+                    frames=[150] * 360,
                     glance=(1.3, 0.4, 0.7, 70.0)),
     "address_putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, putt=True, loop=0.3,
                          frames=(list(range(95, 15, -1)) + list(range(15, 95))) * 2,
                          glance=(0.9, 0.45, 0.8, 75.0)),
-    "backswing": dict(take="64_01", ref="address", address=150, start=150, end=262, top=262, impact=327, putt=False),
-    "swing": dict(take="64_01", ref="address", address=150, start=262, end=400, top=262, impact=327,
-                  downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755)),
+    # Full swings: a real golfer filmed in slow motion, tracked in 3D
+    # (footage_take.py). The CMU actor (take 64_01, an amateur) flew his
+    # trail elbow at the top and let his arms hang slack at impact.
+    "backswing": dict(take="ft:suvichaya_iron", ref="address", address=4, start=31, end=150, top=150, impact=187,
+                      putt=False, tour=False),
+    "swing": dict(take="ft:suvichaya_iron", ref="address", address=4, start=150, end=284, top=150, impact=187,
+                  downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, strike=(0.0, 0.012, -0.755),
+                  tour=False),
     # The irons: the same takes from the iron's address (iron.py).
     "address_iron": dict(take="64_01", ref="address_iron", address=150, putt=False, loop=0.3,
-                         frames=list(range(150, 30, -1)) + list(range(30, 150)) + list(range(150, 30, -1)),
+                         frames=[150] * 360,
                          glance=(1.3, 0.4, 0.7, 70.0), club="Iron"),
-    "backswing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=150, end=262, top=262, impact=327,
-                           putt=False),
-    "swing_iron": dict(take="64_01", ref="address_iron", club="Iron", address=150, start=262, end=400, top=262, impact=327,
-                       downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False),
+    "backswing_iron": dict(take="ft:suvichaya_iron", ref="address_iron", club="Iron", address=4, start=31, end=150, top=150,
+                           impact=187, putt=False, tour=False),
+    "swing_iron": dict(take="ft:suvichaya_iron", ref="address_iron", club="Iron", address=4, start=150, end=284, top=150,
+                       impact=187, downswing=0.30, follow=0.7, hold=2.5, twirl=(0.9, 0.55), putt=False, tour=False),
     "putt": dict(take="64_13", ref="address_putt", club="Putter", address=95, start=95, end=330, top=183, impact=249,
                  back=0.45, downswing=0.3, hold=0.8, putt=True),
 }
@@ -169,6 +184,9 @@ class Bvh:
 
 
 def load_take(name, cache):
+    if name.startswith("ft:"):  # tracked from real footage (footage_take.py)
+        import footage_take
+        return footage_take.load(name[3:])
     path = os.path.join(cache, name + ".bvh")
     if not os.path.exists(path):
         os.makedirs(cache, exist_ok=True)
@@ -286,7 +304,7 @@ IMPACT_WINDOW = 30  # mocap frames either side of impact the correction fades ov
 # target, head height held) his backswing sways 14 cm, stands up 7 cm and
 # turns the shoulders only ~70 deg. These take the backswing towards a
 # tour player's, fading out by impact so the strike is unchanged.
-SWAY_KEEP = 0.5  # of the actor's pelvis slide away from the target
+SWAY_KEEP = 0.25  # of the actor's pelvis slide away from the target
 HEAD_RISE_KEEP = 0.15  # of the actor's head rise
 EXTRA_TURN = 0.22  # extra upper-body turn, as a share of the actor's
 
@@ -435,7 +453,7 @@ def finish_weight(f, impact):
     return u * u * (3 - 2 * u)
 
 
-def finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u):
+def finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u, yaw_deg=FINISH_YAW):
     """Blends the trail ankle target and foot turn towards the finish (u 0
     to 1): the foot turns on the ball of the foot, which stays near where it
     was at address."""
@@ -444,7 +462,7 @@ def finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u):
     up = np.array([0.0, 1.0, 0.0])
     # Turn the toe towards the target about the vertical, then stand the
     # foot up about the horizontal line across it.
-    yaw = pose.rot(up, FINISH_YAW)
+    yaw = pose.rot(up, yaw_deg)
     toe = yaw @ (ref_rots[i_foot] @ to_ball)
     across = pose.unit(np.cross(np.array([toe[0], 0.0, toe[2]]), up))
     fin = pose.rot(across, -FINISH_PITCH) @ yaw @ ref_rots[i_foot]
@@ -483,11 +501,21 @@ def retarget(glb, rig, clip, cache):
     ref_local, ref_root = rig.sample(glb, "ref_" + clip["ref"])
     ref_rots, ref_poss = rig.world(ref_local, ref_root)
     m_rots0, m_poss0 = bvh.frame(address)
+    # The actor stands more upright over the ball than the golfer (tour
+    # posture, swing_posture.py): his trunk turns about his own spine, so
+    # applied as they are they would turn the golfer's trunk about a line
+    # off his spine and swing the head 20-27 cm away from the target at the
+    # top. The upper body's turns are carried onto the golfer's spine line.
+    actor_spine = g @ (m_poss0[bvh.index["Neck1"]] - m_poss0[bvh.index["Hips"]])
+    our_spine = ref_poss[rig.index["neck_01"]] - ref_poss[rig.index["pelvis"]]
+    onto = between(pose.unit(actor_spine), pose.unit(our_spine))
+    upper_body = set(descendants(rig, "spine_01"))
     # Scale: the golfer's hip height over the actor's.
     golfer_hip = ref_poss[rig.index["pelvis"]][1] - ref_poss[rig.index["foot_l"]][1]
     actor_hip = m_poss0[bvh.index["Hips"]][1] - m_poss0[bvh.index["LeftFoot"]][1]
     scale = golfer_hip / actor_hip
     hands_l = rig.index["hand_l"]
+    aim = clip["take"].startswith("ft:")
     club_dir = club_direction(glb, rig)
     club_j = rig.index["club"]
     shaft0 = ref_rots[club_j] @ club_dir  # the club turns in the hand (grip.py)
@@ -507,6 +535,12 @@ def retarget(glb, rig, clip, cache):
         return np.array([*w.mean(axis=0)[[0]], w[:, 1].min(), w.mean(axis=0)[2]])
 
     lean_fix, impact_lean = [0.0], [0.0]  # degrees added at impact, refined pass by pass
+    # The lead arm's swing-plane angle at impact (in use, measured): a
+    # tracked golfer's arm needn't come back to exactly our address angle,
+    # and the club's hinge reads the angle from address, so it is offset
+    # from the top on (else the club releases early, then jerks back).
+    arm_bias = [0.0, 0.0]
+    club_roll = [None]  # the club's roll about its shaft, last frame (footage)
 
     def lean_of(rots):
         shaft = rots[club_j] @ club_dir
@@ -517,6 +551,7 @@ def retarget(glb, rig, clip, cache):
         arm_angle = 0.0
         impact_head = np.zeros(3)
         impact_lean[0] = 0.0
+        club_roll[0] = None
         out_rots, out_root = [], []
         for i, f in enumerate(frames):
             m_rots, m_poss = bvh.frame(f)
@@ -525,13 +560,62 @@ def retarget(glb, rig, clip, cache):
                 src = BONES.get(name)
                 if src:
                     k = bvh.index[src]
-                    rots[j] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ ref_rots[j]
+                    delta = g @ m_rots[k] @ m_rots0[k].T @ g.T
+                    if j in upper_body:
+                        delta = onto @ delta @ onto.T
+                    rots[j] = delta @ ref_rots[j]
+            aim_w = backswing_weight(f, clip) if aim else 0.0
+            if aim:
+                # Tracked footage: the limbs point where the golfer's do
+                # (a turn from address carried over would point them off by
+                # however differently our golfer's arms hang at address).
+                # Each limb turns from its address direction as the tracked
+                # one does (the shortest turn, so the tracker's guess at the
+                # limb's twist doesn't swing it about).
+                for bone, (a, b) in AIM_BONES.items():
+                    j = rig.index[bone]
+                    d0 = g @ (m_poss0[bvh.index[b]] - m_poss0[bvh.index[a]])
+                    d = g @ (m_poss[bvh.index[b]] - m_poss[bvh.index[a]])
+                    if j in upper_body:
+                        d0, d = onto @ d0, onto @ d
+                    ours0 = ref_rots[j] @ rig.offsets[rig.index[AIM_CHILD[bone]]]
+                    want = between(pose.unit(d0), pose.unit(d)) @ ours0
+                    # Far from address, where the limb points itself.
+                    away = math.degrees(math.acos(np.clip(np.dot(pose.unit(d0), pose.unit(d)), -1.0, 1.0)))
+                    u = min(1.0, away / AIM_ABSOLUTE)
+                    want = pose.unit((1.0 - u) * pose.unit(want) + u * pose.unit(d))
+                    off = rig.offsets[rig.index[AIM_CHILD[bone]]]
+                    have = pose.unit(rots[j] @ off)
+                    want = pose.unit((1.0 - aim_w) * have + aim_w * pose.unit(want))
+                    # The tracker's twist of each limb is noise (the hand's
+                    # points are a few pixels apart): each bone keeps its
+                    # address twist against its parent, turned the shortest
+                    # way onto its direction.
+                    parent = rig.parents[j]
+                    base = rots[parent] @ ref_rots[parent].T @ ref_rots[j]
+                    rots[j] = between(pose.unit(base @ off), want) @ base
+                for s_ in "lr":
+                    h, fa = rig.index[f"hand_{s_}"], rig.index[f"lowerarm_{s_}"]
+                    rots[h] = rots[fa] @ ref_rots[fa].T @ ref_rots[h]
+                # (The hands first, so the club keeps its turn about the
+                # shaft.) The lead arm is all but straight, so which way the tracked
+                # elbow bends is noise (often backwards): it bends the way
+                # it does at address, carried round with the chest.
+                rots = fill(rig, rots, ref_local, keep=True)
+                _, p_ = rig.world(rig.locals(rots), ref_root)
+                iu, il, ih = (rig.index[n] for n in ("upperarm_l", "lowerarm_l", "hand_l"))
+                line = pose.unit(ref_poss[ih] - ref_poss[iu])
+                e0 = ref_poss[il] - ref_poss[iu]
+                e0 = e0 - line * np.dot(e0, line)
+                ch = rig.index["spine_03"]
+                reach_pole(rig, rots, p_, "upperarm_l", "lowerarm_l", "hand_l", p_[ih], rots[ch] @ ref_rots[ch].T @ e0)
             if clip.get("glance"):
                 glance(rig, rots, i / MOCAP_FPS, clip["glance"])
             root = ref_root + scale * (g @ (m_poss[bvh.index["Hips"]] - m_poss0[bvh.index["Hips"]]))
             if not clip["putt"]:
-                rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
-                                            backswing_weight(f, clip))
+                if clip.get("tour", True):
+                    rots, root = tour_backswing(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss,
+                                                backswing_weight(f, clip))
             elif "impact" in clip:
                 rots, root = still_putt(rig, rots, root, ref_root, ref_local, ref_rots, ref_poss)
             if "impact" in clip:
@@ -554,8 +638,10 @@ def retarget(glb, rig, clip, cache):
             for s, actor in (("l", "LeftFoot"), ("r", "RightFoot")):
                 k = bvh.index[actor]
                 keep = PUTT_STILL if clip["putt"] and "impact" in clip else 1.0
+                if aim:
+                    keep = 0.0  # tracked feet slide about; they stay planted (the finish turns the trail one)
                 target = ref_poss[rig.index[f"foot_{s}"]] + keep * scale * (g @ (m_poss[k] - m_poss0[k]))
-                foot = rots[rig.index[f"foot_{s}"]]
+                foot = ref_rots[rig.index[f"foot_{s}"]] if aim else rots[rig.index[f"foot_{s}"]]
                 if s == "l" and not clip["putt"] and "impact" in clip:
                     # The lead foot stays planted (the actor's heel comes up
                     # 7 cm at the top and 5 cm at the finish): only a little
@@ -589,7 +675,14 @@ def retarget(glb, rig, clip, cache):
                     u = finish_weight(f, clip["impact"])
                     knee = TRAIL_KNEE + u * (FINISH_KNEE - TRAIL_KNEE)
                     if u > 0.0:
-                        tgt, foot = finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u)
+                        yaw_deg = FINISH_YAW
+                        if aim:
+                            # The foot turns with a tracked golfer's hips.
+                            pel = rig.index["pelvis"]
+                            fwd = rots[pel] @ ref_rots[pel].T @ np.array([0.0, 0.0, -1.0])
+                            hip_yaw = math.degrees(math.atan2(-fwd[0], -fwd[2]))
+                            yaw_deg = max(FINISH_YAW, min(100.0, hip_yaw))
+                        tgt, foot = finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u, yaw_deg)
                     ball = tgt + foot @ (rest[rig.index["ball_r"]] - rest[rig.index["foot_r"]])
                     side = pose.unit(np.cross(ball - tgt, [0.0, 1.0, 0.0]))
                     for _ in range(12):
@@ -615,7 +708,14 @@ def retarget(glb, rig, clip, cache):
                     u = finish_weight(f, clip["impact"])
                     a, b = poss[rig.index["thigh_r"]], poss[rig.index["calf_r"]]
                     own = pose.unit(b - a - pose.unit(target - a) * np.dot(b - a, pose.unit(target - a)))
-                    pole = pose.unit((1.0 - u) * own + u * pose.unit(np.array([-1.0, 0.0, -0.35])))
+                    drive = np.array([-1.0, 0.0, -0.35])
+                    if aim:
+                        # A tracked golfer's hips turn further than the
+                        # actor's: the knee drives where the hips face.
+                        pel = rig.index["pelvis"]
+                        drive = rots[pel] @ ref_rots[pel].T @ np.array([0.0, 0.0, -1.0])
+                        drive = np.array([drive[0], 0.0, drive[2]])
+                    pole = pose.unit((1.0 - u) * own + u * pose.unit(drive))
                     reach_pole(rig, rots, poss, "thigh_r", "calf_r", "foot_r", target, pole)
                     rots[rig.index["ball_r"]] = finish_trail_toe(rig, ref_rots, rots[rig.index["ball_r"]], u)
                 else:
@@ -627,12 +727,16 @@ def retarget(glb, rig, clip, cache):
                 arm = plane_dir(poss[hands_l] - poss[rig.index["upperarm_l"]], plane)
                 step = math.degrees(math.atan2(np.dot(np.cross(arm0, arm), plane), np.dot(arm0, arm))) - arm_angle
                 arm_angle += (step + 180.0) % 360.0 - 180.0  # unwrapped
+                if f == clip.get("impact"):
+                    arm_bias[1] = arm_angle
+                u = 0.0 if f <= clip["top"] else min(1.0, (f - clip["top"]) / max(1, clip["impact"] - clip["top"]))
+                a = arm_angle - arm_bias[0] * u * u * (3 - 2 * u)
                 if f <= clip["top"]:
-                    club = arm_angle + ramp(arm_angle, HINGE_BACK)
+                    club = a + ramp(a, HINGE_BACK)
                 elif f <= clip["impact"]:
-                    club = arm_angle + ramp(arm_angle, HINGE_DOWN)
+                    club = a + ramp(a, HINGE_DOWN)
                 else:
-                    club = max(arm_angle - ramp(-arm_angle, HINGE_FOLLOW), FINISH_LIMIT)
+                    club = max(a - ramp(-a, HINGE_FOLLOW), FINISH_LIMIT)
                 want = pose.rot(plane, club) @ shaft0
                 rots[hands_l] = between(rots[club_j] @ club_dir, want) @ rots[hands_l]
                 rots = fill(rig, rots, ref_local, keep=True)
@@ -641,7 +745,7 @@ def retarget(glb, rig, clip, cache):
                 # Shoulders open to the target at impact (the actor's are
                 # nearly square): the chest turns under the arms, the hands
                 # and club staying where they were, the head on the ball.
-                w = impact_weight(f, clip["impact"]) * IMPACT_OPEN
+                w = impact_weight(f, clip["impact"]) * IMPACT_OPEN * (0.0 if aim else 1.0)
                 if w > 0.0:
                     hand_p, hand_r = poss[hands_l].copy(), rots[hands_l].copy()
                     # About the spine, so the head stays put.
@@ -706,9 +810,44 @@ def retarget(glb, rig, clip, cache):
                     rots = fill(rig, rots, ref_local, keep=True)
                     rots, poss = rig.world(rig.locals(rots), root)
             # The right hand stays on the grip.
+            if aim:
+                # The trail elbow stays where the tracked arm put it (two_bone
+                # could fold it the other way, up over the head at the top)...
+                elbow = poss[rig.index["lowerarm_r"]] - poss[rig.index["upperarm_r"]]
+                # ...but kept pointing down, as a tour trail elbow does (the
+                # tracker's elbow depth is a guess; up, the wrist breaks).
+                elbow = pose.unit(elbow) + np.array([0.0, -TRAIL_ELBOW_DOWN, 0.0])
+                # The tracker can't see the forearms roll the club about its
+                # shaft: the roll that keeps both wrists in their range,
+                # moving smoothly from frame to frame.
+                shaft = rots[club_j] @ club_dir
+                best = None
+                for deg in range(-CLUB_ROLL, CLUB_ROLL + 1, 5):
+                    last = deg if club_roll[0] is None else club_roll[0]
+                    if abs(deg - last) > 15:
+                        continue
+                    R = pose.rot(shaft, deg)
+                    trial = list(rots)
+                    trial[hands_l] = R @ rots[hands_l]
+                    reach_pole(rig, trial, poss, "upperarm_r", "lowerarm_r", "hand_r",
+                               poss[hands_l] + trial[hands_l] @ grip_r, elbow)
+                    trial[rig.index["hand_r"]] = trial[hands_l] @ hand_r_in_l
+                    cost = 0.02 * (deg - last) ** 2 + 0.0005 * deg * deg
+                    for sd in "lr":
+                        m = anatomy.arm_angles(rig, sd, trial[rig.index[f"upperarm_{sd}"]],
+                                               trial[rig.index[f"lowerarm_{sd}"]], trial[rig.index[f"hand_{sd}"]])
+                        for k in ("wrist_flex", "wrist_dev"):
+                            cost += anatomy._excess(m[k], anatomy.limit_of(k)) ** 2
+                    if best is None or cost < best[0]:
+                        best = (cost, deg)
+                club_roll[0] = best[1]
+                rots[hands_l] = pose.rot(shaft, best[1]) @ rots[hands_l]
             target = poss[hands_l] + rots[hands_l] @ grip_r
             hand = rots[hands_l] @ hand_r_in_l
-            two_bone(rig, rots, poss, "upperarm_r", "lowerarm_r", "hand_r", target)
+            if aim:
+                reach_pole(rig, rots, poss, "upperarm_r", "lowerarm_r", "hand_r", target, elbow)
+            else:
+                two_bone(rig, rots, poss, "upperarm_r", "lowerarm_r", "hand_r", target)
             rots[rig.index["hand_r"]] = hand
             rots = fill(rig, rots, ref_local, keep=True)
             out_rots.append(rig.locals(rots))
@@ -717,6 +856,9 @@ def retarget(glb, rig, clip, cache):
 
     correct = np.zeros(3)
     out_rots, out_root, head = run(correct)
+    if aim and "impact" in clip:
+        arm_bias[0] = arm_bias[1]
+        out_rots, out_root, head = run(correct)
     if not clip["putt"] and "impact" in clip and clip["impact"] in frames:
         # The lowest point of the head on the ball at impact, the shaft
         # leaning forward; the bend, the wrist and the arm move the head in
@@ -1644,6 +1786,9 @@ def main():
     clubs.swap(glb, rig)
     # The putting address re-posed round the (now 34.5 inch) putter.
     putt_posture.fit(glb, rig)
+    # The full-swing addresses re-posed as tour players stand (flat back
+    # from the hips, arms hanging), round the real-length arms (arm_length.py).
+    swing_posture.fit(glb, rig)
     # The real body (the default person's mesh), so the arms are placed
     # outside the chest (collide.py).
     guard = collide.Guard(glb)

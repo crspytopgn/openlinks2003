@@ -245,6 +245,7 @@ SWIVELS = np.radians(np.arange(-90.0, 91.0, 3.0))
 HAND_TWIST_SHARE = 0.35  # of the roll left at the wrist, at most HAND_TWIST
 HAND_TWIST = 18.0
 SWIVEL_COST = 0.004  # per degree squared of swivel from the given elbow
+SWIVEL_STEP = 15.0  # degrees the swivel may change between frames
 STEADY_COST = 0.02  # per degree squared of change from the last frame's
 TORSO_CLEAR = 0.16  # elbow to the spine's line, metres
 
@@ -279,7 +280,10 @@ def unhinge(rig, rots, s):
     ang = math.degrees(math.atan2(np.dot(np.cross(h, b), up), np.dot(h, b)))
     if np.dot(hinge, bend) >= -math.sin(math.radians(8.0)) * np.linalg.norm(bend):
         return  # bends the right way; leave the actor's shoulder turn
-    rots[iu] = pose.rot(up, ang) @ U
+    # Eased in from 10 to 25 degrees of bend: a nearly straight arm's bend
+    # direction is noise, and a full turn there flips the arm frame to frame.
+    fade = (math.degrees(math.asin(min(1.0, np.linalg.norm(bend)))) - 10.0) / 15.0
+    rots[iu] = pose.rot(up, ang * min(1.0, max(0.0, fade))) @ U
 
 
 CLEAR_COST = 40.0  # per cm squared of arm inside the torso (collide.Guard)
@@ -305,6 +309,8 @@ def fit_arm(rig, rots, poss, s, last=None, body=None):
     best, best_cost = 0.0, None
     for phi in SWIVELS:
         deg = math.degrees(phi)
+        if last is not None and abs(deg - last) > SWIVEL_STEP:
+            continue  # no flipping to another minimum between frames
         R = pose.rot(axis, deg)
         a = arm_angles(rig, s, R @ U, R @ L, H)
         cost = sum(_excess(a[k], lim[k]) ** 2 for k in lim)
