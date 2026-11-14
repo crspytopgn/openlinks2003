@@ -34,6 +34,9 @@ const COMPAT_FILL_LIFT := 1.6
 const COMPAT_SKY_ENERGY := 0.95
 const COMPAT_SKY_DEPTH := 1.1
 const COMPAT_SKY_FOG := 0.08
+## Forward+ only: how much brighter the photo sky's clouds are drawn
+## (photo_sky.gdshader cloud_lift), so they read white under AgX.
+const FORWARD_CLOUD_LIFT := 1.2
 const SKY_SHADER := preload("res://shaders/photo_sky.gdshader")
 ## Photoreal light by time of day (GraphicsSettings.time_of_day): the sun's
 ## height and bearing (degrees), its colour and strength, the fill light
@@ -195,7 +198,9 @@ func apply(settings: GraphicsSettings) -> void:
 	# Low sun-lit haze that thickens with distance, and light shafts near
 	# the camera. Costly, so only at the top quality.
 	environment.volumetric_fog_enabled = fwd and photo and q >= GraphicsSettings.Quality.ULTRA
-	environment.volumetric_fog_density = 0.0012
+	# A clear day's air: at 0.0012 (about 3 km visibility) the sunlit
+	# haze laid a milky veil over everything past the tee.
+	environment.volumetric_fog_density = 0.0004
 	environment.volumetric_fog_albedo = Color(0.9, 0.93, 1.0)
 	environment.volumetric_fog_anisotropy = 0.6
 	environment.volumetric_fog_length = 160.0
@@ -311,6 +316,7 @@ func _pick_sky() -> void:
 			# little brighter than Forward+'s, but no longer pale and milky.
 			sky_mat.set_shader_parameter("energy", 0.8 if GraphicsSettings.is_forward_plus() else COMPAT_SKY_ENERGY)
 			sky_mat.set_shader_parameter("sky_depth", 1.4 if GraphicsSettings.is_forward_plus() else COMPAT_SKY_DEPTH)
+			sky_mat.set_shader_parameter("cloud_lift", FORWARD_CLOUD_LIFT if GraphicsSettings.is_forward_plus() else 0.0)
 			sky_mat.set_shader_parameter("tint", _time.sky)
 			sky_mat.set_shader_parameter("horizon_tint", _time.horizon)
 			sky_mat.set_shader_parameter("glow", _time.glow)
