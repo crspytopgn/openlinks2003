@@ -47,6 +47,26 @@ def bake(glb, rig, name, take, start, end, ref="address"):
     golfer_hip = ref_poss[rig.index["pelvis"]][1] - ref_poss[rig.index["foot_l"]][1]
     actor_hip = m_poss0[t.index["Hips"]][1] - m_poss0[t.index["LeftFoot"]][1]
     scale = golfer_hip / actor_hip
+    # The club: Mixamo's actor swung without one. It is set once in the lead
+    # hand so that at the first frame the shaft runs from the hands down to
+    # the turf straight out in front, and the whole take is slid so the club
+    # head sits on the ball; from then on it simply moves with the hand.
+    club_dir = M.club_direction(glb, rig)
+    cj, hl = rig.index["club"], rig.index["hand_l"]
+    ball = np.array(M.IMPACT_AT)
+    length = float(np.linalg.norm(ball - ref_poss[cj]))
+    first = list(ref_rots)
+    for ours, theirs in M.BONES.items():
+        first[rig.index[ours]] = aligned[rig.index[ours]]
+    first = M.fill(rig, first, ref_local)
+    _, p0 = rig.world(rig.locals(first), ref_root)
+    grip = p0[cj]
+    drop = min(grip[1] - ball[1], length * 0.95)
+    head = np.array([grip[0], ball[1], grip[2] - np.sqrt(length * length - drop * drop)])
+    want = pose.unit(head - grip)
+    club_w = M.between(first[cj] @ club_dir, want) @ first[cj]
+    club_local = first[hl].T @ club_w
+    slide = np.array([ball[0] - head[0], 0.0, ball[2] - head[2]])
     out, roots = [], []
     for f in range(start, end + 1):
         m_rots, m_poss = t.frame(f)
@@ -55,7 +75,8 @@ def bake(glb, rig, name, take, start, end, ref="address"):
             k = t.index[theirs]
             rots[rig.index[ours]] = g @ m_rots[k] @ m_rots0[k].T @ g.T @ aligned[rig.index[ours]]
         rots = M.fill(rig, rots, ref_local)
-        root = ref_root + scale * (g @ (m_poss[t.index["Hips"]] - m_poss0[t.index["Hips"]]))
+        rots[cj] = rots[hl] @ club_local
+        root = ref_root + slide + scale * (g @ (m_poss[t.index["Hips"]] - m_poss0[t.index["Hips"]]))
         out.append(rig.locals(rots))
         roots.append(root)
     times = [i / mixamo_take.FPS for i in range(len(out))]
