@@ -397,11 +397,11 @@ BEND_LEVER = 0.8  # metres: club head drop per radian of bending over the ball
 TRAIL_KNEE = 18.0  # degrees: the least the trail knee bends in a full swing
 
 
-def too_long(hip, ankle, lengths):
+def too_long(hip, ankle, lengths, knee=TRAIL_KNEE):
     """How far `ankle` is beyond the leg's reach with the knee bent
-    TRAIL_KNEE degrees."""
+    `knee` degrees."""
     l1, l2 = lengths
-    d = math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * math.cos(math.radians(TRAIL_KNEE)))
+    d = math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * math.cos(math.radians(knee)))
     return max(0.0, float(np.linalg.norm(hip - ankle)) - d)
 
 
@@ -415,6 +415,51 @@ def reach_drop(hip, ankle, lengths):
     if np.linalg.norm(v) <= d or h >= d:
         return 0.0
     return v[1] - math.sqrt(d * d - h * h)
+
+
+# The trail foot through the finish, as tour players finish: up on the toe
+# with the sole facing away from the target, the laces turned to face it and
+# the trail knee driving through beside the lead knee (the actor kept his
+# trail leg nearly straight, stretched back, the foot still flat-ish).
+FINISH_FRAMES = (6, 70)  # mocap frames after impact: the foot starts up, it is fully up
+FINISH_YAW = 70.0  # degrees the toe turns from the ball towards the target
+FINISH_PITCH = 64.0  # degrees the foot stands up on its toe (90 is vertical)
+FINISH_TOE_IN = 0.12  # metres the toe slides in towards the lead foot
+FINISH_KNEE = 42.0  # degrees: the least the trail knee bends at the finish
+FINISH_TOE_UP = 0.015  # metres the ball of the foot rises as the toes bend
+
+
+def finish_weight(f, impact):
+    a, b = FINISH_FRAMES
+    u = min(1.0, max(0.0, (f - impact - a) / (b - a)))
+    return u * u * (3 - 2 * u)
+
+
+def finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u):
+    """Blends the trail ankle target and foot turn towards the finish (u 0
+    to 1): the foot turns on the ball of the foot, which stays near where it
+    was at address."""
+    i_foot, i_ball = rig.index["foot_r"], rig.index["ball_r"]
+    to_ball = rest[i_ball] - rest[i_foot]
+    up = np.array([0.0, 1.0, 0.0])
+    # Turn the toe towards the target about the vertical, then stand the
+    # foot up about the horizontal line across it.
+    yaw = pose.rot(up, FINISH_YAW)
+    toe = yaw @ (ref_rots[i_foot] @ to_ball)
+    across = pose.unit(np.cross(np.array([toe[0], 0.0, toe[2]]), up))
+    fin = pose.rot(across, -FINISH_PITCH) @ yaw @ ref_rots[i_foot]
+    if (fin @ to_ball)[1] > 0.0:  # stood the wrong way: toe up
+        fin = pose.rot(across, FINISH_PITCH) @ yaw @ ref_rots[i_foot]
+    ball = ref_poss[i_ball] + np.array([-FINISH_TOE_IN, FINISH_TOE_UP, 0.0])
+    fin_tgt = ball - fin @ to_ball
+    return (1.0 - u) * tgt + u * fin_tgt, pose.slerp(foot, fin, u)
+
+
+def finish_trail_toe(rig, ref_rots, toe, u):
+    """The trail toes laid back towards flat on the ground (turned with the
+    foot) as the heel comes up; toe_limit caps the crease."""
+    flat = pose.rot([0.0, 1.0, 0.0], FINISH_YAW) @ ref_rots[rig.index["ball_r"]]
+    return pose.slerp(toe, flat, u)
 
 
 def impact_weight(f, impact):
@@ -541,10 +586,14 @@ def retarget(glb, rig, clip, cache):
                         root = root - np.array([0.0, drop, 0.0])
                         _, poss = rig.world(rig.locals(rots), root)
                 else:
+                    u = finish_weight(f, clip["impact"])
+                    knee = TRAIL_KNEE + u * (FINISH_KNEE - TRAIL_KNEE)
+                    if u > 0.0:
+                        tgt, foot = finish_trail_foot(rig, rest, ref_poss, ref_rots, tgt, foot, u)
                     ball = tgt + foot @ (rest[rig.index["ball_r"]] - rest[rig.index["foot_r"]])
                     side = pose.unit(np.cross(ball - tgt, [0.0, 1.0, 0.0]))
                     for _ in range(12):
-                        if too_long(hip, tgt, legs["r"]) <= 1e-4:
+                        if too_long(hip, tgt, legs["r"], knee) <= 1e-4:
                             break
                         lift = pose.rot(side, 4.0)
                         if (ball + lift @ (tgt - ball))[1] < tgt[1]:
@@ -552,7 +601,7 @@ def retarget(glb, rig, clip, cache):
                         tgt, foot = ball + lift @ (tgt - ball), lift @ foot
                     # Still out of reach: the toe drags round towards the hips.
                     for _ in range(6):
-                        excess = too_long(hip, tgt, legs["r"])
+                        excess = too_long(hip, tgt, legs["r"], knee)
                         if excess <= 1e-4:
                             break
                         pull = np.array([hip[0] - tgt[0], 0.0, hip[2] - tgt[2]])
@@ -560,7 +609,17 @@ def retarget(glb, rig, clip, cache):
                     targets["r"] = [tgt, foot]
             for s in "lr":
                 target, foot = targets[s]
-                two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", target)
+                if s == "r" and not clip["putt"] and "impact" in clip and f > clip["impact"]:
+                    # Through the finish the trail knee drives at the target,
+                    # not out to the side as the actor's bend plane has it.
+                    u = finish_weight(f, clip["impact"])
+                    a, b = poss[rig.index["thigh_r"]], poss[rig.index["calf_r"]]
+                    own = pose.unit(b - a - pose.unit(target - a) * np.dot(b - a, pose.unit(target - a)))
+                    pole = pose.unit((1.0 - u) * own + u * pose.unit(np.array([-1.0, 0.0, -0.35])))
+                    reach_pole(rig, rots, poss, "thigh_r", "calf_r", "foot_r", target, pole)
+                    rots[rig.index["ball_r"]] = finish_trail_toe(rig, ref_rots, rots[rig.index["ball_r"]], u)
+                else:
+                    two_bone(rig, rots, poss, f"thigh_{s}", f"calf_{s}", f"foot_{s}", target)
                 rots[rig.index[f"foot_{s}"]] = foot
             rots = fill(rig, rots, ref_local, keep=True)
             rots, poss = rig.world(rig.locals(rots), root)
@@ -891,8 +950,15 @@ for _s, _a in (("l", "Left"), ("r", "Right")):
 # options. walk is played in place (the game moves the golfer) with the
 # club carried; loop eases the end into the start.
 STAND_CLIPS = {
-    "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25),
-    "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
+    "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25,
+                 carry_head=0.42),  # CARRY_WALK_HEIGHT
+    # An eagle: both arms up to the crowd, club raised, and back down. The
+    # actor went on to lean far back with a hand on his hip and swing an arm
+    # across his chest, which read as theatre, not golf, so only his arms-up
+    # part is kept (frames lists the mocap frames played).
+    "celebrate": dict(take="79_69", start=80, end=175, facing=(-0.7, 0.0, -0.7), carry=True,
+                      frames=(list(range(80, 176)) + list(range(175, 150, -1)) + list(range(150, 176))
+                              + list(range(175, 79, -1)))),
     "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
     # A birdie: the actor's happy bounce at the knees, with the right fist
     # pumped twice in front of the chest (PUMP_KEYS) and the club held low.
@@ -953,6 +1019,10 @@ READ_SOLE_REACH = 0.795  # club joint to the putter's sole along the shaft
 READ_SWAY = 0.3
 READ_ACTOR_LEAN = 72.0  # the actor's mean lean while down, degrees
 CARRY_HEAD_HEIGHT = 0.15  # the club head's height when carried, metres
+# Walking, tour players hold the club clear of the turf, the shaft nearly
+# level out in front of them, rather than letting the head trail low as a
+# walking stick (which read as dragging it along the ground).
+CARRY_WALK_HEIGHT = 0.42  # the walk clip's carry_head
 CARRY_REACH = 1.16  # left hand joint to the driver's sole (the rebuilt clubs, PR #164)
 
 
@@ -1354,7 +1424,7 @@ def retarget_stand(glb, rig, clip, cache):
     bvh = load_take(clip["take"], cache)
     fps = MOCAP_FPS
     start, end = clip["start"], clip["end"]
-    frames = list(range(start, end + 1))
+    frames = clip.get("frames") or list(range(start, end + 1))
     m_rots0, m_poss0 = bvh.frame(0)  # the T pose
     up = np.array([0.0, 1.0, 0.0])
     if clip.get("in_place"):
@@ -1501,7 +1571,7 @@ def retarget_stand(glb, rig, clip, cache):
             # when the hand is raised above the shoulder.
             rots, poss = rig.world(rig.locals(rots), root)
             h = rig.index["hand_l"]
-            drop = float(np.clip((poss[h][1] - CARRY_HEAD_HEIGHT) / CARRY_REACH, 0.3, 0.95))
+            drop = float(np.clip((poss[h][1] - clip.get("carry_head", CARRY_HEAD_HEIGHT)) / CARRY_REACH, 0.3, 0.95))
             low = facing * math.sqrt(1 - drop * drop) - up * drop
             raised = (poss[h][1] - poss[rig.index["upperarm_l"]][1] + 0.1) / 0.3
             w = float(np.clip(raised, 0, 1))
