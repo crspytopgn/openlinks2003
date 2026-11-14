@@ -522,7 +522,7 @@ def retarget(glb, rig, clip, cache):
     actor_hip = m_poss0[bvh.index["Hips"]][1] - m_poss0[bvh.index["LeftFoot"]][1]
     scale = golfer_hip / actor_hip
     hands_l = rig.index["hand_l"]
-    aim = clip["take"].startswith("ft:")
+    aim = clip["take"].startswith(("ft:", "mx:"))
     club_dir = club_direction(glb, rig)
     club_j = rig.index["club"]
     shaft0 = ref_rots[club_j] @ club_dir  # the club turns in the hand (grip.py)
