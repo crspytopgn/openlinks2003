@@ -40,8 +40,8 @@ import pose
 # Per address: (club, trunk lean hips to neck, unused, hands out past the
 # shoulders (m), knee flex). Degrees unless noted.
 TARGETS = {
-    "ref_address": ("Driver", 37.0, 0.0, 0.08, 24.0),
-    "ref_address_iron": ("Iron", 41.0, 0.0, 0.06, 26.0),
+    "ref_address": ("Driver", 37.0, 0.0, 0.08, 30.0),
+    "ref_address_iron": ("Iron", 40.0, 0.0, 0.06, 31.0),
 }
 # The spine's bones and how far each leans from the trunk's line: the low
 # back a little more upright (its natural curve), the chest on the line.
@@ -54,12 +54,14 @@ ELBOW_WEIGHT = 2.0
 FLAT_MAX = 8.0  # degrees the club (and hands) may be laid flatter about the sole
 FLAT_COST = 0.02
 DF_MAX = 0.10  # metres the feet may move back from the ball (a longer reach needs room)
-HIPS_BEHIND = 0.14  # metres the hip joints sit behind the ankles
+HIPS_BEHIND = 0.07  # metres the hip joints sit behind the ankles (filmed address: the seat out, knees over the laces)
+SHIN_FWD = 10.0  # degrees the shins lean in towards the ball, knees over the laces
+SHIN_WEIGHT = 2.0
 HANDS_GAP = 0.12  # metres from the front of the thighs to the hands, at least
 THIGH_HALF = 0.075  # the thigh's half depth in front of its bone line
 SIDE_BEND = -8.0  # the spine tilted away from the target (trail shoulder low)
-NECK_FLEX = 12.0  # the neck's own bend past the spine before the eyes are aimed
-NECK_SHARE = 0.35  # of the eyes' turn to the ball taken by the neck, the rest by the head
+NECK_FLEX = 0.0  # the neck stays in line with the spine (no "pecking" head); the eyes are aimed by the head
+NECK_SHARE = 0.1  # of the eyes' turn to the ball taken by the neck, the rest by the head nodding
 EYE = np.array([0.0, 0.09, -0.1])  # eyes from the head joint, rest frame
 
 
@@ -221,6 +223,7 @@ def solve(glb, rig, ref):
         ankles_z = (P[i["foot_l"]][2] + P[i["foot_r"]][2]) / 2
         out += ((P[pel][2] - ankles_z - HIPS_BEHIND) * 100) ** 2 * 0.5
         for s in "lr":
+            out += (_lean(P, i, f"foot_{s}", f"calf_{s}") - SHIN_FWD) ** 2 * SHIN_WEIGHT
             a = anatomy.arm_angles(rig, s, R[i[f"upperarm_{s}"]], R[i[f"lowerarm_{s}"]], R[i[f"hand_{s}"]])
             out += (a["elbow_flex"] - (LEAD_ELBOW if s == "l" else TRAIL_ELBOW)) ** 2 * ELBOW_WEIGHT
             out += (np.linalg.norm(P[i[f"hand_{s}"]] - hx[s][1]) * 1000) ** 2
