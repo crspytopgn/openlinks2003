@@ -23,6 +23,8 @@ const CLOUD_SHADOW := 0.32  ## how much light a passing cloud's shadow takes
 const AIM_RATE_DEG := 25.0  ## per second, holding left or right
 const PUTT_AIM_RATE_DEG := 6.0
 const RESULT_PAUSE := 2.5
+## Seconds into the flight the swing meter stays up to show the swing.
+const METER_LINGER_S := 1.5
 ## A putt missed from inside this many metres (8 ft) gets a slump.
 const SLUMP_PUTT := 2.5
 const COMPUTER_HOLE_PAUSE := 4.0  ## between holes when nobody is at the keyboard
@@ -269,6 +271,9 @@ var _voice_flight_at := INF
 var _voice_landing := ""
 var post: PostProcess
 var caddie: Caddie  ## Settings > Caddie; null when off
+## The caddie's read when the caddie figure is off (CaddieAdvice), and its card.
+var _advice: CaddieAdvice
+var advice_note: CaddieNote
 var buggy: GolfBuggy  ## Settings > Golf buggy; null when off
 var stand_bag: StandBag  ## the player's bag, standing behind the golfer
 var _bag_for := Vector3.INF  ## the ball the bag was set down for
@@ -841,8 +846,7 @@ func _store_turn() -> void:
 ## measured; power and accuracy then only drive the animation.
 func play_shot(power: float, accuracy: float, monitor: OpenConnect.Launch = null) -> void:
 	var club := clubs[club_index]
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	players[current].shots += 1
 	if golfer:
 		golfer.set_shot(club, _flat_distance(ball_at, hole.pin), power)
@@ -988,7 +992,11 @@ func _process(delta: float) -> void:
 	var paused := pause_menu.visible or settings_panel.visible
 	hud.meter.set_process(not paused)
 	# The meter would sit on top of the drop options and means nothing there.
-	hud.meter.visible = state != State.DROP and state != State.DRIVE
+	# Nor during the shot once the ball is away, or over the result: it sat
+	# in the corner of every broadcast camera saying "click to swing".
+	var shot_over := state == State.SHOT_RESULT or state == State.HOLE_DONE or state == State.ROUND_DONE \
+		or (state == State.FLIGHT and shot_time > METER_LINGER_S)
+	hud.meter.visible = state != State.DROP and state != State.DRIVE and not (shot_over and practice == null and not round_setup.practice)
 	hud.swing_button.visible = hud.touch_pad.visible and state == State.AIM and not _replaying \
 		and not hud.hand_over.visible and not paused and shooter < opponents.size() and opponents[shooter] == null and not _is_remote()
 	hud.swing_button.armed = Time.get_ticks_msec() >= _aim_ready_ms and not camera.flying()
@@ -1029,6 +1037,8 @@ func _process(delta: float) -> void:
 			start_replay()
 	if state != State.DRIVE:
 		camera.update(delta, _replay_time if _replaying else shot_time, _ball_base)
+	_update_reticle(paused)
+	_step_advice()
 	grass.update_around(camera.global_position)
 	fescue.update_around(camera.global_position)
 	_update_ball_size()
@@ -1172,6 +1182,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		swing_pressed = swing_pressed or (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT)
 	if swing_pressed:
 		get_viewport().set_input_as_handled()
+		# A press meant to skip the shot result or the walk can land just
+		# as the next shot is set up, and the meter can't be stopped once it
+		# runs: a stroke thrown away. The swing waits a moment after the aim.
+		if state == State.AIM and Time.get_ticks_msec() < _aim_ready_ms:
+			return
 		_on_swing_pressed()
 
 
@@ -1259,7 +1274,7 @@ func _mouse_swing_input(event: InputEvent) -> bool:
 			if not mb.pressed and _swing_input == SwingInput.MOUSE:
 				ms.release()
 			return true
-		if mb.pressed and graphics.swing_method == 1 and _can_start_swing():
+		if mb.pressed and graphics.swing_method == 1 and _can_start_swing() and Time.get_ticks_msec() >= _aim_ready_ms:
 			_begin_mouse_swing(SwingInput.MOUSE)
 			return true
 	elif event is InputEventMouseMotion and ms.is_swinging():
@@ -1633,8 +1648,7 @@ func _on_mouse_stroke_cancelled() -> void:
 
 
 func _on_backswing_started() -> void:
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	if golfer and not clubs[club_index].is_putter:
 		golfer.play(&"backswing")
 
@@ -1973,6 +1987,13 @@ func _prepare_shot(snap_camera: bool) -> void:
 ## The caddie (if on) reads the player's shot; computer golfers go without.
 func _caddie_read() -> void:
 	if caddie == null:
+		# Without the caddie at the bag, the read still shows in the TV
+		# presentations (Classic Links stays as the original): the club and
+		# the power to swing at, worked out through the round's physics.
+		_quiet_advice()
+		if (broadcast or tour) and opponents[shooter] == null and state == State.AIM and practice == null:
+			_advice = CaddieAdvice.new()
+			_advice.start(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill)
 		return
 	if opponents[shooter] != null or state != State.AIM:
 		caddie.step_aside()
@@ -1980,10 +2001,29 @@ func _caddie_read() -> void:
 	caddie.advise(shot_model, clubs, hole, ball_at, lie, wind.velocity(), graphics.skill, _aim_dir())
 
 
+## The swing has started, or the shot isn't the player's: the read goes.
+func _quiet_advice() -> void:
+	if caddie != null:
+		caddie.quiet()
+	_advice = null
+	if advice_note != null:
+		advice_note.clear()
+
+
+## Works on the read (without the caddie figure) a little each frame, so
+## the web build never stalls, and shows it once it is ready.
+func _step_advice() -> void:
+	if _advice == null or advice_note == null or not advice_note.text_empty():
+		return
+	if _advice.step(Caddie.PLAN_BUDGET_MS):
+		advice_note.say(_advice.text)
+
+
 ## Settings > Caddie switched on or off.
 func _set_caddie(on: bool) -> void:
 	if on == (caddie != null):
 		return
+	_quiet_advice()
 	if not on:
 		caddie.note.queue_free()
 		caddie.queue_free()
@@ -2176,14 +2216,16 @@ func _complete_flight() -> void:
 		_:
 			ball_at = shot.rest
 			var s := hole.terrain.surface_at(ball_at.x, ball_at.z)
+			# Broadcast has its shot card for this; a second line under it
+			# said the same again.
 			if broadcast:
 				msg = ""
 			elif clubs[club_index].is_putter:
 				msg = "%d ft to go" % roundi(_flat_distance(ball_at, hole.pin) * FEET_PER_METRE)
-			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
-				golfer.play(&"slump")
 			else:
 				msg = "%s    Carry %d yd    Total %d yd" % [Surface.name_of(s), roundi(shot.carry_m * YARDS_PER_METRE), roundi(shot.total_m * YARDS_PER_METRE)]
+			if golfer and clubs[club_index].is_putter and _shot_from_pin < SLUMP_PUTT:
+				golfer.play(&"slump")
 	if _gimme_now():
 		_concede_putt()
 		return
@@ -2356,6 +2398,7 @@ func _start_drive(next: int) -> bool:
 		if c != null and c.visible:
 			c.visible = false
 			_drive_hidden.append(c)
+	_quiet_advice()
 	if caddie != null:
 		caddie.step_aside()
 	aim_marker.position = Vector3(to.x, hole.terrain.height_at(to.x, to.z) + AIM_LIFT, to.z)
@@ -2730,8 +2773,7 @@ func _start_drop(reason: int) -> void:
 
 
 func _begin_drop(reason: int) -> void:
-	if caddie != null:
-		caddie.quiet()
+	_quiet_advice()
 	var reference := _water_entry if reason == DropRules.Reason.WATER else ball_at
 	var in_sand := reason == DropRules.Reason.UNPLAYABLE and lie == Surface.Type.SAND
 	_drop_reason = reason
@@ -3095,18 +3137,6 @@ func lie_text(l: int) -> String:
 	return "%s %d%%" % [Surface.name_of(l), roundi(p * 100.0)]
 
 
-## How hard to swing to reach the pin with this club from this lie, as a
-## share of a full swing (the club's distance above already counts the lie).
-func _power_hint() -> String:
-	var reach := _club_reach()
-	if reach <= 1.0 or _chip:
-		return ""
-	var need := _flat_distance(ball_at, hole.pin) / reach
-	if need > 1.05:
-		return "  pin: more club"
-	return "  pin: about %d%%" % roundi(minf(need, 1.0) * 100.0)
-
-
 func _club_reach() -> float:
 	var club := clubs[club_index]
 	if club.is_putter:
@@ -3329,6 +3359,9 @@ func _apply_graphics() -> void:
 	if hole != null and state == State.AIM:
 		_update_green_grid()
 		_update_green_aids()
+	if advice_note == null:
+		advice_note = CaddieNote.new()
+		hud.add_child(advice_note)
 	_set_caddie(graphics.caddie)
 	_set_buggy(graphics.buggy)
 	_set_stand_bag()
@@ -3772,6 +3805,26 @@ func _update_aim_marker() -> void:
 	_update_breakline()
 
 
+## The aim point over the picture (AimReticle) while a person lines up a
+## full shot: the ring on the grass is lost behind crests and in the haze.
+func _update_reticle(paused: bool) -> void:
+	var r := hud.aim_reticle
+	var show := (state == State.AIM or (state == State.SWING and not hud.meter.is_swinging() and not hud.mouse_swing.is_swinging())) \
+		and not paused and not _replaying and not camera.flying() and not hud.hand_over.visible \
+		and aim_marker != null and aim_marker.visible and _human_turn() and not clubs[club_index].is_putter \
+		and not _chip and read_view == GreenRead.View.PLAY
+	var at := aim_marker.global_position if aim_marker != null else Vector3.ZERO
+	if not show or camera.is_position_behind(at):
+		r.hide_reticle()
+		return
+	var p := camera.unproject_position(at)
+	if not get_viewport().get_visible_rect().grow(-8.0).has_point(p):
+		r.hide_reticle()
+		return
+	var blind := not RoundCamera.sight_clear(hole.terrain, camera.global_position, at + Vector3.UP * 0.3)
+	r.show_at(p, AimReticle.label_for(roundi(_flat_distance(ball_at, at) * YARDS_PER_METRE), blind), blind)
+
+
 func _update_hud() -> void:
 	var club := clubs[club_index]
 	var to_pin := _flat_distance(ball_at, hole.pin)
@@ -3782,7 +3835,7 @@ func _update_hud() -> void:
 	if _chip and not club.is_putter:
 		club_text += " chip"
 	elif not club.is_putter:
-		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
+		club_text += " (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 	if not club.is_putter and not shape.is_square():
 		club_text += "  " + shape.describe()
 	var thru := card.holes_played()
@@ -3896,7 +3949,7 @@ func _status(aiming: bool) -> Dictionary:
 	var thru := card.holes_played()
 	var club_text := club.full_name
 	if not club.is_putter:
-		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE) + _power_hint()
+		club_text += "  (%d yd)" % roundi(_club_reach() * YARDS_PER_METRE)
 		if not shape.is_square():
 			club_text += "  " + shape.describe()
 	var rise := (hole.pin.y - ball_at.y) * FEET_PER_METRE
@@ -3907,7 +3960,8 @@ func _status(aiming: bool) -> Dictionary:
 		# Once holed (or picked up), the strokes taken, not the next one: the
 		# score bug said "SHOT 5" over a 4.
 		"thru": thru, "stroke": strokes if players[current].done() else strokes + 1, "club": club_text, "to_pin": _pin_text(),
-		"lie": lie_text(lie), "wind": wind.describe(aim_deg), "elevation": elev,
+		"lie": lie_text(lie), "lie_type": lie, "lie_power": 1.0 if club.is_putter else shot_model.lie_power(lie),
+		"wind": wind.describe(aim_deg), "elevation": elev,
 		"ticker": _ticker_text(), "aiming": aiming,
 	}
 

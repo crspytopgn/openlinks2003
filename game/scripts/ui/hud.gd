@@ -30,6 +30,8 @@ var _bars: Array[InfoBar] = []
 var shot_panel: ShotPanel
 var windows: ShotWindows
 var overlay: BroadcastOverlay
+## The aim point and carry drawn over the picture (main._update_reticle).
+var aim_reticle: AimReticle
 var tour: TourGraphics
 var broadcast := false
 
@@ -96,6 +98,9 @@ func _ready() -> void:
 	tour.visible = false
 	add_child(tour)
 	move_child(tour, 1)
+	aim_reticle = AimReticle.new()
+	add_child(aim_reticle)
+	move_child(aim_reticle, 0)
 
 	# Under the scorecard, so Tab still shows the card while it is up.
 	hand_over = HandOverPanel.new()

@@ -2,6 +2,9 @@
 
 Two optional extras that Links 2003 doesn't have. Both are off by default,
 so a round plays exactly as the original unless the player turns them on.
+The caddie's read card is the exception: in the Broadcast and Tour
+presentations it shows at every one of the players' shots even with the
+caddie figure off (Classic Links shows it only with Settings > Caddie).
 
 ## Caddie
 
@@ -9,9 +12,18 @@ Settings > Caddie. At each of the players' shots (never a computer
 golfer's) a caddie stands off to the side with the bag, and a card above the
 controls line gives their read:
 
-> 153 to the pin, playing 160 uphill. 7 Iron. Start it 5 yards left for the wind.
+> 153 to the pin, playing 160 uphill. 7 Iron, full swing. Start it 5 yards left for the wind.
 
-> 13 feet, uphill. Breaks left to right, start it 6" left of the hole. Be firm with it.
+> 52 to the pin. Lob Wedge, about 62% power. Straight at the flag.
+
+> 13 feet, uphill. Breaks left to right, start it 6" left of the hole. Be firm with it. Hit it about 35% power.
+
+> 138 to the pin, playing 149 into the wind. Out of the sand you lose about 25%, so a full 6 iron goes 151. 6 Iron, full swing.
+
+The power is the planned swing as the meter's percentage reads it, and
+every skill level hears it. From a lie that costs distance the caddie says
+how much (the shot model's lie power, which the flight uses) and how far
+the club's full swing goes from there.
 
 The read comes from the tour-level computer golfer's plan (`ComputerGolfer`),
 run through the round's own physics, wind and course, so it agrees with how
@@ -26,7 +38,7 @@ doesn't make the hard levels easy:
 | --- | --- |
 | Levels 1 and 2 | Yardage, plays-like, club and how hard, the line in yards; the putt's break to the inch and the pace |
 | Level 3 | The same, but only which side to favour, and the break in words ("a touch", "a fair bit", "a lot") |
-| Level 4 (Links 2003's hardest) | Yardage, plays-like and club; on the green the slope and which way it breaks |
+| Level 4 (Links 2003's hardest) | Yardage, plays-like, what the lie takes off, club and power; on the green the slope, which way it breaks and the power |
 
 Planning is spread over frames (3 ms a frame), so the browser build doesn't
 stall. The figure is the free MakeHuman golfer (CC0) in a standing pose with
