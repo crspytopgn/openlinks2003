@@ -21,6 +21,10 @@ const VIEWS := {
 	"back": [Vector3(3.0, 0.4, 2.0), "pelvis", 30.0],
 	"behind": [Vector3(0.0, 0.3, 3.6), "pelvis", 30.0],
 	"dtl": [Vector3(3.6, 0.15, -0.4), "pelvis", 30.0],
+	## Where the photo golfer's footage was filmed from (footage_take.py).
+	"footage": [Vector3(3.43, 0.2, -1.1), "pelvis", 30.0],
+	"legs_front": [Vector3(0.0, 0.3, -2.0), "@calf_r", 30.0],
+	"legs_trail": [Vector3(2.0, 0.3, 0.0), "@calf_r", 30.0],
 	"hands_front": [Vector3(0.1, 0.1, -1.1), "hands", 30.0],
 	"hands_side": [Vector3(-1.1, 0.15, -0.2), "hands", 30.0],
 	"hands_top": [Vector3(0.15, 1.0, -0.35), "hands", 32.0],
