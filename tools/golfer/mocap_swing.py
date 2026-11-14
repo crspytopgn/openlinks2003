@@ -952,7 +952,13 @@ for _s, _a in (("l", "Left"), ("r", "Right")):
 STAND_CLIPS = {
     "walk": dict(take="69_01", start=205, end=355, facing=(0.0, 0.0, -1.0), in_place=True, carry=True, loop=0.25,
                  carry_head=0.42),  # CARRY_WALK_HEIGHT
-    "celebrate": dict(take="79_69", start=40, end=330, facing=(-0.7, 0.0, -0.7), carry=True),  # arms up
+    # An eagle: both arms up to the crowd, club raised, and back down. The
+    # actor went on to lean far back with a hand on his hip and swing an arm
+    # across his chest, which read as theatre, not golf, so only his arms-up
+    # part is kept (frames lists the mocap frames played).
+    "celebrate": dict(take="79_69", start=80, end=175, facing=(-0.7, 0.0, -0.7), carry=True,
+                      frames=(list(range(80, 176)) + list(range(175, 150, -1)) + list(range(150, 176))
+                              + list(range(175, 79, -1)))),
     "upset": dict(take="79_74", start=450, end=760, facing=(-0.7, 0.0, -0.7), carry=True),  # hands on head
     # A birdie: the actor's happy bounce at the knees, with the right fist
     # pumped twice in front of the chest (PUMP_KEYS) and the club held low.
@@ -1418,7 +1424,7 @@ def retarget_stand(glb, rig, clip, cache):
     bvh = load_take(clip["take"], cache)
     fps = MOCAP_FPS
     start, end = clip["start"], clip["end"]
-    frames = list(range(start, end + 1))
+    frames = clip.get("frames") or list(range(start, end + 1))
     m_rots0, m_poss0 = bvh.frame(0)  # the T pose
     up = np.array([0.0, 1.0, 0.0])
     if clip.get("in_place"):
