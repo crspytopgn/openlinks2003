@@ -16,6 +16,12 @@ uniform vec3 horizon_tint : source_color = vec3(1.0);
 // Forward+ raises it: its tone map and haze leave the photo's blue pale
 // and milky (Lab b -14 against -26 in reference tee shots).
 uniform float sky_depth = 1.0;
+// Extra light on the photo's clouds (0 = none, 1 = twice as bright at
+// their brightest), for Forward+: under its AgX curve the photo's clouds
+// (about 4x the blue's light) topped out a dull grey (sRGB ~210), where
+// real sunlit cumulus and 2K25's are near white. The blue between them
+// and the sky light the course gets (the radiance pass) stay as they were.
+uniform float cloud_lift = 0.0;
 // The photo's own sun moved to where the game's sun is (Scenery reads it
 // from the photo: FreeAssets.sky_sun). The panorama turns so the two
 // bearings agree, and the sky between the horizon and the zenith is
@@ -56,6 +62,10 @@ void sky() {
 		c = mix(min(c, vec3(4.0)), c, dim_photo_sun);
 	}
 	c *= energy;
+	if (cloud_lift > 0.0 && !AT_CUBEMAP_PASS) {
+		float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+		c *= 1.0 + cloud_lift * smoothstep(0.3, 1.2, l);
+	}
 	float low = 1.0 - smoothstep(0.0, 0.35, abs(EYEDIR.y));
 	c *= mix(tint, tint * horizon_tint, low);
 	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
