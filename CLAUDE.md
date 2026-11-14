@@ -45,6 +45,10 @@ and don't start a "(needs data)" item on guesses.
   `[launcher]`, see `apply_launcher_requests`). Its tests are
   `launcher/tests/run_tests.gd`, run by the CI `export` job.
 
+- `unity/` is the Unity 6 trial (unity/README.md). It calls `libs/olcore`
+  through `unity/Native/olcore_unity.cpp` instead of porting it, so there is
+  nothing to keep in step; its CI workflow is `unity-trial.yml`.
+
 ## Checks before pushing
 
 ```bash
